@@ -1,4 +1,5 @@
 import { Zip, ZipPassThrough } from "fflate";
+import { splitIntoParts } from "@shared/zip-parts";
 
 export interface ZipEntry {
   name: string;
@@ -73,56 +74,86 @@ export async function convertImage(
   }
 }
 
-const MAX_ARCHIVE = 512 * 1024 * 1024;
+/** Largest ZIP part the export produces; a bigger export is split into part1, part2, … */
+export const PART_MAX = 1_400_000_000;
+
+/** One file prepared for the archive: its bytes, after any conversion. */
+async function prepare(entry: ZipEntry): Promise<Uint8Array> {
+  const r = await fetch(entry.url, { credentials: "same-origin" });
+  if (!r.ok) throw new Error(`Could not download ${entry.name}. Retry export.`);
+  const blob = await r.blob();
+  if (entry.convert) {
+    const converted = entry.convert.fit
+      ? await fitImage(blob, entry.convert.format, entry.convert.quality)
+      : await convertImage(blob, entry.convert.format, entry.convert.quality);
+    return new Uint8Array(await converted.arrayBuffer());
+  }
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/** An uncompressed ZIP assembled in memory from prepared files (images are already compressed). */
+class ZipPart {
+  private chunks: Uint8Array[] = [];
+  private zip: Zip;
+  private done: Promise<void>;
+  bytes = 0;
+  files = 0;
+  constructor() {
+    let finish!: () => void;
+    let fail!: (e: Error) => void;
+    this.done = new Promise<void>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    this.done.catch(() => {});
+    this.zip = new Zip((err, data, final) => {
+      if (err) return fail(err);
+      this.chunks.push(data);
+      this.bytes += data.length;
+      if (final) finish();
+    });
+  }
+  add(name: string, data: Uint8Array) {
+    const item = new ZipPassThrough(name);
+    this.zip.add(item);
+    item.push(data, true);
+    this.files++;
+  }
+  async close(): Promise<Blob> {
+    this.zip.end();
+    await this.done;
+    return new Blob(this.chunks as BlobPart[], { type: "application/zip" });
+  }
+}
 
 /**
- * Streams each file into an uncompressed ZIP (images are already compressed).
- * The archive is assembled in memory, so exports are capped at 512 MB; split large batches by selection.
+ * Builds the export as one or more ZIP files, each at most `partMax` bytes, split at product
+ * folders (see shared/zip-parts.ts). Files are fetched and converted first, then packed.
  */
-export async function buildZip(entries: ZipEntry[]): Promise<Blob> {
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let finish!: () => void;
-  let fail!: (e: Error) => void;
-  const done = new Promise<void>((resolve, reject) => {
-    finish = resolve;
-    fail = reject;
-  });
-  done.catch(() => {});
-  const zip = new Zip((err, data, final) => {
-    if (err) return fail(err);
-    total += data.length;
-    if (total > MAX_ARCHIVE) {
-      zip.terminate();
-      return fail(new Error("Export exceeds 512 MB. Select fewer results and export in parts."));
-    }
-    chunks.push(data);
-    if (final) finish();
-  });
-
-  for (const entry of entries) {
-    const r = await fetch(entry.url, { credentials: "same-origin" });
-    if (!r.ok || !r.body) throw new Error(`Could not download ${entry.name}. Retry export.`);
-    const item = new ZipPassThrough(entry.name);
-    zip.add(item);
-    if (entry.convert) {
-      const converted = entry.convert.fit
-        ? await fitImage(await r.blob(), entry.convert.format, entry.convert.quality)
-        : await convertImage(await r.blob(), entry.convert.format, entry.convert.quality);
-      item.push(new Uint8Array(await converted.arrayBuffer()), true);
-      continue;
-    }
-    const reader = r.body.getReader();
-    for (;;) {
-      const { done: end, value } = await reader.read();
-      if (end) break;
-      item.push(value, false);
-    }
-    item.push(new Uint8Array(), true);
+export async function buildZips(entries: ZipEntry[], partMax = PART_MAX): Promise<Blob[]> {
+  const data: Uint8Array[] = [];
+  for (const e of entries) data.push(await prepare(e));
+  const plan = splitIntoParts(
+    entries.map((e, i) => ({ name: e.name, size: data[i].length })),
+    partMax,
+  );
+  const parts: Blob[] = [];
+  for (const indexes of plan) {
+    const part = new ZipPart();
+    for (const i of indexes) part.add(entries[i].name, data[i]);
+    parts.push(await part.close());
   }
-  zip.end();
-  await done;
-  return new Blob(chunks as BlobPart[], { type: "application/zip" });
+  return parts;
+}
+
+/** Saves every part, named `<base>.zip` alone or `<base>-part1of3.zip` when split. */
+export async function saveZips(parts: Blob[], base: string): Promise<void> {
+  for (let i = 0; i < parts.length; i++) {
+    const name = parts.length === 1 ? `${base}.zip` : `${base}-part${i + 1}of${parts.length}.zip`;
+    saveBlob(parts[i], name);
+    // Browsers drop downloads fired in the same instant; a short gap keeps every part.
+    if (i < parts.length - 1) await new Promise((r) => setTimeout(r, 1200));
+  }
 }
 
 export function saveBlob(blob: Blob, filename: string) {

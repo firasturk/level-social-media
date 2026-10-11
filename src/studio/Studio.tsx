@@ -31,7 +31,7 @@ import { useTheme } from "@/theme";
 import { loadLastBatch, loadSavedConfig, saveConfig, saveLastBatch } from "./persist";
 import { makeReference } from "@/lib/image";
 import { folderCount, isCampaignShot } from "@shared/paths";
-import { buildZip, convertImage, saveBlob, type ZipEntry, fitImage } from "@/lib/zip";
+import { buildZips, convertImage, saveBlob, saveZips, type ZipEntry, fitImage } from "@/lib/zip";
 import {
   DEFAULT_PROMPT,
   cardsPerSource,
@@ -583,7 +583,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
       // The set's originals go in beside the AI images, in the same folder.
       const originals = sources.filter((s) => productKey(s.name) === key);
       for (const s of originals) entries.push({ name: s.name, url: sourceUrl(s.id, "original") });
-      saveBlob(await buildZip(entries), `${safeArchiveName(folder)}-AI.zip`);
+      await saveZips(await buildZips(entries), `${safeArchiveName(folder)}-AI`);
       toast.success(`${members.length + originals.length} files of ${key} downloaded.`);
     } catch (e) {
       toast.error((e as Error).message);
@@ -606,7 +606,10 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
       const originalsIncluded = exportsOriginals(viewConfig);
       if (originalsIncluded)
         for (const s of sources) entries.push({ name: s.name, url: sourceUrl(s.id, "original") });
-      saveBlob(await buildZip(entries), `${safeArchiveName(batch.name)}-AI.zip`);
+      const parts = await buildZips(entries);
+      await saveZips(parts, `${safeArchiveName(batch.name)}-AI`);
+      if (parts.length > 1)
+        toast.success(`Export split into ${parts.length} ZIP files of up to 1.4 GB each.`);
       toast.success(`${chosen.length} results exported.`);
     } catch (e) {
       toast.error((e as Error).message);
