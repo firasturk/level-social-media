@@ -189,9 +189,14 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
     try {
       const list = (await get<{ skills: SkillInfo[] }>("/api/studio/skills")).skills;
       setSkills(list);
-      // A hidden or deleted skill must not stay selected for new batches.
+      // A hidden or deleted skill must not stay selected for new batches. The Mood board of
+      // Creative direction is a built-in entry, not a team skill, so it is always kept.
       setConfig((c) =>
-        list.length && !list.some((s) => s.id === c.skill) ? { ...c, skill: list[0].id } : c,
+        list.length &&
+        !(c.mode === "7" && c.skill === "zaid") &&
+        !list.some((s) => s.id === c.skill)
+          ? { ...c, skill: list[0].id }
+          : c,
       );
     } catch {
       setSkills([]);
@@ -846,7 +851,12 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
                 onSkillsChanged={(list, id) => {
                   setSkills(list);
                   if (id && !draft) setConfig((c) => ({ ...c, skill: id }));
-                  else if (!list.some((s) => s.id === viewConfig.skill) && !draft && list[0])
+                  else if (
+                    !(viewConfig.mode === "7" && viewConfig.skill === "zaid") &&
+                    !list.some((s) => s.id === viewConfig.skill) &&
+                    !draft &&
+                    list[0]
+                  )
                     setConfig((c) => ({ ...c, skill: list[0].id }));
                 }}
               />
