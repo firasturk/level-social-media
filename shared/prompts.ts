@@ -224,6 +224,7 @@ export function buildNoPromptPrompt(
     if (notes.pose) parts.push(`POSE READ (facts taken from the pose photo): ${notes.pose}`);
   } else parts.push(`POSE: keep the model's pose as in image ${model}, natural and relaxed.`);
   if (!backView && framing !== "LOWER_BODY") parts.push(eyesFor(model));
+  parts.push(ANATOMY_RULE);
   parts.push(
     framingRule(framing, handsInPockets).replace(
       /reference photo/g,
@@ -239,7 +240,7 @@ export function buildNoPromptPrompt(
     );
   if (images.revision) parts.push("The LAST image is the existing result to revise.");
   parts.push(
-    `AVOID: ${["different face, altered facial features, changed hairstyle, different hair length or colour", "crossed eyes, asymmetric eyes, misaligned pupils, glassy or blank eyes, eyes looking in two directions", "tattoos, tattoo, body ink", "cutout look, pasted-on model, collage, photo montage, floating feet, missing contact shadow, mismatched lighting, halo edges, the studio lighting of the model photo kept", "wrong shadow direction, shadow falling toward the light, double shadows, a shadow from a second light source", "wrong scale, model too large or too small for the spot, model not on the ground plane", "studio look, flat studio lighting, over-smoothed plastic skin, HDR glow", "clothing or accessories from the pose photo, a second person", handsInPockets ? "" : "hands in pockets"].filter(Boolean).join(", ")}`,
+    `AVOID: ${["different face, altered facial features, changed hairstyle, different hair length or colour", "crossed eyes, asymmetric eyes, misaligned pupils, glassy or blank eyes, eyes looking in two directions", "tattoos, tattoo, body ink", "cutout look, pasted-on model, collage, photo montage, floating feet, missing contact shadow, mismatched lighting, halo edges, the studio lighting of the model photo kept", "wrong shadow direction, shadow falling toward the light, double shadows, a shadow from a second light source", "wrong scale, model too large or too small for the spot, model not on the ground plane", "studio look, flat studio lighting, over-smoothed plastic skin, HDR glow", "clothing or accessories from the pose photo, a second person", "extra limb, third arm, third leg, extra hand, extra foot, merged poses", handsInPockets ? "" : "hands in pockets"].filter(Boolean).join(", ")}`,
   );
   return parts.join("\n\n");
 }

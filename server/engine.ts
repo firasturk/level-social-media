@@ -1149,7 +1149,13 @@ async function noPromptPlan(
 ): Promise<NoPromptPlan> {
   if (task.brief) {
     const stored = JSON.parse(task.brief) as Partial<NoPromptPlan>;
-    if (stored.np) return stored as NoPromptPlan;
+    // A plan whose background or pose was deleted from the library since is made again.
+    if (
+      stored.np &&
+      (!stored.bg || (await referenceExists(env, stored.bg))) &&
+      (!stored.pose || (await referenceExists(env, stored.pose)))
+    )
+      return stored as NoPromptPlan;
   }
   const check = await uploadFraming(env, source, await sourceBytes(env, source));
   const backgrounds = await all<{ id: string }>(
@@ -1229,6 +1235,7 @@ export async function referenceNotes(
     "SELECT notes FROM refs WHERE id = ?",
     id,
   );
+  if (row?.notes === UNREADABLE) return undefined;
   if (row?.notes) return row.notes;
   try {
     const notes = await runReferenceRead(env, await referenceBytes(env, id), kind);
@@ -1239,6 +1246,9 @@ export async function referenceNotes(
     return undefined;
   }
 }
+
+/** Stored in refs.notes when a photo could not be read twice, so the cron stops paying for it. */
+const UNREADABLE = "-";
 
 /**
  * Cron warm-up: reads a few No prompt references that have no notes yet (photos added before the
@@ -1261,6 +1271,14 @@ export async function readPendingReferences(env: Env, limit = 4): Promise<number
     rows.map(async (r) => {
       const notes = await referenceNotes(env, r.id, r.skill === NP_POSES ? "pose" : "scene");
       if (notes) done++;
+      // Still nothing after the upload-time attempt and this one: leave it alone from now on.
+      else
+        await run(
+          env.DB,
+          "UPDATE refs SET notes = ? WHERE id = ? AND notes IS NULL",
+          UNREADABLE,
+          r.id,
+        );
     }),
   );
   return done;

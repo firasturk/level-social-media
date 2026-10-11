@@ -256,6 +256,8 @@ describe("no prompt approach", () => {
       "SCENE READ (facts taken from the location photo): Location: old town street",
     );
     expect(p).toContain("POSE READ (facts taken from the pose photo): Stance: walking.");
+    expect(p).toContain("ANATOMY:");
+    expect(p).toContain("extra limb");
     expect(p).toContain(EDITORIAL_STYLE_RULE);
     expect(p).toContain(SHADOW_RULE);
     expect(p).toContain(SCALE_RULE);
