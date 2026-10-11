@@ -448,6 +448,19 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
       );
       if (!ok) return;
     }
+    // Edits still open in the panel are what the user sees: apply them before the run starts.
+    if (draft && batch) {
+      setSavingDraft(true);
+      try {
+        await action("batch/config", { config: draft, name: batch.name });
+        setDraft(null);
+      } catch (e) {
+        toast.error((e as Error).message);
+        return;
+      } finally {
+        setSavingDraft(false);
+      }
+    }
     setTab("results");
     await runAction("start");
   }

@@ -310,7 +310,8 @@ export default function CreativePanel({
       {editing && (
         <div className="edit-bar">
           <span>
-            Editing saved settings. Queued images will use them; finished images keep theirs.
+            Editing saved settings. Save, or press Generate, to apply them: queued images use them,
+            finished images keep theirs.
           </span>
           <div className="footer-actions">
             <button className="primary" onClick={onSave} disabled={saving}>
