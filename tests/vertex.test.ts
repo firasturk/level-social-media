@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseServiceAccount, signAssertion, vertexModelId, vertexToken } from "../server/vertex";
+import { parseServiceAccount, signAssertion, vertexModelIds, vertexToken } from "../server/vertex";
 
 async function makeKeyPair() {
   const pair = (await crypto.subtle.generateKey(
@@ -37,8 +37,11 @@ describe("Vertex AI connection", () => {
     });
     expect(() => parseServiceAccount("{}")).toThrow(/service-account/);
     expect(() => parseServiceAccount("not json")).toThrow(/JSON/);
-    expect(vertexModelId("gemini-3-pro-image")).toBe("gemini-3-pro-image-preview");
-    expect(vertexModelId("gemini-2.5-flash-image")).toBe("gemini-2.5-flash-image");
+    expect(vertexModelIds("gemini-3-pro-image")).toEqual([
+      "gemini-3-pro-image",
+      "gemini-3-pro-image-preview",
+    ]);
+    expect(vertexModelIds("gemini-3-flash-preview")).toEqual(["gemini-3-flash-preview"]);
   });
 
   it("signs a JWT the token endpoint can verify and caches the token", async () => {

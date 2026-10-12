@@ -47,13 +47,12 @@ export function parseServiceAccount(json: string, location = "global"): VertexCr
   return { projectId, clientEmail, privateKey, location: loc };
 }
 
-/** AI Studio model slugs as Vertex AI publishes them. */
-export function vertexModelId(slug: string): string {
-  const map: Record<string, string> = {
-    "gemini-3-pro-image": "gemini-3-pro-image-preview",
-    "gemini-3.1-flash-image": "gemini-3.1-flash-image-preview",
-  };
-  return map[slug] ?? slug;
+/**
+ * The ids Vertex AI may publish a model under, in the order to try: the plain id (GA models keep
+ * the AI Studio name), then the "-preview" id a model carries before it goes GA.
+ */
+export function vertexModelIds(slug: string): string[] {
+  return slug.endsWith("-preview") ? [slug] : [slug, `${slug}-preview`];
 }
 
 /* ───────────── access token ───────────── */
@@ -306,29 +305,44 @@ export class VertexImageClient {
 
   async hasModel(slug: string): Promise<boolean> {
     const token = await vertexToken(this.creds, this.fetchImpl);
-    const r = await this.fetchImpl(
-      `${host(this.creds)}/v1/publishers/google/models/${encodeURIComponent(vertexModelId(slug))}`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
-    );
-    // A model the account may not describe is still usable; only a clear 404 says it is missing.
-    return r.status !== 404;
+    for (const id of vertexModelIds(slug)) {
+      const r = await this.fetchImpl(
+        `${host(this.creds)}/v1/publishers/google/models/${encodeURIComponent(id)}`,
+        { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) },
+      );
+      // A model the account may not describe is still usable; only a clear 404 says it is missing.
+      if (r.status !== 404) return true;
+    }
+    return false;
   }
 
   async edit(job: GoogleJob): Promise<ImageBytes> {
     const parts: unknown[] = [{ text: job.prompt }];
     for (const img of job.images)
       parts.push({ inlineData: { mimeType: img.mime, data: toBase64(img.bytes) } });
-    const d = await vertexGenerate(
-      this.creds,
-      vertexModelId(job.model),
-      parts,
-      {
-        responseModalities: ["IMAGE"],
-        imageConfig: { aspectRatio: job.aspectRatio, imageSize: job.size.toUpperCase() },
-      },
-      5 * 60 * 1000,
-      this.fetchImpl,
-    );
+    const ids = vertexModelIds(job.model);
+    let d: GenerateResponse | null = null;
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        d = await vertexGenerate(
+          this.creds,
+          ids[i],
+          parts,
+          {
+            responseModalities: ["IMAGE"],
+            imageConfig: { aspectRatio: job.aspectRatio, imageSize: job.size.toUpperCase() },
+          },
+          5 * 60 * 1000,
+          this.fetchImpl,
+        );
+        break;
+      } catch (e) {
+        // The next published id of the same model answers a 404; anything else is final.
+        if (i < ids.length - 1 && e instanceof StudioError && /\(404\)/.test(e.message)) continue;
+        throw e;
+      }
+    }
+    if (!d) throw new StudioError("Google Cloud (Vertex) returned nothing.", 502);
     const blocked = d.promptFeedback?.blockReason;
     if (blocked)
       throw new StudioError(`Google Cloud (Vertex) blocked the request: ${blocked}`, 502);
