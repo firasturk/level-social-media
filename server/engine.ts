@@ -519,6 +519,7 @@ async function settleFailedAttempt(
   if (isRateLimit(e)) {
     const wait = Math.max(30_000, retryAfterMs(e));
     enginePausedUntil = Math.max(enginePausedUntil, now() + wait);
+    if (/vertex/i.test(message)) vertexThrottledUntil = now() + VERTEX_THROTTLE_MS;
     await run(env.DB, "UPDATE tasks SET attempts = MAX(0, attempts - 1) WHERE id = ?", task.id);
     await requeue(env, task, `Engine rate limited; retrying in ${Math.round(wait / 1000)} s.`);
     return;
@@ -530,8 +531,15 @@ async function settleFailedAttempt(
 }
 
 let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
-/** Images in flight at once on Vertex: a trial project allows only a couple of image requests a minute. */
-const VERTEX_PARALLEL = 2;
+let vertexThrottledUntil = 0; // after a Vertex rate limit, only a couple of images at a time for a while
+/** Images in flight at once on Vertex while its quota is being hit (a trial project allows ~2 a minute). */
+const VERTEX_THROTTLED_PARALLEL = 2;
+const VERTEX_THROTTLE_MS = 10 * 60 * 1000;
+
+/** Vertex runs at full width until Google throttles it, then narrows for ten minutes. */
+function vertexParallel(env: Env): number {
+  return now() < vertexThrottledUntil ? VERTEX_THROTTLED_PARALLEL : concurrency(env);
+}
 
 async function requeue(env: Env, task: TaskRow, message: string): Promise<void> {
   await run(
@@ -661,7 +669,8 @@ async function submitNext(
   const vertexActive = google ? !!(await resolveGoogleAuth(env)).vertex : false;
   // Synchronous engines hold a connection per image, so they are capped; fal.ai queues on its side.
   const slots =
-    (fal ? FAL_PARALLEL : vertexActive ? VERTEX_PARALLEL : concurrency(env)) - (processing?.n ?? 0);
+    (fal ? FAL_PARALLEL : vertexActive ? vertexParallel(env) : concurrency(env)) -
+    (processing?.n ?? 0);
   if (slots <= 0) return;
   // Prompts are written ahead of submission: every set leader first, then the followers whose
   // leader already has a prompt, so a follower only waits for the leader's image, not its text.
