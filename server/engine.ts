@@ -949,10 +949,10 @@ async function ensureBrief(
       try {
         return await buildBriefWithOpenAI(openai!, req);
       } catch (e) {
-        // OpenAI throttled: Google writes this prompt instead of the batch waiting.
-        if (google && isRateLimit(e)) {
+        // OpenAI throttled, or its key rejected: Google writes this prompt instead of the batch waiting.
+        if (google && (isRateLimit(e) || isBadKey(e))) {
           console.log(
-            `[builder] OpenAI rate limited, using Google: ${errorMessage(e).slice(0, 160)}`,
+            `[builder] OpenAI unavailable, using Google: ${errorMessage(e).slice(0, 160)}`,
           );
           return buildBriefWithGoogle(google, req);
         }
@@ -966,7 +966,17 @@ async function ensureBrief(
       // OpenAI takes over for this prompt.
       if (openai && (googleUnavailable(e) || isRateLimit(e))) {
         console.log(`[builder] Google unavailable, using OpenAI: ${errorMessage(e).slice(0, 160)}`);
-        return buildBriefWithOpenAI(openai, req);
+        try {
+          return await buildBriefWithOpenAI(openai, req);
+        } catch (e2) {
+          // A rejected OpenAI key is not this image's fault: keep Google's own verdict (a rate
+          // limit waits and retries) instead of failing the image on the stand-in's error.
+          if (isBadKey(e2)) {
+            console.error(`[builder] OpenAI key rejected: ${errorMessage(e2).slice(0, 160)}`);
+            throw e;
+          }
+          throw e2;
+        }
       }
       throw e;
     }
@@ -1408,6 +1418,13 @@ async function uploadFraming(
 }
 
 /** Google failures another vendor can cover: region refusal or an exhausted prepaid balance. */
+/** A vendor rejected the API key itself (401/403, "incorrect API key"), not the request. */
+function isBadKey(e: unknown): boolean {
+  return /\((401|403)\)|incorrect api key|invalid api key|api key not valid|unauthorized/i.test(
+    errorMessage(e),
+  );
+}
+
 function googleUnavailable(e: unknown): boolean {
   return /location is not supported|credits are used up|credits are depleted/i.test(
     errorMessage(e),
