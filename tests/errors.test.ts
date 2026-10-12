@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { StudioError, isRateLimit, isTransientEngineError, retryAfterMs } from "../server/errors";
+import { isCreditsDepleted, creditsMessage, describe, expect, it } from "vitest";
+import {
+  StudioError,
+  isRateLimit,
+  isTransientEngineError,
+  retryAfterMs,
+  isCreditsDepleted,
+  creditsMessage,
+} from "../server/errors";
 
 describe("rate limits", () => {
   const e = new StudioError(
@@ -35,5 +42,19 @@ describe("vendor wait times", () => {
       ),
     ).toBe(true);
     expect(isDailyQuota(new Error("Rate limit reached on tokens per min"))).toBe(false);
+  });
+});
+
+describe("empty prepaid balance", () => {
+  it("is recognised and explained", () => {
+    const e = new Error(
+      'Prompt builder (Google) failed (402): [{"error": {"code": 402, "message": "Your prepayment credits are depleted. Please go to AI Studio"}}]',
+    );
+    expect(isCreditsDepleted(e)).toBe(true);
+    expect(creditsMessage(e)).toContain("Google's prepaid balance is empty");
+    expect(creditsMessage(e)).toContain("aistudio.google.com");
+    expect(isCreditsDepleted(new Error("Prompt builder (Google) failed (429): rate limit"))).toBe(
+      false,
+    );
   });
 });

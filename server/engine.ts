@@ -20,6 +20,8 @@ import {
   isDailyQuota,
   isRateLimit,
   retryAfterMs,
+  isCreditsDepleted,
+  creditsMessage,
 } from "./errors";
 import {
   buildPrompt,
@@ -487,6 +489,11 @@ async function settleFailedAttempt(
     ]).total + (task.edit || task.recenter ? 0.008 : 0);
   await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
   const message = errorMessage(e, "Generation failed.");
+  if (isCreditsDepleted(e)) {
+    await requeue(env, task, creditsMessage(e));
+    await pauseBatch(env, batch.id, creditsMessage(e));
+    return;
+  }
   if (isContentPolicyError(message) && (await retryAfterRefusal(env, config, task, message)))
     return;
   if (isTransientEngineError(e) && task.attempts < MAX_AUTO_ATTEMPTS)
@@ -1091,6 +1098,18 @@ async function prepareBriefs(
           task.id,
         );
       } catch (e) {
+        // An empty prepaid balance will not clear by waiting or retrying: stop the batch and say so.
+        if (isCreditsDepleted(e)) {
+          console.error(`[builder] credits depleted: ${errorMessage(e).slice(0, 200)}`);
+          await run(
+            env.DB,
+            "UPDATE tasks SET error = NULL, updated = ? WHERE id = ? AND status = 'queued'",
+            now(),
+            task.id,
+          );
+          await pauseBatch(env, batch.id, creditsMessage(e));
+          return;
+        }
         if (isRateLimit(e)) {
           const detail = errorMessage(e);
           console.log(`[builder] rate limited: ${detail.slice(0, 300)}`);

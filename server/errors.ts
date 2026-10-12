@@ -11,6 +11,30 @@ export class StudioError extends Error {
 }
 
 /** True for failures that make further paid requests pointless (bad key, no credits, rate limit). */
+/** The vendor's prepaid balance is empty (Google 402 "prepayment credits are depleted" and the like). */
+export function isCreditsDepleted(e: unknown): boolean {
+  return /\(402\)|prepayment credits|credits are (depleted|used up|exhausted)|insufficient (balance|credits|funds)|payment required/i.test(
+    errorMessage(e),
+  );
+}
+
+/** What the user has to do when a vendor's balance is empty. */
+export function creditsMessage(e: unknown): string {
+  const detail = errorMessage(e);
+  const vendor = /google|gemini/i.test(detail)
+    ? "Google"
+    : /openai/i.test(detail)
+      ? "OpenAI"
+      : "The engine";
+  const where =
+    vendor === "Google"
+      ? "Top up the prepaid balance in Google AI Studio (aistudio.google.com, Billing)"
+      : vendor === "OpenAI"
+        ? "Add credit at platform.openai.com (Billing)"
+        : "Top up the balance";
+  return `${vendor}'s prepaid balance is empty, so nothing can be generated or written. ${where}, then resume the batch. Nothing was charged for the images that waited.`;
+}
+
 export function isFatalEngineError(e: unknown): boolean {
   return e instanceof StudioError && e.fatal;
 }
