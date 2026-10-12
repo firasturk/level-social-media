@@ -514,11 +514,24 @@ async function settleFailedAttempt(
   }
   if (isContentPolicyError(message) && (await retryAfterRefusal(env, config, task, message)))
     return;
+  // A vendor rate limit is not the image's fault: wait as asked (at least 30 s), keep the image
+  // queued and give the attempt back, so a throttled project never fails images one by one.
+  if (isRateLimit(e)) {
+    const wait = Math.max(30_000, retryAfterMs(e));
+    enginePausedUntil = Math.max(enginePausedUntil, now() + wait);
+    await run(env.DB, "UPDATE tasks SET attempts = MAX(0, attempts - 1) WHERE id = ?", task.id);
+    await requeue(env, task, `Engine rate limited; retrying in ${Math.round(wait / 1000)} s.`);
+    return;
+  }
   if (isTransientEngineError(e) && task.attempts < MAX_AUTO_ATTEMPTS)
     await requeue(env, task, message);
   else await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
+
+let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
+/** Images in flight at once on Vertex: a trial project allows only a couple of image requests a minute. */
+const VERTEX_PARALLEL = 2;
 
 async function requeue(env: Env, task: TaskRow, message: string): Promise<void> {
   await run(
@@ -644,8 +657,11 @@ async function submitNext(
     "SELECT COUNT(*) AS n FROM tasks WHERE batch = ? AND status IN ('processing','finalizing')",
     batch.id,
   );
+  if (now() < enginePausedUntil) return; // a vendor asked us to wait
+  const vertexActive = google ? !!(await resolveGoogleAuth(env)).vertex : false;
   // Synchronous engines hold a connection per image, so they are capped; fal.ai queues on its side.
-  const slots = (fal ? FAL_PARALLEL : concurrency(env)) - (processing?.n ?? 0);
+  const slots =
+    (fal ? FAL_PARALLEL : vertexActive ? VERTEX_PARALLEL : concurrency(env)) - (processing?.n ?? 0);
   if (slots <= 0) return;
   // Prompts are written ahead of submission: every set leader first, then the followers whose
   // leader already has a prompt, so a follower only waits for the leader's image, not its text.
@@ -654,7 +670,6 @@ async function submitNext(
   let candidates = await eligibleQueued(env, batch, config, slots);
   if (SKILL_MODES.has(config.mode)) candidates = candidates.filter((t) => !!t.brief);
   const client = openai || google || fal ? null : await makeClient(env, undefined, config.model);
-  const vertexActive = google ? !!(await resolveGoogleAuth(env)).vertex : false;
 
   for (const task of candidates) {
     // An image moved to another engine after a refusal runs on that engine, with that engine's rules.
