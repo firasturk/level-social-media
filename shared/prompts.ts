@@ -224,7 +224,7 @@ export function buildNoPromptPrompt(
     if (notes.pose) parts.push(`POSE READ (facts taken from the pose photo): ${notes.pose}`);
   } else parts.push(`POSE: keep the model's pose as in image ${model}, natural and relaxed.`);
   if (!backView && framing !== "LOWER_BODY") parts.push(eyesFor(model));
-  parts.push(ANATOMY_RULE);
+  parts.push(ANATOMY_RULE, FULL_FRAME_RULE);
   parts.push(
     framingRule(framing, handsInPockets).replace(
       /reference photo/g,
@@ -240,7 +240,21 @@ export function buildNoPromptPrompt(
     );
   if (images.revision) parts.push("The LAST image is the existing result to revise.");
   parts.push(
-    `AVOID: ${["different face, altered facial features, changed hairstyle, different hair length or colour", "crossed eyes, asymmetric eyes, misaligned pupils, glassy or blank eyes, eyes looking in two directions", "tattoos, tattoo, body ink", "cutout look, pasted-on model, collage, photo montage, floating feet, missing contact shadow, mismatched lighting, halo edges, the studio lighting of the model photo kept", "wrong shadow direction, shadow falling toward the light, double shadows, a shadow from a second light source", "wrong scale, model too large or too small for the spot, model not on the ground plane", "studio look, flat studio lighting, over-smoothed plastic skin, HDR glow", "clothing or accessories from the pose photo, a second person", "extra limb, third arm, third leg, extra hand, extra foot, merged poses", handsInPockets ? "" : "hands in pockets"].filter(Boolean).join(", ")}`,
+    `AVOID: ${[
+      "different face, altered facial features, changed hairstyle, different hair length or colour",
+      "crossed eyes, asymmetric eyes, misaligned pupils, glassy or blank eyes, eyes looking in two directions",
+      "tattoos, tattoo, body ink",
+      "cutout look, pasted-on model, collage, photo montage, floating feet, missing contact shadow, mismatched lighting, halo edges, the studio lighting of the model photo kept",
+      "wrong shadow direction, shadow falling toward the light, double shadows, a shadow from a second light source",
+      "wrong scale, model too large or too small for the spot, model not on the ground plane",
+      "studio look, flat studio lighting, over-smoothed plastic skin, HDR glow",
+      "clothing or accessories from the pose photo, a second person",
+      "extra limb, third arm, third leg, extra hand, extra foot, merged poses",
+      "white bars, white border, letterboxing, frame, margin",
+      handsInPockets ? "" : "hands in pockets",
+    ]
+      .filter(Boolean)
+      .join(", ")}`,
   );
   return parts.join("\n\n");
 }
@@ -276,6 +290,10 @@ export const SCALE_RULE =
 /** Engine-facing eyes rule for the No prompt approach. */
 export const EYES_RULE =
   "EYES: both eyes exactly as in image 1: the same shape, colour, size, spacing, eyelids and brows. Both eyes open, sharp and in focus, with the same catchlight from the scene's light in each; the pupils aligned and looking in the same direction, following the gaze described in the pose; a natural, alive expression. Never crossed, wall-eyed, asymmetric, enlarged, glassy, blank or looking in two directions.";
+
+/** Engine-facing frame rule: the photograph fills the whole canvas, never a matted or letterboxed picture. */
+export const FULL_FRAME_RULE =
+  "FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.";
 
 /** Engine-facing pose rule for the builder approaches: the written pose, never image 1's stance. */
 export const POSE_RULE =
@@ -363,9 +381,10 @@ export function buildEditorialPrompt(
   if (relaxed) {
     if (on("light")) parts.push(LIGHT_RULE);
     if (on("detail")) parts.push(DETAIL_RULE);
-    if (on("integration")) parts.push(BLEND_RULE);
+    if (on("integration")) parts.push(BLEND_RULE, RELIGHT_RULE);
     if (on("grain")) parts.push(GRAIN_RULE);
   } else parts.push(HAIR_RULE);
+  parts.push(FULL_FRAME_RULE);
   if (center && on("composition")) parts.push(CENTERING);
   if (edit)
     parts.push(
@@ -414,6 +433,7 @@ export function buildEditorialPrompt(
       : "wind-blown hair, flying hair strands, messy hair",
     handsInPockets || !on("hands") ? "" : "hands in pockets",
     "extra limb, third arm, third leg, extra hand, duplicated hand, extra foot, extra shoe, merged poses, the pose of the outfit photo kept",
+    "white bars, white border, side borders, letterboxing, pillarboxing, frame, margin, matte, picture-in-picture",
     on("tattoos") ? "tattoos, tattoo, body ink" : "",
     newModel || !on("identity")
       ? ""

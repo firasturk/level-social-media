@@ -212,6 +212,10 @@ describe("compact retry prompt", () => {
     expect(p).toContain(IDENTITY_RULE);
     expect(p).toContain("upper body only");
     expect(p).toContain("AVOID: blur, hands in pockets");
+    expect(buildEditorial("Prompt body.", "blur")).toContain("FULL FRAME:");
+    expect(
+      buildEditorial("Prompt body.", "blur", "", {}, false, true, "FULL_BODY", false, true),
+    ).toContain("RE-LIGHT:");
     expect(p).toContain("no extra limb");
     expect(p.split(/\s+/).length).toBeLessThan(260);
   });

@@ -64,7 +64,8 @@ export default function ReferenceLibrary({
       // Reference photos are sent to the prompt builder on every run; a resized copy keeps those
       // calls small and fast without changing what the builder sees.
       for (const f of Array.from(files)) {
-        const small = await makeReference(f).catch(() => f);
+        // Flat bars around a photo (white side borders) are cut away: the engines would copy them.
+        const small = await makeReference(f, 1600, 0.94, true).catch(() => f);
         form.append("file", small, f.name.replace(/\.[^.]+$/, "") + ".jpg");
       }
       const r = await fetch("/api/studio/references", { method: "POST", body: form });
