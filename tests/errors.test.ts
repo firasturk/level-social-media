@@ -1,4 +1,4 @@
-import { isCreditsDepleted, creditsMessage, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   StudioError,
   isRateLimit,
