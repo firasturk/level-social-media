@@ -1294,6 +1294,39 @@ export async function readPendingReferences(env: Env, limit = 4): Promise<number
   return done;
 }
 
+/**
+ * One vision call: Google first; when Google refuses the region, is out of credits or throttles,
+ * OpenAI answers instead. A rejected OpenAI key is never the verdict: Google's own error is kept
+ * (and logged) so the batch shows what actually went wrong.
+ */
+async function askVision(
+  env: Env,
+  instruction: string,
+  images: ImageBytes[],
+  schema: unknown,
+): Promise<string> {
+  const google = (await resolveGoogleKey(env)).key;
+  const openai = (await resolveOpenAIKey(env)).key;
+  if (!google && !openai) throw new StudioError("Connect Google or OpenAI first.", 428, true);
+  if (!google) return askVisionOpenAI(openai!, instruction, images, fetch, "gpt-4.1-mini");
+  try {
+    return await askVisionGoogle(google, instruction, images, schema);
+  } catch (e) {
+    const detail = errorMessage(e);
+    if (!openai || !(googleUnavailable(e) || isRateLimit(e))) throw e;
+    console.error(`[vision] Google failed, trying OpenAI: ${detail.slice(0, 200)}`);
+    try {
+      return await askVisionOpenAI(openai, instruction, images, fetch, "gpt-4.1-mini");
+    } catch (e2) {
+      if (isBadKey(e2)) {
+        console.error(`[vision] OpenAI key rejected: ${errorMessage(e2).slice(0, 160)}`);
+        throw e;
+      }
+      throw e2;
+    }
+  }
+}
+
 /** Runs the scene or pose read on an image and returns the sentences for the engine ("" if unreadable). */
 export async function runReferenceRead(
   env: Env,
@@ -1303,48 +1336,12 @@ export async function runReferenceRead(
   const instruction = kind === "scene" ? SCENE_READ_INSTRUCTION : POSE_READ_INSTRUCTION;
   const schema = kind === "scene" ? SCENE_SCHEMA : POSE_SCHEMA;
   const parse = kind === "scene" ? parseSceneNotes : parsePoseNotes;
-  const google = (await resolveGoogleKey(env)).key;
-  const openai = (await resolveOpenAIKey(env)).key;
-  let text = "";
-  try {
-    if (google) text = await askVisionGoogle(google, instruction, [image], schema);
-    else if (openai)
-      text = await askVisionOpenAI(openai, instruction, [image], fetch, "gpt-4.1-mini");
-  } catch (e) {
-    if (openai && google && googleUnavailable(e))
-      text = await askVisionOpenAI(openai, instruction, [image], fetch, "gpt-4.1-mini");
-    else throw e;
-  }
-  return parse(text);
+  return parse(await askVision(env, instruction, [image], schema));
 }
 
 /** The framing check on any image (uploads, and pose photos when they are added to the library). */
 export async function runFramingCheck(env: Env, image: ImageBytes): Promise<FramingCheck> {
-  const google = (await resolveGoogleKey(env)).key;
-  const openai = (await resolveOpenAIKey(env)).key;
-  let text = "";
-  try {
-    if (google)
-      text = await askVisionGoogle(google, FRAMING_CHECK_INSTRUCTION, [image], FRAMING_SCHEMA);
-    else if (openai)
-      text = await askVisionOpenAI(
-        openai,
-        FRAMING_CHECK_INSTRUCTION,
-        [image],
-        fetch,
-        "gpt-4.1-mini",
-      );
-  } catch (e) {
-    if (openai && google && googleUnavailable(e))
-      text = await askVisionOpenAI(
-        openai,
-        FRAMING_CHECK_INSTRUCTION,
-        [image],
-        fetch,
-        "gpt-4.1-mini",
-      );
-    else throw e;
-  }
+  const text = await askVision(env, FRAMING_CHECK_INSTRUCTION, [image], FRAMING_SCHEMA);
   return parseFramingCheck(text);
 }
 
@@ -1382,31 +1379,7 @@ async function uploadFraming(
             : [third, fourth, ...rest].filter(Boolean).join("|"),
       };
   }
-  const google = (await resolveGoogleKey(env)).key;
-  const openai = (await resolveOpenAIKey(env)).key;
-  let text = "";
-  try {
-    if (google)
-      text = await askVisionGoogle(google, FRAMING_CHECK_INSTRUCTION, [image], FRAMING_SCHEMA);
-    else if (openai)
-      text = await askVisionOpenAI(
-        openai,
-        FRAMING_CHECK_INSTRUCTION,
-        [image],
-        fetch,
-        "gpt-4.1-mini",
-      );
-  } catch (e) {
-    if (openai && google && googleUnavailable(e))
-      text = await askVisionOpenAI(
-        openai,
-        FRAMING_CHECK_INSTRUCTION,
-        [image],
-        fetch,
-        "gpt-4.1-mini",
-      );
-    else throw e;
-  }
+  const text = await askVision(env, FRAMING_CHECK_INSTRUCTION, [image], FRAMING_SCHEMA);
   const result = parseFramingCheck(text);
   await run(
     env.DB,
