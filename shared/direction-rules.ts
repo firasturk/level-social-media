@@ -46,7 +46,7 @@ export const DEFAULT_DIRECTION_RULES: DirectionRule[] = [
   {
     key: "pose",
     title: "Pose: one coherent pose, not the upload's",
-    text: "POSE: write one coherent pose that is different from the upload's stance, as one body in one moment: state explicitly where the left arm, the right arm, each hand, the left leg and the right leg are, how the weight sits and where the head looks; never give the same limb two positions, never a hand both in a pocket and elsewhere, never a stepping foot and a planted foot for the same leg; say in the prompt that the upload's own stance is not kept.",
+    text: "POSE: write one coherent pose that is different from the upload's stance, as one body in one moment: state explicitly where the left arm, the right arm, each hand, the left leg and the right leg are, how the weight sits and where the head looks; never give the same limb two positions, never a hand both in a pocket and elsewhere, never a stepping foot and a planted foot for the same leg; say in the prompt that the upload's own stance is not kept Keep the pose simple and readable for a catalogue: both hands stay below shoulder level and away from the face, forehead, hair and head; no arm raised, no shading of the eyes, no hand on the neck or cheek, no arms crossed over the chest or the garment's front print; the full front of the garment stays visible.",
     enabled: true,
   },
   {
@@ -122,6 +122,9 @@ export function ruleOn(rules: DirectionRule[] | undefined, key: string): boolean
 
 /** Earlier wordings of built-in rules: a stored copy the team never edited is upgraded to the current text. */
 const SUPERSEDED_TEXTS: Record<string, string[]> = {
+  pose: [
+    "POSE: write one coherent pose that is different from the upload's stance, as one body in one moment: state explicitly where the left arm, the right arm, each hand, the left leg and the right leg are, how the weight sits and where the head looks; never give the same limb two positions, never a hand both in a pocket and elsewhere, never a stepping foot and a planted foot for the same leg; say in the prompt that the upload's own stance is not kept.",
+  ],
   grain: [
     "FILM GRAIN: every image carries a subtle, fine, even analog film grain over the whole frame, like a professionally scanned 35mm colour negative: fine organic grain visible in the midtones and shadows, slightly softened micro-contrast, a gentle bloom on the brightest sunlit edges and backlit hair, natural restrained colour; write this in the prompt's photographic treatment section as a delicate finishing texture that stays uniform across model and background, never heavy, never digital noise, never a vintage filter, never blur or loss of detail.",
   ],

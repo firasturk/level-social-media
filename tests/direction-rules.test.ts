@@ -23,6 +23,7 @@ describe("creative direction fixed rules", () => {
     expect(text).toContain("(1) OUTFIT:");
     expect(text).toContain("(15) COMPOSITION:");
     expect(text).toContain("POSE: write one coherent pose");
+    expect(text).toContain("away from the face, forehead, hair and head");
     expect(text).toContain("FILM GRAIN:");
     expect(text).toContain("Catalogue-safe wording only");
     const fewer = composeFixedRules([

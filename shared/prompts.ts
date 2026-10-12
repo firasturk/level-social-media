@@ -173,7 +173,7 @@ export const TATTOO_RULE =
 
 /** Engine-facing light rule for Zaid creative direction. */
 export const LIGHT_RULE =
-  "LIGHT: real sun, golden-hour sun (low, warm, long soft shadows) or midday sun (high, clean, short shadows) as the prompt names it; never overcast, dusk, night or artificial light. Bright but balanced: open shadows and no blown-out highlights; no dim, murky, heavy-shadow or harsh high-contrast lighting. The model is evenly lit and the garment colours read true.";
+  "LIGHT: real sun, golden-hour sun (low, warm, long soft shadows) or midday sun (high, clean, short shadows) as the prompt names it; never overcast, dusk, night or artificial light. Bright but balanced: open shadows and no blown-out highlights; no dim, murky, heavy-shadow or harsh high-contrast lighting. The model is evenly lit and the garment colours read true. HAIR IN THE SUN: the hair keeps its real colour, shape and edges; no glowing rim, halo, bloom or halation around the hair or the head, no backlight outlining the hair, no golden glow on the strands; any bloom or halation belongs to the brightest surfaces of the setting only, never to the model's hair, skin or garment.";
 
 /** Engine-facing integration rule for Zaid creative direction: the model belongs to the scene. */
 export const BLEND_RULE =
@@ -416,7 +416,7 @@ export function buildEditorialPrompt(
     relaxed
       ? [
           on("light")
-            ? "dim scene, murky light, overcast sky, blown-out highlights, harsh shadows"
+            ? "dim scene, murky light, overcast sky, blown-out highlights, harsh shadows, glowing hair, halo around the head, rim light on the hair, hair bloom, backlit hair outline"
             : "",
           on("detail")
             ? "empty background, smeared background, heavy background blur, low-detail background"
