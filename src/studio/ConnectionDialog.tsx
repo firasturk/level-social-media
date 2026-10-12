@@ -78,9 +78,30 @@ export default function ConnectionDialog({
     }
   }
   const [falKey, setFalKey] = useState("");
-  const [vendor, setVendor] = useState<"higgsfield" | "google" | "vertex" | "openai" | "fal">(
-    "higgsfield",
-  );
+  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal";
+  // Opens on the tab last used in this browser, else on the vendor of the current image model.
+  const [vendor, setVendorState] = useState<Vendor>(() => {
+    try {
+      const saved = localStorage.getItem("connection-tab") as Vendor | null;
+      if (saved && ["higgsfield", "google", "vertex", "openai", "fal"].includes(saved))
+        return saved;
+    } catch {
+      /* private mode */
+    }
+    const m = engine.model || "";
+    if (/^gemini/.test(m)) return engine.vertex ? "vertex" : "google";
+    if (/^gpt/.test(m)) return "openai";
+    if (/^fal\//.test(m)) return "fal";
+    return "higgsfield";
+  });
+  const setVendor = (v: Vendor) => {
+    setVendorState(v);
+    try {
+      localStorage.setItem("connection-tab", v);
+    } catch {
+      /* private mode */
+    }
+  };
   const [savingFal, setSavingFal] = useState(false);
   const [savingOpenai, setSavingOpenai] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
@@ -655,7 +676,11 @@ export default function ConnectionDialog({
           <strong>{engine.model}</strong>
           <span>Automatic review</span>
           <strong>
-            {engine.review ? "Gemini Flash (Google key)" : "Off until a Google key is added"}
+            {engine.review
+              ? engine.vertex
+                ? "Gemini Flash (Google Cloud)"
+                : "Gemini Flash (Google key)"
+              : "Off until Google is connected"}
           </strong>
         </div>
       </DialogContent>
