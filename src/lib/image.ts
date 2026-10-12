@@ -39,8 +39,9 @@ export async function makeReference(
 
 /**
  * Measures a flat border on each side: rows or columns whose pixels all share one colour (within a
- * small tolerance), stopping at the first row or column with real content. Only a border wider than
- * 1% of the side and narrower than 40% counts, so a plain studio backdrop is left alone.
+ * small tolerance), stopping at the first row or column with real content. Only a near-white or
+ * near-black border wider than 1% of the side and narrower than 40%, ending in a hard edge, counts;
+ * a plain wall, a sky or a studio backdrop is left alone.
  */
 export function uniformBorders(
   image: ImageBitmap,
@@ -90,11 +91,37 @@ export function uniformBorders(
     }
     return k;
   };
-  const keep = (k: number, n: number) => (k / n > 0.01 && k / n < 0.4 ? k : 0);
-  const left = keep(count("left"), pw);
-  const right = keep(count("right"), pw);
-  const top = keep(count("top"), ph);
-  const bottom = keep(count("bottom"), ph);
+  // A mat is near-white or near-black and ends in a hard edge; a plain wall or sky is neither.
+  const isMat = (c: readonly [number, number, number]) => {
+    const max = Math.max(c[0], c[1], c[2]);
+    const min = Math.min(c[0], c[1], c[2]);
+    return max - min <= 12 && (min >= 232 || max <= 24);
+  };
+  const lineMean = (side: "left" | "right" | "top" | "bottom", k: number) => {
+    const line =
+      side === "left"
+        ? Array.from({ length: ph }, (_, y) => px(k, y))
+        : side === "right"
+          ? Array.from({ length: ph }, (_, y) => px(pw - 1 - k, y))
+          : side === "top"
+            ? Array.from({ length: pw }, (_, x) => px(x, k))
+            : Array.from({ length: pw }, (_, x) => px(x, ph - 1 - k));
+    const sum = line.reduce((a, c) => [a[0] + c[0], a[1] + c[1], a[2] + c[2]], [0, 0, 0]);
+    return sum.map((v) => v / line.length);
+  };
+  const keep = (side: "left" | "right" | "top" | "bottom", k: number, n: number) => {
+    if (!(k / n > 0.01 && k / n < 0.4)) return 0;
+    const edge = lineMean(side, 0);
+    if (!isMat([edge[0], edge[1], edge[2]])) return 0;
+    const next = lineMean(side, Math.min(n - 1, k + 1));
+    const diff =
+      Math.abs(next[0] - edge[0]) + Math.abs(next[1] - edge[1]) + Math.abs(next[2] - edge[2]);
+    return diff >= 60 ? k : 0;
+  };
+  const left = keep("left", count("left"), pw);
+  const right = keep("right", count("right"), pw);
+  const top = keep("top", count("top"), ph);
+  const bottom = keep("bottom", count("bottom"), ph);
   if (!left && !right && !top && !bottom) return null;
   const back = 1 / scale;
   return {

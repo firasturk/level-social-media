@@ -293,7 +293,7 @@ export const EYES_RULE =
 
 /** Engine-facing frame rule: the photograph fills the whole canvas, never a matted or letterboxed picture. */
 export const FULL_FRAME_RULE =
-  "FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.";
+  "FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.";
 
 /** Engine-facing pose rule for the builder approaches: the written pose, never image 1's stance. */
 export const POSE_RULE =
