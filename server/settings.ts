@@ -4,6 +4,7 @@
  * from SESSION_SECRET, so a database dump alone does not reveal them.
  */
 import type { Env } from "./env";
+import type { GoogleAuth, VertexCreds } from "./vertex";
 import { StudioError } from "./errors";
 import { first, run, now } from "./db";
 
@@ -117,6 +118,36 @@ export async function resolveGoogleKey(
   if (env.GEMINI_API_KEY) return { key: env.GEMINI_API_KEY, source: "secret" };
   const stored = await getSetting(env, GOOGLE_KEY_SETTING);
   return stored ? { key: stored, source: "stored" } : { key: null, source: "none" };
+}
+
+export const VERTEX_SETTING = "vertex_service_account";
+
+/** Google Cloud (Vertex AI) credential saved from the app: a service account for the billed project. */
+export async function resolveVertex(env: Env): Promise<VertexCreds | null> {
+  const stored = await getSetting(env, VERTEX_SETTING);
+  if (!stored) return null;
+  try {
+    return JSON.parse(stored) as VertexCreds;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How Google is reached: the Vertex service account when one is saved (the project's credits pay),
+ * otherwise the AI Studio key. Nothing connected gives null.
+ */
+export async function resolveGoogleAuth(
+  env: Env,
+): Promise<{
+  auth: GoogleAuth | null;
+  vertex: VertexCreds | null;
+  source: EngineKeySource | "vertex";
+}> {
+  const vertex = await resolveVertex(env);
+  if (vertex) return { auth: { vertex }, vertex, source: "vertex" };
+  const k = await resolveGoogleKey(env);
+  return { auth: k.key ? { key: k.key } : null, vertex: null, source: k.source };
 }
 
 export const FAL_KEY_SETTING = "fal_api_key";

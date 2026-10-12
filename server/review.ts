@@ -7,6 +7,7 @@ import type { QA } from "@shared/types";
 import { StudioError } from "./errors";
 import type { ImageBytes } from "./openai";
 import { GOOGLE_TEXT_MODELS } from "./editorial";
+import { isVertexAuth, vertexText, type GoogleAuth } from "./vertex";
 
 const SCHEMA = {
   type: "object",
@@ -64,13 +65,25 @@ function finish(q: Omit<QA, "automated">, fabric: boolean): QA {
 }
 
 export async function reviewWithGoogle(
-  key: string,
+  auth: GoogleAuth | string,
   source: ImageBytes,
   result: ImageBytes,
   fabric: boolean,
   identity?: ImageBytes,
   fetchImpl: typeof fetch = fetch,
 ): Promise<QA> {
+  if (isVertexAuth(auth)) {
+    const images = [source, ...(identity ? [identity] : []), result];
+    const text = await vertexText(
+      auth.vertex,
+      instruction(fabric, !!identity),
+      images,
+      SCHEMA,
+      fetchImpl,
+    );
+    return finish(JSON.parse(text) as Omit<QA, "automated">, fabric);
+  }
+  const key = typeof auth === "string" ? auth : auth.key;
   const input: unknown[] = [
     { type: "text", text: instruction(fabric, !!identity) },
     { type: "image", mime_type: source.mime, data: toBase64(source.bytes) },

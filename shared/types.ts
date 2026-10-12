@@ -151,6 +151,8 @@ export interface StateResponse {
     google: "secret" | "stored" | "none";
     fal: "secret" | "stored" | "none";
     review: boolean;
+    /** Google Cloud (Vertex AI) service account, when one is saved; it takes over every Google call. */
+    vertex?: { project: string; location: string } | null;
   };
 }
 

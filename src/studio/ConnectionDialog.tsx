@@ -18,6 +18,7 @@ export interface EngineInfo {
   google: "secret" | "stored" | "none";
   fal: "secret" | "stored" | "none";
   review: boolean;
+  vertex?: { project: string; location: string } | null;
 }
 
 export default function ConnectionDialog({
@@ -38,8 +39,48 @@ export default function ConnectionDialog({
   const [openaiKey, setOpenaiKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
   const [savingGoogle, setSavingGoogle] = useState(false);
+  const [vertexJson, setVertexJson] = useState("");
+  const [vertexLocation, setVertexLocation] = useState("global");
+  const [savingVertex, setSavingVertex] = useState(false);
+
+  async function saveVertex() {
+    setSavingVertex(true);
+    try {
+      const r = await post<{ ok: boolean; message: string }>("/api/studio/engine/vertex", {
+        json: vertexJson,
+        location: vertexLocation,
+      });
+      setVertexJson("");
+      setResult(r);
+      await onChanged();
+      toast.success("Google Cloud service account saved and verified.");
+    } catch (e) {
+      setResult({ ok: false, message: (e as Error).message });
+    } finally {
+      setSavingVertex(false);
+    }
+  }
+
+  async function removeVertex() {
+    if (
+      !window.confirm(
+        "Remove the Google Cloud service account? Google calls go back to the AI Studio key, if one is saved.",
+      )
+    )
+      return;
+    try {
+      await del("/api/studio/engine/vertex");
+      setResult(null);
+      await onChanged();
+      toast.success("Google Cloud service account removed.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   const [falKey, setFalKey] = useState("");
-  const [vendor, setVendor] = useState<"higgsfield" | "google" | "openai" | "fal">("higgsfield");
+  const [vendor, setVendor] = useState<"higgsfield" | "google" | "vertex" | "openai" | "fal">(
+    "higgsfield",
+  );
   const [savingFal, setSavingFal] = useState(false);
   const [savingOpenai, setSavingOpenai] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
@@ -212,6 +253,7 @@ export default function ConnectionDialog({
             [
               ["higgsfield", "Higgsfield", engine.configured],
               ["google", "Google", engine.google !== "none"],
+              ["vertex", "Google Cloud", !!engine.vertex],
               ["openai", "OpenAI", engine.openai !== "none"],
               ["fal", "fal.ai", engine.fal !== "none"],
             ] as const
@@ -431,6 +473,78 @@ export default function ConnectionDialog({
                 )}
               </div>
             )}
+          </>
+        )}
+        {vendor === "vertex" && (
+          <>
+            <div className="qa-heading" style={{ marginTop: 12 }}>
+              <KeyRound size={18} />
+              <strong>Google Cloud (Vertex AI)</strong>
+            </div>
+            {engine.vertex ? (
+              <div className="success-note">
+                <Check size={19} />
+                Connected to project <b>{engine.vertex.project}</b> ({engine.vertex.location}).
+                Every Google call (Nano Banana, the prompt writer, the checks and the review) now
+                goes through Vertex AI and is billed to this project, so its Google Cloud credits
+                pay first.
+              </div>
+            ) : (
+              <p className="quality-note">
+                The same Nano Banana models billed to a Google Cloud project instead of the AI
+                Studio prepaid wallet, so the project&apos;s free credits can be used. Needs a
+                service account: in Google Cloud, enable the Vertex AI API on the project with the
+                credits, create a service account with the role <b>Vertex AI User</b>, add a JSON
+                key to it and paste the downloaded file here.
+              </p>
+            )}
+            <label className="field-label" htmlFor="vertex-json">
+              Service-account JSON file
+            </label>
+            <textarea
+              id="vertex-json"
+              className="prompt"
+              rows={6}
+              value={vertexJson}
+              onChange={(e) => setVertexJson(e.target.value)}
+              placeholder='{ "type": "service_account", "project_id": "...", "client_email": "...", "private_key": "-----BEGIN PRIVATE KEY-----..." }'
+              spellCheck={false}
+            />
+            <label className="field-label" htmlFor="vertex-location">
+              Location (global is recommended)
+            </label>
+            <input
+              id="vertex-location"
+              className="text-input"
+              value={vertexLocation}
+              onChange={(e) => setVertexLocation(e.target.value)}
+              placeholder="global"
+            />
+            <div className="footer-actions">
+              {engine.vertex && (
+                <button className="secondary danger" onClick={() => void removeVertex()}>
+                  <Trash2 size={16} /> Remove
+                </button>
+              )}
+              <span style={{ flex: 1 }} />
+              <button
+                className="primary"
+                disabled={savingVertex || vertexJson.trim().length < 20}
+                onClick={() => void saveVertex()}
+              >
+                {savingVertex ? (
+                  <LoaderCircle className="spinning" size={16} />
+                ) : (
+                  <Check size={16} />
+                )}
+                {engine.vertex ? "Replace" : "Save and verify"}
+              </button>
+            </div>
+            <p className="prompt-tip">
+              The file is verified with one tiny text call, then stored encrypted on the server.
+              Images run one at a time per request on Vertex; Economy mode (Flex) is an AI Studio
+              feature and is ignored while Vertex is connected.
+            </p>
           </>
         )}
         {vendor === "openai" && (

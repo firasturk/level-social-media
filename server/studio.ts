@@ -18,6 +18,7 @@ import {
 } from "./engine";
 import { OPENAI_MODELS } from "./openai";
 import { GOOGLE_MODELS } from "./google";
+import { parseServiceAccount, VertexImageClient } from "./vertex";
 import { FAL_MODELS } from "./fal";
 import { listSkills, saveSkillsOrder, setFavourite, readMoodBoard, writeMoodBoard } from "./skills";
 import { buildSkillFromReferences } from "./skillbuilder";
@@ -28,6 +29,9 @@ import {
   ENGINE_MODEL_SETTING,
   FAL_KEY_SETTING,
   GOOGLE_KEY_SETTING,
+  VERTEX_SETTING,
+  resolveVertex,
+  resolveGoogleAuth,
   MODES_SETTING,
   OPENAI_KEY_SETTING,
   ZAID_DIRECTION_SETTING,
@@ -150,7 +154,11 @@ studioRoutes.get("/state", async (c) => {
       openai: (await resolveOpenAIKey(c.env)).source,
       google: (await resolveGoogleKey(c.env)).source,
       fal: (await resolveFalKey(c.env)).source,
-      review: !!(await resolveGoogleKey(c.env)).key,
+      review: !!(await resolveGoogleAuth(c.env)).auth,
+      vertex: await (async () => {
+        const v = await resolveVertex(c.env);
+        return v ? { project: v.projectId, location: v.location } : null;
+      })(),
     },
   });
 });
@@ -177,6 +185,27 @@ studioRoutes.post("/engine/google-key", async (c) => {
   await setSetting(c.env, GOOGLE_KEY_SETTING, key);
   await deleteSetting(c.env, MODELS_CACHE);
   return c.json({ ok: true, message: check.message });
+});
+
+/** Google Cloud (Vertex AI): a service account for the project whose credits pay for Gemini. */
+studioRoutes.post("/engine/vertex", async (c) => {
+  const { json, location } = await body(
+    c,
+    z.object({ json: z.string().min(20).max(20000), location: z.string().max(40).optional() }),
+  );
+  const creds = parseServiceAccount(json, location || "global");
+  const check = await new VertexImageClient(creds).verify();
+  if (!check.ok)
+    throw new StudioError(`Google Cloud rejected the service account: ${check.message}`, 400);
+  await setSetting(c.env, VERTEX_SETTING, JSON.stringify(creds));
+  await deleteSetting(c.env, MODELS_CACHE);
+  return c.json({ ok: true, message: check.message });
+});
+
+studioRoutes.delete("/engine/vertex", async (c) => {
+  await deleteSetting(c.env, VERTEX_SETTING);
+  await deleteSetting(c.env, MODELS_CACHE);
+  return c.json({ ok: true });
 });
 
 studioRoutes.delete("/engine/google-key", async (c) => {
@@ -727,10 +756,10 @@ studioRoutes.get("/engine/models", async (c) => {
     }
   }
   const models: { slug: string; name: string; enabled: boolean; reason: string }[] = [];
-  const googleKey = (await resolveGoogleKey(c.env)).key;
-  if (googleKey) {
+  const googleAuth = (await resolveGoogleAuth(c.env)).auth;
+  if (googleAuth) {
     try {
-      const g = await makeGoogleClient(c.env, googleKey);
+      const g = await makeGoogleClient(c.env);
       for (const m of GOOGLE_MODELS) {
         const ok = await g.hasModel(m.slug);
         models.push({ ...m, enabled: ok, reason: ok ? "" : "not available to this Google key" });

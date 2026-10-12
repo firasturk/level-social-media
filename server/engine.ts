@@ -63,10 +63,12 @@ import {
   resolveEngineModel,
   resolveFalKey,
   resolveGoogleKey,
+  resolveGoogleAuth,
   resolveOpenAIKey,
   setSetting,
 } from "./settings";
 import { GoogleImageClient, isGoogleModel } from "./google";
+import { VertexImageClient } from "./vertex";
 import { FalClient, decodeFalHandle, encodeFalHandle, isFalModel } from "./fal";
 import { signObjectUrl } from "./signed";
 import {
@@ -176,8 +178,24 @@ export interface DriveOptions {
   deferSync?: boolean;
 }
 
-export async function makeGoogleClient(env: Env, key?: string): Promise<GoogleImageClient> {
-  const apiKey = key ?? (await resolveGoogleKey(env)).key;
+/** Either Google path: Vertex (the Cloud project's credits) when connected, else the AI Studio key. */
+export type GoogleEngine = GoogleImageClient | VertexImageClient;
+
+export async function makeGoogleClient(env: Env, key?: string): Promise<GoogleEngine> {
+  if (key) return new GoogleImageClient(key);
+  const { auth } = await resolveGoogleAuth(env);
+  if (!auth)
+    throw new StudioError(
+      "Google is not connected. Add the AI Studio key or the Google Cloud service account in Connection.",
+      428,
+      true,
+    );
+  return "vertex" in auth ? new VertexImageClient(auth.vertex) : new GoogleImageClient(auth.key);
+}
+
+/** The AI Studio client only (background Flex jobs exist there alone). */
+export async function makeGoogleApiClient(env: Env): Promise<GoogleImageClient> {
+  const apiKey = (await resolveGoogleKey(env)).key;
   if (!apiKey)
     throw new StudioError("Google is not connected. Add the API key in Connection.", 428, true);
   return new GoogleImageClient(apiKey);
@@ -394,7 +412,7 @@ async function storeResultBytes(
   );
 
   let qa: QA;
-  const googleKey = (await resolveGoogleKey(env)).key;
+  const googleKey = (await resolveGoogleAuth(env)).auth;
   const openaiKey = googleKey ? null : (await resolveOpenAIKey(env)).key;
   if (googleKey || openaiKey) {
     try {
@@ -605,11 +623,11 @@ async function submitNext(
       return;
     }
   } else if (google) {
-    if (!(await resolveGoogleKey(env)).key) {
+    if (!(await resolveGoogleAuth(env)).auth) {
       await pauseBatch(
         env,
         batch.id,
-        "Google is not connected. Add the API key in Connection and resume.",
+        "Google is not connected. Add the AI Studio key or the Google Cloud service account in Connection and resume.",
       );
       return;
     }
@@ -636,6 +654,7 @@ async function submitNext(
   let candidates = await eligibleQueued(env, batch, config, slots);
   if (SKILL_MODES.has(config.mode)) candidates = candidates.filter((t) => !!t.brief);
   const client = openai || google || fal ? null : await makeClient(env, undefined, config.model);
+  const vertexActive = google ? !!(await resolveGoogleAuth(env)).vertex : false;
 
   for (const task of candidates) {
     // An image moved to another engine after a refusal runs on that engine, with that engine's rules.
@@ -643,7 +662,9 @@ async function submitNext(
     const tFal = isFalModel(cfg.model);
     const tGoogle = isGoogleModel(cfg.model);
     const tOpenai = isOpenAIModel(cfg.model);
-    if (deferSync && (tOpenai || (tGoogle && !cfg.economy))) continue;
+    // Economy (Flex, background) exists on the AI Studio path only; Vertex always runs synchronously.
+    const economy = !!cfg.economy && !vertexActive;
+    if (deferSync && (tOpenai || (tGoogle && !economy))) continue;
     const token = uuid();
     const claimed = await run(
       env.DB,
@@ -661,7 +682,7 @@ async function submitNext(
     try {
       const requestId = tFal
         ? await submitFalTask(env, batch, cfg, task)
-        : tGoogle && cfg.economy
+        : tGoogle && economy
           ? await submitGoogleBackgroundTask(env, batch, cfg, task)
           : tOpenai || tGoogle
             ? await submitOpenAITask(env, batch, cfg, task, token, background)
@@ -704,7 +725,7 @@ function taskConfig(config: Config, task: TaskRow): Config {
  */
 async function contentFallbackModel(env: Env, current: string | undefined): Promise<string | null> {
   const candidates: string[] = [];
-  if ((await resolveGoogleKey(env)).key) candidates.push("gemini-3-pro-image");
+  if ((await resolveGoogleAuth(env)).auth) candidates.push("gemini-3-pro-image");
   if (await engineConfigured(env)) candidates.push("nano-banana-pro");
   if ((await resolveOpenAIKey(env)).key) candidates.push("gpt-image-1");
   return candidates.find((m) => m !== current) ?? null;
@@ -942,7 +963,7 @@ async function ensureBrief(
   }
   // The builder follows the image engine's vendor when possible (OpenAI model -> OpenAI builder),
   // so one key is enough and errors come from a single provider.
-  const google = (await resolveGoogleKey(env)).key;
+  const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
   if (!google && !openai)
     throw new StudioError(
@@ -1292,7 +1313,7 @@ export async function readPendingReferences(env: Env, limit = 4): Promise<number
     limit,
   );
   if (!rows.length) return 0;
-  const google = (await resolveGoogleKey(env)).key;
+  const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
   if (!google && !openai) return 0;
   let done = 0;
@@ -1324,7 +1345,7 @@ async function askVision(
   images: ImageBytes[],
   schema: unknown,
 ): Promise<string> {
-  const google = (await resolveGoogleKey(env)).key;
+  const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
   if (!google && !openai) throw new StudioError("Connect Google or OpenAI first.", 428, true);
   if (!google) return askVisionOpenAI(openai!, instruction, images, fetch, "gpt-4.1-mini");
@@ -1793,7 +1814,7 @@ async function submitGoogleBackgroundTask(
   const { images, roles, source } = await collectReferenceBytes(env, batch, config, task);
   const edit = task.edit?.trim() ?? "";
   const prompt = await promptFor(env, batch, config, task, source, edit, roles);
-  const client = await makeGoogleClient(env);
+  const client = await makeGoogleApiClient(env);
   const id = await client.submitFlex({
     model: config.model!,
     prompt,
@@ -1815,7 +1836,7 @@ async function finalizeGoogleFlex(
   const age = now() - (task.leased_at ?? now());
   let client: GoogleImageClient;
   try {
-    client = await makeGoogleClient(env);
+    client = await makeGoogleApiClient(env);
   } catch {
     return;
   }

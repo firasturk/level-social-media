@@ -6,6 +6,7 @@
  */
 import { skillById, type SkillDef } from "@shared/skills";
 import { zaidSkill } from "@shared/zaid";
+import { isVertexAuth, vertexText, type GoogleAuth } from "./vertex";
 import {
   composeFixedRules,
   DEFAULT_DIRECTION_RULES,
@@ -305,16 +306,25 @@ export const GOOGLE_TEXT_MODELS = [
 ];
 
 export async function buildBriefWithGoogle(
-  key: string,
+  key: GoogleAuth | string,
   req: EditorialRequest,
   fetchImpl: typeof fetch = fetch,
   model?: string,
 ): Promise<EditorialBrief> {
+  if (isVertexAuth(key))
+    return parseBrief(
+      await vertexText(key.vertex, builderInstruction(req), imageParts(req), SCHEMA, fetchImpl),
+    );
   const candidates = model ? [model] : GOOGLE_TEXT_MODELS;
   let lastError: StudioError | null = null;
   for (const m of candidates) {
     try {
-      return await buildBriefWithGoogleModel(key, req, fetchImpl, m);
+      return await buildBriefWithGoogleModel(
+        typeof key === "string" ? key : key.key,
+        req,
+        fetchImpl,
+        m,
+      );
     } catch (e) {
       if (e instanceof StudioError && /\(404\)/.test(e.message)) {
         lastError = e;
@@ -328,13 +338,15 @@ export async function buildBriefWithGoogle(
 
 /** One vision call to Google returning the model's JSON text (schema-constrained). */
 export async function askVisionGoogle(
-  key: string,
+  auth: GoogleAuth | string,
   instruction: string,
   images: ImageBytes[],
   schema: unknown,
   fetchImpl: typeof fetch = fetch,
   model?: string,
 ): Promise<string> {
+  if (isVertexAuth(auth)) return vertexText(auth.vertex, instruction, images, schema, fetchImpl);
+  const key = typeof auth === "string" ? auth : auth.key;
   const candidates = model ? [model] : GOOGLE_TEXT_MODELS;
   let lastError: StudioError | null = null;
   for (const m of candidates) {
