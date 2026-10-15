@@ -861,8 +861,10 @@ postRoutes.put("/plan", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   config.plan = d.plan.map((p, i) => ({ ...p, index: i + 1 }));
+  // Adding or removing posts by hand sets the month's count, so Regenerate ideas keeps that number.
+  if (config.plan.length) config.postCount = config.plan.length;
   await saveConfig(c.env, b, config);
-  return c.json({ ok: true, plan: config.plan });
+  return c.json({ ok: true, plan: config.plan, postCount: config.postCount });
 });
 
 /** Month settings: theme, format, engine, count, notes. */
