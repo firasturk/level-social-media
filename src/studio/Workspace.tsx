@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import { del, get, post, postForm, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
-import { buildZips, saveZips, type ZipEntry } from "@/lib/zip";
-import { canvasBlob, loadFont, renderOverlay } from "@/lib/overlay";
+import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
+import { canvasBlob, loadFont, loadImage, renderOverlay } from "@/lib/overlay";
+import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, postFileName, type Format, type Post } from "@shared/posts";
@@ -470,6 +471,54 @@ export default function Workspace({
     }
   }
 
+  /** One long PDF page: cover, Instagram-style feed of the month, a note per post, thank-you. */
+  async function exportFeedPdf() {
+    if (!batch || !client || exporting) return;
+    const ready = tasks.filter((t) => !!t.output && t.post).sort((a, b) => a.post! - b.post!);
+    if (!ready.length) {
+      toast.error("No generated posts yet.");
+      return;
+    }
+    setExporting(true);
+    try {
+      const posts: FeedPost[] = [];
+      for (const t of ready) {
+        const p = plan.find((x) => x.index === t.post);
+        if (!p) continue;
+        const withText =
+          showOverlay &&
+          overlaySpec.template !== "none" &&
+          p.overlay !== false &&
+          !!(p.headline || p.subline || logoSrc);
+        const image = withText
+          ? await renderOverlay(
+              outputUrl(t),
+              overlaySpec,
+              { headline: p.headline, subline: p.subline },
+              logoSrc,
+              1080,
+              { patch: p.ov },
+            )
+          : await loadImage(outputUrl(t));
+        posts.push({ post: p, image });
+      }
+      const theme = themes.find((t) => t.id === themeId);
+      const blob = await buildFeedPdf({
+        client,
+        month,
+        logo: logoSrc ? await loadImage(logoSrc).catch(() => null) : null,
+        direction: config?.notes || theme?.direction || theme?.description || "",
+        posts,
+      });
+      saveBlob(blob, `${client.slug}_${month}_feed.pdf`);
+      toast.success("Feed PDF downloaded.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function deletePlan() {
     if (!batch || active) return;
     if (!(await askConfirm(`Delete ${client?.name ?? ""} · ${month} with its products and posts?`, { ok: "Delete" }))) return;
@@ -634,6 +683,7 @@ export default function Workspace({
                 onGeneratePosts={(i, r) => void generatePosts(i, r)}
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}
+                onExportPdf={() => void exportFeedPdf()}
                 onDeletePlan={() => void deletePlan()}
                 paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
                 onResume={() => void resumeMonth()}

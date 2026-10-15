@@ -4,6 +4,7 @@ import {
   Download,
   AlertTriangle,
   Eye,
+  FileText,
   Grid3x3,
   ImagePlus,
   Lightbulb,
@@ -62,6 +63,7 @@ export default function PlanView({
   onGeneratePosts,
   onOpen,
   onExport,
+  onExportPdf,
   onDeletePlan,
   paused,
   onResume,
@@ -103,6 +105,8 @@ export default function PlanView({
   onGeneratePosts: (indexes?: number[], regenerate?: boolean) => void;
   onOpen: (t: Task) => void;
   onExport: () => void;
+  /** The month as one long PDF page: cover, Instagram-style feed, a note per post, thank-you. */
+  onExportPdf: () => void;
   onDeletePlan: () => void;
 }) {
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
@@ -241,6 +245,15 @@ export default function PlanView({
           <button className="secondary" onClick={onExport} disabled={!generated || exporting}>
             {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />}
             Export
+          </button>
+          <button
+            className="secondary"
+            onClick={onExportPdf}
+            disabled={!generated || exporting}
+            title="One long PDF page: cover with the logo, the month as an Instagram feed, a note per post, thank-you"
+          >
+            <FileText size={15} />
+            Feed PDF
           </button>
           <button
             className="icon-button"

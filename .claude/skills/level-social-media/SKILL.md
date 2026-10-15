@@ -190,3 +190,11 @@ where to click, then commit.
 - Engine rate limits wait, they do not spend attempts; an empty balance pauses the batch with a
   top-up message naming the vendor.
 - Settings holding keys are encrypted at rest and never returned by the API.
+
+### Added 15 October 2026 (evening)
+- **Feed PDF** (month toolbar): one long PDF page built in the browser (`src/lib/feedPdf.ts` renders canvases, `src/lib/pdf.ts` writes the PDF): cover with the client's logo, name and month; an Instagram-style profile with the posts in a 3-column grid (newest first, 4:5 tiles, overlay included when the Overlay toggle is on); the month's direction and a note per post (type, headline, brief, caption); a thank-you on black.
+- Posts per month is a free number up to 60 (`MAX_POST_COUNT`).
+- Pins are read through Pinterest's pin-info/oEmbed endpoints (the pin page returns the Pinterest logo to servers).
+- Destructive actions confirm with an in-page dialog (`src/lib/confirm.tsx`), never `window.confirm`.
+- The engine moves a month to the connected vendor's model before submitting; a paused month shows its reason and a Resume button.
+- Product names from the ideas writer are matched loosely to uploads (`matchProduct`).

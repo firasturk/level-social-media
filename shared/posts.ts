@@ -83,7 +83,7 @@ export const FORMAT_INFO: Record<Format, { label: string; pixels: string }> = {
 };
 
 export const DEFAULT_POST_COUNT = 12;
-export const MAX_POST_COUNT = 30;
+export const MAX_POST_COUNT = 60;
 
 /** One planned post of a month. Edited by the designer before and after generation. */
 export interface Post {
