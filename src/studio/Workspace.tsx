@@ -306,6 +306,29 @@ export default function Workspace({
     }
   }
 
+  /** A different idea for one post (same type and product), then that post is generated again. */
+  async function newIdea(index: number) {
+    if (!batch) return;
+    if (!googleReady && engine.openai === "none") {
+      setConnection(true);
+      return;
+    }
+    setBusy("reidea");
+    try {
+      const r = await post<{ post: Post }>("/api/studio/posts/reidea", { batch: batch.id, index });
+      await refresh();
+      toast.success(`New idea for post ${index}: "${r.post.title}". Generating it.`);
+      if (engineConnected) {
+        await post("/api/studio/posts/generate", { batch: batch.id, indexes: [index], regenerate: true });
+        await refresh();
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function generateIdeas(notes: string) {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
@@ -689,6 +712,7 @@ export default function Workspace({
                 onUploadProducts={(files) => void uploadProducts(files)}
                 onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}
+                onNewIdea={(i) => void newIdea(i)}
                 onPostCount={(n) => void updateSettings({ postCount: n })}
                 onSavePlan={(p) => void savePlan(p)}
                 onGeneratePosts={(i, r) => void generatePosts(i, r)}

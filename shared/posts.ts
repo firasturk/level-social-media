@@ -135,6 +135,8 @@ export interface PostBrief {
   /** The client's ALWAYS and NEVER rules from the brand kit. */
   always?: string;
   never?: string;
+  /** Which take of this post this is; takes after the first ask for a different picture. */
+  take?: number;
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
   grid?: string;
   tile?: string;
@@ -194,6 +196,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       "The last image is the previous result of this post: apply the revision below to it and keep everything else.",
     );
   if (b.hasProduct && b.product) parts.push(`THE PRODUCT IN IMAGE 1: ${b.product.trim()}`);
+  if ((b.take ?? 1) > 1)
+    parts.push(
+      `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
+    );
   parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${b.title}\n${b.brief.trim()}`);
   const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
@@ -538,4 +544,23 @@ export const PRODUCT_NOTE_SCHEMA = {
 /** Reads one product photo: what the item is, in one line, for the ideas writer and the prompt. */
 export function productNoteInstruction(name: string): string {
   return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, and any readable brand or flavour text on it. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
+}
+
+/** One fresh idea for a single post of a month that is already planned. */
+export function singleIdeaInstruction(
+  r: IdeasRequest,
+  post: Post,
+  others: string[],
+  wish: string,
+): string {
+  const base = ideasInstruction({ ...r, count: 1 });
+  return [
+    base,
+    `THIS IS A REPLACEMENT for post ${post.index} of a month already planned. Keep its type (${post.type})${post.product ? ` and its product (${post.product}, exact name in the product field)` : ""}, and write a NEW idea for it: a different scene, angle, action and headline from the one it replaces ("${post.title}": ${post.brief.slice(0, 300)}).`,
+    others.length ? `It must not repeat these other posts of the month: ${others.join(" · ")}.` : "",
+    wish.trim() ? `THE DESIGNER ASKS FOR: ${wish.trim()}` : "",
+    'Return ONLY JSON: {"posts": [one post]}.',
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

@@ -61,6 +61,7 @@ export default function PlanView({
   onUploadProducts,
   onRemoveProduct,
   onGenerateIdeas,
+  onNewIdea,
   onPostCount,
   onSavePlan,
   onGeneratePosts,
@@ -106,6 +107,8 @@ export default function PlanView({
   onUploadProducts: (files: File[]) => void;
   onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
+  /** A fresh idea for one post, then that post is generated again. */
+  onNewIdea: (index: number) => void;
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
   onSavePlan: (plan: Post[]) => void;
@@ -124,8 +127,19 @@ export default function PlanView({
   const [gridPicker, setGridPicker] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [animating, setAnimating] = useState<number | null>(null);
-  useEffect(() => setDraft(plan), [plan]);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(plan);
+  // The plan arrives as a new array on every refresh tick while images generate; the draft only
+  // follows it when its content actually changed, so typing is never wiped mid-edit.
+  const planKey = JSON.stringify(plan);
+  useEffect(() => setDraft(plan), [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dirty = JSON.stringify(draft) !== planKey;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  /** Edits save themselves when the designer clicks out of a field. */
+  function autosave() {
+    if (dirtyRef.current) onSavePlan(draftRef.current);
+  }
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
   // A post is due when it has no image, failed, or was generated before the plan was rewritten
@@ -156,7 +170,9 @@ export default function PlanView({
       caption: "",
       hashtags: "",
     };
-    setDraft((d) => [...d, next]);
+    const all = [...draft, next];
+    setDraft(all);
+    onSavePlan(all);
   }
 
   const dropProps = {
@@ -425,7 +441,7 @@ export default function PlanView({
         <>
           <div className="posts-head">
             <strong>Posts</strong>
-            <span>Edit the brief and the caption of any post before generating; a post can be regenerated alone.</span>
+            <span>Edit any text; it saves when you click out. New idea rewrites a post, Regenerate makes a different take of it.</span>
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => onSavePlan(draft)}>
@@ -437,7 +453,7 @@ export default function PlanView({
               </span>
             )}
           </div>
-          <div className={`post-grid f-${format.replace(":", "x")}`}>
+          <div className={`post-grid f-${format.replace(":", "x")}`} onBlur={autosave}>
             {draft.map((p) => {
               const t = taskOf(p.index);
               const img = t?.output ? outputUrl(t) : null;
@@ -595,13 +611,22 @@ export default function PlanView({
                           </button>
                         </>
                       )}
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() => onNewIdea(p.index)}
+                        disabled={inFlight || running || busy === "reidea"}
+                        title="Write a different idea for this post (new scene, action and headline; same type and product), then generate it"
+                      >
+                        {busy === "reidea" ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} New idea
+                      </button>
                       {t?.output ? (
                         <button
                           type="button"
                           className="text-button"
                           onClick={() => onGeneratePosts([p.index], true)}
                           disabled={inFlight || running || dirty}
-                          title={dirty ? "Save changes first" : "Generate this post again"}
+                          title={dirty ? "Save changes first" : "A clearly different take on the same brief: new angle, set and placement"}
                         >
                           <RefreshCw size={13} /> Regenerate
                         </button>

@@ -30,6 +30,8 @@ import {
   parseIdeas,
   PRODUCT_NOTE_SCHEMA,
   productNoteInstruction,
+  singleIdeaInstruction,
+  type IdeasRequest,
   POST_TYPES,
   postFileName,
   THEME_SCHEMA,
@@ -611,6 +613,90 @@ async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> 
 }
 
 /** "Generate ideas": the text model plans the month from the brand kit, the theme and the products. */
+/** The fixed part of an ideas request: the client, its theme and its products. */
+function ideasContext(
+  client: ClientRow,
+  theme: ThemeRow | null,
+  config: Config,
+  products: string[],
+  productNotes: Record<string, string>,
+): Omit<IdeasRequest, "count"> {
+  return {
+    clientName: client.name,
+    tone: client.tone,
+    dos: client.dos,
+    donts: client.donts,
+    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
+      | "ar"
+      | "en"
+      | "both",
+    palette: paletteOf(client),
+    style: client.style,
+    themeTitle: theme?.title ?? "",
+    themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
+    themeLibrary: theme?.library ?? "",
+    props: theme?.props ?? "",
+    products,
+    productNotes,
+    month: config.month ?? "",
+    notes: config.notes,
+  };
+}
+
+/** A fresh idea for one post: new scene, action and headline; same type and product. */
+postRoutes.post("/reidea", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      index: z.number().int().min(1).max(MAX_POST_COUNT),
+      wish: z.string().max(1000).optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  const current = plan.find((p) => p.index === d.index);
+  if (!current) throw new StudioError("That post is not in the plan.", 404);
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme
+    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    : null;
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(c.env, sources);
+  const products = [...new Set(sources.map(productName))];
+  const productNotes = Object.fromEntries(
+    sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
+  );
+  const others = plan.filter((p) => p.index !== d.index).map((p) => p.title);
+  const instruction = singleIdeaInstruction(
+    { ...ideasContext(client, theme, config, products, productNotes), count: 1 },
+    current,
+    others,
+    d.wish ?? "",
+  );
+  const [fresh] = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), 1, products);
+  if (!fresh) throw new StudioError("The model returned no usable idea. Try again.", 502);
+  const next: Post = {
+    ...current,
+    type: current.type,
+    product: current.product ?? fresh.product,
+    title: fresh.title,
+    brief: fresh.brief,
+    caption: fresh.caption,
+    hashtags: fresh.hashtags,
+    headline: fresh.headline,
+    subline: fresh.subline,
+  };
+  config.plan = plan.map((p) => (p.index === d.index ? next : p));
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true, post: next });
+});
+
 postRoutes.post("/ideas", async (c) => {
   const d = await body(
     c,
@@ -639,23 +725,7 @@ postRoutes.post("/ideas", async (c) => {
   );
   const count = d.count ?? config.postCount ?? 12;
   const instruction = ideasInstruction({
-    clientName: client.name,
-    tone: client.tone,
-    dos: client.dos,
-    donts: client.donts,
-    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
-      | "ar"
-      | "en"
-      | "both",
-    palette: paletteOf(client),
-    style: client.style,
-    themeTitle: theme?.title ?? "",
-    themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
-    themeLibrary: theme?.library ?? "",
-    props: theme?.props ?? "",
-    products,
-    productNotes,
-    month: config.month ?? "",
+    ...ideasContext(client, theme, config, products, productNotes),
     count,
     notes: d.notes ?? config.notes,
     types: d.types,
@@ -933,8 +1003,17 @@ postRoutes.post("/generate", async (c) => {
         });
       }
     }
+    let take = 1;
+    if (existing?.brief && d.regenerate) {
+      try {
+        take = ((JSON.parse(existing.brief) as Partial<PostBrief>).take ?? 1) + 1;
+      } catch {
+        take = 2;
+      }
+    }
     const brief: PostBrief = {
       post: true,
+      take,
       index: post.index,
       type: post.type,
       title: post.title,
