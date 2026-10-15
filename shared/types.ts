@@ -1,4 +1,5 @@
 import type { Config } from "./config";
+import type { OverlaySpec } from "./overlay";
 
 export type TaskStatus = "queued" | "processing" | "ready" | "review" | "approved" | "failed";
 export type BatchState = "idle" | "running" | "paused";
@@ -175,6 +176,10 @@ export interface Client {
   /** Number of batches filed under this client. */
   batches: number;
   updated: number;
+  /** Headline and logo placement drawn over each post; null = the Clean template. */
+  overlay: Partial<OverlaySpec> | null;
+  /** Uploaded brand font files, served at /clients/:id/fonts/:id/file. */
+  fontFiles: { id: string; name: string }[];
 }
 
 /** Team overrides for a production approach card. */

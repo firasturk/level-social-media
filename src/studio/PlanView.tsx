@@ -8,10 +8,13 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Type,
   Wand2,
   X,
 } from "lucide-react";
 import type { Client, Source, Task } from "@shared/types";
+import type { OverlaySpec } from "@shared/overlay";
+import OverlayPreview from "./OverlayPreview";
 import {
   POST_TYPE_INFO,
   POST_TYPES,
@@ -37,6 +40,10 @@ export default function PlanView({
   exporting,
   sourceUrl,
   outputUrl,
+  overlay,
+  logoSrc,
+  showOverlay,
+  onShowOverlay,
   onUploadProducts,
   onRemoveProduct,
   onGenerateIdeas,
@@ -60,6 +67,11 @@ export default function PlanView({
   exporting: boolean;
   sourceUrl: (id: string) => string;
   outputUrl: (t: Task) => string;
+  /** The client's overlay spec and logo, drawn over generated posts in the preview and the export. */
+  overlay: OverlaySpec;
+  logoSrc: string | null;
+  showOverlay: boolean;
+  onShowOverlay: (on: boolean) => void;
   onUploadProducts: (files: File[]) => void;
   onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
@@ -172,6 +184,16 @@ export default function PlanView({
             {running ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
             {running ? "Generating…" : pending ? `Generate ${pending} posts` : "All posts generated"}
           </button>
+          <button
+            type="button"
+            className={`secondary toggle ${showOverlay ? "on" : ""}`}
+            onClick={() => onShowOverlay(!showOverlay)}
+            title="Show the headline and logo drawn over the posts"
+            aria-pressed={showOverlay}
+          >
+            <Type size={15} />
+            Overlay
+          </button>
           <button className="secondary" onClick={onExport} disabled={!generated || exporting}>
             {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />}
             Export
@@ -271,7 +293,16 @@ export default function PlanView({
               return (
                 <article key={p.index} className={`post-card ${t?.status ?? "idea"}`}>
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>
-                    {img ? (
+                    {img && showOverlay && p.overlay !== false ? (
+                      <OverlayPreview
+                        src={img}
+                        spec={overlay}
+                        text={{ headline: p.headline, subline: p.subline }}
+                        logoSrc={logoSrc}
+                        width={720}
+                        alt={p.title}
+                      />
+                    ) : img ? (
                       <img src={img} alt={p.title} loading="lazy" />
                     ) : (
                       <img
@@ -331,6 +362,32 @@ export default function PlanView({
                       placeholder="Title"
                       aria-label="Title"
                     />
+                    <div className="post-overlay-fields">
+                      <input
+                        value={p.headline ?? ""}
+                        dir="auto"
+                        onChange={(e) => patch(p.index, { headline: e.target.value })}
+                        placeholder="Headline on the image"
+                        aria-label="Headline"
+                        disabled={p.overlay === false}
+                      />
+                      <input
+                        value={p.subline ?? ""}
+                        dir="auto"
+                        onChange={(e) => patch(p.index, { subline: e.target.value })}
+                        placeholder="Second line"
+                        aria-label="Second line"
+                        disabled={p.overlay === false}
+                      />
+                      <label className="post-overlay-toggle" title="Draw the headline and logo on this post">
+                        <input
+                          type="checkbox"
+                          checked={p.overlay !== false}
+                          onChange={(e) => patch(p.index, { overlay: e.target.checked ? undefined : false })}
+                        />
+                        Text on image
+                      </label>
+                    </div>
                     <textarea
                       rows={3}
                       value={p.brief}

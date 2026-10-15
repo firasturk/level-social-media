@@ -50,8 +50,16 @@ Firas reviewed the first build and reset the product. These decisions win over t
 - Server: `server/posts.ts` (themes, ideas, plan, generate, caption, captions.csv, imports,
   product removal). Prompt: `buildPostPrompt` in `shared/posts.ts`. Engine: `mode === "post"`
   branches in `server/engine.ts` (prompt, reference image, no fashion review).
-- Still to do: overlay layer (headline/CTA/logo in the brand fonts), per-post format, scheduling
-  export, Pinterest board sync through the official API (needs a Pinterest developer app).
+- **Overlay** (done 15 Oct): `shared/overlay.ts` holds `OverlaySpec` (every metric a fraction of the
+  canvas width) and the templates taken from the clients' Design Systems in Claude (`united`,
+  `abusaleh`, `habibah`, `clean`, `none`). `src/lib/overlay.ts` draws logo, headline, sub-line and
+  scrim on a canvas in the browser; the ideas model writes `headline`/`subline` per post; the
+  export ships the overlaid JPG plus a `clean/` copy. Brand font files live in `brand_assets`
+  (kind `font`) and are served at `/clients/:id/fonts/:id/file`; `clients.overlay` stores the spec.
+  Habibah, United Insurance and Abu Saleh brand kits, logos, fonts and reference posts were
+  imported from their Design System artifacts (claude.ai/artifact/75cn…, T6XZ…, VHWG…).
+- Still to do: per-post format, scheduling export, Pinterest board sync through the official
+  API (needs a Pinterest developer app), Abira and Jubilee brand kits (no Design System yet).
 
 ## How to work with Firas
 

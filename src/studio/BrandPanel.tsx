@@ -21,6 +21,14 @@ import ReferenceLibrary from "./ReferenceLibrary";
 import type { Client, EngineModel, Theme } from "@shared/types";
 import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
 import { SIZES, type Size } from "@shared/config";
+import {
+  HOSTED_FONTS,
+  OVERLAY_TEMPLATES,
+  resolveOverlay,
+  type OverlaySpec,
+  type OverlayTemplate,
+} from "@shared/overlay";
+import { postForm } from "@/api";
 
 export interface OutputSettings {
   model: string;
@@ -68,6 +76,7 @@ export default function BrandPanel({
         onTheme={onTheme}
         onThemesChanged={onThemesChanged}
       />
+      <OverlaySection client={client} onClientsChanged={onClientsChanged} />
       <Section title="Output" subtitle="Engine, size and count" defaultOpen={false}>
         <label className="field-label">Image engine</label>
         <Select
@@ -683,6 +692,225 @@ function ThemeSection({
               <pre>{current.library}</pre>
             </details>
           )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+/* ───────────── Overlay: headline and logo placement ───────────── */
+
+const TEMPLATE_LABEL: Record<OverlayTemplate, string> = {
+  united: "Photo post · logo top, headline bottom (United)",
+  abusaleh: "Logo top, playful headline under it (Abu Saleh)",
+  habibah: "Centred logo, headline bottom, gold sub-line (Habibah)",
+  clean: "Clean · logo corner, headline bottom-left",
+  none: "No overlay (image only)",
+};
+
+/** Pixel on a 1080-wide canvas <-> fraction of the width stored in the spec. */
+const px = (f: number) => Math.round(f * 1080);
+const frac = (p: number) => Math.max(0, Number(p) || 0) / 1080;
+
+function OverlaySection({
+  client,
+  onClientsChanged,
+}: {
+  client: Client;
+  onClientsChanged: (clients: Client[]) => void;
+}) {
+  const [spec, setSpec] = useState<OverlaySpec>(() => resolveOverlay(client.overlay));
+  const [saving, setSaving] = useState(false);
+  const [fontBusy, setFontBusy] = useState(false);
+  useEffect(() => setSpec(resolveOverlay(client.overlay)), [client]);
+  const dirty = JSON.stringify(spec) !== JSON.stringify(resolveOverlay(client.overlay));
+  const fontNames = [...new Set([...client.fontFiles.map((f) => f.name), ...HOSTED_FONTS])];
+
+  const patchHeadline = (p: Partial<OverlaySpec["headline"]>) =>
+    setSpec((o) => ({ ...o, headline: { ...o.headline, ...p } }));
+  const patchSubline = (p: Partial<OverlaySpec["subline"]>) =>
+    setSpec((o) => ({ ...o, subline: { ...o.subline, ...p } }));
+  const patchLogo = (p: Partial<OverlaySpec["logo"]>) =>
+    setSpec((o) => ({ ...o, logo: { ...o.logo, ...p } }));
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, { overlay: spec });
+      onClientsChanged(r.clients);
+      toast.success("Overlay saved.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function uploadFont(file: File | undefined) {
+    if (!file) return;
+    const name = window.prompt("Font family name (as written in the overlay):", file.name.replace(/\.[^.]+$/, "").replace(/[-_]?(regular|bold|semibold|medium)$/i, ""));
+    if (!name?.trim()) return;
+    setFontBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("name", name.trim());
+      const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/fonts`, form);
+      onClientsChanged(r.clients);
+      toast.success(`Font "${name.trim()}" added.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setFontBusy(false);
+    }
+  }
+
+  async function removeFont(id: string, name: string) {
+    if (!window.confirm(`Remove the font "${name}"?`)) return;
+    try {
+      const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/fonts/${id}`);
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  const fontField = (value: string, onChange: (v: string) => void, label: string) => (
+    <>
+      <input
+        list={`fonts-${client.id}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        placeholder="Font family"
+      />
+    </>
+  );
+
+  return (
+    <Section
+      title="Overlay"
+      subtitle="Headline, sub-line and logo drawn over each post"
+      defaultOpen={false}
+      actions={
+        dirty ? (
+          <div className="bp-save">
+            <button className="primary" onClick={() => void save()} disabled={saving}>
+              {saving ? <LoaderCircle className="spinning" size={15} /> : null} Save overlay
+            </button>
+            <button className="text-button" onClick={() => setSpec(resolveOverlay(client.overlay))}>
+              Discard
+            </button>
+          </div>
+        ) : null
+      }
+    >
+      <datalist id={`fonts-${client.id}`}>
+        {fontNames.map((f) => (
+          <option key={f} value={f} />
+        ))}
+      </datalist>
+      <label className="field-label">Layout</label>
+      <Select
+        value={spec.template}
+        onValueChange={(t) =>
+          setSpec(t === "none" ? { ...resolveOverlay({ template: "none" }) } : { ...OVERLAY_TEMPLATES[t as Exclude<OverlayTemplate, "none">] })
+        }
+      >
+        <SelectTrigger aria-label="Overlay layout">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(Object.keys(TEMPLATE_LABEL) as OverlayTemplate[]).map((t) => (
+            <SelectItem key={t} value={t}>
+              {TEMPLATE_LABEL[t]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {spec.template !== "none" && (
+        <>
+          <div className="field-row">
+            <label className="field-label">Brand fonts</label>
+            <label className="text-button">
+              {fontBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Add font file
+              <input type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => void uploadFont(e.target.files?.[0])} />
+            </label>
+          </div>
+          {client.fontFiles.length ? (
+            <div className="font-list">
+              {client.fontFiles.map((f) => (
+                <span key={f.id} className="font-chip" style={{ fontFamily: `"${f.name}", Tajawal, sans-serif` }}>
+                  {f.name}
+                  <button type="button" className="icon-button" aria-label={`Remove ${f.name}`} onClick={() => void removeFont(f.id, f.name)}>
+                    <Trash2 size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="prompt-tip">
+              No font files yet. Hosted fonts work without a file: {HOSTED_FONTS.join(", ")}. Upload a .ttf or .woff2 for any other family.
+            </div>
+          )}
+          <label className="field-label">Logo</label>
+          <div className="field-grid three">
+            <Select value={spec.logo.position} onValueChange={(v) => patchLogo({ position: v as OverlaySpec["logo"]["position"] })}>
+              <SelectTrigger aria-label="Logo position"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="top-center">Top centre</SelectItem>
+                <SelectItem value="top-left">Top left</SelectItem>
+                <SelectItem value="top-right">Top right</SelectItem>
+                <SelectItem value="bottom-center">Bottom centre</SelectItem>
+                <SelectItem value="none">No logo</SelectItem>
+              </SelectContent>
+            </Select>
+            <label className="num"><span>Width</span><input type="number" value={px(spec.logo.width)} onChange={(e) => patchLogo({ width: frac(Number(e.target.value)) })} /></label>
+            <label className="num"><span>From edge</span><input type="number" value={px(spec.logo.top)} onChange={(e) => patchLogo({ top: frac(Number(e.target.value)) })} /></label>
+          </div>
+          <label className="field-label">Headline</label>
+          <div className="field-grid">
+            {fontField(spec.headline.font, (font) => patchHeadline({ font }), "Headline font")}
+            <Select value={spec.headline.position} onValueChange={(v) => patchHeadline({ position: v as OverlaySpec["headline"]["position"] })}>
+              <SelectTrigger aria-label="Headline position"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="bottom">Bottom</SelectItem>
+                <SelectItem value="top">Top</SelectItem>
+                <SelectItem value="center">Centre</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="field-grid three">
+            <label className="num"><span>Size</span><input type="number" value={px(spec.headline.size)} onChange={(e) => patchHeadline({ size: frac(Number(e.target.value)) })} /></label>
+            <label className="num"><span>Weight</span><input type="number" step={100} min={100} max={900} value={spec.headline.weight} onChange={(e) => patchHeadline({ weight: Number(e.target.value) || 400 })} /></label>
+            <label className="num"><span>From edge</span><input type="number" value={px(spec.headline.inset)} onChange={(e) => patchHeadline({ inset: frac(Number(e.target.value)) })} /></label>
+          </div>
+          <div className="field-grid three">
+            <label className="num"><span>Colour</span><input type="color" value={spec.headline.color} onChange={(e) => patchHeadline({ color: e.target.value })} /></label>
+            <label className="num"><span>Drop colour</span><input type="color" value={spec.headline.shadow || "#000000"} onChange={(e) => patchHeadline({ shadow: e.target.value })} /></label>
+            <label className="num"><span>Drop offset</span><input type="number" value={px(spec.headline.shadowOffset)} onChange={(e) => patchHeadline({ shadowOffset: frac(Number(e.target.value)), shadow: Number(e.target.value) > 0 ? spec.headline.shadow || "#000000" : "" })} /></label>
+          </div>
+          <Select value={spec.headline.align} onValueChange={(v) => patchHeadline({ align: v as OverlaySpec["headline"]["align"] })}>
+            <SelectTrigger aria-label="Headline alignment"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="center">Centred</SelectItem>
+              <SelectItem value="left">Left</SelectItem>
+              <SelectItem value="right">Right</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="field-label">Second line</label>
+          <div className="field-grid three">
+            {fontField(spec.subline.font, (font) => patchSubline({ font }), "Second line font")}
+            <label className="num"><span>Size</span><input type="number" value={px(spec.subline.size)} onChange={(e) => patchSubline({ size: frac(Number(e.target.value)) })} /></label>
+            <label className="num"><span>Colour</span><input type="color" value={spec.subline.color} onChange={(e) => patchSubline({ color: e.target.value })} /></label>
+          </div>
+          <label className="field-label">Margins and fade</label>
+          <div className="field-grid three">
+            <label className="num"><span>Side margin</span><input type="number" value={px(spec.margin)} onChange={(e) => setSpec((o) => ({ ...o, margin: frac(Number(e.target.value)) }))} /></label>
+            <label className="num"><span>Fade %</span><input type="number" min={0} max={100} value={Math.round(spec.scrim * 100)} onChange={(e) => setSpec((o) => ({ ...o, scrim: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100 }))} /></label>
+            <label className="num"><span>Fade colour</span><input type="color" value={spec.scrimColor} onChange={(e) => setSpec((o) => ({ ...o, scrimColor: e.target.value }))} /></label>
+          </div>
+          <div className="prompt-tip">Sizes are in pixels on a 1080-wide post and scale with the export resolution.</div>
         </>
       )}
     </Section>

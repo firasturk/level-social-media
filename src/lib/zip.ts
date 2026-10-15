@@ -3,7 +3,10 @@ import { splitIntoParts } from "@shared/zip-parts";
 
 export interface ZipEntry {
   name: string;
-  url: string;
+  /** Fetched from the app when no `blob` is given. */
+  url?: string;
+  /** Bytes already in memory (for example an image rendered in the browser). */
+  blob?: Blob;
   /** Convert the fetched image to this format before adding it (originals are never converted). */
   convert?: { format: "jpg" | "webp"; quality: number; fit?: boolean };
 }
@@ -79,9 +82,12 @@ export const PART_MAX = 1_400_000_000;
 
 /** One file prepared for the archive: its bytes, after any conversion. */
 async function prepare(entry: ZipEntry): Promise<Uint8Array> {
-  const r = await fetch(entry.url, { credentials: "same-origin" });
-  if (!r.ok) throw new Error(`Could not download ${entry.name}. Retry export.`);
-  const blob = await r.blob();
+  let blob = entry.blob;
+  if (!blob) {
+    const r = await fetch(entry.url ?? "", { credentials: "same-origin" });
+    if (!r.ok) throw new Error(`Could not download ${entry.name}. Retry export.`);
+    blob = await r.blob();
+  }
   if (entry.convert) {
     const converted = entry.convert.fit
       ? await fitImage(blob, entry.convert.format, entry.convert.quality)

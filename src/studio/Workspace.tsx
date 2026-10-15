@@ -5,6 +5,8 @@ import { del, get, post, postForm, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveZips, type ZipEntry } from "@/lib/zip";
+import { canvasBlob, loadFont, renderOverlay } from "@/lib/overlay";
+import { resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, postFileName, type Format, type Post } from "@shared/posts";
 import type {
@@ -79,6 +81,7 @@ export default function Workspace({
   const [acting, setActing] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
 
   useEffect(() => {
@@ -141,6 +144,13 @@ export default function Workspace({
   }, [page, loadState]);
 
   const client = clients.find((c) => c.id === clientId) ?? null;
+  const overlaySpec = useMemo(() => resolveOverlay(client?.overlay), [client]);
+  const logoSrc = client?.logo ? `/api/studio/clients/${client.id}/logo?v=${client.updated}` : null;
+  // Brand font files are registered with the browser once per client so the canvas can use them.
+  useEffect(() => {
+    for (const f of client?.fontFiles ?? [])
+      void loadFont(f.name, `/api/studio/clients/${client!.id}/fonts/${f.id}/file`);
+  }, [client]);
   const planOf = useCallback(
     (c: string, m: string) => batches.find((b) => b.client === c && b.month === m) ?? null,
     [batches],
@@ -337,11 +347,35 @@ export default function Workspace({
     }
     setExporting(true);
     try {
-      const entries: ZipEntry[] = ready.map((t) => ({
-        name: postFileName(client.slug, month, t.post!, "jpg"),
-        url: outputUrl(t),
-        convert: { format: "jpg", quality: 90, fit: true },
-      }));
+      const entries: ZipEntry[] = [];
+      for (const t of ready) {
+        const p = plan.find((x) => x.index === t.post);
+        const withText =
+          overlaySpec.template !== "none" && p?.overlay !== false && !!(p?.headline || p?.subline || logoSrc);
+        if (withText) {
+          const canvas = await renderOverlay(
+            outputUrl(t),
+            overlaySpec,
+            { headline: p?.headline, subline: p?.subline },
+            logoSrc,
+          );
+          entries.push({
+            name: postFileName(client.slug, month, t.post!, "jpg"),
+            blob: await canvasBlob(canvas, 0.92),
+            convert: { format: "jpg", quality: 90, fit: true },
+          });
+          entries.push({
+            name: `clean/${postFileName(client.slug, month, t.post!, "jpg")}`,
+            url: outputUrl(t),
+            convert: { format: "jpg", quality: 90, fit: true },
+          });
+        } else
+          entries.push({
+            name: postFileName(client.slug, month, t.post!, "jpg"),
+            url: outputUrl(t),
+            convert: { format: "jpg", quality: 90, fit: true },
+          });
+      }
       entries.push({
         name: `${client.slug}_${month}_captions.csv`,
         url: `/api/studio/posts/captions.csv?batch=${encodeURIComponent(batch.id)}`,
@@ -503,6 +537,10 @@ export default function Workspace({
                 exporting={exporting}
                 sourceUrl={(id) => sourceUrl(id)}
                 outputUrl={outputUrl}
+                overlay={overlaySpec}
+                logoSrc={logoSrc}
+                showOverlay={showOverlay}
+                onShowOverlay={setShowOverlay}
                 onUploadProducts={(files) => void uploadProducts(files)}
                 onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}

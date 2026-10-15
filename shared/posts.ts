@@ -96,6 +96,11 @@ export interface Post {
   /** Upload name (stem) of the product the post uses, when any. */
   product?: string;
   format?: Format;
+  /** Headline drawn over the image by the overlay (hook, 2-4 words) and its second line. */
+  headline?: string;
+  subline?: string;
+  /** false hides the overlay on this post (a text-free image). */
+  overlay?: boolean;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -244,8 +249,10 @@ export const IDEAS_SCHEMA = {
           caption: { type: "string" },
           hashtags: { type: "string" },
           product: { type: "string" },
+          headline: { type: "string" },
+          subline: { type: "string" },
         },
-        required: ["type", "title", "brief", "caption", "hashtags", "product"],
+        required: ["type", "title", "brief", "caption", "hashtags", "product", "headline", "subline"],
       },
     },
   },
@@ -297,7 +304,7 @@ export function ideasInstruction(r: IdeasRequest): string {
       : "No product photos were uploaded: set product to an empty string for every post.",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
-    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (one of the product names exactly, or "").`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), subline (the second line under the headline: the promise, offer or product name, at most 8 words, or ""), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (one of the product names exactly, or "").`,
     `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
   ]
     .filter(Boolean)
@@ -337,6 +344,8 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
       caption: String(raw.caption ?? "").trim().slice(0, 2200),
       hashtags: String(raw.hashtags ?? "").trim().slice(0, 400),
       product: product || undefined,
+      headline: String(raw.headline ?? "").trim().slice(0, 80) || undefined,
+      subline: String(raw.subline ?? "").trim().slice(0, 120) || undefined,
     });
     if (out.length >= count) break;
   }

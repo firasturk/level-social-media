@@ -20,6 +20,9 @@ export const postSchema = z.object({
   hashtags: z.string().max(400),
   product: z.string().max(300).optional(),
   format: z.enum(FORMATS).optional(),
+  headline: z.string().max(80).optional(),
+  subline: z.string().max(120).optional(),
+  overlay: z.boolean().optional(),
 });
 
 export const configSchema = z.object({

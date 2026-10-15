@@ -18,6 +18,7 @@ interface ClientRow {
   slug: string;
   name: string;
   logo_key: string | null;
+  overlay: string | null;
   colors: string;
   fonts: string;
   tone: string;
@@ -61,6 +62,8 @@ function toClient(r: ClientRow): Client {
     position: r.position,
     batches: Number(r.batches ?? 0),
     updated: r.updated,
+    overlay: r.overlay ? parseJson<Client["overlay"]>(r.overlay, null) : null,
+    fontFiles: [],
   };
 }
 
@@ -72,7 +75,16 @@ export async function listClients(env: Env, includeArchived = false): Promise<Cl
      FROM clients c ${includeArchived ? "" : "WHERE c.status = 'active'"}
      ORDER BY c.position, c.created`,
   );
-  return rows.map(toClient);
+  const fonts = await all<{ id: string; client: string; name: string | null }>(
+    env.DB,
+    "SELECT id, client, name FROM brand_assets WHERE kind = 'font' ORDER BY created",
+  );
+  return rows.map((r) => ({
+    ...toClient(r),
+    fontFiles: fonts
+      .filter((f) => f.client === r.id)
+      .map((f) => ({ id: f.id, name: f.name ?? "Font" })),
+  }));
 }
 
 async function clientRow(env: Env, id: string): Promise<ClientRow> {
@@ -153,6 +165,8 @@ const patch = z.object({
   fonts: z
     .object({ headline: z.string().trim().max(80).optional(), body: z.string().trim().max(80).optional() })
     .optional(),
+  /** Overlay spec; validated loosely, the client fills the gaps from the template. */
+  overlay: z.record(z.unknown()).nullable().optional(),
 });
 
 clientRoutes.put("/:id", async (c) => {
@@ -174,6 +188,11 @@ clientRoutes.put("/:id", async (c) => {
   if (d.language !== undefined) set("language", d.language);
   if (d.colors !== undefined) set("colors", JSON.stringify(d.colors));
   if (d.fonts !== undefined) set("fonts", JSON.stringify(d.fonts));
+  if (d.overlay !== undefined) {
+    const text = d.overlay === null ? null : JSON.stringify(d.overlay);
+    if (text && text.length > 8000) throw new StudioError("Overlay settings are too long.");
+    set("overlay", text);
+  }
   set("updated", now());
   params.push(id);
   await run(c.env.DB, `UPDATE clients SET ${sets.join(", ")} WHERE id = ?`, ...params);
@@ -247,6 +266,73 @@ clientRoutes.delete("/:id/logo", async (c) => {
   if (row.logo_key) await c.env.BUCKET.delete(row.logo_key);
   await run(c.env.DB, "UPDATE clients SET logo_key = NULL, updated = ? WHERE id = ?", now(), id);
   return c.json(await payload(c.env));
+});
+
+/* ───────────── Brand fonts (files the overlay loads) ───────────── */
+
+const FONT_TYPES = ["font/ttf", "font/otf", "font/woff", "font/woff2", "application/font-sfnt", "application/x-font-ttf", "application/octet-stream", "application/font-woff", "application/font-woff2"];
+const MAX_FONT = 4 * 1024 * 1024;
+
+clientRoutes.post("/:id/fonts", async (c) => {
+  const id = c.req.param("id");
+  await clientRow(c.env, id);
+  const form = await c.req.formData();
+  const f = form.get("file");
+  if (!(f instanceof File)) throw new StudioError("Choose a font file.");
+  if (!/\.(ttf|otf|woff2?)$/i.test(f.name) && !FONT_TYPES.includes(f.type))
+    throw new StudioError("Font: use a .ttf, .otf, .woff or .woff2 file.");
+  if (f.size > MAX_FONT) throw new StudioError("Font: file is over 4 MB.");
+  const name = String(form.get("name") || f.name.replace(/\.[^.]+$/, "")).trim().slice(0, 80);
+  const assetId = uuid();
+  const key = `clients/${id}/font-${assetId}`;
+  const type = /\.woff2$/i.test(f.name)
+    ? "font/woff2"
+    : /\.woff$/i.test(f.name)
+      ? "font/woff"
+      : /\.otf$/i.test(f.name)
+        ? "font/otf"
+        : "font/ttf";
+  await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: type } });
+  await run(
+    c.env.DB,
+    "INSERT INTO brand_assets (id, client, kind, key, name, created) VALUES (?, ?, 'font', ?, ?, ?)",
+    assetId,
+    id,
+    key,
+    name,
+    now(),
+  );
+  return c.json(await payload(c.env));
+});
+
+clientRoutes.delete("/:id/fonts/:assetId", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'font'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  if (!row) throw new StudioError("Font not found.", 404);
+  await c.env.BUCKET.delete(row.key);
+  await run(c.env.DB, "DELETE FROM brand_assets WHERE id = ?", c.req.param("assetId"));
+  return c.json(await payload(c.env));
+});
+
+clientRoutes.get("/:id/fonts/:assetId/file", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'font'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  const obj = row ? await c.env.BUCKET.get(row.key) : null;
+  if (!obj) throw new StudioError("Font not found.", 404);
+  return new Response(obj.body, {
+    headers: {
+      "Content-Type": obj.httpMetadata?.contentType || "font/ttf",
+      "Cache-Control": "private, max-age=604800",
+    },
+  });
 });
 
 clientRoutes.get("/:id/logo", async (c) => {
