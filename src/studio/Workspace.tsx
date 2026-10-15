@@ -245,17 +245,33 @@ export default function Workspace({
     }
   }
 
-  async function uploadProducts(files: File[]) {
-    const ok = files.filter((f) => ACCEPTED_TYPES.includes(f.type) && f.size <= MAX_UPLOAD_BYTES);
-    if (!ok.length) {
-      toast.error("Use JPG, PNG or WebP under 12 MB.");
-      return;
+  /** Any image the browser can decode is accepted: other formats and big files become JPGs first. */
+  async function normalizeUpload(f: File): Promise<File> {
+    if (ACCEPTED_TYPES.includes(f.type) && f.size <= MAX_UPLOAD_BYTES) return f;
+    try {
+      const jpeg = await makeReference(f, 4096, 0.92);
+      return new File([jpeg], f.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+    } catch {
+      throw new Error(
+        `${f.name}: this browser cannot read the file (HEIC and RAW need exporting as JPG or PNG first).`,
+      );
     }
+  }
+
+  async function uploadProducts(files: File[]) {
+    if (!files.length) return;
     setBusy("upload");
     try {
       const id = await ensurePlan();
       let uploaded = 0;
-      for (const f of ok) {
+      for (const raw of files) {
+        let f: File;
+        try {
+          f = await normalizeUpload(raw);
+        } catch (e) {
+          toast.error((e as Error).message);
+          continue;
+        }
         const form = new FormData();
         form.append("file", f);
         form.append("name", f.name);

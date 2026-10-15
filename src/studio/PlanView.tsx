@@ -145,7 +145,9 @@ export default function PlanView({
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+      const files = Array.from(e.dataTransfer.files).filter(
+        (f) => f.type.startsWith("image/") || /\.(heic|heif|avif|tiff?|bmp)$/i.test(f.name),
+      );
       if (files.length) onUploadProducts(files);
     },
   };
@@ -155,7 +157,7 @@ export default function PlanView({
       <input
         ref={fileInput}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/*,.heic,.heif,.avif,.tif,.tiff,.bmp"
         multiple
         hidden
         onChange={(e) => {

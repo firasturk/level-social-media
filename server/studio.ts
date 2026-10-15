@@ -71,7 +71,7 @@ studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
-const MAX_UPLOAD = 12 * 1024 * 1024;
+const MAX_UPLOAD = 25 * 1024 * 1024;
 const MAX_IDENTITY = 8 * 1024 * 1024;
 const MAX_REFERENCE = 3 * 1024 * 1024;
 
