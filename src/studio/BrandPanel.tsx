@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, useRef } from "react";
 import { askConfirm, askInput } from "@/lib/confirm";
 import { toast } from "sonner";
 import {
@@ -233,8 +233,13 @@ function BrandKit({
   const [analysing, setAnalysing] = useState(false);
   useEffect(() => setDraft(draftOf(client)), [client]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(client));
+  // Read inside blur handlers, which close over an older render.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
 
-  async function save() {
+  /** Saves the kit; the fields also save themselves when you click out of them (silent). */
+  async function save(silent = false) {
+    if (silent && !dirtyRef.current) return;
     setSaving(true);
     try {
       const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, {
@@ -247,7 +252,7 @@ function BrandKit({
         style: draft.style,
       });
       onClientsChanged(r.clients);
-      toast.success("Brand kit saved.");
+      if (!silent) toast.success("Brand kit saved.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -390,6 +395,7 @@ function BrandKit({
         value={draft.tone}
         placeholder="warm, family, Arabic first, no slang…"
         onChange={(e) => setDraft((d) => ({ ...d, tone: e.target.value }))}
+        onBlur={() => void save(true)}
       />
       <label className="field-label">Caption language</label>
       <Select
@@ -418,6 +424,7 @@ function BrandKit({
             value={draft.dos}
             placeholder="one rule per line"
             onChange={(e) => setDraft((d) => ({ ...d, dos: e.target.value }))}
+        onBlur={() => void save(true)}
           />
         </div>
         <div>
@@ -430,6 +437,7 @@ function BrandKit({
             value={draft.donts}
             placeholder="one rule per line"
             onChange={(e) => setDraft((d) => ({ ...d, donts: e.target.value }))}
+        onBlur={() => void save(true)}
           />
         </div>
       </div>
@@ -463,6 +471,7 @@ function BrandKit({
         value={draft.style}
         placeholder="Photography style, light, palette, composition, props, how products are shown…"
         onChange={(e) => setDraft((d) => ({ ...d, style: e.target.value }))}
+        onBlur={() => void save(true)}
       />
     </Section>
   );
