@@ -529,9 +529,13 @@ interface SourceRow {
   key: string;
   kind: string;
   role: string;
+  /** The small JPEG copy made in the browser at upload; vision reads this, never the original. */
+  reference_key?: string | null;
   /** What the product photo shows, read by vision (null until read). */
   note?: string | null;
 }
+
+const MAX_NOTE_BYTES = 6 * 1024 * 1024;
 
 /**
  * Reads every product photo that has no note yet and stores one; failures leave the note empty.
@@ -552,8 +556,10 @@ export async function describeProducts(env: Env, sources: SourceRow[]): Promise<
         s.note = row.note;
         return;
       }
-      const obj = await env.BUCKET.get(s.key);
+      // Originals run to 25 MB; the Worker has 128 MB in all, so only the small copy is read.
+      const obj = await env.BUCKET.get(s.reference_key || s.key);
       if (!obj) return;
+      if ((obj.size ?? 0) > MAX_NOTE_BYTES) return;
       const image: ImageBytes = {
         bytes: await obj.arrayBuffer(),
         mime: obj.httpMetadata?.contentType || "image/jpeg",
@@ -569,7 +575,7 @@ export async function describeProducts(env: Env, sources: SourceRow[]): Promise<
       console.error("[products] describe failed", s.name, errorMessage(e));
     }
   };
-  const limit = 4;
+  const limit = 2;
   for (let i = 0; i < pending.length; i += limit)
     await Promise.all(pending.slice(i, i + limit).map(describe));
 }
@@ -578,7 +584,7 @@ export async function describeProducts(env: Env, sources: SourceRow[]): Promise<
 export async function describeUpload(env: Env, sourceId: string): Promise<void> {
   const row = await first<SourceRow>(
     env.DB,
-    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE id = ?",
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE id = ?",
     sourceId,
   );
   if (row) await describeProducts(env, [row]);
@@ -619,7 +625,7 @@ postRoutes.post("/ideas", async (c) => {
     : null;
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
   await describeProducts(c.env, sources);
@@ -690,7 +696,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     : null;
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
   await describeProducts(c.env, sources);
@@ -843,7 +849,7 @@ postRoutes.post("/generate", async (c) => {
     : [];
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ?",
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ?",
     b.id,
   );
   await describeProducts(c.env, sources);
