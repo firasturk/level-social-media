@@ -235,6 +235,18 @@ export async function vertexGenerate(
 /** Text models to try on Vertex, newest first; a 404 falls through to the next. */
 export const VERTEX_TEXT_MODELS = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-pro"];
 
+/**
+ * Thinking settings that keep a text job quick. Gemini thinks for thousands of tokens by default
+ * before writing, which doubles the wait on a month of ideas (40 s against 22 s measured); the
+ * jobs here are writing and reading, where a light pass is enough.
+ */
+export function thinkingFor(model: string): Record<string, unknown> {
+  if (/^gemini-3/.test(model)) return { thinkingConfig: { thinkingLevel: "low" } };
+  if (/^gemini-2\.5-pro/.test(model)) return { thinkingConfig: { thinkingBudget: 128 } };
+  if (/^gemini-2\.5/.test(model)) return { thinkingConfig: { thinkingBudget: 0 } };
+  return {};
+}
+
 /** One JSON-schema-constrained text answer (vision or text), as the AI Studio path returns it. */
 export async function vertexText(
   creds: VertexCreds,
@@ -260,7 +272,12 @@ export async function vertexText(
           creds,
           model,
           parts,
-          { responseMimeType: "application/json", responseSchema: schema, temperature: 0.7 },
+          {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            temperature: 0.7,
+            ...thinkingFor(model),
+          },
           120_000,
           fetchImpl,
         );
