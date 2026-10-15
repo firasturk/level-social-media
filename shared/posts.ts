@@ -132,6 +132,9 @@ export interface PostBrief {
   library?: string;
   /** Props the designer asked for this month (autumn leaves, pumpkins...). */
   props?: string;
+  /** The client's ALWAYS and NEVER rules from the brand kit. */
+  always?: string;
+  never?: string;
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
   grid?: string;
   tile?: string;
@@ -176,12 +179,12 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (b.hasProduct) {
     parts.push(
       b.ref && !b.refIsSource
-        ? "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Image 2 is a style reference: take only its place, light, camera, colour grade and mood, never its objects, people or text."
+        ? "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Image 2 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)."
         : "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Create the scene described below around it.",
     );
   } else if (b.ref) {
     parts.push(
-      "No product is attached. Image 1 is a style reference: take only its place, light, camera, colour grade and mood, never its objects, people or text. Create the scene described below in that visual language.",
+      "No product is attached. Image 1 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role). Create the scene described below in that visual language.",
     );
   } else {
     parts.push("No product is attached. Create the scene described below.");
@@ -194,6 +197,11 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${b.title}\n${b.brief.trim()}`);
   const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
+  const rules = [
+    b.always?.trim() ? `ALWAYS: ${b.always.trim()}` : "",
+    b.never?.trim() ? `NEVER: ${b.never.trim()}` : "",
+  ].filter(Boolean);
+  if (rules.length) parts.push(`CLIENT RULES (these override the reference and the brief):\n${rules.join("\n")}`);
   if (b.library) parts.push(`VISUAL LANGUAGE:\n${b.library.trim()}`);
   if (b.props?.trim())
     parts.push(
@@ -290,6 +298,8 @@ export interface IdeasRequest {
   style: string;
   themeTitle: string;
   themeDirection: string;
+  /** The theme's visual language written from its references (scenes, light, people...). */
+  themeLibrary?: string;
   /** Props the designer wants in the scenes this month. */
   props?: string;
   products: string[];
@@ -324,6 +334,10 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.themeTitle || r.themeDirection
       ? `THIS MONTH'S THEME "${r.themeTitle}": ${r.themeDirection}`
       : "",
+    r.themeLibrary?.trim()
+      ? `VISUAL LANGUAGE OF THE THEME'S REFERENCES (the posts live in this world):\n${r.themeLibrary.trim()}`
+      : "",
+    "PEOPLE: when the references or the theme show people with the product (a hand holding the cup, a person at a table), write people into the briefs the same way, naming how many and how they are framed; the image engine adds people only when a brief asks for them. Respect the client's ALWAYS and NEVER rules about who appears.",
     r.products.length
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THAT item and never name or describe a different product:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
@@ -452,6 +466,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: each post's title, headline, subline, brief and caption are about THAT item, never another product:\n${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the tiles' staging naturally and mention them in the briefs.` : "",
+    "PEOPLE: where the grid's tiles show people with the product, write people into those briefs the same way (how many, how framed); the image engine adds people only when a brief asks for them. Respect the client's ALWAYS and NEVER rules about who appears.",
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), subline (at most 8 words or ""), caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or "").`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,
@@ -490,11 +505,11 @@ export const THEME_SCHEMA = {
 export function themeBuilderInstruction(title: string, count: number): string {
   return [
     `You are writing the visual direction of a social-media theme called "${title}" for a brand, from ${count} attached reference images (mood board, Pinterest pins, past posts). Generated posts will later borrow their place, light, palette, composition and mood from these references.`,
-    "Study each image and extract ONLY: the kind of places and surfaces, the props and materials, the light (direction, quality, colour temperature), the colour palette and grade, the composition habits (distance, angle, negative space, symmetry), the photographic treatment (film, clean, flat lay, macro...), and the mood. Ignore and never mention brand names, logos, readable text, specific people's identities or specific products.",
+    "Study each image and extract ONLY: the kind of places and surfaces, the props and materials, the light (direction, quality, colour temperature), the colour palette and grade, the composition habits (distance, angle, negative space, symmetry), the photographic treatment (film, clean, flat lay, macro...), the mood, and the people: whether they appear, how many, how they are framed (hands only, half body, full body, face shown or turned away), what they do with the product, and their styling. Ignore and never mention brand names, logos, readable text, specific people's identities or specific products.",
     "Write three texts in English:",
     "0. description: one sentence (max 160 characters) a designer reads under the theme's name.",
     "1. direction: 4-8 sentences that start with 'Goal: produce posts that ...', naming the world, the light signature, the palette, the composition habits and the mood, ending with 'No text, logos or prices are drawn inside the image.'",
-    "2. library: Markdown with '## Scenes' (one numbered line per image describing its setting and props in one dense sentence), '## Light' (3-4 dash lines), '## Palette' (2-3 dash lines with colour words), '## Composition' (2-3 dash lines), '## Mood' (1-2 dash lines) and '## Avoid' (one dash line of what would break this world).",
+    "2. library: Markdown with '## Scenes' (one numbered line per image describing its setting and props in one dense sentence), '## Light' (3-4 dash lines), '## Palette' (2-3 dash lines with colour words), '## Composition' (2-3 dash lines), '## People' (1-2 dash lines: how often people appear, how many, how they are framed and what they do; or 'none' when the references show no people), '## Mood' (1-2 dash lines) and '## Avoid' (one dash line of what would break this world).",
     "Return ONLY a JSON object with keys description, direction and library.",
   ].join("\n\n");
 }
