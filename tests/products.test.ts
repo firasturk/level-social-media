@@ -34,3 +34,37 @@ describe("product matching", () => {
     expect(plan[1].product).toBeUndefined();
   });
 });
+
+describe("several products in one post", () => {
+  it("keeps the lead product first and the others as extras, deduplicated", () => {
+    const plan = parseIdeas(
+      JSON.stringify({
+        posts: [
+          {
+            type: "product",
+            title: "Three cups in a row",
+            brief: "A row of cups.",
+            caption: "c",
+            hashtags: "#a",
+            product: "mango",
+            products: ["Mango", "Lotus milkshake", "mango", "Hot Chocolate"],
+          },
+        ],
+      }),
+      12,
+      products,
+    );
+    expect(plan[0].product).toBe("mango");
+    expect(plan[0].products).toEqual(["Lotus milkshake_", "Hot chocolate "]);
+  });
+  it("leaves extras out for a single-product picture", () => {
+    const plan = parseIdeas(
+      JSON.stringify({
+        posts: [{ type: "tip", title: "x", brief: "b", caption: "c", hashtags: "#a", product: "mango", products: ["mango"] }],
+      }),
+      12,
+      products,
+    );
+    expect(plan[0].products).toBeUndefined();
+  });
+});

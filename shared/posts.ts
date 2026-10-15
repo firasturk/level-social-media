@@ -96,6 +96,8 @@ export interface Post {
   hashtags: string;
   /** Upload name (stem) of the product the post uses, when any. */
   product?: string;
+  /** Further products shown in the same picture (a row of cups, two drinks), by upload name. */
+  products?: string[];
   format?: Format;
   /** Headline drawn over the image by the overlay (hook, 2-4 words) and its second line. */
   headline?: string;
@@ -141,6 +143,8 @@ export interface PostBrief {
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
   shot?: string;
+  /** Further products attached after image 1, in order: their names, notes and R2 keys. */
+  extraProducts?: { name: string; note?: string; key: string }[];
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
   grid?: string;
   tile?: string;
@@ -182,7 +186,17 @@ const AVOID =
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
   const parts: string[] = [];
-  if (b.hasProduct) {
+  const extras = b.extraProducts ?? [];
+  if (b.hasProduct && extras.length) {
+    const n = extras.length + 1;
+    const refNote =
+      b.ref && !b.refIsSource
+        ? ` Image ${n + 1} is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role).`
+        : "";
+    parts.push(
+      `Images 1 to ${n} are product photos: ${n} different products that appear TOGETHER in this one picture, each reproduced exactly (shape, colours, label, packaging) and each appearing once. ${extras.map((e, i) => `Image ${i + 2}: ${e.name}${e.note ? ` — ${e.note}` : ""}.`).join(" ")}${refNote}`,
+    );
+  } else if (b.hasProduct) {
     parts.push(
       b.ref && !b.refIsSource
         ? "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Image 2 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)."
@@ -230,7 +244,11 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(HEADLINE_SPACE_RULE);
   const palette = paletteRule(b.palette);
   if (palette) parts.push(palette);
-  if (b.hasProduct) parts.push(ONE_PRODUCT_RULE);
+  if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
+  if (b.hasProduct && extras.length)
+    parts.push(
+      `PRODUCTS: the ${extras.length + 1} attached products are the only products in the picture, each shown once, whole, undistorted and recognisable; no invented extra cups, bottles or packs.`,
+    );
   parts.push(NO_TEXT_RULE);
   parts.push(FULL_FRAME_RULE);
   parts.push(
@@ -292,11 +310,12 @@ export const IDEAS_SCHEMA = {
           caption: { type: "string" },
           hashtags: { type: "string" },
           product: { type: "string" },
+          products: { type: "array", items: { type: "string" } },
           headline: { type: "string" },
           subline: { type: "string" },
           shot: { type: "integer" },
         },
-        required: ["type", "title", "brief", "caption", "hashtags", "product", "headline", "subline", "shot"],
+        required: ["type", "title", "brief", "caption", "hashtags", "product", "products", "headline", "subline", "shot"],
       },
     },
   },
@@ -359,13 +378,13 @@ export function ideasInstruction(r: IdeasRequest): string {
       : "",
     "PEOPLE: when the references or the theme show people with the product (a hand holding the cup, a person at a table), write people into the briefs the same way, naming how many and how they are framed; the image engine adds people only when a brief asks for them. State each person's gender and rough age in the brief (\"a man in his thirties\", \"a boy of ten\"), never a vague \"a person\", and keep every person inside the client's ALWAYS and NEVER rules: a rule that excludes women, children or anyone else is absolute, whatever the references show.",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THAT item and never name or describe a different product:
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to an empty string for every post.",
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
-    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), subline (the second line under the headline: the promise, offer or product name, at most 8 words, or ""), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (one of the product names exactly, or ""), shot (the number of the reference shot the post follows, or 0 when the theme has no shots).`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), subline (the second line under the headline: the promise, offer or product name, at most 8 words, or ""), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots).`,
     `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
   ]
     .filter(Boolean)
@@ -423,8 +442,14 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
     if (!brief) continue;
     const title = String(raw.title ?? "").trim();
     // The product field first; a product named in the title stands in when the field is empty.
-    const product =
+    const lead =
       matchProduct(String(raw.product ?? ""), products) ?? matchProduct(title, products);
+    const listed = Array.isArray(raw.products)
+      ? (raw.products as unknown[]).map((x) => matchProduct(String(x ?? ""), products))
+      : [];
+    const all = [...new Set([lead, ...listed].filter((x): x is string => !!x))];
+    const product = all[0];
+    const extra = all.slice(1, 4);
     out.push({
       index: out.length + 1,
       type,
@@ -433,6 +458,7 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
       caption: String(raw.caption ?? "").trim().slice(0, 2200),
       hashtags: String(raw.hashtags ?? "").trim().slice(0, 400),
       product: product || undefined,
+      products: extra.length ? extra : undefined,
       headline: String(raw.headline ?? "").trim().slice(0, 80) || undefined,
       subline: String(raw.subline ?? "").trim().slice(0, 120) || undefined,
       shot: Number.isInteger(raw.shot) && Number(raw.shot) > 0 ? Number(raw.shot) : undefined,

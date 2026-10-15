@@ -19,6 +19,7 @@ export const postSchema = z.object({
   caption: z.string().max(2200),
   hashtags: z.string().max(400),
   product: z.string().max(300).optional(),
+  products: z.array(z.string().max(300)).max(4).optional(),
   format: z.enum(FORMATS).optional(),
   headline: z.string().max(80).optional(),
   shot: z.number().int().min(1).max(200).optional(),

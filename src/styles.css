@@ -5129,3 +5129,28 @@ label.num select {
   width: 100%;
   margin-bottom: 16px;
 }
+
+/* Further products shown in the same post picture. */
+.post-extras {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-400);
+}
+.post-extras .chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.post-extras select {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 999px;
+}

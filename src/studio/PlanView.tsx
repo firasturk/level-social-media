@@ -527,6 +527,45 @@ export default function PlanView({
                         ))}
                       </select>
                     </div>
+                    {p.product && (
+                      <div className="post-extras">
+                        <span>with</span>
+                        {(p.products ?? []).map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            className="chip"
+                            title="Remove this product from the picture"
+                            onClick={() =>
+                              patch(p.index, { products: (p.products ?? []).filter((x) => x !== n) })
+                            }
+                          >
+                            {n} ×
+                          </button>
+                        ))}
+                        {(p.products ?? []).length < 3 && (
+                          <select
+                            value=""
+                            aria-label="Add a product to the picture"
+                            onChange={(e) => {
+                              const n = e.target.value;
+                              if (!n) return;
+                              patch(p.index, { products: [...new Set([...(p.products ?? []), n])] });
+                            }}
+                          >
+                            <option value="">+ product</option>
+                            {products
+                              .map((s) => displayName(s.name))
+                              .filter((n) => n !== (p.product ?? "") && !(p.products ?? []).includes(n))
+                              .map((n) => (
+                                <option key={n} value={n}>
+                                  {n}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
                     <input
                       className="post-title"
                       value={p.title}

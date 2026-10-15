@@ -712,6 +712,7 @@ postRoutes.post("/reidea", async (c) => {
     headline: fresh.headline,
     subline: fresh.subline,
     shot: fresh.shot ?? current.shot,
+    products: fresh.products ?? current.products,
   };
   config.plan = plan.map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, b, config);
@@ -980,10 +981,24 @@ postRoutes.post("/generate", async (c) => {
       if (!d.regenerate && existing.status !== "failed") continue;
     }
     const productSources = sources.filter((s) => s.kind === "product");
-    const productMatch = matchProduct(post.product, productSources.map(productName));
+    const productNames = productSources.map(productName);
+    const productMatch = matchProduct(post.product, productNames);
     const product = productMatch
       ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
+    // Further products shown in the same picture, attached after image 1.
+    const extraProducts = product
+      ? [...new Set((post.products ?? []).map((n) => matchProduct(n, productNames)))]
+          .filter((n): n is string => !!n && n !== productMatch)
+          .slice(0, 3)
+          .map((n) => productSources.find((s) => productName(s) === n)!)
+          .filter(Boolean)
+          .map((s) => ({
+            name: productName(s).trim(),
+            note: s.note?.trim() || undefined,
+            key: s.reference_key || s.key,
+          }))
+      : [];
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
     const gridRef = config.gridRef
       ? await first<{ id: string, key: string }>(c.env.DB, "SELECT id, key FROM refs WHERE id = ?", config.gridRef)
@@ -1056,6 +1071,7 @@ postRoutes.post("/generate", async (c) => {
       product: product
         ? [productName(product).trim(), product.note?.trim()].filter(Boolean).join(" — ")
         : undefined,
+      extraProducts: extraProducts.length ? extraProducts : undefined,
     };
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
