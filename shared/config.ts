@@ -38,6 +38,8 @@ export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
 /** Batch configuration. Validated on the server by configSchema in config-schema.ts; kept zod-free here so the client bundle stays small. */
 export interface Config {
+  /** Client (clients.id) the batch is produced for. Required for new batches. */
+  client?: string;
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;

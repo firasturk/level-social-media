@@ -21,46 +21,42 @@
   --radius-sm: 6px;
 }
 /* ------------------------------------------------------------------
-   Level Social Media colour scheme: "Sand & Ink"
-   Blue family from the Vibe palette; see the token list below.
-   Every colour in this file is one of these tokens.
-   ------------------------------------------------------------------ */
-/* ------------------------------------------------------------------
-   Level Social Media colour scheme: "Vibe Blue"
-   Blue family (Vivid Blue, Deep Blue, Pale Blue, Paper White, Stone
-   Gray, Vivid Orange). Accent tokens alias the blue family so labels,
-   outlines and type share one hue with the filled actions.
+   Level Social Media colour scheme: "Level Mono"
+   Level's identity is monochrome (ink #191b1d, paper white, stone
+   greys from levelmena.com). The "--blue" tokens keep their names for
+   compatibility but hold the ink family; filled actions are ink in the
+   light theme and paper in the dark theme. Status colours stay.
    ------------------------------------------------------------------ */
 :root {
   /* Surfaces, lightest to darkest */
   --surface: #ffffff;
-  --surface-2: #f7f6fc;
-  --surface-3: #eeedf8;
-  --canvas: #f4f3fa;
+  --surface-2: #f7f7f7;
+  --surface-3: #ebebeb;
+  --canvas: #f3f3f3;
   /* Lines */
-  --line: #e4e2f0;
-  --line-strong: #d1cdff;
-  /* Ink (text): Deep Blue and Stone Gray */
-  --ink-900: #101018;
-  --ink-700: #202030;
-  --ink-500: #5e5e6a;
-  --ink-400: #8a8a99;
-  --ink-300: #b9b8c8;
-  /* Blue family */
-  --blue: #4737ff;
-  --blue-hover: #3529bf;
-  --blue-deep: #202030;
-  --blue-soft: #ecebff;
-  --blue-pale: #d1cdff;
-  --gradient: linear-gradient(135deg, #101018 0%, #3529bf 38%, #4737ff 68%, #aca5ff 100%);
-  /* Accent (type, outlines, labels) = the blue family */
+  --line: #e4e4e4;
+  --line-strong: #cfcfcf;
+  /* Ink (text) */
+  --ink-900: #101010;
+  --ink-700: #191b1d;
+  --ink-500: #5f6165;
+  --ink-400: #8f8d8d;
+  --ink-300: #b7babe;
+  /* Ink family (kept under the --blue names) */
+  --blue: #191b1d;
+  --blue-hover: #000000;
+  --blue-deep: #131313;
+  --blue-soft: #ebebeb;
+  --blue-pale: #d4d4d4;
+  --gradient: linear-gradient(135deg, #101010 0%, #191b1d 38%, #2b2e31 68%, #8f8d8d 100%);
+  /* Accent (type, outlines, labels) = the ink family */
   --accent: var(--blue);
   --accent-hover: var(--blue-hover);
   --accent-deep: var(--blue-hover);
-  --accent-glow: #aca5ff;
+  --accent-glow: #8f8d8d;
   --accent-soft: var(--blue-soft);
   --accent-border: var(--blue-pale);
-  --accent-border-hover: #aca5ff;
+  --accent-border-hover: #8f8d8d;
   /* Status */
   --success: #2e8b57;
   --success-soft: #e7f4ec;
@@ -71,11 +67,11 @@
   --danger-soft: #fdecec;
   --info: var(--blue);
   --info-soft: var(--blue-soft);
-  /* Shadows (blue tinted) */
-  --shadow-sm: 0 1px 2px rgb(32 32 48 / 0.08);
-  --shadow-md: 0 6px 18px -6px rgb(32 32 48 / 0.22);
-  --shadow-lg: 0 20px 40px -12px rgb(32 32 48 / 0.32);
-  --ring: 0 0 0 3px rgb(71 55 255 / 0.25);
+  /* Shadows (ink tinted) */
+  --shadow-sm: 0 1px 2px rgb(25 27 29 / 0.08);
+  --shadow-md: 0 6px 18px -6px rgb(25 27 29 / 0.22);
+  --shadow-lg: 0 20px 40px -12px rgb(25 27 29 / 0.32);
+  --ring: 0 0 0 3px rgb(25 27 29 / 0.2);
   /* Motion */
   --dur-fast: 140ms;
   --dur: 220ms;
@@ -2731,10 +2727,10 @@ textarea {
 }
 .topbar .nav-tabs button.active span {
   background: #ecebff;
-  color: #4737ff;
+  color: var(--blue);
 }
 :root[data-theme="dark"] .topbar .nav-tabs button.active {
-  background: #4737ff;
+  background: var(--blue);
   color: #fff;
 }
 :root[data-theme="dark"] .topbar .nav-tabs button.active span {
@@ -2823,7 +2819,7 @@ textarea {
 }
 .primary:hover:enabled {
   background-color: var(--blue-hover);
-  box-shadow: 0 8px 20px -8px rgb(71 55 255 / 0.6);
+  box-shadow: 0 8px 20px -8px rgb(25 27 29 / 0.5);
 }
 .settings-fab {
   background: var(--blue);
@@ -2901,30 +2897,30 @@ textarea:focus {
    ------------------------------------------------------------------ */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface: #1b1b27;
-  --surface-2: #202030;
-  --surface-3: #2a2a3d;
-  --canvas: #121219;
-  --line: #2f2f45;
-  --line-strong: #3f3f5c;
-  --ink-900: #f4f3fa;
-  --ink-700: #d9d8e6;
-  --ink-500: #a8a7ba;
-  --ink-400: #807f96;
-  --ink-300: #5c5c70;
-  --blue: #6f62ff;
-  --blue-hover: #8d82ff;
-  --blue-deep: #15151f;
-  --blue-soft: #272452;
-  --blue-pale: #3f3a8a;
-  --gradient: linear-gradient(135deg, #0c0c12 0%, #2a2196 38%, #4737ff 68%, #8f87ff 100%);
-  --accent: #8d82ff;
-  --accent-hover: #a79eff;
-  --accent-deep: #c9c3ff;
-  --accent-glow: #aca5ff;
+  --surface: #1a1b1d;
+  --surface-2: #202224;
+  --surface-3: #2b2e31;
+  --canvas: #131517;
+  --line: #2b2e31;
+  --line-strong: #3a3d41;
+  --ink-900: #f1f1f1;
+  --ink-700: #dedede;
+  --ink-500: #9f9f9f;
+  --ink-400: #8f8d8d;
+  --ink-300: #616161;
+  --blue: #ededed;
+  --blue-hover: #ffffff;
+  --blue-deep: #0f1011;
+  --blue-soft: #2b2e31;
+  --blue-pale: #3a3d41;
+  --gradient: linear-gradient(135deg, #0b0b0c 0%, #2b2e31 38%, #616161 68%, #b7babe 100%);
+  --accent: #ededed;
+  --accent-hover: #ffffff;
+  --accent-deep: #f8f8f8;
+  --accent-glow: #b7babe;
   --accent-soft: var(--blue-soft);
   --accent-border: var(--blue-pale);
-  --accent-border-hover: #6f62ff;
+  --accent-border-hover: #9f9f9f;
   --success: #4cc27a;
   --success-soft: #16302a;
   --warning: #ff7a2e;
@@ -2935,15 +2931,15 @@ textarea:focus {
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-md: 0 6px 18px -6px rgb(0 0 0 / 0.6);
   --shadow-lg: 0 20px 40px -12px rgb(0 0 0 / 0.7);
-  --ring: 0 0 0 3px rgb(111 98 255 / 0.35);
-  --on-fill: #ffffff;
-  --overlay: rgb(27 27 39 / 0.88);
+  --ring: 0 0 0 3px rgb(237 237 237 / 0.3);
+  --on-fill: #111111;
+  --overlay: rgb(26 27 29 / 0.88);
 }
 :root[data-theme="dark"] .topbar {
   border-bottom-color: var(--line);
 }
 :root[data-theme="dark"] .page-heading h1 {
-  background-image: linear-gradient(135deg, #f4f3fa 0%, #c9c3ff 45%, #8f87ff 100%);
+  background-image: linear-gradient(135deg, #f1f1f1 0%, #c8c8c8 45%, #8f8d8d 100%);
 }
 :root[data-theme="dark"] .primary {
   background-image: linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent);
@@ -3208,7 +3204,7 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--blue-pale);
 }
 .mode-card.active::before {
-  background: linear-gradient(180deg, rgb(71 55 255 / 0.35) 0%, rgb(10 10 18 / 0.25) 45%, rgb(10 10 18 / 0.8) 100%);
+  background: linear-gradient(180deg, rgb(25 27 29 / 0.35) 0%, rgb(10 10 12 / 0.25) 45%, rgb(10 10 12 / 0.8) 100%);
 }
 .mode-card.hidden-card .mode-thumb {
   filter: grayscale(1);
@@ -3770,4 +3766,98 @@ textarea:focus {
 .rules-actions .text-button svg {
   vertical-align: -2px;
   margin-right: 3px;
+}
+
+/* ------------------------------------------------------------------
+   Client cards (Phase 1): the brand a batch is produced for.
+   ------------------------------------------------------------------ */
+.modes.clients {
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.client-card {
+  min-height: 150px;
+}
+.client-logo {
+  max-width: 96px;
+  max-height: 40px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.4));
+}
+.client-initials {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.12);
+  border: 1px solid rgb(255 255 255 / 0.2);
+  color: #fff;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.5px;
+}
+.client-card .mode-tools {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  gap: 2px;
+}
+.client-card .mode-tool.is-disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+.workflow-label .text-button + .text-button {
+  margin-left: 8px;
+}
+.workflow-label .text-button svg {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+.approach-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 18px;
+  color: var(--ink-500);
+  font-size: 14px;
+}
+.approach-row label {
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.approach-picker {
+  min-width: 240px;
+}
+.approach-detail {
+  color: var(--ink-400);
+}
+.batches-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 6px;
+  font-size: 14px;
+  color: var(--ink-500);
+}
+.batches-filter label {
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.batches-filter select {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--ink-900);
+}
+.batches-count {
+  margin-left: auto;
+  color: var(--ink-400);
+}
+.batches-client {
+  display: block;
+  color: var(--ink-900);
+}
+.batches-client + small {
+  color: var(--ink-400);
 }

@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { FolderOpen, LoaderCircle, Trash2 } from "lucide-react";
-import type { Batch, SkillInfo } from "@shared/types";
+import type { Batch, Client, SkillInfo } from "@shared/types";
 import { isSkillCampaign, type Config } from "@shared/config";
 
 import { MODES, type ModeInfo } from "./constants";
@@ -25,15 +26,43 @@ export default function BatchesView({
   onOpen,
   onDelete,
   skills = [],
+  clients = [],
   modes = MODES,
 }: {
   batches: Batch[];
   skills?: SkillInfo[];
+  /** Every client, archived ones included, so old batches still show a name. */
+  clients?: Client[];
   modes?: ModeInfo[];
   busyId: string | null;
   onOpen: (id: string) => void;
   onDelete: (b: Batch) => void;
 }) {
+  const [clientFilter, setClientFilter] = useState("");
+  const clientName = (id: string | null | undefined) =>
+    id ? (clients.find((c) => c.id === id)?.name ?? "Unknown client") : "";
+  const shown = clientFilter ? batches.filter((b) => b.client === clientFilter) : batches;
+  const filter = clients.length > 0 && (
+    <div className="batches-filter">
+      <label htmlFor="batches-client">Client</label>
+      <select
+        id="batches-client"
+        value={clientFilter}
+        onChange={(e) => setClientFilter(e.target.value)}
+      >
+        <option value="">All clients</option>
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+            {c.status === "archived" ? " (archived)" : ""}
+          </option>
+        ))}
+      </select>
+      <span className="batches-count">
+        {shown.length} {shown.length === 1 ? "batch" : "batches"}
+      </span>
+    </div>
+  );
   if (!batches.length) {
     return (
       <div className="empty-results">
@@ -48,17 +77,20 @@ export default function BatchesView({
     );
   }
   return (
-    <div className="batches-table" role="table" aria-label="Saved batches">
+    <>
+      {filter}
+      <div className="batches-table" role="table" aria-label="Saved batches">
       <div className="batches-head" role="row">
         <span>Batch</span>
-        <span>Workflow</span>
+        <span>Client · workflow</span>
         <span>Progress</span>
         <span>Spent</span>
         <span>Status</span>
         <span />
       </div>
-      {batches.map((b) => {
+      {shown.map((b) => {
         const cfg = JSON.parse(b.config) as Config;
+        const who = clientName(b.client);
         const mode = modes.find((m) => m.id === cfg.mode);
         const total = b.total ?? 0;
         const done = b.completed ?? 0;
@@ -107,9 +139,12 @@ export default function BatchesView({
               </span>
             </span>
             <span>
-              {isSkillCampaign(cfg.mode)
-                ? `Skill · ${skills.find((s) => s.id === cfg.skill)?.title ?? cfg.skill}${cfg.mode === "8" ? " · new model" : ""}`
-                : (mode?.title ?? cfg.mode)}
+              {who && <strong className="batches-client">{who}</strong>}
+              <small>
+                {isSkillCampaign(cfg.mode)
+                  ? `Skill · ${skills.find((s) => s.id === cfg.skill)?.title ?? cfg.skill}${cfg.mode === "8" ? " · new model" : ""}`
+                  : (mode?.title ?? cfg.mode)}
+              </small>
             </span>
             <span className="batches-progress">
               <span className="bar">
@@ -145,6 +180,7 @@ export default function BatchesView({
           </div>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 }

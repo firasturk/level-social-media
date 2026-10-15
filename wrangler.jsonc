@@ -24,6 +24,7 @@
     "@shared/paths": "./shared/paths.ts",
     "@shared/direction-rules": "./shared/direction-rules.ts",
     "@shared/zip-parts": "./shared/zip-parts.ts",
+    "@shared/clients": "./shared/clients.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

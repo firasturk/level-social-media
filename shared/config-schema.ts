@@ -11,6 +11,8 @@ import {
 } from "./config";
 
 export const configSchema = z.object({
+  /** Client (clients.id) the batch is produced for. Required for new batches. */
+  client: z.string().max(80).optional(),
   mode: z.enum(MODES),
   /** Kept optional so batches saved before the category picker was removed still load. */
   category: z.string().max(80).optional(),

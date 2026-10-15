@@ -62,9 +62,11 @@ import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User } from "
 import type { EditorialBrief } from "./editorial";
 import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
+import { clientRoutes, listClients, requireActiveClient } from "./clients";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+studioRoutes.route("/clients", clientRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 12 * 1024 * 1024;
@@ -114,7 +116,7 @@ studioRoutes.get("/state", async (c) => {
     Batch & { total: number; completed: number; review: number; failed: number; queued: number }
   >(
     c.env.DB,
-    `SELECT b.id, b.name, b.config, b.state, b.last_error, b.created, b.updated,
+    `SELECT b.id, b.name, b.config, b.client, b.state, b.last_error, b.created, b.updated,
        COUNT(t.id) AS total,
        COALESCE(SUM(t.cost), 0) AS spent,
        SUM(CASE WHEN t.output IS NOT NULL THEN 1 ELSE 0 END) AS completed,
@@ -146,6 +148,7 @@ studioRoutes.get("/state", async (c) => {
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),
     modes: await readModes(c.env),
+    clients: await listClients(c.env, true),
     hero: await heroStamp(c.env),
     engine: {
       model: await resolveEngineModel(c.env),
@@ -928,6 +931,7 @@ studioRoutes.post("/batch", async (c) => {
     throw new StudioError("Invalid model slug.");
   const problem = validateConfig(config);
   if (problem) throw new StudioError(problem);
+  const client = await requireActiveClient(c.env, config.client);
   if (config.identity) {
     const identity = await first(
       c.env.DB,
@@ -940,11 +944,12 @@ studioRoutes.post("/batch", async (c) => {
   const id = uuid();
   await run(
     c.env.DB,
-    "INSERT INTO batches (id, owner, name, config, state, created, updated) VALUES (?, ?, ?, ?, 'idle', ?, ?)",
+    "INSERT INTO batches (id, owner, name, config, client, state, created, updated) VALUES (?, ?, ?, ?, ?, 'idle', ?, ?)",
     id,
     user.id,
-    (parsed.data.name || "New batch").slice(0, 100),
+    (parsed.data.name || `${client.name} · ${new Date().toLocaleDateString("en-GB")}`).slice(0, 100),
     JSON.stringify(config),
+    client.id,
     now(),
     now(),
   );
@@ -974,7 +979,8 @@ studioRoutes.post("/batch/config", async (c) => {
   if (b.state === "running")
     throw new StudioError("Pause the batch before editing its settings.", 409);
   const previous = JSON.parse(b.config) as Config;
-  const config = { ...parsed.data.config, mode: previous.mode };
+  // The workflow and the client are fixed once a batch exists.
+  const config = { ...parsed.data.config, mode: previous.mode, client: previous.client };
   if (!config.model) config.model = await resolveEngineModel(c.env);
   if (config.model && !/^[\w./-]+$/.test(config.model))
     throw new StudioError("Invalid model slug.");

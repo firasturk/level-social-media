@@ -51,6 +51,7 @@ import {
   stemKey,
 } from "@shared/naming";
 import type {
+  Client,
   LookInfo,
   Batch,
   EngineModel,
@@ -67,7 +68,8 @@ import type { PickedFile } from "@/lib/files";
 const BatchesView = lazyScreen(() => import("./BatchesView"));
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
 import { useBatch } from "./useBatch";
-import ModeCards, { applyModeOverrides } from "./ModeCards";
+import { applyModeOverrides } from "./ModeCards";
+import ClientCards from "./ClientCards";
 import BootScreen from "./BootScreen";
 import { MODES } from "./constants";
 import CreativePanel from "./CreativePanel";
@@ -124,25 +126,14 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
   const [zaidDirection, setZaidDirection] = useState("");
   const [moodBoard, setMoodBoard] = useState<MoodBoardInfo | null>(null);
   const [modeOverrides, setModeOverrides] = useState<Record<string, ModeOverride>>({});
+  const [clients, setClients] = useState<Client[]>([]);
   const [hero, setHero] = useState("");
-  // Boot screen: wait for the first state load, the approach pictures and the hero video (or a timeout).
+  // Boot screen: wait for the first state load and the hero video (or a timeout).
   const [stateReady, setStateReady] = useState(false);
-  const [imagesReady, setImagesReady] = useState(false);
   const [heroReady, setHeroReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
-  const booted = bootTimedOut || (stateReady && imagesReady && (heroReady || !hero));
+  const booted = bootTimedOut || (stateReady && (heroReady || !hero));
   useEffect(() => {
-    let left = MODES.length;
-    const settle = () => {
-      left -= 1;
-      if (left <= 0) setImagesReady(true);
-    };
-    for (const id of MODES) {
-      const img = new Image();
-      img.onload = settle;
-      img.onerror = settle;
-      img.src = `/modes/${id}.jpg`;
-    }
     const t = setTimeout(() => setBootTimedOut(true), 7000);
     return () => clearTimeout(t);
   }, []);
@@ -163,12 +154,20 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
       if (d.moodBoard) setMoodBoard(d.moodBoard);
       const ov = d.modes ?? {};
       setModeOverrides(ov);
+      const list = d.clients ?? [];
+      setClients(list);
       setHero(d.hero ?? "");
-      // A hidden approach must not stay selected for new batches.
+      // A hidden approach or an archived client must not stay selected for new batches.
       setConfig((c) => {
-        if (!ov[c.mode]?.hidden) return c;
-        const firstVisible = MODES.find((m) => !ov[m.id]?.hidden);
-        return firstVisible ? { ...c, mode: firstVisible.id } : c;
+        let next = c;
+        if (ov[c.mode]?.hidden) {
+          const firstVisible = MODES.find((m) => !ov[m.id]?.hidden);
+          if (firstVisible) next = { ...next, mode: firstVisible.id };
+        }
+        const activeClients = list.filter((x) => x.status === "active");
+        if (activeClients.length && !activeClients.some((x) => x.id === next.client))
+          next = { ...next, client: activeClients[0].id };
+        return next;
       });
       setError("");
     } catch (e) {
@@ -369,6 +368,10 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
 
   async function saveBatch() {
     if (!pending.length || uploading) return;
+    if (!batch && !effectiveConfig.client) {
+      toast.error("Pick a client first.");
+      return;
+    }
     setUploading(true);
     try {
       const id = batch
@@ -736,6 +739,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
                 <BatchesView
                   batches={batches}
                   skills={skills}
+                  clients={clients}
                   modes={applyModeOverrides(modeOverrides)}
                   busyId={openingId}
                   onOpen={(id) => void openBatch(id)}
@@ -766,9 +770,9 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
                 </video>
                 <div className="hero-veil" />
                 <div className="hero-content">
-                  <div className="eyebrow">PRODUCT PHOTOGRAPHY / WORKSPACE</div>
-                  <h1>From prompt to lifestyle.</h1>
-                  <p>One collection. Every image. Your creative direction.</p>
+                  <div className="eyebrow">SOCIAL MEDIA / WORKSPACE</div>
+                  <h1>From product to post.</h1>
+                  <p>One client. Every post. Its own identity.</p>
                 </div>
                 <button className="secondary hero-cta" onClick={newBatch} disabled={uploading}>
                   <ImagePlus size={17} />
@@ -778,9 +782,9 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
             ) : (
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">PRODUCT PHOTOGRAPHY / WORKSPACE</div>
-                  <h1>From prompt to lifestyle.</h1>
-                  <p>One collection. Every image. Your creative direction.</p>
+                  <div className="eyebrow">SOCIAL MEDIA / WORKSPACE</div>
+                  <h1>From product to post.</h1>
+                  <p>One client. Every post. Its own identity.</p>
                 </div>
                 <button className="secondary" onClick={newBatch} disabled={uploading}>
                   <ImagePlus size={17} />
@@ -789,20 +793,22 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
               </div>
             )}
 
-            <ModeCards
-              value={viewConfig.mode}
+            <ClientCards
+              clients={clients}
+              value={viewConfig.client ?? ""}
               disabled={locked}
-              overrides={modeOverrides}
               canEdit={user.role === "admin"}
-              onOverridesChanged={(ov) => {
-                setModeOverrides(ov);
-                setConfig((c) => {
-                  if (!ov[c.mode]?.hidden) return c;
-                  const firstVisible = MODES.find((m) => !ov[m.id]?.hidden);
-                  return firstVisible ? { ...c, mode: firstVisible.id } : c;
-                });
-              }}
-              onChange={(mode) =>
+              onClientsChanged={setClients}
+              onChange={(client) => setConfig((c) => ({ ...c, client }))}
+            />
+
+            {/* The production approach stays as a compact picker until post types replace it (Phase 2). */}
+            <div className="approach-row">
+              <label htmlFor="approach">Approach</label>
+              <Select
+                value={viewConfig.mode}
+                disabled={locked}
+                onValueChange={(mode: Config["mode"]) =>
                 setConfig((c) => ({
                   ...c,
                   mode,
@@ -823,7 +829,24 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
                           : c.prompt,
                 }))
               }
-            />
+              >
+                <SelectTrigger id="approach" className="approach-picker" aria-label="Approach">
+                  <SelectValue placeholder="Approach" />
+                </SelectTrigger>
+                <SelectContent>
+                  {applyModeOverrides(modeOverrides)
+                    .filter((m) => !modeOverrides[m.id]?.hidden || m.id === viewConfig.mode)
+                    .map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.title}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <span className="approach-detail">
+                {applyModeOverrides(modeOverrides).find((m) => m.id === viewConfig.mode)?.caption}
+              </span>
+            </div>
 
             <div className="workbench">
               <button

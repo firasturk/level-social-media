@@ -21,6 +21,8 @@ export interface Batch {
   id: string;
   name: string;
   config: string; // JSON of Config
+  /** Client the batch is produced for (clients.id); null for batches saved before clients existed. */
+  client?: string | null;
   state: BatchState;
   last_error?: string | null;
   created: number;
@@ -125,6 +127,30 @@ export interface SkillInfo {
   thumb?: string;
 }
 
+/** A client (brand) Level produces posts for, with its brand kit. */
+export interface Client {
+  id: string;
+  /** Used in export file names: lowercase a-z0-9-. */
+  slug: string;
+  name: string;
+  /** true when a primary logo is stored; served at /clients/:id/logo. */
+  logo: boolean;
+  colors: { name: string; hex: string }[];
+  fonts: { headline?: string; body?: string };
+  tone: string;
+  dos: string;
+  donts: string;
+  /** "Analyse identity" result, editable. */
+  style: string;
+  gridRhythm: string;
+  language: "ar" | "en" | "both";
+  status: "active" | "archived";
+  position: number;
+  /** Number of batches filed under this client. */
+  batches: number;
+  updated: number;
+}
+
 /** Team overrides for a production approach card. */
 export interface ModeOverride {
   title?: string;
@@ -141,6 +167,8 @@ export interface StateResponse {
   moodBoard?: MoodBoardInfo;
   /** Renamed or hidden production approaches, keyed by mode id. */
   modes: Record<string, ModeOverride>;
+  /** Active clients in card order. */
+  clients: Client[];
   /** Version stamp of the uploaded hero video, empty when none. */
   hero: string;
   engine: {

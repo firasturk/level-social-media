@@ -19,10 +19,10 @@ shared and server code (`tests/*.test.ts`, vitest).
 
 ## Phase 1: clients
 
-- [ ] Migration 0016, `Client` types, routes `/clients*` (list/create/update/archive/assets).
-- [ ] `ClientCards.tsx` replaces `ModeCards.tsx`: logo, name, add, rename, reorder, hide/archive.
-- [ ] `config.client`, `batches.client`; Batches view filter by client; selected client remembered.
-- [ ] Approach cards hidden; `mode` fixed to a single internal value.
+- [x] Migration 0016, `Client` types, routes `/clients*` (list/create/update/archive/assets).
+- [x] `ClientCards.tsx` replaces `ModeCards.tsx`: logo, name, add, rename, reorder, hide/archive.
+- [x] `config.client`, `batches.client`; Batches view filter by client; selected client remembered.
+- [x] Approach cards hidden behind a compact picker; `mode` stays until post types (Phase 2).
       Acceptance: two clients created, a product batch under each, history filtered per client.
 
 ## Phase 2: brand kit and rules
