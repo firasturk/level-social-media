@@ -23,6 +23,7 @@ import type { Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
 import {
+  MAX_POST_COUNT,
   POST_TYPE_INFO,
   POST_TYPES,
   monthLabel,
@@ -59,6 +60,7 @@ export default function PlanView({
   onUploadProducts,
   onRemoveProduct,
   onGenerateIdeas,
+  onPostCount,
   onSavePlan,
   onGeneratePosts,
   onOpen,
@@ -101,6 +103,8 @@ export default function PlanView({
   onUploadProducts: (files: File[]) => void;
   onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
+  /** The number of posts the month gets, whatever the number of products uploaded. */
+  onPostCount: (n: number) => void;
   onSavePlan: (plan: Post[]) => void;
   onGeneratePosts: (indexes?: number[], regenerate?: boolean) => void;
   onOpen: (t: Task) => void;
@@ -186,8 +190,22 @@ export default function PlanView({
             value={month}
             onChange={(e) => e.target.value && onMonth(e.target.value)}
           />
+          <label htmlFor="plan-post-count">Posts</label>
+          <input
+            id="plan-post-count"
+            className="plan-post-count"
+            type="number"
+            min={1}
+            max={MAX_POST_COUNT}
+            value={postCount}
+            disabled={running}
+            title="How many posts this month gets. Generate ideas plans exactly this many, however many products are uploaded."
+            onChange={(e) =>
+              onPostCount(Math.max(1, Math.min(MAX_POST_COUNT, Number(e.target.value) || 1)))
+            }
+          />
           <span className="plan-count">
-            {plan.length ? `${generated}/${plan.length} posts generated` : `${postCount} posts planned`}
+            {plan.length ? `${generated}/${plan.length} generated` : "planned"}
           </span>
         </div>
         <div className="plan-actions">

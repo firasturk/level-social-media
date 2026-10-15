@@ -20,7 +20,7 @@ export interface FeedDeck {
 
 const W = 1600;
 const PAD = 120;
-const SANS = "Inter, system-ui, sans-serif";
+const SANS = "Montserrat, Inter, system-ui, sans-serif";
 const ARABIC = "Tajawal, Cairo, system-ui, sans-serif";
 const AR = /[؀-ۿ]/;
 
@@ -29,11 +29,12 @@ const AR = /[؀-ۿ]/;
  * the direction and a note per post, and a closing page on black.
  */
 export async function buildFeedPdf(deck: FeedDeck): Promise<Blob> {
-  const brand = deck.client.fonts.headline || "Inter";
+  // Level's own face, Montserrat, carries the whole deck; Arabic falls back to Tajawal.
+  const brand = "Montserrat";
   // Canvas text only uses a web font once it is loaded; fonts load lazily, so ask for them first.
   await Promise.all(
-    [`700 64px ${brand}`, `400 30px Inter`, `600 30px Inter`, `400 30px Tajawal`, `700 40px Tajawal`].map((f) =>
-      document.fonts.load(f).catch(() => []),
+    ["400 30px Montserrat", "500 30px Montserrat", "600 30px Montserrat", "700 64px Montserrat", "400 30px Tajawal", "700 40px Tajawal"].map(
+      (f) => document.fonts.load(f).catch(() => []),
     ),
   );
   await document.fonts.ready;

@@ -126,6 +126,8 @@ export interface PostBrief {
   /** True when the reference photo is image 1 itself (no product in this post). */
   refIsSource: boolean;
   hasProduct: boolean;
+  /** The product's name and what its photo shows, so the scene is built around the right item. */
+  product?: string;
   /** Theme-level visual language written by "Analyse theme" (light, palette, composition). */
   library?: string;
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
@@ -186,6 +188,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       "The last image is the previous result of this post: apply the revision below to it and keep everything else.",
     );
+  if (b.hasProduct && b.product) parts.push(`THE PRODUCT IN IMAGE 1: ${b.product.trim()}`);
   parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${b.title}\n${b.brief.trim()}`);
   const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
@@ -282,6 +285,8 @@ export interface IdeasRequest {
   themeTitle: string;
   themeDirection: string;
   products: string[];
+  /** What each product photo shows, by product name (read by vision at upload). */
+  productNotes?: Record<string, string>;
   month: string;
   count: number;
   /** Extra wishes typed by the designer for this month. */
@@ -312,7 +317,8 @@ export function ideasInstruction(r: IdeasRequest): string {
       ? `THIS MONTH'S THEME "${r.themeTitle}": ${r.themeDirection}`
       : "",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; every product should appear at least once before any repeats): ${r.products.join("; ")}.`
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THAT item and never name or describe a different product:
+${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to an empty string for every post.",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
@@ -434,7 +440,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     r.style ? `VISUAL IDENTITY: ${r.style}` : "",
     r.themeDirection ? `THEME DIRECTION: ${r.themeDirection}` : "",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; every product appears at least once before any repeats): ${r.products.join("; ")}.`
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: each post's title, headline, subline, brief and caption are about THAT item, never another product:\n${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), subline (at most 8 words or ""), caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or "").`,
@@ -497,3 +503,14 @@ export const IDENTITY_SCHEMA = {
   properties: { description: { type: "string" }, style: { type: "string" } },
   required: ["description", "style"],
 };
+
+export const PRODUCT_NOTE_SCHEMA = {
+  type: "object",
+  properties: { note: { type: "string" } },
+  required: ["note"],
+} as const;
+
+/** Reads one product photo: what the item is, in one line, for the ideas writer and the prompt. */
+export function productNoteInstruction(name: string): string {
+  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, and any readable brand or flavour text on it. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
+}

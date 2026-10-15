@@ -28,6 +28,8 @@ import {
   MAX_POST_COUNT,
   matchProduct,
   parseIdeas,
+  PRODUCT_NOTE_SCHEMA,
+  productNoteInstruction,
   POST_TYPES,
   postFileName,
   THEME_SCHEMA,
@@ -527,6 +529,32 @@ interface SourceRow {
   key: string;
   kind: string;
   role: string;
+  /** What the product photo shows, read by vision (null until read). */
+  note?: string | null;
+}
+
+/** Reads every product photo that has no note yet and stores one; failures leave the note empty. */
+async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
+  for (const s of sources) {
+    if (s.kind !== "product" || s.note) continue;
+    try {
+      const obj = await env.BUCKET.get(s.key);
+      if (!obj) continue;
+      const image: ImageBytes = {
+        bytes: await obj.arrayBuffer(),
+        mime: obj.httpMetadata?.contentType || "image/jpeg",
+      };
+      const d = parseJson<{ note?: string }>(
+        await askText(env, productNoteInstruction(productName(s)), PRODUCT_NOTE_SCHEMA, [image]),
+      );
+      const note = (d.note ?? "").trim().slice(0, 300);
+      if (!note) continue;
+      s.note = note;
+      await run(env.DB, "UPDATE sources SET note = ? WHERE id = ?", note, s.id);
+    } catch (e) {
+      console.error("[products] describe failed", s.name, errorMessage(e));
+    }
+  }
 }
 
 /** Product uploads of the plan, by their display name (upload name without folder and extension). */
@@ -564,10 +592,14 @@ postRoutes.post("/ideas", async (c) => {
     : null;
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
+  await describeProducts(c.env, sources);
   const products = [...new Set(sources.map(productName))];
+  const productNotes = Object.fromEntries(
+    sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
+  );
   const count = d.count ?? config.postCount ?? 12;
   const instruction = ideasInstruction({
     clientName: client.name,
@@ -583,6 +615,7 @@ postRoutes.post("/ideas", async (c) => {
     themeTitle: theme?.title ?? "",
     themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
     products,
+    productNotes,
     month: config.month ?? "",
     count,
     notes: d.notes ?? config.notes,
@@ -630,10 +663,14 @@ postRoutes.post("/grid-ideas", async (c) => {
     : null;
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
+  await describeProducts(c.env, sources);
   const products = [...new Set(sources.map(productName))];
+  const productNotes = Object.fromEntries(
+    sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
+  );
   const count = d.count ?? config.postCount ?? 12;
   const instruction = gridIdeasInstruction({
     clientName: client.name,
@@ -649,6 +686,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     themeTitle: theme?.title ?? "",
     themeDirection: theme?.goal ?? "",
     products,
+    productNotes,
     month: config.month ?? "",
     count,
     notes: d.notes ?? config.notes,
@@ -778,9 +816,10 @@ postRoutes.post("/generate", async (c) => {
     : [];
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ?",
+    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE batch = ?",
     b.id,
   );
+  await describeProducts(c.env, sources);
   const tasks = await all<TaskLite>(
     c.env.DB,
     "SELECT id, post, status, output, brief FROM tasks WHERE batch = ?",
@@ -868,6 +907,9 @@ postRoutes.post("/generate", async (c) => {
       ref: refId,
       refIsSource: !product && !!refId,
       hasProduct: !!product,
+      product: product
+        ? [productName(product).trim(), product.note?.trim()].filter(Boolean).join(" — ")
+        : undefined,
     };
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });

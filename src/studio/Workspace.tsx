@@ -317,6 +317,7 @@ export default function Workspace({
       const r = await post<{ plan: Post[] }>("/api/studio/posts/ideas", {
         batch: id,
         notes: notes || undefined,
+        count: shownSettings.postCount,
       });
       await refresh();
       toast.success(`${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
@@ -339,6 +340,7 @@ export default function Workspace({
         batch: id,
         ref: refId,
         notes: notes || undefined,
+        count: shownSettings.postCount,
       });
       await refresh();
       toast.success(`${r.plan.length} posts planned from the reference grid.`);
@@ -679,6 +681,7 @@ export default function Workspace({
                 onUploadProducts={(files) => void uploadProducts(files)}
                 onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}
+                onPostCount={(n) => void updateSettings({ postCount: n })}
                 onSavePlan={(p) => void savePlan(p)}
                 onGeneratePosts={(i, r) => void generatePosts(i, r)}
                 onOpen={setSelected}

@@ -4524,6 +4524,10 @@ h1 {
 .plan-count {
   color: var(--ink-400);
 }
+.plan-post-count {
+  width: 72px;
+  padding: 8px 10px;
+}
 .plan-actions {
   display: flex;
   align-items: center;
