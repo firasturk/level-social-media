@@ -23,6 +23,11 @@ const PAD = 120;
 const SANS = "Montserrat, Inter, system-ui, sans-serif";
 const ARABIC = "Tajawal, Cairo, system-ui, sans-serif";
 const AR = /[؀-ۿ]/;
+/** Right-to-left when the first letter is Arabic; an English brief that names an Arabic product stays LTR. */
+function isRtl(text: string): boolean {
+  const m = /[A-Za-z\u0600-\u06FF]/.exec(text);
+  return !!m && AR.test(m[0]);
+}
 
 /**
  * A one-page presentation of the month: cover, an Instagram-style profile grid with every post,
@@ -78,7 +83,7 @@ function paragraph(
 ): number {
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return y;
-  const rtl = AR.test(clean);
+  const rtl = isRtl(clean);
   ctx.font = fontFor(clean, size, opts.weight ?? 400, opts.family ?? SANS);
   ctx.fillStyle = opts.color ?? "#111";
   ctx.textBaseline = "top";
@@ -268,7 +273,7 @@ function feed(deck: FeedDeck, brand: string): HTMLCanvasElement {
   ctx.textAlign = "left";
   ctx.fillStyle = "#111";
   ctx.font = fontFor(deck.client.name, 30, 700, brand);
-  ctx.direction = AR.test(deck.client.name) ? "rtl" : "ltr";
+  ctx.direction = isRtl(deck.client.name) ? "rtl" : "ltr";
   ctx.fillText(deck.client.name, fx + 60, fy + 380);
   ctx.direction = "ltr";
   ctx.fillStyle = "#333";
@@ -344,7 +349,8 @@ function notes(deck: FeedDeck, brand: string): HTMLCanvasElement[] {
   const perChunk = 6;
   for (let i = 0; i < deck.posts.length; i += perChunk) {
     const chunk = deck.posts.slice(i, i + perChunk);
-    const scratch = canvas(perChunk * (thumbH + 70) + PAD, "#fff");
+    // Tall enough for long briefs and captions; the final canvas is cut to the height used.
+    const scratch = canvas(perChunk * (thumbH + 900) + PAD, "#fff");
     const sctx = scratch[1];
     let y = i === 0 ? 20 : 60;
     for (const { post, image } of chunk) {
@@ -375,7 +381,7 @@ function notes(deck: FeedDeck, brand: string): HTMLCanvasElement[] {
       sctx.stroke();
     }
     const [c, ctx] = canvas(y, "#fff");
-    ctx.drawImage(scratch[0], 0, 0);
+    ctx.drawImage(scratch[0], 0, 0, W, y, 0, 0, W, y);
     out.push(c);
   }
   return out;
