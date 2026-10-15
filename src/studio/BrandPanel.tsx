@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { askConfirm } from "@/lib/confirm";
 import { toast } from "sonner";
 import {
   ChevronDown,
@@ -533,7 +534,7 @@ function ThemeSection({
   }
 
   async function removeTheme() {
-    if (!current || !window.confirm(`Delete the theme "${current.title}"?`)) return;
+    if (!current || !(await askConfirm(`Delete the theme "${current.title}"?`, { ok: "Delete" }))) return;
     try {
       const r = await del<ThemesReply>(`/api/studio/posts/themes/${current.id}`);
       onThemesChanged(r.themes);
@@ -780,7 +781,7 @@ function OverlaySection({
   }
 
   async function removeFont(id: string, name: string) {
-    if (!window.confirm(`Remove the font "${name}"?`)) return;
+    if (!(await askConfirm(`Remove the font "${name}"?`))) return;
     try {
       const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/fonts/${id}`);
       onClientsChanged(r.clients);

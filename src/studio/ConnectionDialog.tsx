@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { askConfirm } from "@/lib/confirm";
 import { Check, KeyRound, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -63,9 +64,9 @@ export default function ConnectionDialog({
 
   async function removeVertex() {
     if (
-      !window.confirm(
+      !(await askConfirm(
         "Remove the Google Cloud service account? Google calls go back to the AI Studio key, if one is saved.",
-      )
+      ))
     )
       return;
     try {
@@ -168,7 +169,7 @@ export default function ConnectionDialog({
 
   async function removeFal() {
     if (
-      !window.confirm("Remove the saved fal.ai key? Seedream models stop until a new key is added.")
+      !(await askConfirm("Remove the saved fal.ai key? Seedream models stop until a new key is added."))
     )
       return;
     try {
@@ -182,9 +183,9 @@ export default function ConnectionDialog({
 
   async function removeGoogle() {
     if (
-      !window.confirm(
+      !(await askConfirm(
         "Remove the saved Google key? Nano Banana models and automatic review stop until a new key is added.",
-      )
+      ))
     )
       return;
     try {
@@ -215,9 +216,9 @@ export default function ConnectionDialog({
 
   async function removeOpenai() {
     if (
-      !window.confirm(
+      !(await askConfirm(
         "Remove the saved OpenAI key? GPT Image models stop until a new key is added.",
-      )
+      ))
     )
       return;
     try {
@@ -246,7 +247,7 @@ export default function ConnectionDialog({
 
   async function remove() {
     if (
-      !window.confirm("Remove the saved Higgsfield key? Generation stops until a new key is added.")
+      !(await askConfirm("Remove the saved Higgsfield key? Generation stops until a new key is added."))
     )
       return;
     try {

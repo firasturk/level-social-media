@@ -1,4 +1,5 @@
 import { lazyScreen } from "@/lib/lazy";
+import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { del, get, post, postForm, put } from "@/api";
@@ -294,7 +295,7 @@ export default function Workspace({
   }
 
   async function removeProduct(id: string) {
-    if (!batch || !window.confirm("Remove this product photo and the posts generated from it?"))
+    if (!batch || !(await askConfirm("Remove this product photo and the posts generated from it?")))
       return;
     try {
       await del(`/api/studio/posts/product?batch=${encodeURIComponent(batch.id)}&id=${encodeURIComponent(id)}`);
@@ -471,7 +472,7 @@ export default function Workspace({
 
   async function deletePlan() {
     if (!batch || active) return;
-    if (!window.confirm(`Delete ${client?.name ?? ""} · ${month} with its products and posts?`)) return;
+    if (!(await askConfirm(`Delete ${client?.name ?? ""} · ${month} with its products and posts?`, { ok: "Delete" }))) return;
     try {
       await remove();
       await loadState();
@@ -498,7 +499,7 @@ export default function Workspace({
   }
 
   async function deletePlanById(b: Batch) {
-    if (!window.confirm(`Delete "${b.name}" with its products and posts?`)) return;
+    if (!(await askConfirm(`Delete "${b.name}" with its products and posts?`, { ok: "Delete" }))) return;
     try {
       if (batch?.id === b.id) await remove();
       else await del(`/api/studio/batch?batch=${encodeURIComponent(b.id)}`);

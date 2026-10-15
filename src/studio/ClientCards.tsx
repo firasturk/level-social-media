@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { askConfirm } from "@/lib/confirm";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Archive,
@@ -83,11 +84,11 @@ export default function ClientCards({
     void call(() => post<Reply>("/api/studio/clients/order", { ids }));
   }
 
-  function archive(c: Client) {
+  async function archive(c: Client) {
     const msg = c.batches
       ? `Archive "${c.name}"? Its ${c.batches} months stay in history.`
       : `Remove "${c.name}"? It has no months, so it will be deleted.`;
-    if (!window.confirm(msg)) return;
+    if (!(await askConfirm(msg, { ok: c.batches ? "Archive" : "Remove" }))) return;
     void call(
       () => del<Reply>(`/api/studio/clients/${c.id}`),
       (r) => (value === c.id ? r.clients.find((x) => x.status === "active")?.id : undefined),
@@ -136,7 +137,7 @@ export default function ClientCards({
         <Tool label="Change logo" onClick={() => pickLogo(c)}>
           <ImagePlus size={13} />
         </Tool>
-        <Tool label="Archive client" onClick={() => archive(c)}>
+        <Tool label="Archive client" onClick={() => void archive(c)}>
           <Archive size={13} />
         </Tool>
       </>

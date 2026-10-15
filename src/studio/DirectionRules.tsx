@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { askConfirm } from "@/lib/confirm";
 import { ChevronDown, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { del, get, put } from "@/api";
@@ -61,10 +62,10 @@ export default function DirectionRules({ locked = false }: { locked?: boolean })
     save([...rules, { key: `custom-${Date.now()}-${n}`, title: "", text: "", enabled: true }]);
   }
 
-  function remove(i: number) {
+  async function remove(i: number) {
     if (!rules) return;
     const r = rules[i];
-    if (r.text.trim() && !window.confirm(`Remove the rule "${r.title || r.text.slice(0, 40)}"?`))
+    if (r.text.trim() && !(await askConfirm(`Remove the rule "${r.title || r.text.slice(0, 40)}"?`)))
       return;
     save(
       rules.filter((_, j) => j !== i),
@@ -74,9 +75,10 @@ export default function DirectionRules({ locked = false }: { locked?: boolean })
 
   async function reset() {
     if (
-      !window.confirm(
+      !(await askConfirm(
         "Restore the original 13 rules exactly as they were? Your edits, switched-off rules and added rules are discarded.",
-      )
+        { ok: "Restore" },
+      ))
     )
       return;
     try {
@@ -143,7 +145,7 @@ export default function DirectionRules({ locked = false }: { locked?: boolean })
                       className="text-button danger-text"
                       disabled={locked}
                       aria-label="Remove rule"
-                      onClick={() => remove(i)}
+                      onClick={() => void remove(i)}
                     >
                       <Trash2 size={13} />
                     </button>
@@ -168,7 +170,7 @@ export default function DirectionRules({ locked = false }: { locked?: boolean })
               className="text-button"
               disabled={locked}
               title="Put the original 13 rules back and discard your edits and added rules"
-              onClick={reset}
+              onClick={() => void reset()}
             >
               <RotateCcw size={13} /> Restore original rules
             </button>

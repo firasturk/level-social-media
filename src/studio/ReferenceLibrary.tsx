@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { askConfirm } from "@/lib/confirm";
 import { createPortal } from "react-dom";
 import { ImagePlus, LoaderCircle, X } from "lucide-react";
 import { toast } from "sonner";
@@ -92,7 +93,7 @@ export default function ReferenceLibrary({
   }
 
   async function remove(id: string) {
-    if (!window.confirm("Remove this reference photo from the library?")) return;
+    if (!(await askConfirm("Remove this reference photo from the library?"))) return;
     try {
       await del(`/api/studio/references/${id}`);
       setItems((l) => l.filter((r) => r.id !== id));

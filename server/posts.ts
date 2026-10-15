@@ -336,8 +336,80 @@ const importBody = z.object({
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
+type Fetched = { bytes: ArrayBuffer; mime: string };
+
+/** Pinterest's own share graphic (its logo on a 1200x630 card), served instead of the pin to bots. */
+const PINTEREST_PLACEHOLDER = /s\.pinimg\.com|facebook_share_image|pinterest_share|\/images\/(?:pin_)?logo/i;
+
+async function fetchImage(url: string): Promise<Fetched | null> {
+  const r = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "image/*" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) return null;
+  const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
+  if (!mime.startsWith("image/")) return null;
+  const bytes = await r.arrayBuffer();
+  return bytes.byteLength <= MAX_REFERENCE ? { bytes, mime } : null;
+}
+
+/** The full-size copy of a pinimg URL, with the sized copy as fallback. */
+async function fetchPinimg(url: string): Promise<Fetched | null> {
+  const sized = url.replace(/&amp;/g, "&");
+  const original = sized.replace(/\/(?:\d{2,4}x|originals)\//, "/originals/");
+  return (await fetchImage(original)) ?? (original !== sized ? await fetchImage(sized) : null);
+}
+
+const pinIdOf = (url: string): string | null =>
+  /pinterest\.[a-z.]+\/pin\/(\d{6,})/i.exec(url)?.[1] ?? null;
+
+/**
+ * A pin's image through Pinterest's pin endpoints, which answer servers plainly while the pin page
+ * itself often comes back as a sign-in page carrying the Pinterest logo as og:image.
+ */
+async function pinterestImage(pinId: string): Promise<Fetched | null> {
+  try {
+    const r = await fetch(`https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${pinId}`, {
+      headers: { "User-Agent": UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (r.ok) {
+      const d = (await r.json()) as {
+        data?: { images?: Record<string, { url?: string; width?: number }> }[];
+      };
+      const images = Object.values(d.data?.[0]?.images ?? {})
+        .filter((i) => !!i.url)
+        .sort((a, b) => (b.width ?? 0) - (a.width ?? 0));
+      if (images[0]?.url) {
+        const img = await fetchPinimg(images[0].url);
+        if (img) return img;
+      }
+    }
+  } catch (e) {
+    console.error("[import] pin info failed", pinId, errorMessage(e));
+  }
+  try {
+    const r = await fetch(
+      `https://www.pinterest.com/oembed.json?url=${encodeURIComponent(`https://www.pinterest.com/pin/${pinId}/`)}`,
+      { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) },
+    );
+    if (r.ok) {
+      const d = (await r.json()) as { thumbnail_url?: string };
+      if (d.thumbnail_url) return await fetchPinimg(d.thumbnail_url);
+    }
+  } catch (e) {
+    console.error("[import] pin oembed failed", pinId, errorMessage(e));
+  }
+  return null;
+}
+
 /** The main image of a web page: og:image, twitter:image, or the URL itself when it is an image. */
-async function pageImage(url: string): Promise<{ bytes: ArrayBuffer; mime: string } | null> {
+async function pageImage(url: string): Promise<Fetched | null> {
+  const directPin = pinIdOf(url);
+  if (directPin) {
+    const img = await pinterestImage(directPin);
+    if (img) return img;
+  }
   const head = await fetch(url, {
     headers: { "User-Agent": UA, Accept: "text/html,image/*;q=0.9,*/*;q=0.8" },
     redirect: "follow",
@@ -348,6 +420,12 @@ async function pageImage(url: string): Promise<{ bytes: ArrayBuffer; mime: strin
   if (type.startsWith("image/")) {
     const bytes = await head.arrayBuffer();
     return bytes.byteLength <= MAX_REFERENCE ? { bytes, mime: type.split(";")[0] } : null;
+  }
+  // A short link (pin.it) lands on the pin page: read the pin through Pinterest's endpoints first.
+  const pinId = directPin ?? pinIdOf(head.url);
+  if (pinId && !directPin) {
+    const img = await pinterestImage(pinId);
+    if (img) return img;
   }
   const html = (await head.text()).slice(0, 2_000_000);
   const candidates = [
@@ -360,28 +438,15 @@ async function pageImage(url: string): Promise<{ bytes: ArrayBuffer; mime: strin
   let image: string | null = null;
   for (const re of candidates) {
     const m = re.exec(html);
-    if (m) {
+    // The site's own logo or share card is never the pin.
+    if (m && !PINTEREST_PLACEHOLDER.test(m[1])) {
       image = m[1].replace(/&amp;/g, "&");
       break;
     }
   }
   if (!image) return null;
-  // Pinterest serves a 736px copy by default; the originals folder holds the full image.
-  image = image.replace("/736x/", "/originals/");
-  let r = await fetch(image, {
-    headers: { "User-Agent": UA, Accept: "image/*" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!r.ok && image.includes("/originals/"))
-    r = await fetch(image.replace("/originals/", "/736x/"), {
-      headers: { "User-Agent": UA, Accept: "image/*" },
-      signal: AbortSignal.timeout(20_000),
-    });
-  if (!r.ok) return null;
-  const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
-  if (!mime.startsWith("image/")) return null;
-  const bytes = await r.arrayBuffer();
-  return bytes.byteLength <= MAX_REFERENCE ? { bytes, mime } : null;
+  if (/i\.pinimg\.com/i.test(image)) return fetchPinimg(image);
+  return fetchImage(image);
 }
 
 postRoutes.post("/import-references", async (c) => {
