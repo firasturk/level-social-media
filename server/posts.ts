@@ -533,13 +533,27 @@ interface SourceRow {
   note?: string | null;
 }
 
-/** Reads every product photo that has no note yet and stores one; failures leave the note empty. */
-async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
-  for (const s of sources) {
-    if (s.kind !== "product" || s.note) continue;
+/**
+ * Reads every product photo that has no note yet and stores one; failures leave the note empty.
+ * Runs a few photos at a time: it is called in the background right after an upload, and again
+ * (for anything still missing) before ideas are written.
+ */
+export async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
+  const pending = sources.filter((s) => s.kind === "product" && !s.note);
+  const describe = async (s: SourceRow) => {
     try {
+      // Another request (the upload's background read) may have finished it meanwhile.
+      const row = await first<{ note: string | null }>(
+        env.DB,
+        "SELECT note FROM sources WHERE id = ?",
+        s.id,
+      );
+      if (row?.note) {
+        s.note = row.note;
+        return;
+      }
       const obj = await env.BUCKET.get(s.key);
-      if (!obj) continue;
+      if (!obj) return;
       const image: ImageBytes = {
         bytes: await obj.arrayBuffer(),
         mime: obj.httpMetadata?.contentType || "image/jpeg",
@@ -548,13 +562,26 @@ async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
         await askText(env, productNoteInstruction(productName(s)), PRODUCT_NOTE_SCHEMA, [image]),
       );
       const note = (d.note ?? "").trim().slice(0, 300);
-      if (!note) continue;
+      if (!note) return;
       s.note = note;
       await run(env.DB, "UPDATE sources SET note = ? WHERE id = ?", note, s.id);
     } catch (e) {
       console.error("[products] describe failed", s.name, errorMessage(e));
     }
-  }
+  };
+  const limit = 4;
+  for (let i = 0; i < pending.length; i += limit)
+    await Promise.all(pending.slice(i, i + limit).map(describe));
+}
+
+/** Reads one freshly uploaded product in the background (called by the upload route). */
+export async function describeUpload(env: Env, sourceId: string): Promise<void> {
+  const row = await first<SourceRow>(
+    env.DB,
+    "SELECT id, name, stem, key, kind, role, note FROM sources WHERE id = ?",
+    sourceId,
+  );
+  if (row) await describeProducts(env, [row]);
 }
 
 /** Product uploads of the plan, by their display name (upload name without folder and extension). */

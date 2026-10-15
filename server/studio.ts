@@ -63,7 +63,7 @@ import type { EditorialBrief } from "./editorial";
 import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
-import { postRoutes } from "./posts";
+import { describeUpload, postRoutes } from "./posts";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1147,6 +1147,11 @@ studioRoutes.post("/upload", async (c) => {
     throw e;
   }
   await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
+  // A product photo is read right away, so writing the ideas later does not wait for it.
+  if (config.mode === "post")
+    c.executionCtx.waitUntil(
+      describeUpload(c.env, id).catch((e) => console.error("[upload] describe", errorMessage(e))),
+    );
   return c.json({ id });
 });
 
