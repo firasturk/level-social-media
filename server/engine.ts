@@ -81,7 +81,7 @@ import {
 import { productKey, shotNumber } from "@shared/naming";
 import { resolveSkill } from "./skills";
 import { centeringApplies } from "@shared/prompts";
-import { OpenAIImageClient, isOpenAIModel, type ImageBytes } from "./openai";
+import { OPENAI_MODELS, OpenAIImageClient, isOpenAIModel, type ImageBytes } from "./openai";
 
 interface BatchRow {
   id: string;
@@ -137,6 +137,30 @@ const MAX_AUTO_ATTEMPTS = 2; // one automatic retry for transient engine failure
 
 export function keyLooksValid(key: string | null | undefined): key is string {
   return !!key && /^[^:\s]+:[^:\s]+$/.test(key);
+}
+
+/**
+ * The model a batch can run on now: its own when that vendor is connected, otherwise the first
+ * connected vendor's default (Google, then OpenAI, then Higgsfield). Null when nothing is connected.
+ */
+export async function connectedModel(env: Env, model: string | undefined): Promise<string | null> {
+  const slug = model || (await resolveEngineModel(env));
+  const google = !!(await resolveGoogleAuth(env)).auth;
+  const openai = !!(await resolveOpenAIKey(env)).key;
+  const fal = !!(await resolveFalKey(env)).key;
+  const higgsfield = await engineConfigured(env);
+  const ok = isGoogleModel(slug)
+    ? google
+    : isOpenAIModel(slug)
+      ? openai
+      : isFalModel(slug)
+        ? fal
+        : higgsfield;
+  if (ok) return slug;
+  if (google) return "gemini-3-pro-image";
+  if (openai) return OPENAI_MODELS[0].slug;
+  if (higgsfield) return env.HIGGSFIELD_MODEL || "nano-banana-pro";
+  return null;
 }
 
 export async function engineConfigured(env: Env): Promise<boolean> {
@@ -624,6 +648,19 @@ async function submitNext(
   config: Config,
   { background, deferSync }: DriveOptions,
 ): Promise<void> {
+  // A month planned before the right engine was connected keeps an unusable model: move it to the
+  // connected one instead of pausing on "not connected".
+  const usable = await connectedModel(env, config.model);
+  if (usable && usable !== config.model) {
+    config.model = usable;
+    await run(
+      env.DB,
+      "UPDATE batches SET config = ?, updated = ? WHERE id = ?",
+      JSON.stringify(config),
+      now(),
+      batch.id,
+    );
+  }
   const openai = isOpenAIModel(config.model);
   const google = isGoogleModel(config.model);
   const fal = isFalModel(config.model);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Clapperboard,
   Download,
+  AlertTriangle,
   Eye,
   Grid3x3,
   ImagePlus,
@@ -62,6 +63,8 @@ export default function PlanView({
   onOpen,
   onExport,
   onDeletePlan,
+  paused,
+  onResume,
 }: {
   client: Client;
   month: string;
@@ -90,6 +93,9 @@ export default function PlanView({
   onClearGrid: () => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
+  /** Why generation stopped (the engine's message), when the month is paused. */
+  paused: string | null;
+  onResume: () => void;
   onUploadProducts: (files: File[]) => void;
   onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
@@ -248,6 +254,18 @@ export default function PlanView({
         </div>
       </div>
 
+      {paused && (
+        <div className="plan-alert" role="alert">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>Generation stopped.</strong> {paused}
+          </div>
+          <button type="button" className="primary" onClick={onResume} disabled={!!busy}>
+            Resume
+          </button>
+        </div>
+      )}
+
       <div className="plan-notes">
         <input
           value={notes}
@@ -398,7 +416,7 @@ export default function PlanView({
                     {inFlight && (
                       <span className="post-progress">
                         <LoaderCircle className="spinning" size={18} />
-                        {t?.status === "processing" ? "Generating…" : "Queued"}
+                        {t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued"}
                       </span>
                     )}
                     {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}

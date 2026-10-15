@@ -389,6 +389,20 @@ export default function Workspace({
     }
   }
 
+  /** Restart a paused month: queued posts carry on, failed ones get a fresh prompt. */
+  async function resumeMonth() {
+    if (!batch) return;
+    setBusy("resume");
+    try {
+      await action("retry");
+      toast.success("Generation resumed.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function revise(edit: string) {
     if (!selected) return;
     setActing(true);
@@ -620,6 +634,8 @@ export default function Workspace({
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}
                 onDeletePlan={() => void deletePlan()}
+                paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
+                onResume={() => void resumeMonth()}
               />
             </div>
           </>

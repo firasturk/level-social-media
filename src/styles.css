@@ -4533,6 +4533,28 @@ h1 {
 .plan-notes input {
   width: 100%;
 }
+.plan-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line));
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  font-size: 13px;
+  line-height: 1.4;
+}
+.plan-alert > svg {
+  flex: none;
+  color: var(--warning);
+}
+.plan-alert > div {
+  flex: 1;
+  min-width: 0;
+}
+.plan-alert strong {
+  margin-right: 4px;
+}
 .products {
   background: var(--surface);
   border: 1px solid var(--line);

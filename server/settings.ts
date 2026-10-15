@@ -94,7 +94,7 @@ export const ENGINE_MODEL_SETTING = "higgsfield_model";
 export async function resolveEngineModel(env: Env): Promise<string> {
   const stored = await getSetting(env, ENGINE_MODEL_SETTING);
   if (stored) return stored;
-  if ((await resolveGoogleKey(env)).key) return "gemini-3-pro-image";
+  if ((await resolveGoogleAuth(env)).auth) return "gemini-3-pro-image";
   return env.HIGGSFIELD_MODEL || "nano-banana-pro";
 }
 
