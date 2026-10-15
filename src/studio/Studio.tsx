@@ -643,11 +643,11 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
     <div className={`studio ${settingsOpen ? "settings-open" : ""}`}>
       <BootScreen done={booted} />
       <header className="topbar">
-        <a href="/" className="brand" aria-label="Max Fashion Studio">
-          <img className="max-logo" src="/logo-mark.png" alt="Max" width={96} height={32} />
+        <a href="/" className="brand" aria-label="Level Social Media">
+          <img className="max-logo" src="/logo-mark.png" alt="Level" width={96} height={32} />
           <span className="brand-divider" />
           <span className="studio-title">
-            IMAGE STUDIO<span>CREATIVE OPERATIONS</span>
+            SOCIAL MEDIA<span>LEVEL MENA</span>
           </span>
         </a>
         <nav className="nav-tabs" aria-label="Pages">
@@ -1108,7 +1108,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
           </>
         )}
         <footer className="page-footer">
-          <span>max fashion / image studio</span>
+          <span>level mena / social media</span>
           <span>AI results require visual approval before publishing.</span>
         </footer>
       </main>

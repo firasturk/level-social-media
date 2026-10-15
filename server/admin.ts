@@ -142,7 +142,7 @@ adminRoutes.delete("/hero", async (c) => {
 adminRoutes.post("/notify/test", async (c) => {
   await notify(
     c.env,
-    "Max Fashion Studio test",
+    "Level Social Media test",
     `Notifications are working. Sent ${new Date().toISOString()}.`,
   );
   return c.json({ ok: true });

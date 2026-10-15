@@ -30,7 +30,7 @@ export async function notify(env: Env, subject: string, text: string): Promise<v
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${resend}` },
         body: JSON.stringify({
-          from: "Max Fashion Studio <onboarding@resend.dev>",
+          from: "Level Social Media <onboarding@resend.dev>",
           to: email.split(/[,\s]+/).filter(Boolean),
           subject,
           text,

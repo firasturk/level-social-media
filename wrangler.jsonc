@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "max-fashion-studio",
+  "name": "level-social-media",
   "main": "server/index.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -31,17 +31,17 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "max-fashion-studio",
-      "database_id": "ce667dc8-3fa1-40ed-adcb-594c03695936",
+      "database_name": "level-social-media",
+      "database_id": "0f54801b-3420-49a6-839b-1dadbcb85c0a",
       "migrations_dir": "migrations",
     },
   ],
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "max-fashion-studio" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "level-social-media" }],
   "limits": { "cpu_ms": 300000 },
   "vars": {
     "HIGGSFIELD_MODEL": "nano-banana-pro",
     "HIGGSFIELD_BASE_URL": "https://api.higgsfield.ai",
     "MAX_CONCURRENT_GENERATIONS": "6",
-    "PUBLIC_BASE_URL": "https://max-fashion-studio.max-fashion-studio.workers.dev",
+    "PUBLIC_BASE_URL": "https://level-social-media.max-fashion-studio.workers.dev",
   },
 }

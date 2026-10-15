@@ -118,7 +118,7 @@ export class HiggsfieldClient {
     return {
       Authorization: `Key ${this.cfg.apiKey}`,
       "Content-Type": "application/json",
-      "User-Agent": "max-fashion-studio/0.2",
+      "User-Agent": "level-social-media/0.1",
     };
   }
 

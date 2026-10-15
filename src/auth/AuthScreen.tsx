@@ -49,12 +49,12 @@ export default function AuthScreen({
         <img
           className="max-logo"
           src={theme === "dark" ? "/logo-mark.png" : "/logo-mark-dark.png"}
-          alt="Max"
+          alt="Level"
           width={108}
           height={36}
         />
-        <h1>{mode === "login" ? "Sign in to Image Studio" : "Create your studio account"}</h1>
-        <p className="quality-note">Private workspace for the Max Fashion creative team.</p>
+        <h1>{mode === "login" ? "Sign in to Level Social Media" : "Create your studio account"}</h1>
+        <p className="quality-note">Private workspace for the Level MENA social-media team.</p>
         {mode === "register" && (
           <>
             <label className="field-label" htmlFor="name">

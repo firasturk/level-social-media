@@ -15,7 +15,7 @@ export default function BootScreen({ done = false }: { done?: boolean }) {
     <div className={`boot-screen ${done ? "done" : ""}`} role="status" aria-live="polite">
       <img
         src={light ? "/logo-mark-dark.png" : "/logo-mark.png"}
-        alt="Max"
+        alt="Level"
         width={120}
         height={40}
       />

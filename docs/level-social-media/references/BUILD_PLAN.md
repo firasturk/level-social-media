@@ -8,11 +8,11 @@ shared and server code (`tests/*.test.ts`, vitest).
 ## Phase 0: clone and rename
 
 - [ ] New repo `firasturk/level-social-media` from `max-fashion-studio` main (history optional).
-- [ ] Rename package, wrangler `name`, D1 (`level-social-media`), R2 bucket, `PUBLIC_BASE_URL`,
+- [x] Rename package, wrangler `name`, D1 (`level-social-media`), R2 bucket, `PUBLIC_BASE_URL`,
       titles, boot screen, README, hero keys. Remove `assets/kids`; keep `assets/zaid` only as
       sample theme photos if Max Fashion is a client.
-- [ ] `wrangler d1 create`, `wrangler r2 bucket create`, migrations 0001–0015 applied remote.
-- [ ] Secrets: `SESSION_SECRET`, `INVITE_CODE`; vendor keys entered via Connection (Google API
+- [x] `wrangler d1 create`, `wrangler r2 bucket create`, migrations 0001–0015 applied remote.
+- [x] Secrets: `SESSION_SECRET`, `INVITE_CODE`; vendor keys entered via Connection (Google API
       key, Vertex service account, OpenAI, fal, Higgsfield) as today.
 - [ ] Deploy, create first account, confirm a product batch runs with the old approach UI.
       Acceptance: live URL shows "Level Social Media", one image generated on Nano Banana Pro.

@@ -1,12 +1,13 @@
 {
-  "name": "max-fashion-studio",
-  "version": "0.2.0",
+  "name": "level-social-media",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "node scripts/stub-assets.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -18,7 +19,7 @@
     "test": "vitest run",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build"
+    "check": "node scripts/stub-assets.mjs && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
