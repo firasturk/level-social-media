@@ -7,7 +7,7 @@ shared and server code (`tests/*.test.ts`, vitest).
 
 ## Phase 0: clone and rename
 
-- [ ] New repo `firasturk/level-social-media` from `max-fashion-studio` main (history optional).
+- [x] New repo `firasturk/level-social-media` from `max-fashion-studio` main (history optional).
 - [x] Rename package, wrangler `name`, D1 (`level-social-media`), R2 bucket, `PUBLIC_BASE_URL`,
       titles, boot screen, README, hero keys. Remove `assets/kids`; keep `assets/zaid` only as
       sample theme photos if Max Fashion is a client.
