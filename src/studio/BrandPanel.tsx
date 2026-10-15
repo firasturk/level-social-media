@@ -496,6 +496,9 @@ function ThemeSection({
   const [direction, setDirection] = useState(current?.direction ?? "");
   const [props, setProps] = useState(current?.props ?? "");
   useEffect(() => setProps(current?.props ?? ""), [current?.id, current?.props]);
+  const shotsText = (current?.shots ?? []).join("\n\n");
+  const [shots, setShots] = useState(shotsText);
+  useEffect(() => setShots(shotsText), [current?.id, shotsText]);
   const [busy, setBusy] = useState<"" | "analyse" | "import" | "create">("");
   const [pins, setPins] = useState("");
   const [showPins, setShowPins] = useState(false);
@@ -527,6 +530,20 @@ function ThemeSection({
     if (!current || direction === current.direction) return;
     try {
       const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { direction });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function saveShots() {
+    if (!current || shots === shotsText) return;
+    try {
+      const list = shots
+        .split(/\n\s*\n/)
+        .map((x) => x.replace(/^\s*\d+[.)]\s*/, "").trim())
+        .filter(Boolean);
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { shots: list });
       onThemesChanged(r.themes);
     } catch (e) {
       toast.error((e as Error).message);
@@ -737,6 +754,20 @@ function ThemeSection({
             onBlur={() => void saveProps()}
           />
           <p className="field-hint">The ideas and every image prompt ask for these props, placed naturally around the product.</p>
+          <label className="field-label" htmlFor="theme-shots">
+            Shots from the references{current.shots?.length ? ` · ${current.shots.length}` : ""}
+          </label>
+          <textarea
+            id="theme-shots"
+            rows={current.shots?.length ? 8 : 2}
+            value={shots}
+            placeholder="Press Analyse: one ready shot is written per reference picture (every tile of a collage counts). Edit freely; separate shots with an empty line."
+            onChange={(e) => setShots(e.target.value)}
+            onBlur={() => void saveShots()}
+          />
+          <p className="field-hint">
+            The month is planned over these shots: fewer posts than shots picks the most varied ones, more posts reuses shots with other products. Each post follows its shot in the image prompt.
+          </p>
           {current.library && (
             <details className="theme-library">
               <summary>Visual language (from the references)</summary>

@@ -110,6 +110,8 @@ export interface Theme {
   library: string;
   /** Props the designer wants in the scenes (autumn leaves, pumpkins...). */
   props: string;
+  /** One ready shot per reference picture (collage tiles count), written by Analyse theme. */
+  shots: string[];
   hidden: boolean;
   references: number;
   thumb?: string;

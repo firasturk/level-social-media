@@ -145,9 +145,20 @@ interface ThemeRow {
   goal: string;
   library: string;
   props: string;
+  /** JSON array of strings. */
+  shots: string | null;
   hidden: number;
   created: number;
   updated: number;
+}
+
+function shotsOf(r: ThemeRow): string[] {
+  try {
+    const v = JSON.parse(r.shots || "[]") as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && !!x.trim()) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function themeRows(env: Env, client: string): Promise<ThemeRow[]> {
@@ -176,6 +187,7 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     direction: r.goal,
     library: r.library,
     props: r.props ?? "",
+    shots: shotsOf(r),
     hidden: !!r.hidden,
     references: byId.get(r.id)?.n ?? 0,
     thumb: byId.get(r.id)?.thumb,
@@ -241,16 +253,18 @@ postRoutes.put("/themes/:id", async (c) => {
       direction: z.string().trim().max(20000).optional(),
       library: z.string().trim().max(20000).optional(),
       props: z.string().trim().max(1000).optional(),
+      shots: z.array(z.string().trim().max(1200)).max(200).optional(),
     }),
   );
   await run(
     c.env.DB,
-    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, updated = ? WHERE id = ?",
+    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, shots = ?, updated = ? WHERE id = ?",
     d.title ?? row.title,
     d.description ?? row.description,
     d.direction ?? row.goal,
     d.library ?? row.library,
     d.props ?? row.props ?? "",
+    d.shots ? JSON.stringify(d.shots.filter((x) => x.trim())) : row.shots || "[]",
     now(),
     row.id,
   );
@@ -286,17 +300,22 @@ async function referenceImages(env: Env, scope: string, limit: number): Promise<
 async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
   const images = await referenceImages(env, row.id, MAX_ANALYSE_IMAGES);
   if (!images.length) throw new StudioError("Add reference photos to this theme first.");
-  const d = parseJson<{ description?: string; direction?: string; library?: string }>(
+  const d = parseJson<{ description?: string; direction?: string; library?: string; shots?: unknown }>(
     await askText(env, themeBuilderInstruction(row.title, images.length), THEME_SCHEMA, images),
   );
   if (!d.direction || !d.library)
     throw new StudioError("The model returned an incomplete theme.", 502);
+  const shots = (Array.isArray(d.shots) ? d.shots : [])
+    .filter((x): x is string => typeof x === "string" && !!x.trim())
+    .map((x) => x.trim().slice(0, 1200))
+    .slice(0, 200);
   await run(
     env.DB,
-    "UPDATE skills SET description = ?, goal = ?, library = ?, auto = 1, updated = ? WHERE id = ?",
+    "UPDATE skills SET description = ?, goal = ?, library = ?, shots = ?, auto = 1, updated = ? WHERE id = ?",
     (d.description ?? "").trim().slice(0, 300),
     d.direction.trim(),
     d.library.trim(),
+    JSON.stringify(shots),
     now(),
     row.id,
   );
@@ -636,6 +655,7 @@ function ideasContext(
     themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
     themeLibrary: theme?.library ?? "",
     props: theme?.props ?? "",
+    shots: theme ? shotsOf(theme) : [],
     products,
     productNotes,
     month: config.month ?? "",
@@ -691,6 +711,7 @@ postRoutes.post("/reidea", async (c) => {
     hashtags: fresh.hashtags,
     headline: fresh.headline,
     subline: fresh.subline,
+    shot: fresh.shot ?? current.shot,
   };
   config.plan = plan.map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, b, config);
@@ -1023,6 +1044,7 @@ postRoutes.post("/generate", async (c) => {
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
+      shot: theme && post.shot ? shotsOf(theme)[post.shot - 1] : undefined,
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       grid: config.gridRef ? config.gridNotes || undefined : undefined,

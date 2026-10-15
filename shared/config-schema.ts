@@ -21,6 +21,7 @@ export const postSchema = z.object({
   product: z.string().max(300).optional(),
   format: z.enum(FORMATS).optional(),
   headline: z.string().max(80).optional(),
+  shot: z.number().int().min(1).max(200).optional(),
   subline: z.string().max(120).optional(),
   overlay: z.boolean().optional(),
   ov: z
