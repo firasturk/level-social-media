@@ -108,6 +108,8 @@ export interface Theme {
   direction: string;
   /** Visual language written by "Analyse theme" from the references. */
   library: string;
+  /** Props the designer wants in the scenes (autumn leaves, pumpkins...). */
+  props: string;
   hidden: boolean;
   references: number;
   thumb?: string;

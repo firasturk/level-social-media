@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { askConfirm } from "@/lib/confirm";
+import { askConfirm, askInput } from "@/lib/confirm";
 import { toast } from "sonner";
 import {
   ChevronDown,
@@ -485,6 +485,8 @@ function ThemeSection({
 }) {
   const current = themes.find((t) => t.id === theme) ?? null;
   const [direction, setDirection] = useState(current?.direction ?? "");
+  const [props, setProps] = useState(current?.props ?? "");
+  useEffect(() => setProps(current?.props ?? ""), [current?.id, current?.props]);
   const [busy, setBusy] = useState<"" | "analyse" | "import" | "create">("");
   const [pins, setPins] = useState("");
   const [showPins, setShowPins] = useState(false);
@@ -492,7 +494,10 @@ function ThemeSection({
   useEffect(() => setDirection(current?.direction ?? ""), [current?.id, current?.direction]);
 
   async function create() {
-    const title = window.prompt("Theme name (e.g. Ramadan 2027, Summer sale, Minimal white):", "");
+    const title = await askInput("Theme name", "", {
+      ok: "Create",
+      placeholder: "Ramadan 2027, Summer sale, Minimal white…",
+    });
     if (!title?.trim()) return;
     setBusy("create");
     try {
@@ -519,9 +524,19 @@ function ThemeSection({
     }
   }
 
+  async function saveProps() {
+    if (!current || props === (current.props ?? "")) return;
+    try {
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { props });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function rename() {
     if (!current) return;
-    const title = window.prompt("Theme name:", current.title);
+    const title = await askInput("Theme name", current.title, { ok: "Rename" });
     if (!title?.trim() || title.trim() === current.title) return;
     try {
       const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, {
@@ -701,6 +716,18 @@ function ThemeSection({
             onChange={(e) => setDirection(e.target.value)}
             onBlur={() => void saveDirection()}
           />
+          <label className="field-label" htmlFor="theme-props">
+            Props
+          </label>
+          <textarea
+            id="theme-props"
+            rows={2}
+            value={props}
+            placeholder="Objects to add to the scenes this month: autumn leaves, pumpkins, a knit scarf, fairy lights…"
+            onChange={(e) => setProps(e.target.value)}
+            onBlur={() => void saveProps()}
+          />
+          <p className="field-hint">The ideas and every image prompt ask for these props, placed naturally around the product.</p>
           {current.library && (
             <details className="theme-library">
               <summary>Visual language (from the references)</summary>
@@ -763,7 +790,11 @@ function OverlaySection({
 
   async function uploadFont(file: File | undefined) {
     if (!file) return;
-    const name = window.prompt("Font family name (as written in the overlay):", file.name.replace(/\.[^.]+$/, "").replace(/[-_]?(regular|bold|semibold|medium)$/i, ""));
+    const name = await askInput(
+      "Font family name (as written in the overlay)",
+      file.name.replace(/\.[^.]+$/, "").replace(/[-_]?(regular|bold|semibold|medium)$/i, ""),
+      { ok: "Add font" },
+    );
     if (!name?.trim()) return;
     setFontBusy(true);
     try {

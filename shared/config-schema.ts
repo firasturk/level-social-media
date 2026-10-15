@@ -51,6 +51,7 @@ export const configSchema = z.object({
   format: z.enum(FORMATS).optional(),
   plan: z.array(postSchema).max(MAX_POST_COUNT).optional(),
   notes: z.string().max(2000).optional(),
+  plannedAt: z.number().int().nonnegative().optional(),
   gridRef: z.string().max(80).optional(),
   gridNotes: z.string().max(12000).optional(),
   mode: z.enum(MODES),

@@ -54,6 +54,7 @@ export default function PlanView({
   onShowOverlay,
   themeRefs,
   gridRef,
+  plannedAt,
   onGridIdeas,
   onClearGrid,
   fileBase,
@@ -93,6 +94,8 @@ export default function PlanView({
   themeRefs: { id: string; name: string | null }[];
   /** The reference the month follows in grid mode, when any. */
   gridRef: string | null;
+  /** When the ideas writer last wrote the plan; posts made before it are due again. */
+  plannedAt: number | null;
   onGridIdeas: (refId: string, notes: string) => void;
   onClearGrid: () => void;
   /** Base of exported file names (client slug + month). */
@@ -125,10 +128,16 @@ export default function PlanView({
   const dirty = JSON.stringify(draft) !== JSON.stringify(plan);
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
-  const pending = plan.filter((p) => {
+  // A post is due when it has no image, failed, or was generated before the plan was rewritten
+  // (new ideas or a new reference grid), so Generate stays available after a re-plan.
+  const due = plan.filter((p) => {
     const t = taskOf(p.index);
-    return !t || t.status === "failed";
-  }).length;
+    if (!t || t.status === "failed") return true;
+    if (t.status === "processing" || t.status === "queued") return false;
+    return !!plannedAt && t.updated < plannedAt;
+  });
+  const pending = due.length;
+  const stale = due.some((p) => !!taskOf(p.index)?.output);
 
   function patch(index: number, p: Partial<Post>) {
     setDraft((d) => d.map((x) => (x.index === index ? { ...x, ...p } : x)));
@@ -237,9 +246,24 @@ export default function PlanView({
           </button>
           <button
             className="primary"
-            onClick={() => onGeneratePosts()}
-            disabled={!!busy || running || !plan.length || !pending}
-            title={plan.length ? "" : "Generate ideas first, then the posts"}
+            onClick={() =>
+              pending
+                ? onGeneratePosts(
+                    due.map((p) => p.index),
+                    stale,
+                  )
+                : onGeneratePosts(undefined, true)
+            }
+            disabled={!!busy || running || !plan.length}
+            title={
+              !plan.length
+                ? "Generate ideas first, then the posts"
+                : pending
+                  ? stale
+                    ? "The plan changed since these posts were made: they are generated again"
+                    : ""
+                  : "Every post has an image; this makes all of them again"
+            }
           >
             {running ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
             {running
@@ -247,8 +271,8 @@ export default function PlanView({
               : !plan.length
                 ? "Generate posts"
                 : pending
-                  ? `Generate ${pending} posts`
-                  : "All posts generated"}
+                  ? `${stale ? "Regenerate" : "Generate"} ${pending} posts`
+                  : "Regenerate all"}
           </button>
           <button
             type="button"

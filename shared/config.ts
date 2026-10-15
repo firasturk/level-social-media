@@ -55,6 +55,8 @@ export interface Config {
   plan?: Post[];
   /** Designer notes that steer the ideas of this month. */
   notes?: string;
+  /** When the plan was last written by the ideas writer; posts generated before it are stale. */
+  plannedAt?: number;
   /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
   gridRef?: string;
   gridNotes?: string;

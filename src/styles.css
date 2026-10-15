@@ -429,6 +429,12 @@ h2 {
   font-size: 14px;
   line-height: 1.65;
 }
+.field-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-400);
+  line-height: 1.4;
+}
 .prompt-tip {
   font-size: 12px;
   color: var(--ink-400);
@@ -5118,4 +5124,8 @@ label.num select {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.confirm-box input {
+  width: 100%;
+  margin-bottom: 16px;
 }

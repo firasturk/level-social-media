@@ -130,6 +130,8 @@ export interface PostBrief {
   product?: string;
   /** Theme-level visual language written by "Analyse theme" (light, palette, composition). */
   library?: string;
+  /** Props the designer asked for this month (autumn leaves, pumpkins...). */
+  props?: string;
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
   grid?: string;
   tile?: string;
@@ -193,6 +195,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
   if (b.library) parts.push(`VISUAL LANGUAGE:\n${b.library.trim()}`);
+  if (b.props?.trim())
+    parts.push(
+      `PROPS: the scene includes ${b.props.trim()}, placed naturally around the subject in the same light; they never cover the product.`,
+    );
   if (b.grid)
     parts.push(
       `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, text or logos.${b.tile ? ` THIS POST FOLLOWS TILE: ${b.tile.trim()}` : ""}\n${b.grid.trim()}`,
@@ -284,6 +290,8 @@ export interface IdeasRequest {
   style: string;
   themeTitle: string;
   themeDirection: string;
+  /** Props the designer wants in the scenes this month. */
+  props?: string;
   products: string[];
   /** What each product photo shows, by product name (read by vision at upload). */
   productNotes?: Record<string, string>;
@@ -320,6 +328,7 @@ export function ideasInstruction(r: IdeasRequest): string {
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THAT item and never name or describe a different product:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to an empty string for every post.",
+    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
     `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), subline (the second line under the headline: the promise, offer or product name, at most 8 words, or ""), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (one of the product names exactly, or "").`,
@@ -442,6 +451,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     r.products.length
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: each post's title, headline, subline, brief and caption are about THAT item, never another product:\n${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
+    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the tiles' staging naturally and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), subline (at most 8 words or ""), caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or "").`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,

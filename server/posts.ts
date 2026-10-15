@@ -142,6 +142,7 @@ interface ThemeRow {
   description: string;
   goal: string;
   library: string;
+  props: string;
   hidden: number;
   created: number;
   updated: number;
@@ -172,6 +173,7 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     description: r.description,
     direction: r.goal,
     library: r.library,
+    props: r.props ?? "",
     hidden: !!r.hidden,
     references: byId.get(r.id)?.n ?? 0,
     thumb: byId.get(r.id)?.thumb,
@@ -236,15 +238,17 @@ postRoutes.put("/themes/:id", async (c) => {
       description: z.string().trim().max(400).optional(),
       direction: z.string().trim().max(20000).optional(),
       library: z.string().trim().max(20000).optional(),
+      props: z.string().trim().max(1000).optional(),
     }),
   );
   await run(
     c.env.DB,
-    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, updated = ? WHERE id = ?",
+    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, updated = ? WHERE id = ?",
     d.title ?? row.title,
     d.description ?? row.description,
     d.direction ?? row.goal,
     d.library ?? row.library,
+    d.props ?? row.props ?? "",
     now(),
     row.id,
   );
@@ -647,6 +651,7 @@ postRoutes.post("/ideas", async (c) => {
     style: client.style,
     themeTitle: theme?.title ?? "",
     themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
+    props: theme?.props ?? "",
     products,
     productNotes,
     month: config.month ?? "",
@@ -657,6 +662,7 @@ postRoutes.post("/ideas", async (c) => {
   const plan = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), count, products);
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
   config.plan = plan;
+  config.plannedAt = now();
   config.postCount = count;
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
@@ -718,6 +724,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     style: client.style,
     themeTitle: theme?.title ?? "",
     themeDirection: theme?.goal ?? "",
+    props: theme?.props ?? "",
     products,
     productNotes,
     month: config.month ?? "",
@@ -743,6 +750,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     if (m) p.title = p.title.slice(m[0].length).trim() || p.title;
   }
   config.plan = plan;
+  config.plannedAt = now();
   config.postCount = count;
   config.gridRef = ref.id;
   config.gridNotes = gridNotes(grid).slice(0, 12000);
@@ -934,6 +942,7 @@ postRoutes.post("/generate", async (c) => {
       style: client.style,
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
+      props: theme?.props?.trim() || undefined,
       grid: config.gridRef ? config.gridNotes || undefined : undefined,
       tile: config.gridRef ? post.tile : undefined,
       format: config.format ?? "4:5",

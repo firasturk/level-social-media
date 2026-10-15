@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { askConfirm } from "@/lib/confirm";
+import { askConfirm, askInput } from "@/lib/confirm";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Archive,
@@ -60,8 +60,8 @@ export default function ClientCards({
     }
   }
 
-  function add() {
-    const name = window.prompt("Client name:", "");
+  async function add() {
+    const name = await askInput("Client name", "", { ok: "Add client" });
     if (!name || !name.trim()) return;
     void call(
       () => post<Reply>("/api/studio/clients", { name: name.trim() }),
@@ -69,8 +69,8 @@ export default function ClientCards({
     );
   }
 
-  function rename(c: Client) {
-    const name = window.prompt("Client name:", c.name);
+  async function rename(c: Client) {
+    const name = await askInput("Client name", c.name, { ok: "Rename" });
     if (name === null || !name.trim() || name.trim() === c.name) return;
     void call(() => put<Reply>(`/api/studio/clients/${c.id}`, { name: name.trim() }));
   }
@@ -131,7 +131,7 @@ export default function ClientCards({
         <Tool label="Move down" onClick={() => move(c, 1)} disabled={i === active.length - 1}>
           <ChevronRight size={13} />
         </Tool>
-        <Tool label="Rename client" onClick={() => rename(c)}>
+        <Tool label="Rename client" onClick={() => void rename(c)}>
           <Pencil size={13} />
         </Tool>
         <Tool label="Change logo" onClick={() => pickLogo(c)}>
@@ -159,7 +159,7 @@ export default function ClientCards({
       <div className="client-list">
         <div className="client-list-head">
           <span>Clients</span>
-          <button type="button" className="icon-button" onClick={add} disabled={busy} aria-label="Add client" title="Add client">
+          <button type="button" className="icon-button" onClick={() => void add()} disabled={busy} aria-label="Add client" title="Add client">
             <Plus size={15} />
           </button>
         </div>
@@ -208,7 +208,7 @@ export default function ClientCards({
       <div className="workflow-label">
         <span className="step">01</span>
         <h2>Choose the client</h2>
-        <button type="button" className="text-button" onClick={add} disabled={busy}>
+        <button type="button" className="text-button" onClick={() => void add()} disabled={busy}>
           <Plus size={14} /> Add client
         </button>
         {archived.length > 0 && (

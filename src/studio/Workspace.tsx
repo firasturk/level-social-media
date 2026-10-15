@@ -377,6 +377,13 @@ export default function Workspace({
       setConnection(true);
       return;
     }
+    if (regenerate && !indexes) {
+      const ok = await askConfirm(
+        `Generate all ${plan.length} posts again? The current images are replaced.`,
+        { ok: "Regenerate all", danger: false },
+      );
+      if (!ok) return;
+    }
     setBusy("generate");
     try {
       const r = await post<{ planned: number }>("/api/studio/posts/generate", {
@@ -675,6 +682,7 @@ export default function Workspace({
                 onShowOverlay={setShowOverlay}
                 themeRefs={themeRefs}
                 gridRef={config?.gridRef ?? null}
+                plannedAt={config?.plannedAt ?? null}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 onClearGrid={() => void clearGrid()}
                 fileBase={`${client.slug}_${month}`}
