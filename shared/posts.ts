@@ -349,20 +349,25 @@ export interface IdeasRequest {
   types?: PostType[];
 }
 
+/** What language the caption, headline and subline are written in. */
+export function languageRule(language: "ar" | "en" | "both"): string {
+  if (language === "ar")
+    return "Arabic ONLY for the caption, the headline and the subline: Modern Standard Arabic unless the tone of voice asks for a dialect. No English words or sentences in them, apart from a brand or product name written as the brand writes it. The title field (internal) may be English.";
+  if (language === "en")
+    return "English ONLY for the caption, the headline and the subline, sentence case; no Arabic apart from a brand name written as the brand writes it.";
+  return "Bilingual: the caption gives the Arabic text first, then the English version after a blank line; the headline and subline are Arabic, with the English headline after a slash when it fits.";
+}
+
 /** The instruction for the text model that plans a month of posts. */
 export function ideasInstruction(r: IdeasRequest): string {
-  const lang =
-    r.language === "ar"
-      ? "Captions in Modern Standard Arabic (no dialect unless the tone says so)."
-      : r.language === "en"
-        ? "Captions in English, sentence case."
-        : "Captions in Arabic first, then an English version after a blank line.";
+  const lang = languageRule(r.language);
   const types = (r.types?.length ? r.types : [...POST_TYPES])
     .map((t) => `${t}: ${POST_TYPE_INFO[t].description}`)
     .join("\n");
   return [
     `You are the social-media creative lead of a design agency planning ${r.count} Instagram posts for the client "${r.clientName}" for ${monthLabel(r.month)}. The posts are produced as single images (no text inside the image; headlines are added later as an overlay), each with a caption.`,
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
+    `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.palette.length ? `BRAND PALETTE: ${r.palette.join(", ")}.` : "",
@@ -492,16 +497,12 @@ export const GRID_SCHEMA = {
 };
 
 export function gridIdeasInstruction(r: IdeasRequest): string {
-  const lang =
-    r.language === "ar"
-      ? "Captions and headlines in Modern Standard Arabic unless the tone says dialect."
-      : r.language === "en"
-        ? "Captions and headlines in English."
-        : "Captions in Arabic first, then English after a blank line; headlines in Arabic.";
+  const lang = languageRule(r.language);
   return [
     `The attached image is a reference social-media feed grid (several post tiles in one picture). You are the creative lead of a design agency: read it tile by tile, then plan ${r.count} posts for the client "${r.clientName}" for ${monthLabel(r.month)} that recreate the SAME world and rhythm with the client's own products and identity. The posts are produced as single images by an image engine (no text inside the image) and get a headline overlay and a caption.`,
     "First describe the grid: world (one paragraph: the sets, materials, surfaces, props, palette with colour words, light, camera angles, mood, how products are staged and where text sits) and tiles (one entry per tile in reading order: position like 'row 1, col 2'; scene; productPlacement; textPlacement). Ignore the reference's brand, products, logos and words: only the staging matters.",
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
+    `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.palette.length
