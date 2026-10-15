@@ -2,12 +2,31 @@
  * Draws a post's overlay (logo, headline, sub-line, scrim) on a canvas over the generated image,
  * using the client's fonts and the overlay spec. Used for previews and for the export.
  */
-import type { OverlaySpec } from "@shared/overlay";
+import type { AnimationPreset, OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { HOSTED_FONTS } from "@shared/overlay";
 
 export interface OverlayText {
   headline?: string;
   subline?: string;
+}
+
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Where the logo and the text block landed, in canvas pixels, for the on-image editor. */
+export interface OverlayLayout {
+  logo: Rect | null;
+  text: Rect | null;
+}
+
+export interface DrawOptions {
+  patch?: PostOverlayPatch;
+  /** Entry animation state: progress 0..1 of the chosen preset. */
+  anim?: { preset: AnimationPreset; progress: number };
 }
 
 const loadedFonts = new Map<string, Promise<void>>();
@@ -79,11 +98,26 @@ export async function drawOverlay(
   spec: OverlaySpec,
   text: OverlayText,
   logoSrc: string | null,
-): Promise<void> {
-  if (spec.template === "none") return;
-  const headline = (text.headline ?? "").trim();
-  const subline = (text.subline ?? "").trim();
+  opts: DrawOptions = {},
+): Promise<OverlayLayout> {
+  const layout: OverlayLayout = { logo: null, text: null };
+  if (spec.template === "none") return layout;
+  const patch = opts.patch ?? {};
+  const anim = opts.anim;
+  const p = anim ? Math.max(0, Math.min(1, anim.progress)) : 1;
+  const ease = 1 - Math.pow(1 - p, 3);
+  let headline = (text.headline ?? "").trim();
+  let subline = (text.subline ?? "").trim();
+  if (anim?.preset === "typewriter") {
+    const total = headline.length + subline.length;
+    const shown = Math.round(total * ease);
+    if (shown < headline.length) {
+      headline = headline.slice(0, shown);
+      subline = "";
+    } else subline = subline.slice(0, shown - headline.length);
+  }
   const margin = spec.margin * W;
+  const scale = patch.scale ?? 1;
   await document.fonts.ready;
 
   // Scrim behind the text block.
@@ -111,7 +145,7 @@ export async function drawOverlay(
       const img = await loadImage(logoSrc);
       const natural = img.naturalWidth || 300;
       const naturalH = img.naturalHeight || 150;
-      const lw = spec.logo.width * W;
+      const lw = (patch.logoWidth ?? spec.logo.width) * W;
       const lh = (lw * naturalH) / natural;
       const top = spec.logo.top * W;
       let x = (W - lw) / 2;
@@ -119,23 +153,30 @@ export async function drawOverlay(
       if (spec.logo.position === "top-left") x = margin;
       if (spec.logo.position === "top-right") x = W - margin - lw;
       if (spec.logo.position === "bottom-center") y = H - top - lh;
+      x += (patch.logoDx ?? 0) * W;
+      y += (patch.logoDy ?? 0) * W;
       ctx.drawImage(img, x, y, lw, lh);
+      layout.logo = { x, y, w: lw, h: lh };
     } catch {
       /* no logo: the text still draws */
     }
   }
 
-  if (!headline && !subline) return;
+  if (!headline && !subline) return layout;
   const h = spec.headline;
-  const hSize = h.size * W;
-  const sSize = spec.subline.size * W;
+  const hSize = h.size * W * scale;
+  const sSize = spec.subline.size * W * scale;
   const maxWidth = W - margin * 2;
   const rtl = ARABIC.test(headline + subline);
   ctx.textBaseline = "alphabetic";
   ctx.direction = rtl ? "rtl" : "ltr";
-  const align = h.align;
+  const align = patch.align ?? h.align;
   ctx.textAlign = align;
-  const x = align === "center" ? W / 2 : align === "left" ? margin : W - margin;
+  const dx = (patch.dx ?? 0) * W;
+  const dy = (patch.dy ?? 0) * W;
+  const x = (align === "center" ? W / 2 : align === "left" ? margin : W - margin) + dx;
+  const headColor = patch.color ?? h.color;
+  const subColor = patch.subColor ?? spec.subline.color;
 
   ctx.font = `${h.weight} ${hSize}px ${fontStack(h.font)}`;
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${h.letterSpacing * hSize}px`;
@@ -151,6 +192,28 @@ export async function drawOverlay(
   if (h.position === "top") y = h.inset * W;
   else if (h.position === "center") y = (H - blockH) / 2;
   else y = H - h.inset * W - blockH;
+  y += dy;
+  layout.text = {
+    x: align === "center" ? x - maxWidth / 2 : align === "left" ? x : x - maxWidth,
+    y,
+    w: maxWidth,
+    h: blockH,
+  };
+
+  // Entry animation: fade, rise from below, or zoom in around the block's centre.
+  ctx.save();
+  if (anim && anim.preset !== "typewriter") {
+    ctx.globalAlpha = ease;
+    if (anim.preset === "rise") ctx.translate(0, (1 - ease) * 0.08 * W);
+    if (anim.preset === "zoom") {
+      const cx = x;
+      const cy = y + blockH / 2;
+      const k = 0.6 + 0.4 * ease;
+      ctx.translate(cx, cy);
+      ctx.scale(k, k);
+      ctx.translate(-cx, -cy);
+    }
+  }
 
   // Headline lines (ascent ~ 0.8 em).
   ctx.font = `${h.weight} ${hSize}px ${fontStack(h.font)}`;
@@ -159,20 +222,22 @@ export async function drawOverlay(
     const baseline = y + hSize * 0.82;
     if (h.shadow) {
       ctx.fillStyle = h.shadow;
-      ctx.fillText(line, x, baseline + h.shadowOffset * W);
+      ctx.fillText(line, x, baseline + h.shadowOffset * W * scale);
     }
-    ctx.fillStyle = h.color;
+    ctx.fillStyle = headColor;
     ctx.fillText(line, x, baseline);
     y += hLineH;
   }
   y += gap;
   ctx.font = `${spec.subline.weight} ${sSize}px ${fontStack(spec.subline.font || h.font)}`;
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
-  ctx.fillStyle = spec.subline.color;
+  ctx.fillStyle = subColor;
   for (const line of sLines) {
     ctx.fillText(line, x, y + sSize * 0.82);
     y += sLineH;
   }
+  ctx.restore();
+  return layout;
 }
 
 function hexWithAlpha(hex: string, alpha: number): string {
@@ -189,6 +254,7 @@ export async function renderOverlay(
   text: OverlayText,
   logoSrc: string | null,
   width?: number,
+  opts: DrawOptions = {},
 ): Promise<HTMLCanvasElement> {
   const img = await loadImage(imageSrc);
   const W = width ?? img.naturalWidth;
@@ -198,8 +264,94 @@ export async function renderOverlay(
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
   ctx.drawImage(img, 0, 0, W, H);
-  await drawOverlay(ctx, W, H, spec, text, logoSrc);
+  await drawOverlay(ctx, W, H, spec, text, logoSrc, opts);
   return canvas;
+}
+
+/** Draws image + overlay on an existing canvas (the editor and the animation preview reuse one). */
+export async function paintFrame(
+  canvas: HTMLCanvasElement,
+  img: HTMLImageElement,
+  spec: OverlaySpec,
+  text: OverlayText,
+  logoSrc: string | null,
+  opts: DrawOptions = {},
+): Promise<OverlayLayout> {
+  const ctx = canvas.getContext("2d")!;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return drawOverlay(ctx, canvas.width, canvas.height, spec, text, logoSrc, opts);
+}
+
+export { loadImage };
+
+/** The video MIME type this browser can record, MP4 where available (Safari, newer Chrome), else WebM. */
+export function videoMime(): { mime: string; ext: string } {
+  const candidates: [string, string][] = [
+    ["video/mp4;codecs=avc1", "mp4"],
+    ["video/mp4", "mp4"],
+    ["video/webm;codecs=vp9", "webm"],
+    ["video/webm", "webm"],
+  ];
+  for (const [mime, ext] of candidates)
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(mime))
+      return { mime, ext };
+  return { mime: "video/webm", ext: "webm" };
+}
+
+/**
+ * Records the entry animation of the text over the still image as a short video: `seconds` of
+ * motion then a hold, at `fps`, rendered on a canvas of `width` pixels.
+ */
+export async function recordAnimation(
+  imageSrc: string,
+  spec: OverlaySpec,
+  text: OverlayText,
+  logoSrc: string | null,
+  options: {
+    preset: AnimationPreset;
+    seconds: number;
+    hold: number;
+    fps: number;
+    width: number;
+    patch?: PostOverlayPatch;
+  },
+  onProgress?: (p: number) => void,
+): Promise<{ blob: Blob; ext: string }> {
+  const img = await loadImage(imageSrc);
+  const W = options.width;
+  const H = Math.round((W * img.naturalHeight) / img.naturalWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const { mime, ext } = videoMime();
+  const stream = canvas.captureStream(options.fps);
+  const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const done = new Promise<Blob>((resolve) => {
+    recorder.onstop = () => resolve(new Blob(chunks, { type: mime }));
+  });
+  const frame = (progress: number) =>
+    paintFrame(canvas, img, spec, text, logoSrc, {
+      patch: options.patch,
+      anim: { preset: options.preset, progress },
+    });
+  await frame(0);
+  recorder.start(200);
+  const total = options.seconds + options.hold;
+  const frames = Math.round(total * options.fps);
+  const frameMs = 1000 / options.fps;
+  for (let i = 0; i <= frames; i++) {
+    const t = i / options.fps;
+    await frame(Math.min(1, t / options.seconds));
+    onProgress?.(i / frames);
+    await new Promise((r) => setTimeout(r, frameMs));
+  }
+  recorder.stop();
+  const blob = await done;
+  return { blob, ext };
 }
 
 export function canvasBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob> {

@@ -58,8 +58,20 @@ Firas reviewed the first build and reset the product. These decisions win over t
   (kind `font`) and are served at `/clients/:id/fonts/:id/file`; `clients.overlay` stores the spec.
   Habibah, United Insurance and Abu Saleh brand kits, logos, fonts and reference posts were
   imported from their Design System artifacts (claude.ai/artifact/75cn…, T6XZ…, VHWG…).
+- **Grid from reference** (`POST /posts/grid-ideas`): one theme reference that shows a whole feed
+  (a Pinterest pin of 9 posts) is read tile by tile by the vision model (`GRID_SCHEMA`,
+  `gridIdeasInstruction`); the month's posts follow its tiles with the client's products and
+  palette; `config.gridRef`/`gridNotes` make every post use that reference and
+  `buildPostPrompt` adds a REFERENCE GRID block. Theme analysis now runs automatically after a
+  Pinterest import or an upload (`analyseTheme`).
+- **On-image editor** (`OverlayEditor.tsx`): per-post `ov` patch (offsets, scale, colours,
+  align, logo offset/width) applied by `drawOverlay`; drag the text or the logo on a canvas.
+- **Animate this text** (`AnimateDialog.tsx`, `recordAnimation`): fade / rise / typewriter / zoom
+  entry of the headline over the still image, recorded in the browser (MediaRecorder, MP4 where
+  supported, else WebM) at 1080 px.
 - Still to do: per-post format, scheduling export, Pinterest board sync through the official
-  API (needs a Pinterest developer app), Abira and Jubilee brand kits (no Design System yet).
+  API (needs a Pinterest developer app), Abira and Jubilee brand kits (no Design System yet),
+  image-to-video motion through an engine.
 
 ## How to work with Firas
 

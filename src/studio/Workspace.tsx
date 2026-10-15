@@ -82,6 +82,7 @@ export default function Workspace({
   const [selected, setSelected] = useState<Task | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
 
   useEffect(() => {
@@ -185,6 +186,20 @@ export default function Workspace({
   useEffect(() => setDraftSettings({}), [batch?.id]);
   const shownSettings = { ...settings, ...draftSettings };
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
+  const loadThemeRefs = useCallback(async (id: string) => {
+    if (!id) return setThemeRefs([]);
+    try {
+      const d = await get<{ references: { id: string; name: string | null }[] }>(
+        `/api/studio/references?skill=${encodeURIComponent(id)}`,
+      );
+      setThemeRefs(d.references);
+    } catch {
+      setThemeRefs([]);
+    }
+  }, []);
+  useEffect(() => {
+    void loadThemeRefs(themeId);
+  }, [themeId, themes, loadThemeRefs]);
 
   const engineConnected =
     engine.configured || engine.openai !== "none" || engine.google !== "none" || engine.fal !== "none";
@@ -293,6 +308,38 @@ export default function Workspace({
     }
   }
 
+  async function gridIdeas(refId: string, notes: string) {
+    if (engine.google === "none" && engine.openai === "none") {
+      setConnection(true);
+      return;
+    }
+    setBusy("grid");
+    try {
+      const id = await ensurePlan();
+      const r = await post<{ plan: Post[] }>("/api/studio/posts/grid-ideas", {
+        batch: id,
+        ref: refId,
+        notes: notes || undefined,
+      });
+      await refresh();
+      toast.success(`${r.plan.length} posts planned from the reference grid.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function clearGrid() {
+    if (!batch) return;
+    try {
+      await put("/api/studio/posts/settings", { batch: batch.id, gridRef: null });
+      await refresh();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function savePlan(next: Post[]) {
     if (!batch) return;
     try {
@@ -358,6 +405,8 @@ export default function Workspace({
             overlaySpec,
             { headline: p?.headline, subline: p?.subline },
             logoSrc,
+            undefined,
+            { patch: p?.ov },
           );
           entries.push({
             name: postFileName(client.slug, month, t.post!, "jpg"),
@@ -541,6 +590,11 @@ export default function Workspace({
                 logoSrc={logoSrc}
                 showOverlay={showOverlay}
                 onShowOverlay={setShowOverlay}
+                themeRefs={themeRefs}
+                gridRef={config?.gridRef ?? null}
+                onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
+                onClearGrid={() => void clearGrid()}
+                fileBase={`${client.slug}_${month}`}
                 onUploadProducts={(files) => void uploadProducts(files)}
                 onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}

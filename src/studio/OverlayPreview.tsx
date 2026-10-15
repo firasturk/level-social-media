@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { OverlaySpec } from "@shared/overlay";
+import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { renderOverlay, type OverlayText } from "@/lib/overlay";
 
 /** The generated image with the client's overlay drawn over it, rendered once per change. */
@@ -8,6 +8,7 @@ export default function OverlayPreview({
   spec,
   text,
   logoSrc,
+  patch,
   width = 720,
   alt = "",
   className,
@@ -16,15 +17,16 @@ export default function OverlayPreview({
   spec: OverlaySpec;
   text: OverlayText;
   logoSrc: string | null;
+  patch?: PostOverlayPatch;
   width?: number;
   alt?: string;
   className?: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
-  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width]);
+  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width, patch]);
   useEffect(() => {
     let alive = true;
-    renderOverlay(src, spec, text, logoSrc, width)
+    renderOverlay(src, spec, text, logoSrc, width, { patch })
       .then((canvas) => alive && setUrl(canvas.toDataURL("image/jpeg", 0.86)))
       .catch(() => alive && setUrl(null));
     return () => {

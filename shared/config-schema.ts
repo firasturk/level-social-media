@@ -23,6 +23,20 @@ export const postSchema = z.object({
   headline: z.string().max(80).optional(),
   subline: z.string().max(120).optional(),
   overlay: z.boolean().optional(),
+  ov: z
+    .object({
+      dx: z.number().min(-1).max(1).optional(),
+      dy: z.number().min(-2).max(2).optional(),
+      scale: z.number().min(0.2).max(4).optional(),
+      color: z.string().max(12).optional(),
+      subColor: z.string().max(12).optional(),
+      align: z.enum(["center", "left", "right"]).optional(),
+      logoDx: z.number().min(-1).max(1).optional(),
+      logoDy: z.number().min(-2).max(2).optional(),
+      logoWidth: z.number().min(0.02).max(1).optional(),
+    })
+    .optional(),
+  tile: z.string().max(400).optional(),
 });
 
 export const configSchema = z.object({
@@ -37,6 +51,8 @@ export const configSchema = z.object({
   format: z.enum(FORMATS).optional(),
   plan: z.array(postSchema).max(MAX_POST_COUNT).optional(),
   notes: z.string().max(2000).optional(),
+  gridRef: z.string().max(80).optional(),
+  gridNotes: z.string().max(12000).optional(),
   mode: z.enum(MODES),
   /** Kept optional so batches saved before the category picker was removed still load. */
   category: z.string().max(80).optional(),

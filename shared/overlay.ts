@@ -132,6 +132,24 @@ export const NO_OVERLAY: OverlaySpec = {
   logo: { ...OVERLAY_TEMPLATES.clean.logo, position: "none" },
 };
 
+/** Per-post adjustments made in the on-image editor: offsets are fractions of the width. */
+export interface PostOverlayPatch {
+  dx?: number;
+  dy?: number;
+  /** Multiplier on the headline and sub-line sizes. */
+  scale?: number;
+  color?: string;
+  subColor?: string;
+  align?: TextAlign;
+  logoDx?: number;
+  logoDy?: number;
+  logoWidth?: number;
+}
+
+/** Text animation presets rendered in the browser for "Animate this text". */
+export const ANIMATION_PRESETS = ["fade", "rise", "typewriter", "zoom"] as const;
+export type AnimationPreset = (typeof ANIMATION_PRESETS)[number];
+
 /** A full spec from whatever is stored: a template name fills the gaps. */
 export function resolveOverlay(raw: Partial<OverlaySpec> | null | undefined): OverlaySpec {
   const base =

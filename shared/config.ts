@@ -55,6 +55,9 @@ export interface Config {
   plan?: Post[];
   /** Designer notes that steer the ideas of this month. */
   notes?: string;
+  /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
+  gridRef?: string;
+  gridNotes?: string;
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;

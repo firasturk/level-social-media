@@ -4,6 +4,7 @@
  * subject is a product, a place, a person at work, a texture, whatever the post calls for.
  */
 import type { PromptImages } from "./prompts";
+import type { PostOverlayPatch } from "./overlay";
 import { FULL_FRAME_RULE } from "./prompts";
 import { SAFE_WORDING_RULE } from "./safety";
 
@@ -101,6 +102,10 @@ export interface Post {
   subline?: string;
   /** false hides the overlay on this post (a text-free image). */
   overlay?: boolean;
+  /** Adjustments made in the on-image editor. */
+  ov?: PostOverlayPatch;
+  /** Which tile of a reference grid this post follows (grid mode). */
+  tile?: string;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -123,6 +128,9 @@ export interface PostBrief {
   hasProduct: boolean;
   /** Theme-level visual language written by "Analyse theme" (light, palette, composition). */
   library?: string;
+  /** Grid mode: what the reference grid looks like and which tile this post follows. */
+  grid?: string;
+  tile?: string;
 }
 
 export const NO_TEXT_RULE =
@@ -182,6 +190,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
   if (b.library) parts.push(`VISUAL LANGUAGE:\n${b.library.trim()}`);
+  if (b.grid)
+    parts.push(
+      `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, text or logos.${b.tile ? ` THIS POST FOLLOWS TILE: ${b.tile.trim()}` : ""}\n${b.grid.trim()}`,
+    );
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
     parts.push(HEADLINE_SPACE_RULE);
@@ -350,6 +362,74 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
     if (out.length >= count) break;
   }
   return out;
+}
+
+/** Grid mode: one reference image shows a whole feed; the model reads it tile by tile and plans the month. */
+export const GRID_SCHEMA = {
+  type: "object",
+  properties: {
+    world: { type: "string" },
+    tiles: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          position: { type: "string" },
+          scene: { type: "string" },
+          productPlacement: { type: "string" },
+          textPlacement: { type: "string" },
+        },
+        required: ["position", "scene", "productPlacement", "textPlacement"],
+      },
+    },
+    posts: IDEAS_SCHEMA.properties.posts,
+  },
+  required: ["world", "tiles", "posts"],
+};
+
+export function gridIdeasInstruction(r: IdeasRequest): string {
+  const lang =
+    r.language === "ar"
+      ? "Captions and headlines in Modern Standard Arabic unless the tone says dialect."
+      : r.language === "en"
+        ? "Captions and headlines in English."
+        : "Captions in Arabic first, then English after a blank line; headlines in Arabic.";
+  return [
+    `The attached image is a reference social-media feed grid (several post tiles in one picture). You are the creative lead of a design agency: read it tile by tile, then plan ${r.count} posts for the client "${r.clientName}" for ${monthLabel(r.month)} that recreate the SAME world and rhythm with the client's own products and identity. The posts are produced as single images by an image engine (no text inside the image) and get a headline overlay and a caption.`,
+    "First describe the grid: world (one paragraph: the sets, materials, surfaces, props, palette with colour words, light, camera angles, mood, how products are staged and where text sits) and tiles (one entry per tile in reading order: position like 'row 1, col 2'; scene; productPlacement; textPlacement). Ignore the reference's brand, products, logos and words: only the staging matters.",
+    `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
+    r.dos ? `ALWAYS: ${r.dos}` : "",
+    r.donts ? `NEVER: ${r.donts}` : "",
+    r.palette.length
+      ? `BRAND PALETTE (the posts use these colours for sets and props instead of the reference's palette): ${r.palette.join(", ")}.`
+      : "",
+    r.style ? `VISUAL IDENTITY: ${r.style}` : "",
+    r.themeDirection ? `THEME DIRECTION: ${r.themeDirection}` : "",
+    r.products.length
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; every product appears at least once before any repeats): ${r.products.join("; ")}.`
+      : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
+    r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
+    `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), subline (at most 8 words or ""), caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or "").`,
+    `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export interface GridRead {
+  world: string;
+  tiles: { position: string; scene: string; productPlacement: string; textPlacement: string }[];
+}
+
+/** The grid description as one text for the prompts and the theme notes. */
+export function gridNotes(g: GridRead): string {
+  return [
+    g.world.trim(),
+    ...g.tiles.map(
+      (t, i) =>
+        `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement} Text: ${t.textPlacement}`,
+    ),
+  ].join("\n");
 }
 
 /** JSON schema and instruction for "Analyse theme": the visual language of a theme's references. */

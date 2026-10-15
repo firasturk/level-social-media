@@ -9,7 +9,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { del, post, put } from "@/api";
+import { del, get, post, put } from "@/api";
 import {
   Select,
   SelectContent,
@@ -543,17 +543,26 @@ function ThemeSection({
     }
   }
 
-  async function analyse() {
+  async function analyse(silent = false) {
     if (!current) return;
     setBusy("analyse");
     try {
       const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/analyze`);
       onThemesChanged(r.themes);
-      toast.success("Theme written from its references.");
+      toast.success(silent ? "Theme direction updated from the references." : "Theme written from its references.");
     } catch (e) {
-      toast.error((e as Error).message);
+      if (!silent) toast.error((e as Error).message);
     } finally {
       setBusy("");
+    }
+  }
+
+  async function reloadThemes() {
+    try {
+      const r = await get<ThemesReply>(`/api/studio/posts/themes?client=${encodeURIComponent(client.id)}`);
+      onThemesChanged(r.themes);
+    } catch {
+      /* keep the list */
     }
   }
 
@@ -570,11 +579,15 @@ function ThemeSection({
     }
     setBusy("import");
     try {
-      const r = await post<{ added: string[]; failed: string[] }>(
+      const r = await post<{ added: string[]; failed: string[]; analysed?: boolean }>(
         "/api/studio/posts/import-references",
         { skill: current.id, urls },
       );
       setLibKey((k) => k + 1);
+      if (r.analysed) {
+        await reloadThemes();
+        toast.success("Theme direction written from the imported references.");
+      }
       if (r.added.length) toast.success(`${r.added.length} reference${r.added.length > 1 ? "s" : ""} imported.`);
       if (r.failed.length)
         toast.warning(
@@ -631,6 +644,7 @@ function ThemeSection({
           <ReferenceLibrary
             key={`${current.id}:${libKey}`}
             skill={current.id}
+            onChanged={(count) => (count > 0 ? void analyse(true) : reloadThemes())}
             title="References"
             empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
             hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."

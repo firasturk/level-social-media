@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  Clapperboard,
   Download,
   Eye,
+  Grid3x3,
   ImagePlus,
   Lightbulb,
   LoaderCircle,
+  PenLine,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -12,6 +15,8 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import OverlayEditor, { type EditorResult } from "./OverlayEditor";
+import AnimateDialog from "./AnimateDialog";
 import type { Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
@@ -44,6 +49,11 @@ export default function PlanView({
   logoSrc,
   showOverlay,
   onShowOverlay,
+  themeRefs,
+  gridRef,
+  onGridIdeas,
+  onClearGrid,
+  fileBase,
   onUploadProducts,
   onRemoveProduct,
   onGenerateIdeas,
@@ -72,6 +82,14 @@ export default function PlanView({
   logoSrc: string | null;
   showOverlay: boolean;
   onShowOverlay: (on: boolean) => void;
+  /** The theme's reference photos, offered as "reference grids" to plan the month from. */
+  themeRefs: { id: string; name: string | null }[];
+  /** The reference the month follows in grid mode, when any. */
+  gridRef: string | null;
+  onGridIdeas: (refId: string, notes: string) => void;
+  onClearGrid: () => void;
+  /** Base of exported file names (client slug + month). */
+  fileBase: string;
   onUploadProducts: (files: File[]) => void;
   onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
@@ -86,6 +104,9 @@ export default function PlanView({
   const [notes, setNotes] = useState("");
   const [draft, setDraft] = useState<Post[]>(plan);
   const [dragging, setDragging] = useState(false);
+  const [gridPicker, setGridPicker] = useState(false);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [animating, setAnimating] = useState<number | null>(null);
   useEffect(() => setDraft(plan), [plan]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(plan);
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
@@ -176,6 +197,15 @@ export default function PlanView({
             {plan.length ? "Regenerate ideas" : "Generate ideas"}
           </button>
           <button
+            className={`secondary ${gridRef ? "toggle on" : ""}`}
+            onClick={() => setGridPicker((v) => !v)}
+            disabled={!!busy || running}
+            title="Plan the month from one reference image that shows a whole feed grid"
+          >
+            {busy === "grid" ? <LoaderCircle className="spinning" size={15} /> : <Grid3x3 size={15} />}
+            From reference grid
+          </button>
+          <button
             className="primary"
             onClick={() => onGeneratePosts()}
             disabled={!!busy || running || !plan.length || !pending}
@@ -217,6 +247,50 @@ export default function PlanView({
           onChange={(e) => setNotes(e.target.value)}
         />
       </div>
+
+      {gridPicker && (
+        <div className="grid-picker">
+          <div className="grid-picker-head">
+            <strong>Pick the reference grid</strong>
+            <span>
+              A theme reference that shows a whole feed (for example a Pinterest pin of 9 posts). The month is planned tile by tile in that world, with this client's products and colours.
+            </span>
+            <button type="button" className="icon-button" aria-label="Close" onClick={() => setGridPicker(false)}>
+              <X size={14} />
+            </button>
+          </div>
+          {themeRefs.length ? (
+            <div className="grid-picker-refs">
+              {themeRefs.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  className={`grid-ref ${gridRef === r.id ? "active" : ""}`}
+                  onClick={() => {
+                    setGridPicker(false);
+                    onGridIdeas(r.id, notes);
+                  }}
+                  title={r.name ?? "reference"}
+                >
+                  <img src={`/api/studio/references/${r.id}/file`} alt={r.name ?? ""} loading="lazy" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="prompt-tip">Add a reference to the theme first (Theme → Pinterest or Add photos).</div>
+          )}
+        </div>
+      )}
+      {gridRef && (
+        <div className="grid-chip">
+          <Grid3x3 size={14} />
+          <span>This month follows a reference grid: every post is staged in its world.</span>
+          <img src={`/api/studio/references/${gridRef}/file`} alt="" />
+          <button type="button" className="text-button" onClick={onClearGrid}>
+            Stop following
+          </button>
+        </div>
+      )}
 
       <div className="products">
         <div className="products-head">
@@ -299,6 +373,7 @@ export default function PlanView({
                         spec={overlay}
                         text={{ headline: p.headline, subline: p.subline }}
                         logoSrc={logoSrc}
+                        patch={p.ov}
                         width={720}
                         alt={p.title}
                       />
@@ -416,6 +491,29 @@ export default function PlanView({
                         {t ? STATUS_LABEL[t.status] ?? t.status : "Idea"}
                       </span>
                       <span className="spacer" />
+                      {t?.output && p.overlay !== false && (
+                        <>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Edit text on the image"
+                            title="Edit text on the image"
+                            onClick={() => setEditing(p.index)}
+                          >
+                            <PenLine size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Animate this text"
+                            title="Animate this text"
+                            onClick={() => setAnimating(p.index)}
+                            disabled={!(p.headline || p.subline)}
+                          >
+                            <Clapperboard size={14} />
+                          </button>
+                        </>
+                      )}
                       {t?.output ? (
                         <button
                           type="button"
@@ -458,6 +556,51 @@ export default function PlanView({
           </div>
         </>
       )}
+      {(() => {
+        const p = editing !== null ? draft.find((x) => x.index === editing) : null;
+        const t = p ? taskOf(p.index) : null;
+        if (!p || !t?.output) return null;
+        return (
+          <OverlayEditor
+            open
+            src={outputUrl(t)}
+            spec={overlay}
+            logoSrc={logoSrc}
+            headline={p.headline ?? ""}
+            subline={p.subline ?? ""}
+            patch={p.ov}
+            onClose={() => setEditing(null)}
+            onSave={(r: EditorResult) => {
+              const next = draft.map((x) =>
+                x.index === p.index
+                  ? { ...x, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov }
+                  : x,
+              );
+              setDraft(next);
+              onSavePlan(next);
+              setEditing(null);
+            }}
+          />
+        );
+      })()}
+      {(() => {
+        const p = animating !== null ? draft.find((x) => x.index === animating) : null;
+        const t = p ? taskOf(p.index) : null;
+        if (!p || !t?.output) return null;
+        return (
+          <AnimateDialog
+            open
+            src={outputUrl(t)}
+            spec={overlay}
+            logoSrc={logoSrc}
+            headline={p.headline ?? ""}
+            subline={p.subline ?? ""}
+            patch={p.ov}
+            fileBase={`${fileBase}_post${String(p.index).padStart(2, "0")}`}
+            onClose={() => setAnimating(null)}
+          />
+        );
+      })()}
     </section>
   );
 }

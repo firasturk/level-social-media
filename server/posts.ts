@@ -17,7 +17,11 @@ import { stemOf } from "@shared/naming";
 import {
   buildPostPrompt,
   captionsCsv,
+  GRID_SCHEMA,
+  gridIdeasInstruction,
+  gridNotes,
   IDEAS_SCHEMA,
+  type GridRead,
   IDENTITY_SCHEMA,
   identityBuilderInstruction,
   ideasInstruction,
@@ -269,18 +273,17 @@ async function referenceImages(env: Env, scope: string, limit: number): Promise<
   return images;
 }
 
-/** "Analyse theme": writes the theme's direction and visual language from its references. */
-postRoutes.post("/themes/:id/analyze", async (c) => {
-  const row = await themeRow(c.env, c.req.param("id"));
-  const images = await referenceImages(c.env, row.id, MAX_ANALYSE_IMAGES);
+/** Writes the theme's direction and visual language from its references. */
+async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
+  const images = await referenceImages(env, row.id, MAX_ANALYSE_IMAGES);
   if (!images.length) throw new StudioError("Add reference photos to this theme first.");
   const d = parseJson<{ description?: string; direction?: string; library?: string }>(
-    await askText(c.env, themeBuilderInstruction(row.title, images.length), THEME_SCHEMA, images),
+    await askText(env, themeBuilderInstruction(row.title, images.length), THEME_SCHEMA, images),
   );
   if (!d.direction || !d.library)
     throw new StudioError("The model returned an incomplete theme.", 502);
   await run(
-    c.env.DB,
+    env.DB,
     "UPDATE skills SET description = ?, goal = ?, library = ?, auto = 1, updated = ? WHERE id = ?",
     (d.description ?? "").trim().slice(0, 300),
     d.direction.trim(),
@@ -288,6 +291,12 @@ postRoutes.post("/themes/:id/analyze", async (c) => {
     now(),
     row.id,
   );
+}
+
+/** "Analyse theme", also run automatically after references are added. */
+postRoutes.post("/themes/:id/analyze", async (c) => {
+  const row = await themeRow(c.env, c.req.param("id"));
+  await analyseTheme(c.env, row);
   return c.json({ ok: true, themes: await listThemes(c.env, row.client!) });
 });
 
@@ -403,7 +412,20 @@ postRoutes.post("/import-references", async (c) => {
       failed.push(url);
     }
   }
-  return c.json({ ok: true, added, failed });
+  // A theme reads its references as soon as it has some: the direction is written without a click.
+  let analysed = false;
+  if (added.length && skill.startsWith("t-")) {
+    const row = await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", skill);
+    if (row) {
+      try {
+        await analyseTheme(c.env, row);
+        analysed = true;
+      } catch (e) {
+        console.error("[import] analyse failed", errorMessage(e));
+      }
+    }
+  }
+  return c.json({ ok: true, added, failed, analysed });
 });
 
 /* ───────────── The month's plan ───────────── */
@@ -509,6 +531,89 @@ postRoutes.post("/ideas", async (c) => {
   return c.json({ ok: true, plan });
 });
 
+/**
+ * "Grid from reference": one reference image that shows a whole feed grid is read tile by tile,
+ * and the month's posts are planned to recreate its world with the client's products.
+ */
+postRoutes.post("/grid-ideas", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      ref: z.string().min(1).max(80),
+      notes: z.string().max(2000).optional(),
+      count: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const ref = await first<{ id: string; key: string }>(
+    c.env.DB,
+    "SELECT id, key FROM refs WHERE id = ?",
+    d.ref,
+  );
+  const obj = ref ? await c.env.BUCKET.get(ref.key) : null;
+  if (!ref || !obj) throw new StudioError("Reference image not found.", 404);
+  const image = {
+    bytes: await obj.arrayBuffer(),
+    mime: obj.httpMetadata?.contentType || "image/jpeg",
+  };
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme
+    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    : null;
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  const products = [...new Set(sources.map(productName))];
+  const count = d.count ?? config.postCount ?? 12;
+  const instruction = gridIdeasInstruction({
+    clientName: client.name,
+    tone: client.tone,
+    dos: client.dos,
+    donts: client.donts,
+    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
+      | "ar"
+      | "en"
+      | "both",
+    palette: paletteOf(client),
+    style: client.style,
+    themeTitle: theme?.title ?? "",
+    themeDirection: theme?.goal ?? "",
+    products,
+    month: config.month ?? "",
+    count,
+    notes: d.notes ?? config.notes,
+  });
+  const text = await askText(c.env, instruction, GRID_SCHEMA, [image]);
+  const read = parseJson<Partial<GridRead> & { posts?: unknown }>(text);
+  const plan = parseIdeas(JSON.stringify({ posts: read.posts ?? [] }), count, products);
+  if (!plan.length) throw new StudioError("The model returned no usable posts. Try again.", 502);
+  const grid: GridRead = {
+    world: String(read.world ?? "").trim(),
+    tiles: Array.isArray(read.tiles)
+      ? (read.tiles as GridRead["tiles"]).filter((t) => t && typeof t === "object").slice(0, 30)
+      : [],
+  };
+  // Each post remembers the tile it follows (from the title's "T3 ·" prefix, else by order).
+  for (const p of plan) {
+    const m = /^T(\d+)\s*[·:-]/i.exec(p.title);
+    const i = m ? Number(m[1]) - 1 : (p.index - 1) % Math.max(1, grid.tiles.length);
+    const t = grid.tiles[i];
+    if (t) p.tile = `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement}`;
+    if (m) p.title = p.title.slice(m[0].length).trim() || p.title;
+  }
+  config.plan = plan;
+  config.postCount = count;
+  config.gridRef = ref.id;
+  config.gridNotes = gridNotes(grid).slice(0, 12000);
+  if (d.notes !== undefined) config.notes = d.notes;
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true, plan, grid });
+});
+
 /** The designer's edits of the plan. */
 postRoutes.put("/plan", async (c) => {
   const d = await body(
@@ -534,6 +639,7 @@ postRoutes.put("/settings", async (c) => {
       size: z.enum(["1K", "2K", "4K"]).optional(),
       postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
       notes: z.string().max(2000).optional(),
+      gridRef: z.null().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -550,6 +656,10 @@ postRoutes.put("/settings", async (c) => {
   if (d.size) config.size = d.size;
   if (d.postCount) config.postCount = d.postCount;
   if (d.notes !== undefined) config.notes = d.notes;
+  if (d.gridRef === null) {
+    delete config.gridRef;
+    delete config.gridNotes;
+  }
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, config });
 });
@@ -637,7 +747,12 @@ postRoutes.post("/generate", async (c) => {
             s.kind === "product" && productName(s).toLowerCase() === post.product!.toLowerCase(),
         )
       : undefined;
-    const refId = pickLeastUsed(refs, used);
+    // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
+    const gridRef = config.gridRef
+      ? await first<{ id: string, key: string }>(c.env.DB, "SELECT id, key FROM refs WHERE id = ?", config.gridRef)
+      : null;
+    if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
+    const refId = gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
     let sourceId = product?.id;
     if (!sourceId) {
@@ -682,6 +797,8 @@ postRoutes.post("/generate", async (c) => {
       style: client.style,
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
+      grid: config.gridRef ? config.gridNotes || undefined : undefined,
+      tile: config.gridRef ? post.tile : undefined,
       format: config.format ?? "4:5",
       ref: refId,
       refIsSource: !product && !!refId,
