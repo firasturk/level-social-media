@@ -42,6 +42,7 @@ export default function Sidebar({
 }) {
   const connected =
     engine.configured ||
+    !!engine.vertex ||
     engine.openai !== "none" ||
     engine.google !== "none" ||
     engine.fal !== "none";

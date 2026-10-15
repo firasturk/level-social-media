@@ -4593,10 +4593,12 @@ h1 {
 }
 .plan-empty img {
   width: 100%;
+  max-width: 420px;
   aspect-ratio: 4 / 5;
   object-fit: cover;
   border-radius: 12px;
   grid-row: span 2;
+  justify-self: center;
 }
 .plan-empty h3 {
   font-size: 20px;
@@ -4627,10 +4629,15 @@ h1 {
 .plan-empty li strong {
   display: block;
   font-size: 14px;
+  grid-column: 2;
 }
 .plan-empty li span {
   color: var(--ink-500);
   font-size: 13px;
+  grid-column: 2;
+}
+.plan-empty li::before {
+  grid-row: 1 / span 2;
 }
 .posts-head {
   display: flex;

@@ -201,8 +201,9 @@ export default function Workspace({
     void loadThemeRefs(themeId);
   }, [themeId, themes, loadThemeRefs]);
 
+  const googleReady = !!engine.vertex || engine.google !== "none";
   const engineConnected =
-    engine.configured || engine.openai !== "none" || engine.google !== "none" || engine.fal !== "none";
+    engine.configured || googleReady || engine.openai !== "none" || engine.fal !== "none";
 
   const sourceUrl = (id: string, kind = "reference") =>
     `/api/studio/file?batch=${batch?.id}&id=${id}&kind=${kind}`;
@@ -288,7 +289,7 @@ export default function Workspace({
   }
 
   async function generateIdeas(notes: string) {
-    if (!engineConnected && engine.google === "none" && engine.openai === "none") {
+    if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return;
     }
@@ -309,7 +310,7 @@ export default function Workspace({
   }
 
   async function gridIdeas(refId: string, notes: string) {
-    if (engine.google === "none" && engine.openai === "none") {
+    if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return;
     }
