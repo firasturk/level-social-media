@@ -7,14 +7,10 @@ import {
   ImagePlus,
   KeyRound,
   LoaderCircle,
-  LogOut,
-  Moon,
   Pause,
   Play,
   RotateCcw,
   SlidersHorizontal,
-  Sparkles,
-  Sun,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -69,7 +65,7 @@ const BatchesView = lazyScreen(() => import("./BatchesView"));
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
 import { useBatch } from "./useBatch";
 import { applyModeOverrides } from "./ModeCards";
-import ClientCards from "./ClientCards";
+import Sidebar, { type Page } from "./Sidebar";
 import BootScreen from "./BootScreen";
 import { MODES } from "./constants";
 import CreativePanel from "./CreativePanel";
@@ -110,7 +106,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [connection, setConnection] = useState(false);
   const [theme, toggleTheme] = useTheme();
-  const [page, setPage] = useState<"studio" | "batches" | "admin">("studio");
+  const [page, setPage] = useState<Page>("studio");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -127,12 +123,10 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
   const [moodBoard, setMoodBoard] = useState<MoodBoardInfo | null>(null);
   const [modeOverrides, setModeOverrides] = useState<Record<string, ModeOverride>>({});
   const [clients, setClients] = useState<Client[]>([]);
-  const [hero, setHero] = useState("");
-  // Boot screen: wait for the first state load and the hero video (or a timeout).
+  // Boot screen: wait for the first state load (or a timeout).
   const [stateReady, setStateReady] = useState(false);
-  const [heroReady, setHeroReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
-  const booted = bootTimedOut || (stateReady && (heroReady || !hero));
+  const booted = bootTimedOut || stateReady;
   useEffect(() => {
     const t = setTimeout(() => setBootTimedOut(true), 7000);
     return () => clearTimeout(t);
@@ -156,7 +150,6 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
       setModeOverrides(ov);
       const list = d.clients ?? [];
       setClients(list);
-      setHero(d.hero ?? "");
       // A hidden approach or an archived client must not stay selected for new batches.
       setConfig((c) => {
         let next = c;
@@ -268,6 +261,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
     (t) => !!t.output && (t.status === "ready" || t.status === "approved" || t.status === "review"),
   );
   const effectiveConfig: Config = { ...viewConfig, model: viewConfig.model || engine.model };
+  const currentClient = clients.find((c) => c.id === viewConfig.client) ?? null;
   const pendingLeads = pending.filter((p) => p.role === "lead").length;
   const pendingCost = estimateCost(effectiveConfig, pendingLeads * cardsPerSource(effectiveConfig));
   const toRun = tasks.filter((t) => t.status === "queued" || t.status === "failed");
@@ -645,66 +639,32 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
   return (
     <div className={`studio ${settingsOpen ? "settings-open" : ""}`}>
       <BootScreen done={booted} />
-      <header className="topbar">
-        <a href="/" className="brand" aria-label="Level Social Media">
-          <img className="max-logo" src="/logo-mark.png" alt="Level" width={96} height={32} />
-          <span className="brand-divider" />
-          <span className="studio-title">
-            SOCIAL MEDIA<span>LEVEL MENA</span>
-          </span>
-        </a>
-        <nav className="nav-tabs" aria-label="Pages">
-          <button className={page === "studio" ? "active" : ""} onClick={() => setPage("studio")}>
-            Studio
-          </button>
-          <button className={page === "batches" ? "active" : ""} onClick={() => setPage("batches")}>
-            Batches <span>{batches.length}</span>
-          </button>
-          {user.role === "admin" && (
-            <button className={page === "admin" ? "active" : ""} onClick={() => setPage("admin")}>
-              Admin
-            </button>
-          )}
-        </nav>
-        <div className="top-actions">
-          <span className="engine-tag">
-            <Sparkles size={15} />{" "}
-            {models.find((m) => m.slug === engine.model)?.name ?? engine.model ?? "…"}
-          </span>
-          <button
-            className={`connection-button ${engine.configured || engine.openai !== "none" || engine.google !== "none" || engine.fal !== "none" ? "connected" : ""}`}
-            onClick={() => setConnection(true)}
-          >
-            <KeyRound size={16} />
-            {engine.configured ||
-            engine.openai !== "none" ||
-            engine.google !== "none" ||
-            engine.fal !== "none"
-              ? "Connected"
-              : "Not connected"}
-          </button>
-          <button
-            className="theme-button"
-            onClick={toggleTheme}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          </button>
-          <button className="user-button" onClick={() => void signOut()} title={user.email}>
-            <LogOut size={15} /> {user.name}
-          </button>
-        </div>
-      </header>
+      <Sidebar
+        page={page}
+        onPage={setPage}
+        user={user}
+        batches={batches.length}
+        engine={engine}
+        models={models}
+        onConnection={() => setConnection(true)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onSignOut={() => void signOut()}
+        clients={clients}
+        client={viewConfig.client ?? ""}
+        locked={locked}
+        onClient={(client) => setConfig((c) => ({ ...c, client }))}
+        onClientsChanged={setClients}
+      />
 
       <main>
         {page === "admin" ? (
           <>
-            <div className="page-heading">
+            <div className="workspace-head">
               <div>
-                <div className="eyebrow">ADMINISTRATION</div>
-                <h1>Team, spend and workspace settings.</h1>
-                <p>Invite code, spend confirmation, retention, notifications and member access.</p>
+                <div className="eyebrow">Workspace</div>
+                <h1>Admin</h1>
+                <p>Team, spend confirmation, retention, notifications and member access.</p>
               </div>
             </div>
             <Suspense fallback={null}>
@@ -713,17 +673,14 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
           </>
         ) : page === "batches" ? (
           <>
-            <div className="page-heading">
+            <div className="workspace-head">
               <div>
-                <div className="eyebrow">SAVED BATCHES</div>
-                <h1>Every collection you have processed.</h1>
-                <p>
-                  Open a batch to review, revise or export. Generation continues on the server while
-                  you are away.
-                </p>
+                <div className="eyebrow">History</div>
+                <h1>Batches</h1>
+                <p>Open a batch to review, revise or export. Generation continues on the server.</p>
               </div>
               <button
-                className="secondary"
+                className="primary"
                 onClick={() => {
                   newBatch();
                   setPage("studio");
@@ -750,57 +707,21 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
           </>
         ) : (
           <>
-            {hero ? (
-              <div className="hero-banner hero-with-title">
-                <video
-                  key={hero}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                  preload="auto"
-                  onCanPlay={() => setHeroReady(true)}
-                  onError={() => {
-                    setHero("");
-                    setHeroReady(true);
-                  }}
-                >
-                  <source src={`/api/studio/hero?f=webm&v=${hero}`} type="video/webm" />
-                  <source src={`/api/studio/hero?v=${hero}`} type="video/mp4" />
-                </video>
-                <div className="hero-veil" />
-                <div className="hero-content">
-                  <div className="eyebrow">SOCIAL MEDIA / WORKSPACE</div>
-                  <h1>From product to post.</h1>
-                  <p>One client. Every post. Its own identity.</p>
-                </div>
-                <button className="secondary hero-cta" onClick={newBatch} disabled={uploading}>
-                  <ImagePlus size={17} />
-                  New batch
-                </button>
+            <div className="workspace-head">
+              <div>
+                <div className="eyebrow">Client</div>
+                <h1>{currentClient?.name ?? "Pick a client"}</h1>
+                <p>
+                  {currentClient
+                    ? "Upload the client's products, pick the approach, generate and review."
+                    : "Choose a client in the left rail to start a batch."}
+                </p>
               </div>
-            ) : (
-              <div className="page-heading">
-                <div>
-                  <div className="eyebrow">SOCIAL MEDIA / WORKSPACE</div>
-                  <h1>From product to post.</h1>
-                  <p>One client. Every post. Its own identity.</p>
-                </div>
-                <button className="secondary" onClick={newBatch} disabled={uploading}>
-                  <ImagePlus size={17} />
-                  New batch
-                </button>
-              </div>
-            )}
-
-            <ClientCards
-              clients={clients}
-              value={viewConfig.client ?? ""}
-              disabled={locked}
-              canEdit={user.role === "admin"}
-              onClientsChanged={setClients}
-              onChange={(client) => setConfig((c) => ({ ...c, client }))}
-            />
+              <button className="primary" onClick={newBatch} disabled={uploading}>
+                <ImagePlus size={17} />
+                New batch
+              </button>
+            </div>
 
             {/* The production approach stays as a compact picker until post types replace it (Phase 2). */}
             <div className="approach-row">
@@ -903,7 +824,7 @@ export default function Studio({ user, onSignedOut }: { user: User; onSignedOut:
               <section className="media-panel">
                 <div className="media-heading">
                   <div>
-                    <span className="step">03</span>
+                    <span className="step">02</span>
                     <h2>{batch ? batch.name : "Your image batch"}</h2>
                   </div>
                   {batches.length > 0 && (

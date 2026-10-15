@@ -11,7 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
-import { del, post, postForm } from "@/api";
+import { del, post, postForm, put } from "@/api";
 import { initials } from "@shared/clients";
 import type { Client } from "@shared/types";
 
@@ -23,6 +23,7 @@ export default function ClientCards({
   value,
   disabled,
   canEdit = false,
+  layout = "cards",
   onChange,
   onClientsChanged,
 }: {
@@ -31,6 +32,8 @@ export default function ClientCards({
   disabled: boolean;
   /** Admins may rename, re-order, change the logo and archive. Anyone may add. */
   canEdit?: boolean;
+  /** "cards" is the studio grid; "list" is the compact rail in the sidebar. */
+  layout?: "cards" | "list";
   onChange: (id: string) => void;
   onClientsChanged: (clients: Client[]) => void;
 }) {
@@ -68,18 +71,7 @@ export default function ClientCards({
   function rename(c: Client) {
     const name = window.prompt("Client name:", c.name);
     if (name === null || !name.trim() || name.trim() === c.name) return;
-    void call(() => post<Reply>(`/api/studio/clients/${c.id}`, undefined).catch(() => putName()));
-    async function putName() {
-      const res = await fetch(`/api/studio/clients/${c.id}`, {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name!.trim() }),
-      });
-      const data = (await res.json().catch(() => ({}))) as Reply & { error?: string };
-      if (!res.ok) throw new Error(data.error || "Rename failed.");
-      return data;
-    }
+    void call(() => put<Reply>(`/api/studio/clients/${c.id}`, { name: name.trim() }));
   }
 
   function move(c: Client, dir: -1 | 1) {
@@ -121,6 +113,95 @@ export default function ClientCards({
     await call(() => postForm<Reply>(`/api/studio/clients/${id}/logo`, form));
   }
 
+  const tools = (c: Client, i: number) => {
+    const isArchived = c.status === "archived";
+    if (!canEdit) return null;
+    if (isArchived)
+      return (
+        <Tool label="Restore client" onClick={() => restore(c)}>
+          <ArchiveRestore size={13} />
+        </Tool>
+      );
+    return (
+      <>
+        <Tool label="Move up" onClick={() => move(c, -1)} disabled={i === 0}>
+          <ChevronLeft size={13} />
+        </Tool>
+        <Tool label="Move down" onClick={() => move(c, 1)} disabled={i === active.length - 1}>
+          <ChevronRight size={13} />
+        </Tool>
+        <Tool label="Rename client" onClick={() => rename(c)}>
+          <Pencil size={13} />
+        </Tool>
+        <Tool label="Change logo" onClick={() => pickLogo(c)}>
+          <ImagePlus size={13} />
+        </Tool>
+        <Tool label="Archive client" onClick={() => archive(c)}>
+          <Archive size={13} />
+        </Tool>
+      </>
+    );
+  };
+
+  const logoInput = (
+    <input
+      ref={fileInput}
+      type="file"
+      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+      hidden
+      onChange={(e) => void uploadLogo(e.target.files?.[0])}
+    />
+  );
+
+  if (layout === "list")
+    return (
+      <div className="client-list">
+        <div className="client-list-head">
+          <span>Clients</span>
+          <button type="button" className="icon-button" onClick={add} disabled={busy} aria-label="Add client" title="Add client">
+            <Plus size={15} />
+          </button>
+        </div>
+        {logoInput}
+        {shown.map((c, i) => {
+          const isArchived = c.status === "archived";
+          return (
+            <div
+              key={c.id}
+              role="button"
+              tabIndex={disabled || isArchived ? -1 : 0}
+              aria-pressed={value === c.id}
+              aria-disabled={disabled || isArchived}
+              className={`client-row ${value === c.id ? "active" : ""} ${isArchived ? "archived" : ""}`}
+              onClick={() => !disabled && !isArchived && onChange(c.id)}
+              onKeyDown={(e) => e.key === "Enter" && !disabled && !isArchived && onChange(c.id)}
+            >
+              {c.logo ? (
+                <img className="client-row-logo" src={`/api/studio/clients/${c.id}/logo?v=${c.updated}`} alt="" />
+              ) : (
+                <span className="client-row-initials" aria-hidden="true">
+                  {initials(c.name)}
+                </span>
+              )}
+              <span className="client-row-name">
+                {c.name}
+                <small>
+                  {isArchived ? "Archived" : c.batches ? `${c.batches} ${c.batches === 1 ? "batch" : "batches"}` : "No batches"}
+                </small>
+              </span>
+              <span className="mode-tools client-row-tools">{tools(c, i)}</span>
+            </div>
+          );
+        })}
+        {!shown.length && <p className="client-list-empty">No clients yet.</p>}
+        {archived.length > 0 && (
+          <button type="button" className="text-button client-list-toggle" onClick={() => setShowArchived((v) => !v)}>
+            {showArchived ? "Hide archived" : `Show ${archived.length} archived`}
+          </button>
+        )}
+      </div>
+    );
+
   return (
     <>
       <div className="workflow-label">
@@ -139,13 +220,7 @@ export default function ClientCards({
           </button>
         )}
       </div>
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
-        hidden
-        onChange={(e) => void uploadLogo(e.target.files?.[0])}
-      />
+      {logoInput}
       {!shown.length ? (
         <div className="mode-note">
           <Users size={16} />
@@ -187,37 +262,8 @@ export default function ClientCards({
                       ? `${c.batches} ${c.batches === 1 ? "batch" : "batches"}`
                       : "No batches yet"}
                 </span>
-                <span className="mode-tools">
-                  {/* Spans, not buttons: a button inside a label would become the label's control. */}
-                  {canEdit && !isArchived && (
-                    <>
-                      <Tool label="Move left" onClick={() => move(c, -1)} disabled={i === 0}>
-                        <ChevronLeft size={13} />
-                      </Tool>
-                      <Tool
-                        label="Move right"
-                        onClick={() => move(c, 1)}
-                        disabled={i === active.length - 1}
-                      >
-                        <ChevronRight size={13} />
-                      </Tool>
-                      <Tool label="Rename client" onClick={() => rename(c)}>
-                        <Pencil size={13} />
-                      </Tool>
-                      <Tool label="Change logo" onClick={() => pickLogo(c)}>
-                        <ImagePlus size={13} />
-                      </Tool>
-                      <Tool label="Archive client" onClick={() => archive(c)}>
-                        <Archive size={13} />
-                      </Tool>
-                    </>
-                  )}
-                  {canEdit && isArchived && (
-                    <Tool label="Restore client" onClick={() => restore(c)}>
-                      <ArchiveRestore size={13} />
-                    </Tool>
-                  )}
-                </span>
+                {/* Spans, not buttons: a button inside a label would become the label's control. */}
+                <span className="mode-tools">{tools(c, i)}</span>
               </label>
             );
           })}

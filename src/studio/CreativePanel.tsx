@@ -286,7 +286,7 @@ export default function CreativePanel({
   return (
     <aside className="config-panel">
       <div className="panel-heading">
-        <span className="step">02</span>
+        <span className="step">01</span>
         <h2>Creative direction</h2>
         {canEdit && !editing && (
           <button
