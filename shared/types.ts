@@ -23,6 +23,9 @@ export interface Batch {
   config: string; // JSON of Config
   /** Client the batch is produced for (clients.id); null for batches saved before clients existed. */
   client?: string | null;
+  /** Month of a plan of posts (YYYY-MM). */
+  month?: string | null;
+  theme?: string | null;
   state: BatchState;
   last_error?: string | null;
   created: number;
@@ -51,6 +54,8 @@ export interface Source {
   mime: string;
   size: number;
   role: "lead" | "supporting";
+  /** product (an upload) or reference (a theme photo standing in for a post without a product). */
+  kind?: "product" | "reference";
   created: number;
   /** Skill this photo runs with inside a Zaid creative direction batch; null = the batch's skill. */
   skill?: string | null;
@@ -84,6 +89,27 @@ export interface Task {
   brief: string | null;
   /** Estimated spend so far on this task (all attempts). */
   cost: number;
+  updated: number;
+  /** Index of the plan post this image belongs to (month of posts). */
+  post?: number | null;
+  /** Caption and hashtags of the post, editable: JSON {text, hashtags}. */
+  caption?: string | null;
+}
+
+/** A theme: a client's visual direction with its reference library (stored as a skill row). */
+export interface Theme {
+  id: string;
+  client: string;
+  title: string;
+  caption: string;
+  description: string;
+  /** Direction text (goal) the ideas and prompts follow. */
+  direction: string;
+  /** Visual language written by "Analyse theme" from the references. */
+  library: string;
+  hidden: boolean;
+  references: number;
+  thumb?: string;
   updated: number;
 }
 

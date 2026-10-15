@@ -22,6 +22,37 @@ Read the reference files before touching code. They are the contract for the pro
 | `references/PROMPTS.md`       | You write or change any prompt, rule or brief text.                                                                   |
 | `references/BUILD_PLAN.md`    | You start a session: find the current phase, do the next step, deploy, report.                                        |
 
+## Product decisions (15 October 2026, override the sections below where they differ)
+
+Firas reviewed the first build and reset the product. These decisions win over the older text:
+
+- **No fashion, no "batch".** Nothing from the fashion studio's UI remains: no approaches, skills,
+  mood boards, model faces, poses or framing. The words in the UI are *client*, *month*,
+  *Upload products*, *Generate ideas*, *Generate posts*, *Export*. The `batches` table and the
+  engine loop still run underneath; a "month" is a batch row with `mode: "post"`, `client`,
+  `month` (YYYY-MM) and `theme`.
+- **Twelve posts a month per client** (`config.postCount`, editable). The designer does not
+  choose production approaches. The only choice per post is its **type**: product, lifestyle,
+  offer, tip, quote, announcement, behind the scenes, testimonial (`shared/posts.ts`).
+- **Flow**: pick client → month → (brand kit and theme on the left) → Upload products →
+  Generate ideas (text model writes the 12 posts: type, visual brief, caption, hashtags, product)
+  → edit → Generate posts (one image per post through the engine, product photo first, one theme
+  reference second, no text in the image, brand palette) → review/revise → Export ZIP named
+  `<client>_<month>_post##.jpg` plus `captions.csv`.
+- **Brand kit** per client: colours (name + hex), headline and body fonts, tone, caption language,
+  always/never rules, past-post photos + "Analyse identity" → style text. Stored on `clients`.
+- **Themes** per client are `skills` rows with `client` set (`t-<12hex>` ids, also the refs scope).
+  References come from uploads or **Pinterest pin links** (`/posts/import-references` reads the
+  pin's og:image). "Analyse theme" writes direction and visual language from the references.
+- **UI** is a design-agency tool, not a copy of Higgsfield: left rail (brand, pages, clients),
+  brand panel on the left of the workspace, month plan on the right with product strip and post
+  cards. Illustrative images in `public/guide/` show each post type and the empty month.
+- Server: `server/posts.ts` (themes, ideas, plan, generate, caption, captions.csv, imports,
+  product removal). Prompt: `buildPostPrompt` in `shared/posts.ts`. Engine: `mode === "post"`
+  branches in `server/engine.ts` (prompt, reference image, no fashion review).
+- Still to do: overlay layer (headline/CTA/logo in the brand fonts), per-post format, scheduling
+  export, Pinterest board sync through the official API (needs a Pinterest developer app).
+
 ## How to work with Firas
 
 - Firas is the owner, not a developer. He writes in Arabic or English and expects answers in the

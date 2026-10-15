@@ -1,0 +1,382 @@
+/**
+ * Social-media posts: the plan of a client's month (ideas), the brief stored on each generated
+ * post, and the deterministic prompt the image engine receives. No fashion assumptions: the
+ * subject is a product, a place, a person at work, a texture, whatever the post calls for.
+ */
+import type { PromptImages } from "./prompts";
+import { FULL_FRAME_RULE } from "./prompts";
+import { SAFE_WORDING_RULE } from "./safety";
+
+export const POST_TYPES = [
+  "product",
+  "lifestyle",
+  "offer",
+  "tip",
+  "quote",
+  "announcement",
+  "behind",
+  "testimonial",
+] as const;
+export type PostType = (typeof POST_TYPES)[number];
+
+export const POST_TYPE_INFO: Record<
+  PostType,
+  { label: string; labelAr: string; description: string; needsProduct: boolean }
+> = {
+  product: {
+    label: "Product",
+    labelAr: "منتج",
+    description: "One product as the hero, in the client's world.",
+    needsProduct: true,
+  },
+  lifestyle: {
+    label: "Lifestyle",
+    labelAr: "لايف ستايل",
+    description: "People or places living the brand; the product may appear in use.",
+    needsProduct: false,
+  },
+  offer: {
+    label: "Offer",
+    labelAr: "عرض",
+    description: "A promotion. The image leaves calm space for the price and the headline overlay.",
+    needsProduct: false,
+  },
+  tip: {
+    label: "Tip",
+    labelAr: "نصيحة",
+    description: "Educational post. A clean visual that supports a short tip added as text later.",
+    needsProduct: false,
+  },
+  quote: {
+    label: "Quote",
+    labelAr: "اقتباس",
+    description: "A mood image with a large calm area for a quote overlay.",
+    needsProduct: false,
+  },
+  announcement: {
+    label: "Announcement",
+    labelAr: "إعلان",
+    description: "Launch, opening, event or news. Bold and simple.",
+    needsProduct: false,
+  },
+  behind: {
+    label: "Behind the scenes",
+    labelAr: "كواليس",
+    description: "The team, the craft, the place. Candid and warm.",
+    needsProduct: false,
+  },
+  testimonial: {
+    label: "Testimonial",
+    labelAr: "رأي عميل",
+    description: "A customer moment; the image leaves room for the quote.",
+    needsProduct: false,
+  },
+};
+
+export const FORMATS = ["1:1", "4:5", "9:16"] as const;
+export type Format = (typeof FORMATS)[number];
+export const FORMAT_INFO: Record<Format, { label: string; pixels: string }> = {
+  "1:1": { label: "Square post", pixels: "1080 × 1080" },
+  "4:5": { label: "Portrait post", pixels: "1080 × 1350" },
+  "9:16": { label: "Story / Reel cover", pixels: "1080 × 1920" },
+};
+
+export const DEFAULT_POST_COUNT = 12;
+export const MAX_POST_COUNT = 30;
+
+/** One planned post of a month. Edited by the designer before and after generation. */
+export interface Post {
+  index: number;
+  type: PostType;
+  title: string;
+  /** What the photograph shows: place, subject, action, light, mood, where the product is. */
+  brief: string;
+  caption: string;
+  hashtags: string;
+  /** Upload name (stem) of the product the post uses, when any. */
+  product?: string;
+  format?: Format;
+}
+
+/** What a generated post was built from; stored on its task so retries and revisions keep it. */
+export interface PostBrief {
+  post: true;
+  index: number;
+  type: PostType;
+  title: string;
+  brief: string;
+  /** Hex palette with names, e.g. "Primary #1a1a1a". */
+  palette: string[];
+  /** The client's style text (from the brand kit) and the theme's direction. */
+  style: string;
+  theme: string;
+  format: Format;
+  /** Reference-library photo attached after the product, when any. */
+  ref: string | null;
+  /** True when the reference photo is image 1 itself (no product in this post). */
+  refIsSource: boolean;
+  hasProduct: boolean;
+  /** Theme-level visual language written by "Analyse theme" (light, palette, composition). */
+  library?: string;
+}
+
+export const NO_TEXT_RULE =
+  "TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.";
+
+export const ONE_PRODUCT_RULE =
+  "PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.";
+
+export function paletteRule(palette: string[]): string {
+  if (!palette.length) return "";
+  return `PALETTE: the scene, props, surfaces and light sit inside this palette: ${palette.join(", ")}. The product keeps its own exact colours.`;
+}
+
+export function socialFrameRule(format: Format): string {
+  const where =
+    format === "9:16"
+      ? "a tall vertical story frame; the subject sits in the middle band and the top third stays calm and low in detail for a headline"
+      : format === "4:5"
+        ? "a portrait post frame; the subject fills it with comfortable margins"
+        : "a square post frame; the subject is centred with even margins";
+  return `FORMAT: ${where}. Nothing important touches the edges; no bars, borders or collage.`;
+}
+
+export const HEADLINE_SPACE_RULE =
+  "HEADLINE SPACE: keep roughly a third of the frame as a calm, low-contrast, low-detail area (plain surface, soft sky, blurred depth) where a headline can be placed later. The subject stays sharp in the rest of the frame.";
+
+export const POST_SHADOW_RULE =
+  "SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.";
+
+export const POST_PEOPLE_RULE =
+  "PEOPLE: only when the post brief asks for people, and then exactly the number it names, each with one head, two arms, two hands with five fingers and two legs, natural faces and expressions, no duplicated or extra limbs. A real person from image 1, when present, is kept identical in face, hair and skin.";
+
+const AVOID =
+  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, borders or bars, collage, split frames, cartoon or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
+
+/** The engine prompt for one post. Deterministic: the same brief gives the same text. */
+export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
+  const parts: string[] = [];
+  if (b.hasProduct) {
+    parts.push(
+      b.ref && !b.refIsSource
+        ? "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Image 2 is a style reference: take only its place, light, camera, colour grade and mood, never its objects, people or text."
+        : "Image 1 is the product photo: the product is the source of truth and is reproduced exactly. Create the scene described below around it.",
+    );
+  } else if (b.ref) {
+    parts.push(
+      "No product is attached. Image 1 is a style reference: take only its place, light, camera, colour grade and mood, never its objects, people or text. Create the scene described below in that visual language.",
+    );
+  } else {
+    parts.push("No product is attached. Create the scene described below.");
+  }
+  if (images.revision)
+    parts.push(
+      "The last image is the previous result of this post: apply the revision below to it and keep everything else.",
+    );
+  parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${b.title}\n${b.brief.trim()}`);
+  const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
+  if (style) parts.push(`CLIENT STYLE:\n${style}`);
+  if (b.library) parts.push(`VISUAL LANGUAGE:\n${b.library.trim()}`);
+  parts.push(socialFrameRule(b.format));
+  if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
+    parts.push(HEADLINE_SPACE_RULE);
+  const palette = paletteRule(b.palette);
+  if (palette) parts.push(palette);
+  if (b.hasProduct) parts.push(ONE_PRODUCT_RULE);
+  parts.push(NO_TEXT_RULE);
+  parts.push(FULL_FRAME_RULE);
+  parts.push(
+    "PHOTOGRAPHY: a real photograph with a full-frame camera look, true materials and textures, natural depth of field, honest colour and contrast; the light has one clear source and direction and every object casts a shadow consistent with it.",
+  );
+  parts.push(POST_SHADOW_RULE);
+  parts.push(POST_PEOPLE_RULE);
+  parts.push(SAFE_WORDING_RULE);
+  if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
+  parts.push(AVOID);
+  return parts.join("\n\n");
+}
+
+/** Month label for file names and headings: "2026-11" -> "November 2026". */
+export function monthLabel(month: string, locale = "en-GB"): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return month;
+  return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString(locale, {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export function currentMonth(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** `habibah_2026-11_post03.jpg` */
+export function postFileName(clientSlug: string, month: string, index: number, ext: string): string {
+  return `${clientSlug}_${month}_post${String(index).padStart(2, "0")}.${ext}`;
+}
+
+/** The captions sheet that ships beside the images. Excel-friendly: UTF-8 BOM, CRLF, quoted cells. */
+export function captionsCsv(
+  rows: { index: number; type: string; title: string; file: string; caption: string; hashtags: string }[],
+): string {
+  const q = (s: string) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const lines = [
+    ["post", "type", "title", "file", "caption", "hashtags"].map(q).join(","),
+    ...rows.map((r) =>
+      [String(r.index), r.type, r.title, r.file, r.caption, r.hashtags].map(q).join(","),
+    ),
+  ];
+  return "﻿" + lines.join("\r\n") + "\r\n";
+}
+
+/** JSON schema for the ideas call (Google structured output; OpenAI gets the same shape in text). */
+export const IDEAS_SCHEMA = {
+  type: "object",
+  properties: {
+    posts: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          type: { type: "string", enum: [...POST_TYPES] },
+          title: { type: "string" },
+          brief: { type: "string" },
+          caption: { type: "string" },
+          hashtags: { type: "string" },
+          product: { type: "string" },
+        },
+        required: ["type", "title", "brief", "caption", "hashtags", "product"],
+      },
+    },
+  },
+  required: ["posts"],
+};
+
+export interface IdeasRequest {
+  clientName: string;
+  tone: string;
+  dos: string;
+  donts: string;
+  language: "ar" | "en" | "both";
+  palette: string[];
+  style: string;
+  themeTitle: string;
+  themeDirection: string;
+  products: string[];
+  month: string;
+  count: number;
+  /** Extra wishes typed by the designer for this month. */
+  notes?: string;
+  /** Post types to prefer, when the designer limited them. */
+  types?: PostType[];
+}
+
+/** The instruction for the text model that plans a month of posts. */
+export function ideasInstruction(r: IdeasRequest): string {
+  const lang =
+    r.language === "ar"
+      ? "Captions in Modern Standard Arabic (no dialect unless the tone says so)."
+      : r.language === "en"
+        ? "Captions in English, sentence case."
+        : "Captions in Arabic first, then an English version after a blank line.";
+  const types = (r.types?.length ? r.types : [...POST_TYPES])
+    .map((t) => `${t}: ${POST_TYPE_INFO[t].description}`)
+    .join("\n");
+  return [
+    `You are the social-media creative lead of a design agency planning ${r.count} Instagram posts for the client "${r.clientName}" for ${monthLabel(r.month)}. The posts are produced as single images (no text inside the image; headlines are added later as an overlay), each with a caption.`,
+    `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
+    r.dos ? `ALWAYS: ${r.dos}` : "",
+    r.donts ? `NEVER: ${r.donts}` : "",
+    r.palette.length ? `BRAND PALETTE: ${r.palette.join(", ")}.` : "",
+    r.style ? `VISUAL IDENTITY (from the client's past posts): ${r.style}` : "",
+    r.themeTitle || r.themeDirection
+      ? `THIS MONTH'S THEME "${r.themeTitle}": ${r.themeDirection}`
+      : "",
+    r.products.length
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; every product should appear at least once before any repeats): ${r.products.join("; ")}.`
+      : "No product photos were uploaded: set product to an empty string for every post.",
+    r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
+    `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (one of the product names exactly, or "").`,
+    `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Turn the model's answer into posts, dropping anything malformed. */
+export function parseIdeas(text: string, count: number, products: string[]): Post[] {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/, "")
+    .trim();
+  let d: { posts?: unknown } = {};
+  try {
+    d = JSON.parse(cleaned) as { posts?: unknown };
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(d.posts) ? d.posts : [];
+  const lower = new Map(products.map((p) => [p.toLowerCase(), p]));
+  const out: Post[] = [];
+  for (const raw of list as Record<string, unknown>[]) {
+    if (!raw || typeof raw !== "object") continue;
+    const type = (POST_TYPES as readonly string[]).includes(String(raw.type))
+      ? (String(raw.type) as PostType)
+      : "lifestyle";
+    const brief = String(raw.brief ?? "").trim();
+    if (!brief) continue;
+    const productRaw = String(raw.product ?? "").trim();
+    const product = lower.get(productRaw.toLowerCase());
+    out.push({
+      index: out.length + 1,
+      type,
+      title: String(raw.title ?? "").trim().slice(0, 80) || `Post ${out.length + 1}`,
+      brief: brief.slice(0, 2000),
+      caption: String(raw.caption ?? "").trim().slice(0, 2200),
+      hashtags: String(raw.hashtags ?? "").trim().slice(0, 400),
+      product: product || undefined,
+    });
+    if (out.length >= count) break;
+  }
+  return out;
+}
+
+/** JSON schema and instruction for "Analyse theme": the visual language of a theme's references. */
+export const THEME_SCHEMA = {
+  type: "object",
+  properties: {
+    description: { type: "string" },
+    direction: { type: "string" },
+    library: { type: "string" },
+  },
+  required: ["description", "direction", "library"],
+};
+
+export function themeBuilderInstruction(title: string, count: number): string {
+  return [
+    `You are writing the visual direction of a social-media theme called "${title}" for a brand, from ${count} attached reference images (mood board, Pinterest pins, past posts). Generated posts will later borrow their place, light, palette, composition and mood from these references.`,
+    "Study each image and extract ONLY: the kind of places and surfaces, the props and materials, the light (direction, quality, colour temperature), the colour palette and grade, the composition habits (distance, angle, negative space, symmetry), the photographic treatment (film, clean, flat lay, macro...), and the mood. Ignore and never mention brand names, logos, readable text, specific people's identities or specific products.",
+    "Write three texts in English:",
+    "0. description: one sentence (max 160 characters) a designer reads under the theme's name.",
+    "1. direction: 4-8 sentences that start with 'Goal: produce posts that ...', naming the world, the light signature, the palette, the composition habits and the mood, ending with 'No text, logos or prices are drawn inside the image.'",
+    "2. library: Markdown with '## Scenes' (one numbered line per image describing its setting and props in one dense sentence), '## Light' (3-4 dash lines), '## Palette' (2-3 dash lines with colour words), '## Composition' (2-3 dash lines), '## Mood' (1-2 dash lines) and '## Avoid' (one dash line of what would break this world).",
+    "Return ONLY a JSON object with keys description, direction and library.",
+  ].join("\n\n");
+}
+
+/** The style text of a client's identity, from its past posts. */
+export function identityBuilderInstruction(name: string, count: number): string {
+  return [
+    `You are describing the visual identity of the brand "${name}" from ${count} attached images of its past social-media posts, so that new posts can be generated in the same identity.`,
+    "Extract ONLY: photography style (real photo, flat lay, studio, lifestyle, illustration mix), light, colour palette and grade, composition habits, typical props and surfaces, how products are shown, whether people appear and how, and the overall mood. Ignore readable text, logos and specific people's identities.",
+    "Write a single text 'style' of 6-10 sentences in English, concrete and usable as instructions for an image engine, plus 'description' (one sentence, max 160 characters).",
+    "Return ONLY a JSON object with keys description and style.",
+  ].join("\n\n");
+}
+export const IDENTITY_SCHEMA = {
+  type: "object",
+  properties: { description: { type: "string" }, style: { type: "string" } },
+  required: ["description", "style"],
+};

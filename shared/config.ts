@@ -1,7 +1,10 @@
-export const MODES = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+import type { Post, Format } from "./posts";
+
+/** "post" is Level Social Media's month of posts; the numbered approaches are the fashion studio's. */
+export const MODES = ["post", "1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 export const MARKETS = ["auto", "arab", "european", "mixed"] as const;
 export const INPUT_TYPES = ["model", "mannequin", "flatlay"] as const;
-export const RATIOS = ["2:3", "3:4", "4:5", "1:1"] as const;
+export const RATIOS = ["2:3", "3:4", "4:5", "1:1", "9:16", "16:9"] as const;
 export const SIZES = ["1K", "2K", "4K"] as const;
 export const OUTPUT_FORMATS = ["png", "jpg", "webp"] as const;
 export const MAX_COUNT = 6;
@@ -40,6 +43,18 @@ export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 export interface Config {
   /** Client (clients.id) the batch is produced for. Required for new batches. */
   client?: string;
+  /** Theme (skills.id scoped to the client) that gives the month its visual direction. */
+  theme?: string;
+  /** Month of the plan, YYYY-MM. */
+  month?: string;
+  /** Posts planned for the month (default 12). */
+  postCount?: number;
+  /** Post size; the engine ratio is derived from it. */
+  format?: Format;
+  /** The month's posts, written by "Generate ideas" and edited by the designer. */
+  plan?: Post[];
+  /** Designer notes that steer the ideas of this month. */
+  notes?: string;
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;
@@ -142,11 +157,40 @@ export function validateConfig(c: Config): string | null {
 }
 
 /** Whether an uploaded file with this role creates generation tasks under this config. */
-export function createsTasks(_c: Config, role: "lead" | "supporting"): boolean {
+export function createsTasks(c: Config, role: "lead" | "supporting"): boolean {
+  // A month of posts creates its tasks from the plan, not from the product uploads.
+  if (c.mode === "post") return false;
   return role !== "supporting";
+}
+
+/** Engine aspect ratio for a post format. */
+export function ratioForFormat(format: Format | undefined): Ratio {
+  return format === "9:16" ? "9:16" : format === "4:5" ? "4:5" : "1:1";
 }
 
 /** Modes that ship the untouched originals inside the export ZIP. */
 export function exportsOriginals(c: Config): boolean {
-  return c.mode !== "1";
+  return c.mode !== "1" && c.mode !== "post";
+}
+
+/** Settings of a new month of posts for a client. */
+export function postConfig(
+  client: string,
+  month: string,
+  patch: Partial<Config> = {},
+): Config {
+  return {
+    ...DEFAULT_CONFIG,
+    mode: "post",
+    client,
+    month,
+    postCount: 12,
+    format: "4:5",
+    ratio: "4:5",
+    prompt: "",
+    skill: "",
+    center: false,
+    count: 1,
+    ...patch,
+  };
 }

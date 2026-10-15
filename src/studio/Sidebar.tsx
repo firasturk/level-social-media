@@ -62,7 +62,7 @@ export default function Sidebar({
         </button>
         <button className={page === "batches" ? "active" : ""} onClick={() => onPage("batches")}>
           <FolderOpen size={17} />
-          Batches
+          Months
           <span className="count">{batches}</span>
         </button>
         {user.role === "admin" && (

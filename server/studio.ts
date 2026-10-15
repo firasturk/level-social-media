@@ -63,10 +63,12 @@ import type { EditorialBrief } from "./editorial";
 import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
+import { postRoutes } from "./posts";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 studioRoutes.route("/clients", clientRoutes);
+studioRoutes.route("/posts", postRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 12 * 1024 * 1024;
@@ -94,12 +96,12 @@ async function batchPayload(env: Env, b: BatchRow) {
   const [sources, tasks] = await Promise.all([
     all<Source>(
       env.DB,
-      "SELECT id, name, mime, size, role, created, skill FROM sources WHERE batch = ? ORDER BY name",
+      "SELECT id, name, mime, size, role, kind, created, skill FROM sources WHERE batch = ? ORDER BY name",
       b.id,
     ),
     all<Task>(
       env.DB,
-      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY s.name, t.card",
+      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated, t.post, t.caption FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY t.post, s.name, t.card",
       b.id,
     ),
   ]);
@@ -116,7 +118,7 @@ studioRoutes.get("/state", async (c) => {
     Batch & { total: number; completed: number; review: number; failed: number; queued: number }
   >(
     c.env.DB,
-    `SELECT b.id, b.name, b.config, b.client, b.state, b.last_error, b.created, b.updated,
+    `SELECT b.id, b.name, b.config, b.client, b.month, b.theme, b.state, b.last_error, b.created, b.updated,
        COUNT(t.id) AS total,
        COALESCE(SUM(t.cost), 0) AS spent,
        SUM(CASE WHEN t.output IS NOT NULL THEN 1 ELSE 0 END) AS completed,
@@ -944,12 +946,19 @@ studioRoutes.post("/batch", async (c) => {
   const id = uuid();
   await run(
     c.env.DB,
-    "INSERT INTO batches (id, owner, name, config, client, state, created, updated) VALUES (?, ?, ?, ?, ?, 'idle', ?, ?)",
+    "INSERT INTO batches (id, owner, name, config, client, month, theme, state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)",
     id,
     user.id,
-    (parsed.data.name || `${client.name} · ${new Date().toLocaleDateString("en-GB")}`).slice(0, 100),
+    (
+      parsed.data.name ||
+      (config.mode === "post" && config.month
+        ? `${client.name} · ${config.month}`
+        : `${client.name} · ${new Date().toLocaleDateString("en-GB")}`)
+    ).slice(0, 100),
     JSON.stringify(config),
     client.id,
+    config.mode === "post" ? (config.month ?? null) : null,
+    config.theme ?? null,
     now(),
     now(),
   );

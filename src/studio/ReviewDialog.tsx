@@ -24,39 +24,35 @@ import CompareSlider from "./CompareSlider";
 const REVISION_PRESETS: { label: string; text: string }[] = [
   {
     label: "Blend with scene",
-    text: "Re-light the model with the scene's own light: same direction, hardness and colour as the surroundings, real highlights and shadows on skin, hair and fabric, one ground shadow matching the scene's shadows plus a soft contact shadow under the feet, the same grain and colour grade as the background, no cutout edges. Keep the face, hair, outfit, pose and framing exactly.",
+    text: "Light the product with the scene's own light: same direction, hardness and colour as the surroundings, real highlights and reflections on its materials, one shadow matching the scene's shadows plus a soft contact shadow at its base, the same grain and colour grade as the background, no cutout edges. Keep the product, the composition and the framing exactly.",
   },
   {
-    label: "Fix hands",
-    text: "Fix the hands and fingers: five natural fingers per hand, correct anatomy, no distortion.",
-  },
-  {
-    label: "Match colour",
-    text: "Match the garment colour, print and wash exactly to the original photo; no colour shift.",
-  },
-  {
-    label: "Centre model",
-    text: "Move the model to the exact horizontal centre of the frame with equal margins; keep everything else.",
-  },
-  {
-    label: "Brighter",
-    text: "Make the scene brighter with soft natural light; keep the garment colours accurate.",
+    label: "More brand colour",
+    text: "Push the props, surfaces and light toward the brand palette; the product keeps its own exact colours.",
   },
   {
     label: "Cleaner background",
-    text: "Simplify the background: fewer objects, no readable text, softer depth of field.",
+    text: "Simplify the background: fewer objects, no readable text, softer depth of field; keep the place and the light.",
   },
   {
-    label: "Full garment",
-    text: "Show the full garment including the hem; nothing cropped or hidden.",
+    label: "Leave headline space",
+    text: "Re-compose so roughly a third of the frame is a calm, low-detail, low-contrast area where a headline can sit; the product and the subject stay unchanged.",
   },
   {
-    label: "Same face",
-    text: "Use exactly the same face, hair and skin tone as the reference model; no identity change.",
+    label: "Match product",
+    text: "Match the product's shape, colours, label and packaging exactly to image 1; no restyling.",
   },
   {
-    label: "Less retouching",
-    text: "Reduce skin smoothing: realistic pores, natural texture, no plastic look.",
+    label: "Remove text",
+    text: "Remove every letter, number, logo, sticker or watermark drawn in the image; keep the product's own printed packaging as in image 1.",
+  },
+  {
+    label: "Brighter",
+    text: "Make the scene brighter with soft natural light; keep the product colours accurate.",
+  },
+  {
+    label: "Closer",
+    text: "Move the camera closer so the product fills more of the frame; keep the scene and the light.",
   },
 ];
 

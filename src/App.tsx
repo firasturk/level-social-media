@@ -3,7 +3,7 @@ import { get, setNewBuildHandler } from "./api";
 import { toast } from "sonner";
 import type { User } from "@shared/types";
 import AuthScreen from "./auth/AuthScreen";
-import Studio from "./studio/Studio";
+import Workspace from "./studio/Workspace";
 import BootScreen from "./studio/BootScreen";
 
 type Session = { user: User | null; registrationOpen: boolean };
@@ -37,7 +37,7 @@ export default function App() {
     );
   }
   return (
-    <Studio
+    <Workspace
       user={session.user}
       onSignedOut={() => setSession({ user: null, registrationOpen: session.registrationOpen })}
     />

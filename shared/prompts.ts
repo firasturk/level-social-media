@@ -2,6 +2,7 @@ import type { Config } from "./config";
 import { FABRIC_CARD, FIDELITY, SCENES, backdropColors } from "./config";
 
 export const MODE_PROMPTS: Record<Config["mode"], string> = {
+  post: "", // social-media posts are written by buildPostPrompt (shared/posts.ts)
   "1": "Fashion catalogue production from a mannequin or flat-lay reference. Replace the mannequin with a fully clothed photorealistic adult model wearing exactly this garment. Do not invent unseen product construction.",
   "2": "Create a lifestyle image from the supplied real model photograph. Keep the exact garment, styling and body proportions, but present a DIFFERENT photorealistic adult model face and hair suited to the garment. Never reuse the original person's face.",
   "3": "Create a new pose from the supplied real model photograph. Keep the same person's body, styling and the exact garment, but give her a DIFFERENT photorealistic face so she is not identifiable. Only the pose and framing change.",

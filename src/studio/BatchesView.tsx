@@ -4,6 +4,7 @@ import type { Batch, Client, SkillInfo } from "@shared/types";
 import { isSkillCampaign, type Config } from "@shared/config";
 
 import { MODES, type ModeInfo } from "./constants";
+import { monthLabel } from "@shared/posts";
 
 const STATE_LABEL: Record<string, string> = {
   idle: "Idle",
@@ -59,7 +60,7 @@ export default function BatchesView({
         ))}
       </select>
       <span className="batches-count">
-        {shown.length} {shown.length === 1 ? "batch" : "batches"}
+        {shown.length} {shown.length === 1 ? "month" : "months"}
       </span>
     </div>
   );
@@ -69,10 +70,8 @@ export default function BatchesView({
         <div className="empty-grid-icon">
           <FolderOpen size={36} />
         </div>
-        <h3>No saved batches yet.</h3>
-        <p>
-          Every batch you save appears here with its progress. Open one to review, revise or export.
-        </p>
+        <h3>No months yet.</h3>
+        <p>Pick a client, upload products or generate ideas: the month appears here with its progress.</p>
       </div>
     );
   }
@@ -81,8 +80,8 @@ export default function BatchesView({
       {filter}
       <div className="batches-table" role="table" aria-label="Saved batches">
       <div className="batches-head" role="row">
-        <span>Batch</span>
-        <span>Client · workflow</span>
+        <span>Month</span>
+        <span>Client</span>
         <span>Progress</span>
         <span>Spent</span>
         <span>Status</span>
@@ -141,9 +140,11 @@ export default function BatchesView({
             <span>
               {who && <strong className="batches-client">{who}</strong>}
               <small>
-                {isSkillCampaign(cfg.mode)
-                  ? `Skill · ${skills.find((s) => s.id === cfg.skill)?.title ?? cfg.skill}${cfg.mode === "8" ? " · new model" : ""}`
-                  : (mode?.title ?? cfg.mode)}
+                {cfg.mode === "post"
+                  ? monthLabel(b.month ?? cfg.month ?? "")
+                  : isSkillCampaign(cfg.mode)
+                    ? `Skill · ${skills.find((s) => s.id === cfg.skill)?.title ?? cfg.skill}${cfg.mode === "8" ? " · new model" : ""}`
+                    : (mode?.title ?? cfg.mode)}
               </small>
             </span>
             <span className="batches-progress">

@@ -85,8 +85,8 @@ export default function ClientCards({
 
   function archive(c: Client) {
     const msg = c.batches
-      ? `Archive "${c.name}"? Its ${c.batches} batches stay in history.`
-      : `Remove "${c.name}"? It has no batches, so it will be deleted.`;
+      ? `Archive "${c.name}"? Its ${c.batches} months stay in history.`
+      : `Remove "${c.name}"? It has no months, so it will be deleted.`;
     if (!window.confirm(msg)) return;
     void call(
       () => del<Reply>(`/api/studio/clients/${c.id}`),
@@ -186,7 +186,7 @@ export default function ClientCards({
               <span className="client-row-name">
                 {c.name}
                 <small>
-                  {isArchived ? "Archived" : c.batches ? `${c.batches} ${c.batches === 1 ? "batch" : "batches"}` : "No batches"}
+                  {isArchived ? "Archived" : c.batches ? `${c.batches} ${c.batches === 1 ? "month" : "months"}` : "No months"}
                 </small>
               </span>
               <span className="mode-tools client-row-tools">{tools(c, i)}</span>
@@ -224,7 +224,7 @@ export default function ClientCards({
       {!shown.length ? (
         <div className="mode-note">
           <Users size={16} />
-          No clients yet. Add the first client to start a batch.
+          No clients yet. Add the first client to start a month of posts.
         </div>
       ) : (
         <RadioGroup
@@ -259,8 +259,8 @@ export default function ClientCards({
                   {isArchived
                     ? "Archived"
                     : c.batches
-                      ? `${c.batches} ${c.batches === 1 ? "batch" : "batches"}`
-                      : "No batches yet"}
+                      ? `${c.batches} ${c.batches === 1 ? "month" : "months"}`
+                      : "No months yet"}
                 </span>
                 {/* Spans, not buttons: a button inside a label would become the label's control. */}
                 <span className="mode-tools">{tools(c, i)}</span>

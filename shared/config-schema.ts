@@ -9,10 +9,31 @@ import {
   SIZES,
   type Config,
 } from "./config";
+import { FORMATS, MAX_POST_COUNT, POST_TYPES } from "./posts";
+
+export const postSchema = z.object({
+  index: z.number().int().min(1).max(MAX_POST_COUNT),
+  type: z.enum(POST_TYPES),
+  title: z.string().max(80),
+  brief: z.string().max(2000),
+  caption: z.string().max(2200),
+  hashtags: z.string().max(400),
+  product: z.string().max(300).optional(),
+  format: z.enum(FORMATS).optional(),
+});
 
 export const configSchema = z.object({
   /** Client (clients.id) the batch is produced for. Required for new batches. */
   client: z.string().max(80).optional(),
+  theme: z.string().max(80).optional(),
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/)
+    .optional(),
+  postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+  format: z.enum(FORMATS).optional(),
+  plan: z.array(postSchema).max(MAX_POST_COUNT).optional(),
+  notes: z.string().max(2000).optional(),
   mode: z.enum(MODES),
   /** Kept optional so batches saved before the category picker was removed still load. */
   category: z.string().max(80).optional(),

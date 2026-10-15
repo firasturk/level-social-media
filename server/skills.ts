@@ -137,7 +137,7 @@ export async function listSkills(env: Env, userId?: string): Promise<SkillInfo[]
 async function listSkillsRaw(env: Env): Promise<SkillInfo[]> {
   const rows = await all<SkillRow>(
     env.DB,
-    "SELECT id, title, caption, description, goal, library, hidden, auto FROM skills ORDER BY created",
+    "SELECT id, title, caption, description, goal, library, hidden, auto FROM skills WHERE client IS NULL ORDER BY created",
   );
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: SkillInfo[] = [];

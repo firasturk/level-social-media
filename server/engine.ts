@@ -55,6 +55,7 @@ import {
   type FramingCheck,
 } from "./editorial";
 import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
+import { buildPostPrompt, type PostBrief } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
@@ -412,8 +413,8 @@ async function storeResultBytes(
   );
 
   let qa: QA;
-  const googleKey = (await resolveGoogleAuth(env)).auth;
-  const openaiKey = googleKey ? null : (await resolveOpenAIKey(env)).key;
+  const googleKey = config.mode === "post" ? null : (await resolveGoogleAuth(env)).auth;
+  const openaiKey = googleKey || config.mode === "post" ? null : (await resolveOpenAIKey(env)).key;
   if (googleKey || openaiKey) {
     try {
       const source = await first<SourceRow>(
@@ -455,11 +456,14 @@ async function storeResultBytes(
   // An off-centre result is flagged for review, never regenerated on its own: each image is
   // generated once, and a second pass only happens when the team asks for a revision.
 
-  const status = qa.automated
-    ? qa.productConcern || qa.sameFace === false || (wantsCenter && !qa.centered)
-      ? "review"
-      : "ready"
-    : "review";
+  const status =
+    config.mode === "post"
+      ? "ready"
+      : qa.automated
+        ? qa.productConcern || qa.sameFace === false || (wantsCenter && !qa.centered)
+          ? "review"
+          : "ready"
+        : "review";
   // Only while nobody approved or re-queued it in the meantime.
   await run(
     env.DB,
@@ -1493,6 +1497,14 @@ async function referenceEngineUrl(env: Env, client: HiggsfieldClient, id: string
 
 const SKILL_MODES = new Set(["5", "7", "8"]);
 
+/** The stored brief of a social-media post (written when the post was planned). */
+function postBrief(task: TaskRow): PostBrief {
+  if (!task.brief) throw new StudioError("This post has no brief. Generate the posts again.", 500);
+  const b = JSON.parse(task.brief) as Partial<PostBrief>;
+  if (!b.post) throw new StudioError("This post's brief is unreadable. Generate it again.", 500);
+  return b as PostBrief;
+}
+
 export const DIRECTION_RULES_SETTING = "direction_rules";
 
 /** The Creative direction fixed rules as the team keeps them (defaults until they edit). */
@@ -1539,6 +1551,8 @@ async function promptFor(
       edit,
       { scene: plan?.scene, pose: plan?.poseNotes },
     );
+  } else if (config.mode === "post") {
+    prompt = buildPostPrompt(postBrief(task), edit, roles);
   } else if (SKILL_MODES.has(config.mode)) {
     const brief = await ensureBrief(env, batch, config, task, source);
     const stored = source.framing?.split("|") ?? [];
@@ -1655,6 +1669,13 @@ async function submitTask(
       roles.pose = true;
     }
   }
+  if (config.mode === "post") {
+    const pb = postBrief(task);
+    if (pb.ref && !pb.refIsSource) {
+      imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
+      roles.mood = true;
+    }
+  }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output) {
     imageUrls.push(await outputEngineUrl(env, client, task));
@@ -1764,6 +1785,13 @@ async function submitOpenAITask(
     if (plan.pose) {
       images.push(await referenceBytes(env, plan.pose));
       roles.pose = true;
+    }
+  }
+  if (config.mode === "post") {
+    const pb = postBrief(task);
+    if (pb.ref && !pb.refIsSource) {
+      images.push(await referenceBytes(env, pb.ref));
+      roles.mood = true;
     }
   }
   const edit = task.edit?.trim() ?? "";
@@ -2166,6 +2194,16 @@ async function collectReferenceKeys(
       }
     }
   }
+  if (config.mode === "post") {
+    const pb = postBrief(task);
+    if (pb.ref && !pb.refIsSource) {
+      const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
+      if (ref) {
+        keys.push(ref.key);
+        roles.mood = true;
+      }
+    }
+  }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output) {
     keys.push(task.output);
@@ -2228,7 +2266,7 @@ async function settleIdle(env: Env, batch: BatchRow, config: Config): Promise<vo
     if (row)
       await notify(
         env,
-        `Batch finished: ${row.name}`,
+        config.mode === "post" ? `Posts ready: ${row.name}` : `Batch finished: ${row.name}`,
         `${row.total} images generated. ${row.review} need review, ${row.failed} failed. Estimated spend $${(row.spent ?? 0).toFixed(2)}.`,
       );
   }

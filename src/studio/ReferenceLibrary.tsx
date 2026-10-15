@@ -28,11 +28,20 @@ export default function ReferenceLibrary({
   skill,
   title,
   onChanged,
+  empty = "No reference photos yet. Add a few: each image borrows background, pose and lighting from one of them (never the clothes or accessories).",
+  hint,
+  actions,
 }: {
   skill: string;
   title: string;
   /** Called after photos were added or removed, with the new count. */
   onChanged?: (count: number) => void | Promise<void>;
+  /** Text shown while the library is empty. */
+  empty?: string;
+  /** Text shown under the photos; defaults to the fashion wording. */
+  hint?: string;
+  /** Extra controls next to "Add photos" (for example an import button). */
+  actions?: React.ReactNode;
 }) {
   const [items, setItems] = useState<Reference[]>([]);
   const [busy, setBusy] = useState(false);
@@ -106,6 +115,7 @@ export default function ReferenceLibrary({
           {busy ? <LoaderCircle className="spinning" size={13} /> : <ImagePlus size={13} />}
           Add photos
         </button>
+        {actions}
         <input
           ref={input}
           type="file"
@@ -144,17 +154,14 @@ export default function ReferenceLibrary({
           ))}
         </div>
       ) : (
-        <div className="prompt-tip">
-          No reference photos yet. Add a few: each image borrows background, pose and lighting from
-          one of them (never the clothes or accessories).
-        </div>
+        <div className="prompt-tip">{empty}</div>
       )}
       {preview && createPortal(<HoverPreview {...preview} />, document.body)}
       {items.length > 0 && (
         <div className="prompt-tip">
-          {items.length} photo{items.length > 1 ? "s" : ""}. Each image borrows background, pose and
-          lighting from one of them, rotating so results differ; clothes, hats, bags and accessories
-          are never copied.
+          {items.length} photo{items.length > 1 ? "s" : ""}.{" "}
+          {hint ??
+            "Each image borrows background, pose and lighting from one of them, rotating so results differ; clothes, hats, bags and accessories are never copied."}
         </div>
       )}
     </>

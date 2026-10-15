@@ -1,0 +1,690 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import {
+  ChevronDown,
+  ChevronUp,
+  Link as LinkIcon,
+  LoaderCircle,
+  Plus,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
+import { del, post, put } from "@/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import ReferenceLibrary from "./ReferenceLibrary";
+import type { Client, EngineModel, Theme } from "@shared/types";
+import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
+import { SIZES, type Size } from "@shared/config";
+
+export interface OutputSettings {
+  model: string;
+  format: Format;
+  size: Size;
+  postCount: number;
+}
+
+type ClientsReply = { clients: Client[] };
+type ThemesReply = { themes: Theme[]; id?: string };
+
+/** Left column: the client's brand kit, the month's theme and the output settings. */
+export default function BrandPanel({
+  client,
+  onClientsChanged,
+  themes,
+  theme,
+  onTheme,
+  onThemesChanged,
+  settings,
+  models,
+  onSettings,
+  locked,
+}: {
+  client: Client;
+  onClientsChanged: (clients: Client[]) => void;
+  themes: Theme[];
+  /** Selected theme id, empty for none. */
+  theme: string;
+  onTheme: (id: string) => void;
+  onThemesChanged: (themes: Theme[]) => void;
+  settings: OutputSettings;
+  models: EngineModel[];
+  onSettings: (patch: Partial<OutputSettings>) => void;
+  /** Posts are generating: output settings are frozen. */
+  locked: boolean;
+}) {
+  return (
+    <aside className="brand-panel">
+      <BrandKit client={client} onClientsChanged={onClientsChanged} />
+      <ThemeSection
+        client={client}
+        themes={themes}
+        theme={theme}
+        onTheme={onTheme}
+        onThemesChanged={onThemesChanged}
+      />
+      <Section title="Output" subtitle="Engine, size and count" defaultOpen={false}>
+        <label className="field-label">Image engine</label>
+        <Select
+          value={settings.model}
+          onValueChange={(model) => onSettings({ model })}
+          disabled={locked}
+        >
+          <SelectTrigger aria-label="Image engine">
+            <SelectValue placeholder="Engine" />
+          </SelectTrigger>
+          <SelectContent>
+            {models
+              .filter((m) => m.enabled || m.slug === settings.model)
+              .map((m) => (
+                <SelectItem key={m.slug} value={m.slug}>
+                  {m.name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+        <label className="field-label">Post size</label>
+        <div className="format-row">
+          {FORMATS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              className={`format-chip ${settings.format === f ? "active" : ""}`}
+              onClick={() => onSettings({ format: f })}
+              disabled={locked}
+            >
+              <span className={`format-shape f-${f.replace(":", "x")}`} />
+              <strong>{FORMAT_INFO[f].label}</strong>
+              <small>{FORMAT_INFO[f].pixels}</small>
+            </button>
+          ))}
+        </div>
+        <div className="field-grid">
+          <div>
+            <label className="field-label">Resolution</label>
+            <Select
+              value={settings.size}
+              onValueChange={(size) => onSettings({ size: size as Size })}
+              disabled={locked}
+            >
+              <SelectTrigger aria-label="Resolution">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SIZES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="field-label" htmlFor="post-count">
+              Posts per month
+            </label>
+            <input
+              id="post-count"
+              type="number"
+              min={1}
+              max={MAX_POST_COUNT}
+              value={settings.postCount}
+              disabled={locked}
+              onChange={(e) =>
+                onSettings({
+                  postCount: Math.max(1, Math.min(MAX_POST_COUNT, Number(e.target.value) || 1)),
+                })
+              }
+            />
+          </div>
+        </div>
+      </Section>
+    </aside>
+  );
+}
+
+function Section({
+  title,
+  subtitle,
+  defaultOpen = true,
+  children,
+  actions,
+}: {
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  actions?: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className={`bp-section ${open ? "open" : ""}`}>
+      <button type="button" className="bp-head" onClick={() => setOpen((v) => !v)}>
+        <span>
+          <strong>{title}</strong>
+          {subtitle && <small>{subtitle}</small>}
+        </span>
+        {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+      </button>
+      {open && (
+        <div className="bp-body">
+          {actions}
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* ───────────── Brand kit ───────────── */
+
+interface KitDraft {
+  colors: { name: string; hex: string }[];
+  fonts: { headline: string; body: string };
+  tone: string;
+  language: Client["language"];
+  dos: string;
+  donts: string;
+  style: string;
+}
+
+function draftOf(c: Client): KitDraft {
+  return {
+    colors: c.colors.map((x) => ({ name: x.name, hex: x.hex })),
+    fonts: { headline: c.fonts.headline ?? "", body: c.fonts.body ?? "" },
+    tone: c.tone,
+    language: c.language,
+    dos: c.dos,
+    donts: c.donts,
+    style: c.style,
+  };
+}
+
+const DEFAULT_COLORS = [
+  { name: "Primary", hex: "#1a1a1a" },
+  { name: "Secondary", hex: "#f2f2f2" },
+  { name: "Accent", hex: "#c8a24a" },
+];
+
+function BrandKit({
+  client,
+  onClientsChanged,
+}: {
+  client: Client;
+  onClientsChanged: (clients: Client[]) => void;
+}) {
+  const [draft, setDraft] = useState<KitDraft>(() => draftOf(client));
+  const [saving, setSaving] = useState(false);
+  const [analysing, setAnalysing] = useState(false);
+  useEffect(() => setDraft(draftOf(client)), [client]);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(client));
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, {
+        colors: draft.colors.filter((c) => /^#[0-9a-fA-F]{6}$/.test(c.hex)),
+        fonts: draft.fonts,
+        tone: draft.tone,
+        language: draft.language,
+        dos: draft.dos,
+        donts: draft.donts,
+        style: draft.style,
+      });
+      onClientsChanged(r.clients);
+      toast.success("Brand kit saved.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function analyse() {
+    setAnalysing(true);
+    try {
+      const r = await post<{ style: string }>("/api/studio/posts/analyze-identity", {
+        client: client.id,
+      });
+      setDraft((d) => ({ ...d, style: r.style }));
+      toast.success("Identity read from the past posts. Review the text and save.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAnalysing(false);
+    }
+  }
+
+  const setColor = (i: number, patch: Partial<{ name: string; hex: string }>) =>
+    setDraft((d) => ({
+      ...d,
+      colors: d.colors.map((c, j) => (j === i ? { ...c, ...patch } : c)),
+    }));
+
+  return (
+    <Section
+      title="Brand kit"
+      subtitle={`${client.name}: colours, fonts, tone`}
+      actions={
+        dirty ? (
+          <div className="bp-save">
+            <button className="primary" onClick={() => void save()} disabled={saving}>
+              {saving ? <LoaderCircle className="spinning" size={15} /> : null} Save brand kit
+            </button>
+            <button className="text-button" onClick={() => setDraft(draftOf(client))}>
+              Discard
+            </button>
+          </div>
+        ) : null
+      }
+    >
+      <div className="field-row">
+        <label className="field-label">Colours</label>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() =>
+            setDraft((d) => ({
+              ...d,
+              colors: [
+                ...d.colors,
+                DEFAULT_COLORS[d.colors.length] ?? { name: `Colour ${d.colors.length + 1}`, hex: "#888888" },
+              ],
+            }))
+          }
+        >
+          <Plus size={13} /> Add
+        </button>
+      </div>
+      {draft.colors.length ? (
+        <div className="color-list">
+          {draft.colors.map((c, i) => (
+            <div className="color-row" key={i}>
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#888888"}
+                onChange={(e) => setColor(i, { hex: e.target.value })}
+                aria-label={`${c.name || "Colour"} value`}
+              />
+              <input
+                className="color-hex"
+                value={c.hex}
+                onChange={(e) => setColor(i, { hex: e.target.value.trim() })}
+                placeholder="#000000"
+                aria-label="Hex"
+              />
+              <input
+                className="color-name"
+                value={c.name}
+                onChange={(e) => setColor(i, { name: e.target.value })}
+                placeholder="Name (Primary, Accent…)"
+                aria-label="Colour name"
+              />
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Remove colour"
+                onClick={() =>
+                  setDraft((d) => ({ ...d, colors: d.colors.filter((_, j) => j !== i) }))
+                }
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="prompt-tip">
+          No colours yet. Add the brand palette: every post's scene, props and light stay inside it.
+        </div>
+      )}
+      <div className="field-grid">
+        <div>
+          <label className="field-label" htmlFor="font-headline">
+            Headline font
+          </label>
+          <input
+            id="font-headline"
+            value={draft.fonts.headline}
+            placeholder="e.g. Montserrat"
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, fonts: { ...d.fonts, headline: e.target.value } }))
+            }
+          />
+        </div>
+        <div>
+          <label className="field-label" htmlFor="font-body">
+            Body font
+          </label>
+          <input
+            id="font-body"
+            value={draft.fonts.body}
+            placeholder="e.g. Inter"
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, fonts: { ...d.fonts, body: e.target.value } }))
+            }
+          />
+        </div>
+      </div>
+      <label className="field-label" htmlFor="tone">
+        Tone of voice
+      </label>
+      <textarea
+        id="tone"
+        rows={2}
+        value={draft.tone}
+        placeholder="warm, family, Arabic first, no slang…"
+        onChange={(e) => setDraft((d) => ({ ...d, tone: e.target.value }))}
+      />
+      <label className="field-label">Caption language</label>
+      <Select
+        value={draft.language}
+        onValueChange={(language) =>
+          setDraft((d) => ({ ...d, language: language as Client["language"] }))
+        }
+      >
+        <SelectTrigger aria-label="Caption language">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="ar">Arabic</SelectItem>
+          <SelectItem value="en">English</SelectItem>
+          <SelectItem value="both">Arabic and English</SelectItem>
+        </SelectContent>
+      </Select>
+      <div className="field-grid">
+        <div>
+          <label className="field-label" htmlFor="dos">
+            Always
+          </label>
+          <textarea
+            id="dos"
+            rows={3}
+            value={draft.dos}
+            placeholder="one rule per line"
+            onChange={(e) => setDraft((d) => ({ ...d, dos: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="field-label" htmlFor="donts">
+            Never
+          </label>
+          <textarea
+            id="donts"
+            rows={3}
+            value={draft.donts}
+            placeholder="one rule per line"
+            onChange={(e) => setDraft((d) => ({ ...d, donts: e.target.value }))}
+          />
+        </div>
+      </div>
+      <ReferenceLibrary
+        skill={`idn-${client.id}`.slice(0, 40)}
+        title="Past posts (identity)"
+        empty="Add a few of the client's past posts or campaign images, then press Analyse identity: the style text below is written from them."
+        hint="Used only to describe the client's visual identity; never copied into a post."
+        actions={
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => void analyse()}
+            disabled={analysing}
+          >
+            {analysing ? (
+              <LoaderCircle className="spinning" size={13} />
+            ) : (
+              <Sparkles size={13} />
+            )}
+            Analyse identity
+          </button>
+        }
+      />
+      <label className="field-label" htmlFor="style">
+        Visual identity (style text)
+      </label>
+      <textarea
+        id="style"
+        rows={5}
+        value={draft.style}
+        placeholder="Photography style, light, palette, composition, props, how products are shown…"
+        onChange={(e) => setDraft((d) => ({ ...d, style: e.target.value }))}
+      />
+    </Section>
+  );
+}
+
+/* ───────────── Theme ───────────── */
+
+function ThemeSection({
+  client,
+  themes,
+  theme,
+  onTheme,
+  onThemesChanged,
+}: {
+  client: Client;
+  themes: Theme[];
+  theme: string;
+  onTheme: (id: string) => void;
+  onThemesChanged: (themes: Theme[]) => void;
+}) {
+  const current = themes.find((t) => t.id === theme) ?? null;
+  const [direction, setDirection] = useState(current?.direction ?? "");
+  const [busy, setBusy] = useState<"" | "analyse" | "import" | "create">("");
+  const [pins, setPins] = useState("");
+  const [showPins, setShowPins] = useState(false);
+  const [libKey, setLibKey] = useState(0);
+  useEffect(() => setDirection(current?.direction ?? ""), [current?.id, current?.direction]);
+
+  async function create() {
+    const title = window.prompt("Theme name (e.g. Ramadan 2027, Summer sale, Minimal white):", "");
+    if (!title?.trim()) return;
+    setBusy("create");
+    try {
+      const r = await post<ThemesReply>("/api/studio/posts/themes", {
+        client: client.id,
+        title: title.trim(),
+      });
+      onThemesChanged(r.themes);
+      if (r.id) onTheme(r.id);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function saveDirection() {
+    if (!current || direction === current.direction) return;
+    try {
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { direction });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function rename() {
+    if (!current) return;
+    const title = window.prompt("Theme name:", current.title);
+    if (!title?.trim() || title.trim() === current.title) return;
+    try {
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, {
+        title: title.trim(),
+      });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function removeTheme() {
+    if (!current || !window.confirm(`Delete the theme "${current.title}"?`)) return;
+    try {
+      const r = await del<ThemesReply>(`/api/studio/posts/themes/${current.id}`);
+      onThemesChanged(r.themes);
+      onTheme(r.themes[0]?.id ?? "");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function analyse() {
+    if (!current) return;
+    setBusy("analyse");
+    try {
+      const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/analyze`);
+      onThemesChanged(r.themes);
+      toast.success("Theme written from its references.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function importPins() {
+    if (!current) return;
+    const urls = pins
+      .split(/\s+/)
+      .map((u) => u.trim())
+      .filter((u) => /^https?:\/\//.test(u))
+      .slice(0, 30);
+    if (!urls.length) {
+      toast.error("Paste one or more Pinterest pin links first.");
+      return;
+    }
+    setBusy("import");
+    try {
+      const r = await post<{ added: string[]; failed: string[] }>(
+        "/api/studio/posts/import-references",
+        { skill: current.id, urls },
+      );
+      setLibKey((k) => k + 1);
+      if (r.added.length) toast.success(`${r.added.length} reference${r.added.length > 1 ? "s" : ""} imported.`);
+      if (r.failed.length)
+        toast.warning(
+          `${r.failed.length} link${r.failed.length > 1 ? "s" : ""} could not be read. Save those images and add them with "Add photos".`,
+        );
+      setPins(r.failed.join("\n"));
+      if (!r.failed.length) setShowPins(false);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <Section title="Theme" subtitle={current ? current.title : "Pick or create a theme"}>
+      <div className="field-row">
+        <label className="field-label">Theme of the month</label>
+        <button type="button" className="text-button" onClick={() => void create()} disabled={!!busy}>
+          <Plus size={13} /> New theme
+        </button>
+      </div>
+      {themes.length ? (
+        <Select value={theme || "none"} onValueChange={(v) => onTheme(v === "none" ? "" : v)}>
+          <SelectTrigger aria-label="Theme">
+            <SelectValue placeholder="Theme" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">No theme (brand identity only)</SelectItem>
+            {themes.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.title}
+                {t.references ? ` · ${t.references} refs` : ""}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <div className="prompt-tip">
+          No themes yet. A theme is a visual direction for a month (Ramadan, Summer sale, Minimal
+          white) with its own reference images, from your files or from Pinterest.
+        </div>
+      )}
+      {current && (
+        <>
+          <div className="theme-tools">
+            <button type="button" className="text-button" onClick={() => void rename()}>
+              Rename
+            </button>
+            <button type="button" className="text-button danger" onClick={() => void removeTheme()}>
+              <Trash2 size={13} /> Delete
+            </button>
+          </div>
+          <ReferenceLibrary
+            key={`${current.id}:${libKey}`}
+            skill={current.id}
+            title="References"
+            empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
+            hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."
+            actions={
+              <>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setShowPins((v) => !v)}
+                  disabled={busy === "import"}
+                >
+                  <LinkIcon size={13} /> Pinterest
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => void analyse()}
+                  disabled={!!busy || !current.references}
+                  title={current.references ? "" : "Add references first"}
+                >
+                  {busy === "analyse" ? (
+                    <LoaderCircle className="spinning" size={13} />
+                  ) : (
+                    <Sparkles size={13} />
+                  )}
+                  Analyse
+                </button>
+              </>
+            }
+          />
+          {showPins && (
+            <div className="pins-box">
+              <textarea
+                rows={3}
+                value={pins}
+                placeholder={"Paste Pinterest pin links, one per line:\nhttps://www.pinterest.com/pin/…"}
+                onChange={(e) => setPins(e.target.value)}
+              />
+              <button className="secondary" onClick={() => void importPins()} disabled={busy === "import"}>
+                {busy === "import" ? <LoaderCircle className="spinning" size={15} /> : <LinkIcon size={15} />}
+                Import pins
+              </button>
+            </div>
+          )}
+          <label className="field-label" htmlFor="direction">
+            Direction
+          </label>
+          <textarea
+            id="direction"
+            rows={4}
+            value={direction}
+            placeholder="What this month's posts should feel like: places, light, palette, mood. Press Analyse to write it from the references."
+            onChange={(e) => setDirection(e.target.value)}
+            onBlur={() => void saveDirection()}
+          />
+          {current.library && (
+            <details className="theme-library">
+              <summary>Visual language (from the references)</summary>
+              <pre>{current.library}</pre>
+            </details>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
