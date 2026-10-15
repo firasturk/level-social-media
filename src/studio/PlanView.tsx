@@ -209,10 +209,16 @@ export default function PlanView({
             className="primary"
             onClick={() => onGeneratePosts()}
             disabled={!!busy || running || !plan.length || !pending}
-            title={plan.length ? "" : "Generate ideas first"}
+            title={plan.length ? "" : "Generate ideas first, then the posts"}
           >
             {running ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
-            {running ? "Generating…" : pending ? `Generate ${pending} posts` : "All posts generated"}
+            {running
+              ? "Generating…"
+              : !plan.length
+                ? "Generate posts"
+                : pending
+                  ? `Generate ${pending} posts`
+                  : "All posts generated"}
           </button>
           <button
             type="button"
