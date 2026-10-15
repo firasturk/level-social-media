@@ -249,25 +249,31 @@ export async function vertexText(
     ...images.map((img) => ({ inlineData: { mimeType: img.mime, data: toBase64(img.bytes) } })),
   ];
   let last: StudioError | null = null;
-  for (const model of models) {
-    try {
-      const d = await vertexGenerate(
-        creds,
-        model,
-        parts,
-        { responseMimeType: "application/json", responseSchema: schema, temperature: 0.7 },
-        120_000,
-        fetchImpl,
-      );
-      const text = (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
-      if (!text) throw new StudioError("Google Cloud (Vertex) returned no text.", 502);
-      return text;
-    } catch (e) {
-      if (e instanceof StudioError && /\(404\)/.test(e.message)) {
-        last = e;
-        continue;
+  // A model that is missing (404), overloaded (503), rate limited (429) or failing (5xx) hands over
+  // to the next one; a second pass after a short wait covers a moment when all of them are busy.
+  const passes = 2;
+  for (let pass = 0; pass < passes; pass++) {
+    if (pass) await new Promise((r) => setTimeout(r, 2500));
+    for (const model of models) {
+      try {
+        const d = await vertexGenerate(
+          creds,
+          model,
+          parts,
+          { responseMimeType: "application/json", responseSchema: schema, temperature: 0.7 },
+          120_000,
+          fetchImpl,
+        );
+        const text = (d.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+        if (!text) throw new StudioError("Google Cloud (Vertex) returned no text.", 502);
+        return text;
+      } catch (e) {
+        if (e instanceof StudioError && /\((404|408|429|500|502|503|504|529)\)/.test(e.message)) {
+          last = e;
+          continue;
+        }
+        throw e;
       }
-      throw e;
     }
   }
   throw last ?? new StudioError("No Vertex text model available.", 502);
