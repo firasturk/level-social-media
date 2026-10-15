@@ -26,6 +26,7 @@ import {
   identityBuilderInstruction,
   ideasInstruction,
   MAX_POST_COUNT,
+  matchProduct,
   parseIdeas,
   POST_TYPES,
   postFileName,
@@ -741,11 +742,10 @@ postRoutes.post("/generate", async (c) => {
       if (busy) continue;
       if (!d.regenerate && existing.status !== "failed") continue;
     }
-    const product = post.product
-      ? sources.find(
-          (s) =>
-            s.kind === "product" && productName(s).toLowerCase() === post.product!.toLowerCase(),
-        )
+    const productSources = sources.filter((s) => s.kind === "product");
+    const productMatch = matchProduct(post.product, productSources.map(productName));
+    const product = productMatch
+      ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
     const gridRef = config.gridRef

@@ -324,6 +324,33 @@ export function ideasInstruction(r: IdeasRequest): string {
 }
 
 /** Turn the model's answer into posts, dropping anything malformed. */
+/** Loose key for product names: case, extension, underscores, punctuation and spacing do not count. */
+export function productKeyOf(name: string): string {
+  return name
+    .normalize("NFC")
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .toLowerCase()
+    .replace(/[_\-.,'"()\u0640]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The uploaded product a name refers to, written as the model or a person wrote it: exact
+ * loose match first, then the longest product name contained in (or containing) the text.
+ */
+export function matchProduct(name: string | undefined | null, products: string[]): string | undefined {
+  const key = productKeyOf(name ?? "");
+  if (!key) return undefined;
+  const exact = products.find((p) => productKeyOf(p) === key);
+  if (exact) return exact;
+  const partial = products
+    .map((p) => ({ p, k: productKeyOf(p) }))
+    .filter(({ k }) => k.length >= 3 && (key.includes(k) || (k.length >= 5 && k.includes(key))))
+    .sort((a, b) => b.k.length - a.k.length)[0];
+  return partial?.p;
+}
+
 export function parseIdeas(text: string, count: number, products: string[]): Post[] {
   const cleaned = text
     .trim()
@@ -337,7 +364,6 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
     return [];
   }
   const list = Array.isArray(d.posts) ? d.posts : [];
-  const lower = new Map(products.map((p) => [p.toLowerCase(), p]));
   const out: Post[] = [];
   for (const raw of list as Record<string, unknown>[]) {
     if (!raw || typeof raw !== "object") continue;
@@ -346,12 +372,14 @@ export function parseIdeas(text: string, count: number, products: string[]): Pos
       : "lifestyle";
     const brief = String(raw.brief ?? "").trim();
     if (!brief) continue;
-    const productRaw = String(raw.product ?? "").trim();
-    const product = lower.get(productRaw.toLowerCase());
+    const title = String(raw.title ?? "").trim();
+    // The product field first; a product named in the title stands in when the field is empty.
+    const product =
+      matchProduct(String(raw.product ?? ""), products) ?? matchProduct(title, products);
     out.push({
       index: out.length + 1,
       type,
-      title: String(raw.title ?? "").trim().slice(0, 80) || `Post ${out.length + 1}`,
+      title: title.slice(0, 80) || `Post ${out.length + 1}`,
       brief: brief.slice(0, 2000),
       caption: String(raw.caption ?? "").trim().slice(0, 2200),
       hashtags: String(raw.hashtags ?? "").trim().slice(0, 400),
