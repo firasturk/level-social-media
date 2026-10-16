@@ -5,10 +5,17 @@ import type { User } from "@shared/types";
 import AuthScreen from "./auth/AuthScreen";
 import Workspace from "./studio/Workspace";
 import BootScreen from "./studio/BootScreen";
+import SharePage from "./share/SharePage";
 
 type Session = { user: User | null; registrationOpen: boolean };
 
 export default function App() {
+  const share = /^\/share\/([0-9a-f]{32})\/?$/.exec(window.location.pathname);
+  if (share) return <SharePage token={share[1]} />;
+  return <Studio />;
+}
+
+function Studio() {
   useEffect(() => {
     setNewBuildHandler(() =>
       toast.info("The app was updated. Reload when convenient to keep everything working.", {

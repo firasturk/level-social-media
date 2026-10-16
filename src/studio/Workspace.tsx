@@ -1,6 +1,6 @@
 import { lazyScreen } from "@/lib/lazy";
 import { askConfirm } from "@/lib/confirm";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { del, get, post, postForm, put } from "@/api";
 import { useTheme } from "@/theme";
@@ -26,6 +26,9 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView from "./PlanView";
 import Journey from "./Journey";
+import Radio from "./Radio";
+import BriefCard from "./BriefCard";
+import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass } from "lucide-react";
 import { useBatch } from "./useBatch";
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
@@ -454,6 +457,7 @@ export default function Workspace({
       );
       if (!ok) return;
     }
+    askNotifications();
     setBusy("generate");
     try {
       const r = await post<{ planned: number }>("/api/studio/posts/generate", {
@@ -469,6 +473,29 @@ export default function Workspace({
       setBusy("");
     }
   }
+
+  /** The journey's last screen: every post that has no image yet, or whose idea is newer. */
+  async function generateFromJourney() {
+    askNotifications();
+    const plannedAt = config?.plannedAt ?? 0;
+    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && t.updated < plannedAt);
+    await generatePosts(undefined, stale, false);
+  }
+
+  // When the month's posts finish while the team works elsewhere: a chime and a notification.
+  const wasRunning = useRef<{ id: string; running: boolean } | null>(null);
+  useEffect(() => {
+    const running = batch?.state === "running" || active;
+    if (batch && wasRunning.current?.id === batch.id && wasRunning.current.running && !running) {
+      const ready = tasks.filter((t) => t.post && t.output).length;
+      if (ready) {
+        chime();
+        notify(`${client?.name ?? "Posts"} · ${month}`, `${ready} posts are ready to review.`);
+        toast.success(`${ready} posts are ready to review.`);
+      }
+    }
+    wasRunning.current = batch ? { id: batch.id, running } : null;
+  }, [batch, active, tasks, client?.name, month]);
 
   /** Restart a paused month: queued posts carry on, failed ones get a fresh prompt. */
   async function resumeMonth() {
@@ -604,6 +631,22 @@ export default function Workspace({
     }
   }
 
+  /** The client's approval link: copied to the clipboard. */
+  async function shareMonth() {
+    if (!batch) return;
+    try {
+      const r = await post<{ url: string }>("/api/studio/posts/share", { batch: batch.id });
+      try {
+        await navigator.clipboard.writeText(r.url);
+        toast.success("Approval link copied. Send it to the client.", { description: r.url });
+      } catch {
+        toast.info("Approval link", { description: r.url, duration: 20000 });
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   async function deletePlan() {
     if (!batch || active) return;
     if (!(await askConfirm(`Delete ${client?.name ?? ""} · ${month} with its products and posts?`, { ok: "Delete" }))) return;
@@ -728,6 +771,14 @@ export default function Workspace({
                 <Compass size={15} /> Start journey
               </button>
             </div>
+            {config && (
+              <BriefCard
+                config={config}
+                theme={themes.find((t) => t.id === themeId) ?? null}
+                plan={plan}
+                onShare={() => void shareMonth()}
+              />
+            )}
             <div className="workbench posts-workbench">
               <BrandPanel
                 client={client}
@@ -787,6 +838,7 @@ export default function Workspace({
                   return !!t && t.updated > (config?.plannedAt ?? 0);
                 })()}
                 onResume={() => void resumeMonth()}
+                approvals={config?.approvals}
               />
             </div>
           </>
@@ -797,6 +849,7 @@ export default function Workspace({
         </footer>
       </main>
 
+      <Radio className={journey ? "in-journey" : ""} />
       {journey && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
           user={user}
@@ -804,6 +857,22 @@ export default function Workspace({
           clientId={clientId}
           onClient={setClientId}
           onClientsChanged={setClients}
+          month={month}
+          onMonth={setMonth}
+          batchId={batch?.id ?? null}
+          config={config}
+          ensurePlan={ensurePlan}
+          refresh={async () => {
+            await refresh();
+          }}
+          products={sources.filter((s) => (s.kind ?? "product") === "product")}
+          sourceUrl={(id) => sourceUrl(id)}
+          onUpload={uploadProducts}
+          onRemoveProduct={(id) => void removeProduct(id)}
+          uploading={busy === "upload"}
+          postCount={shownSettings.postCount}
+          format={shownSettings.format}
+          onSettings={(patch) => void updateSettings(patch)}
           themes={themes}
           themeId={themeId}
           onTheme={(id) => void updateSettings({ theme: id })}
@@ -812,6 +881,11 @@ export default function Workspace({
           onAmbassadorsChanged={setAmbassadors}
           cast={castIds}
           onCast={(ids) => void updateSettings({ ambassadors: ids })}
+          plan={plan}
+          onGenerateIdeas={() => generateIdeas(config?.notes ?? "")}
+          onSavePlan={(next) => void savePlan(next)}
+          ideasBusy={busy === "ideas"}
+          onGenerate={generateFromJourney}
           onDone={finishJourney}
         />
       )}

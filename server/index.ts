@@ -9,6 +9,7 @@ import { adminRoutes, cleanupOldBatches } from "./admin";
 import { advanceBatch, activeBatchIds, readPendingReferences } from "./engine";
 import type { User } from "@shared/types";
 import { serveStatic } from "./static";
+import { shareRoutes } from "./share";
 
 type Variables = { user: User };
 
@@ -72,6 +73,9 @@ app.post("/api/hooks/engine", async (c) => {
   );
   return c.json({ ok: true });
 });
+
+// The client's approval link: no session, the secret token in the path is the access.
+app.route("/api/share", shareRoutes);
 
 app.use("/api/admin/*", async (c, next) => {
   const user = await currentUser(c.env, getCookie(c, SESSION_COOKIE));

@@ -98,7 +98,7 @@ async function batchPayload(env: Env, b: BatchRow) {
   const [sources, tasks] = await Promise.all([
     all<Source>(
       env.DB,
-      "SELECT id, name, mime, size, role, kind, created, skill FROM sources WHERE batch = ? ORDER BY name",
+      "SELECT id, name, mime, size, role, kind, created, skill, note, category FROM sources WHERE batch = ? ORDER BY name",
       b.id,
     ),
     all<Task>(

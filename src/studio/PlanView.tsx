@@ -21,6 +21,8 @@ import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import type { Ambassador, Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
+import type { Approval } from "@shared/config";
+import { occasionsOf } from "@shared/occasions";
 import OverlayPreview from "./OverlayPreview";
 import {
   decodeEntities,
@@ -74,6 +76,7 @@ export default function PlanView({
   paused,
   onResume,
   themeChanged,
+  approvals = {},
 }: {
   client: Client;
   month: string;
@@ -106,6 +109,8 @@ export default function PlanView({
   fileBase: string;
   /** The theme (reference, colours, props, shots) was edited after the ideas were written. */
   themeChanged: boolean;
+  /** The client's answers on the approval link, by post index. */
+  approvals?: Record<string, Approval>;
   /** Why generation stopped (the engine's message), when the month is paused. */
   paused: string | null;
   onResume: () => void;
@@ -127,6 +132,8 @@ export default function PlanView({
   onDeletePlan: () => void;
 }) {
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
+  const occasions = occasionsOf(month);
+  const occasionOn = (date?: string) => occasions.filter((o) => o.date === date).map((o) => o.name).join(", ");
   const fileInput = useRef<HTMLInputElement>(null);
   const [notes, setNotes] = useState("");
   const [draft, setDraft] = useState<Post[]>(plan);
@@ -514,6 +521,14 @@ export default function PlanView({
                       <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />
                     )}
                     <span className="post-index">{String(p.index).padStart(2, "0")}</span>
+                    {approvals[String(p.index)] && (
+                      <span
+                        className={`post-approval ${approvals[String(p.index)].status}`}
+                        title={approvals[String(p.index)].note || ""}
+                      >
+                        {approvals[String(p.index)].status === "approved" ? "Client approved" : "Client asks a change"}
+                      </span>
+                    )}
                     {t?.output && (
                       <span className="post-open">
                         <Eye size={14} /> Open
@@ -521,6 +536,22 @@ export default function PlanView({
                     )}
                   </div>
                   <div className="post-fields">
+                    {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
+                      <p className="post-approval-note" dir="auto">
+                        “{approvals[String(p.index)].note}”
+                      </p>
+                    )}
+                    <label className="post-date">
+                      <span>Posting day</span>
+                      <input
+                        type="date"
+                        value={p.date ?? ""}
+                        min={`${month}-01`}
+                        max={`${month}-31`}
+                        onChange={(e) => patch(p.index, { date: e.target.value || undefined })}
+                      />
+                      {occasionOn(p.date) && <em>{occasionOn(p.date)}</em>}
+                    </label>
                     <div className="post-row">
                       <select
                         value={p.type}

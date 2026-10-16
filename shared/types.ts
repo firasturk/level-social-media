@@ -60,6 +60,18 @@ export interface Source {
   created: number;
   /** Skill this photo runs with inside a Zaid creative direction batch; null = the batch's skill. */
   skill?: string | null;
+  /** What a product photo shows (read by vision) and its kind (gift box, tin...). */
+  note?: string | null;
+  category?: string | null;
+}
+
+/** A product photo of any month of the client, offered again by the journey's gallery. */
+export interface GalleryItem {
+  id: string;
+  name: string;
+  note: string;
+  category: string;
+  month: string;
 }
 
 export interface QA {

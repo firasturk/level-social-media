@@ -40,6 +40,10 @@ export const postSchema = z.object({
     })
     .optional(),
   tile: z.string().max(400).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export const configSchema = z.object({

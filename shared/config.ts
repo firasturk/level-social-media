@@ -39,6 +39,25 @@ export type Ratio = (typeof RATIOS)[number];
 export type Size = (typeof SIZES)[number];
 export type OutputFormat = (typeof OUTPUT_FORMATS)[number];
 
+/** The journey's screens whose analysis feeds the month's logic. */
+export const BRIEF_STEPS = ["products", "count", "brand", "theme", "colours", "shots"] as const;
+export type BriefStep = (typeof BRIEF_STEPS)[number];
+
+/** One screen's analysis: what was understood, in short points, and the rule it adds. */
+export interface BriefNote {
+  summary: string;
+  points: string[];
+  /** One instruction the ideas writer follows. */
+  logic: string;
+  at: number;
+}
+
+export interface Approval {
+  status: "approved" | "changes";
+  note?: string;
+  at: number;
+}
+
 /** Batch configuration. Validated on the server by configSchema in config-schema.ts; kept zod-free here so the client bundle stays small. */
 export interface Config {
   /** Client (clients.id) the batch is produced for. Required for new batches. */
@@ -62,6 +81,12 @@ export interface Config {
   /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
   gridRef?: string;
   gridNotes?: string;
+  /** The creative brief of the journey: what each step's analysis understood. */
+  brief?: Partial<Record<BriefStep, BriefNote>>;
+  /** Secret of the client's approval link (/share/<token>); absent until a link is made. */
+  shareToken?: string;
+  /** The client's answers on the approval link, by post index. */
+  approvals?: Record<string, Approval>;
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;

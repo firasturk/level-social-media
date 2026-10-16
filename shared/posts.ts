@@ -112,6 +112,8 @@ export interface Post {
   tile?: string;
   /** Which of the theme's shots (1-based) this post follows, when the theme has shots. */
   shot?: number;
+  /** Posting day, YYYY-MM-DD, inside the month. */
+  date?: string;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -517,8 +519,9 @@ export const IDEAS_SCHEMA = {
           subline: { type: "string" },
           shot: { type: "integer" },
           people: { type: "array", items: { type: "string" } },
+          date: { type: "string" },
         },
-        required: ["type", "title", "brief", "caption", "hashtags", "product", "products", "headline", "subline", "shot", "people"],
+        required: ["type", "title", "brief", "caption", "hashtags", "product", "products", "headline", "subline", "shot", "people", "date"],
       },
     },
   },
@@ -556,6 +559,30 @@ export interface IdeasRequest {
   notes?: string;
   /** Post types to prefer, when the designer limited them. */
   types?: PostType[];
+  /** The month's occasions in the client's country, with their dates. */
+  occasions?: { date: string; name: string }[];
+  /** The creative brief agreed step by step in the journey: one logic line per step. */
+  brief?: string[];
+}
+
+/** When the posts go out: dates inside the month, occasions on their own day. */
+function datesBlock(r: IdeasRequest): string {
+  if (!/^\d{4}-\d{2}$/.test(r.month)) return "";
+  return [
+    `POSTING DATES: give every post a date (field "date", YYYY-MM-DD) inside ${monthLabel(r.month)}, in posting order, spread across the month (no two posts on the same day unless there are more posts than days).`,
+    r.occasions?.length
+      ? `OCCASIONS THIS MONTH IN JORDAN: ${r.occasions.map((o) => `${o.date} ${o.name}`).join("; ")}. Give each relevant occasion one post dated on its day (or the day before), whose headline and caption speak to it in the client's tone; the rest of the month stays on the theme.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The brief the designer confirmed screen by screen; it steers every idea. */
+function briefBlock(r: IdeasRequest): string {
+  return r.brief?.length
+    ? `CREATIVE BRIEF (analysed and confirmed with the designer step by step; follow it):\n${r.brief.map((l) => `- ${l}`).join("\n")}`
+    : "";
 }
 
 /** Who may appear in the briefs: the month's ambassadors only, or nobody. */
@@ -611,6 +638,8 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.shots?.length
       ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot". A shot shows the place, camera and gesture, not what to hold: where the reference holds a drink, a cup carrier, a sandwich or anything this client does not sell, rewrite the moment around how THIS product is really carried, held or served (a tin or box by its handle or in a gift bag, a tray on a table, one piece lifted by hand). Never put the product into a cup, carrier, glass or wrapper made for the reference's item.\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "",
+    briefBlock(r),
+    datesBlock(r),
     ambassadorsBlock(r),
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,
@@ -621,7 +650,7 @@ ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` 
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
-    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []).`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []), date (the posting day, YYYY-MM-DD).`,
     `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
   ]
     .filter(Boolean)
@@ -736,6 +765,7 @@ export function parseIdeas(
         const named = list.filter((x): x is string => !!x).slice(0, 3);
         return named.length ? named : undefined;
       })(),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date ?? "").trim()) ? String(raw.date).trim() : undefined,
     });
     if (out.length >= count) break;
   }

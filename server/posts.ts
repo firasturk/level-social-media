@@ -14,7 +14,9 @@ import { advanceBatch } from "./engine";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
-import type { Config } from "@shared/config";
+import { BRIEF_STEPS, type BriefNote, type BriefStep, type Config } from "@shared/config";
+import { BRIEF_SCHEMA, briefInstruction, briefLines, parseBrief } from "@shared/brief";
+import { occasionsOf, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
 import {
   buildPostPrompt,
@@ -34,6 +36,7 @@ import {
   ideasInstruction,
   MAX_POST_COUNT,
   matchProduct,
+  monthLabel,
   parseIdeas,
   PRODUCT_NOTE_SCHEMA,
   productNoteInstruction,
@@ -761,6 +764,8 @@ function ideasContext(
     productNotes,
     month: config.month ?? "",
     notes: config.notes,
+    occasions: occasionsOf(config.month ?? "").map((o) => ({ date: o.date, name: o.name })),
+    brief: briefLines(config.brief),
   };
 }
 
@@ -870,12 +875,12 @@ postRoutes.post("/ideas", async (c) => {
     (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
   );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
-  config.plan = plan;
+  config.plan = withDates(plan, config.month ?? "");
   config.plannedAt = now();
   config.postCount = count;
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
-  return c.json({ ok: true, plan });
+  return c.json({ ok: true, plan: config.plan });
 });
 
 /**
@@ -969,14 +974,14 @@ postRoutes.post("/grid-ideas", async (c) => {
     if (t) p.tile = `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement}`;
     if (m) p.title = p.title.slice(m[0].length).trim() || p.title;
   }
-  config.plan = plan;
+  config.plan = withDates(plan, config.month ?? "");
   config.plannedAt = now();
   config.postCount = count;
   config.gridRef = ref.id;
   config.gridNotes = gridNotes(grid).slice(0, 12000);
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
-  return c.json({ ok: true, plan, grid });
+  return c.json({ ok: true, plan: config.plan, grid });
 });
 
 /** The designer's edits of the plan. */
@@ -1360,6 +1365,241 @@ postRoutes.get("/captions.csv", async (c) => {
       "Content-Disposition": `attachment; filename="${client.slug}_${config.month ?? "month"}_captions.csv"`,
     },
   });
+});
+
+
+/* ───────────── Journey: product gallery, the brief, the approval link ───────────── */
+
+interface GalleryRow {
+  id: string;
+  batch: string;
+  name: string;
+  stem: string;
+  note: string | null;
+  category: string | null;
+  month: string | null;
+  created: number;
+}
+
+/** Every product photo ever uploaded for the client, newest copy of each name first. */
+postRoutes.get("/gallery", async (c) => {
+  const client = c.req.query("client") ?? "";
+  if (!client) throw new StudioError("Client is required.");
+  const rows = await all<GalleryRow>(
+    c.env.DB,
+    "SELECT s.id, s.batch, s.name, s.stem, s.note, s.category, b.month, s.created FROM sources s JOIN batches b ON b.id = s.batch WHERE b.client = ? AND s.kind = 'product' ORDER BY s.created DESC LIMIT 400",
+    client,
+  );
+  const seen = new Set<string>();
+  const items = [];
+  for (const r of rows) {
+    const name = productName(r as unknown as SourceRow);
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ id: r.id, name, note: r.note ?? "", category: r.category ?? "", month: r.month ?? "" });
+  }
+  return c.json({ items });
+});
+
+/** The small copy of one gallery photo (any month of the client). */
+postRoutes.get("/gallery/image", async (c) => {
+  const row = await first<{ key: string; reference_key: string | null }>(
+    c.env.DB,
+    "SELECT key, reference_key FROM sources WHERE id = ? AND kind = 'product'",
+    c.req.query("id") ?? "",
+  );
+  const obj = row ? await c.env.BUCKET.get(row.reference_key || row.key) : null;
+  if (!obj) throw new StudioError("Image not found.", 404);
+  return new Response(obj.body, {
+    headers: {
+      "Content-Type": obj.httpMetadata?.contentType || "image/jpeg",
+      "Cache-Control": "private, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+});
+
+/** Gallery photos join this month as its own copies, so deleting another month never breaks them. */
+postRoutes.post("/gallery/add", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), ids: z.array(z.string().max(80)).min(1).max(60) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const have = new Set(
+    (await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem),
+  );
+  let added = 0;
+  for (const id of d.ids) {
+    const src = await first<{
+      name: string;
+      stem: string;
+      key: string;
+      reference_key: string | null;
+      mime: string;
+      size: number;
+      note: string | null;
+      category: string | null;
+      client: string | null;
+    }>(
+      c.env.DB,
+      "SELECT s.name, s.stem, s.key, s.reference_key, s.mime, s.size, s.note, s.category, b.client FROM sources s JOIN batches b ON b.id = s.batch WHERE s.id = ? AND s.kind = 'product'",
+      id,
+    );
+    if (!src || src.client !== config.client || have.has(src.stem)) continue;
+    const newId = uuid();
+    const key = `${user.id}/${b.id}/source/${newId}`;
+    const original = await c.env.BUCKET.get(src.key);
+    if (!original) continue;
+    // Bytes, not the stream: R2 needs a known length to store it again.
+    await c.env.BUCKET.put(key, await original.arrayBuffer(), { httpMetadata: original.httpMetadata });
+    let referenceKey: string | null = null;
+    if (src.reference_key) {
+      const small = await c.env.BUCKET.get(src.reference_key);
+      if (small) {
+        referenceKey = `${key}.reference`;
+        await c.env.BUCKET.put(referenceKey, await small.arrayBuffer(), { httpMetadata: small.httpMetadata });
+      }
+    }
+    await run(
+      c.env.DB,
+      "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, category, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'lead', 'product', ?, ?, ?)",
+      newId,
+      b.id,
+      src.name,
+      src.stem,
+      key,
+      referenceKey,
+      src.mime,
+      src.size,
+      src.note,
+      src.category,
+      now(),
+    );
+    have.add(src.stem);
+    added++;
+  }
+  await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
+  return c.json({ ok: true, added });
+});
+
+/** The "count" screen needs no model: products, posts and the month's occasions. */
+function countNote(config: Config, products: number): Omit<BriefNote, "at"> {
+  const count = config.postCount ?? 12;
+  const month = config.month ?? "";
+  const label = monthLabel(month);
+  const occasions = occasionsOf(month);
+  const points = [
+    products
+      ? count >= products
+        ? `${products} products for ${count} posts: every product appears once before any product repeats.`
+        : `${products} products for ${count} posts: the most varied products lead; ${products - count} wait for another month or share a picture.`
+      : "No products yet: the posts are brand and lifestyle pictures.",
+    `About one post every ${Math.max(1, Math.round(30 / Math.max(1, count)))} days, from the 1st to the end of ${label}.`,
+    ...occasions.slice(0, 3).map((o) => `${o.name} (${o.date.slice(8)}): one post on the day.`),
+  ];
+  return {
+    summary: `${count} posts in ${label}${occasions.length ? `, ${occasions.length} occasion${occasions.length > 1 ? "s" : ""} on the calendar` : ""}.`,
+    points,
+    logic: `Plan exactly ${count} posts across ${label}, spread over the month${occasions.length ? `, with a post on ${occasions.map((o) => `${o.name} (${o.date})`).join(", ")}` : ""}.`,
+  };
+}
+
+/** One journey screen read like a brief; the rule it writes steers the month's ideas. */
+postRoutes.post("/brief", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), step: z.enum(BRIEF_STEPS) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme
+    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    : null;
+  const sources = await all<SourceRow & { category: string | null }>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  const step = d.step as BriefStep;
+  let note: Omit<BriefNote, "at">;
+  if (step === "count") note = countNote(config, sources.length);
+  else {
+    if (step === "products" || step === "colours" || step === "shots") await describeProducts(c.env, sources);
+    const productLines = sources.map(
+      (s) => `- ${productName(s)}${s.category ? ` [${s.category}]` : ""}: ${s.note ?? "(not read yet)"}`,
+    );
+    const cast = await monthAmbassadors(c.env, config);
+    // Chosen colours win here too: the analysis never brings back the pins' own colours.
+    const chosen = monthPaletteOf(theme).length > 0;
+    const recolour = (t: string) => (chosen ? withoutPaletteText(t) : t);
+    const context =
+      step === "products"
+        ? productLines.length
+          ? `PRODUCTS (${productLines.length}):\n${productLines.join("\n")}`
+          : "No products were added."
+        : step === "brand"
+          ? [
+              `CLIENT: ${client.name}`,
+              `BRAND COLOURS: ${paletteOf(client).join(", ") || "none"}`,
+              `TONE OF VOICE: ${client.tone || "not set"}`,
+              `LANGUAGE OF THE POSTS: ${client.language}`,
+              `ALWAYS: ${client.dos || "-"}`,
+              `NEVER: ${client.donts || "-"}`,
+              `VISUAL IDENTITY: ${client.style || "not set"}`,
+            ].join("\n")
+          : step === "theme"
+            ? theme
+              ? [
+                  `THEME: ${theme.title}`,
+                  `DIRECTION: ${recolour(theme.goal || theme.description || "") || "not written yet"}`,
+                  `VISUAL LANGUAGE: ${recolour(theme.library || "") || "-"}`,
+                  chosen ? `THE MONTH'S COLOURS (chosen by the designer, they replace the pins' colours): ${monthPaletteOf(theme).join(", ")}` : "",
+                  `BRAND AMBASSADORS THIS MONTH: ${cast.map((a) => `${a.name} (${a.description})`).join("; ") || "none (product-only posts)"}`,
+                ].join("\n")
+              : "No theme: the month follows the brand identity only."
+            : step === "colours"
+              ? [
+                  `CHOSEN COLOURS (first = background): ${monthPaletteOf(theme).join(", ") || "none, the brand colours are used"}`,
+                  `BRAND COLOURS: ${paletteOf(client).join(", ") || "none"}`,
+                  `PRODUCTS AND THEIR PACKAGING:\n${productLines.join("\n") || "none"}`,
+                ].join("\n")
+              : [
+                  `SHOTS FROM THE PINS:\n${(theme ? shotsOf(theme) : []).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") || "none"}`,
+                  chosen ? `THE MONTH'S COLOURS (first = background; they replace every colour of the pins): ${monthPaletteOf(theme).join(", ")}` : "",
+                  `PROPS: ${theme?.props || "none"}`,
+                  `PRODUCTS:\n${productLines.join("\n") || "none"}`,
+                ].join("\n");
+    const parsed = parseBrief(parseJson(await askText(c.env, briefInstruction(step, context), BRIEF_SCHEMA)));
+    if (!parsed.summary && !parsed.logic) throw new StudioError("The model returned an empty analysis. Try again.", 502);
+    if (step === "products" && parsed.categories.length) {
+      const byName = new Map(sources.map((s) => [productName(s).toLowerCase(), s]));
+      const updates = parsed.categories
+        .map((cat) => ({ cat, src: byName.get(cat.product.toLowerCase()) ?? sources.find((s) => matchProduct(cat.product, [productName(s)])) }))
+        .filter((x) => !!x.src)
+        .map(({ cat, src }) => c.env.DB.prepare("UPDATE sources SET category = ? WHERE id = ?").bind(cat.category, src!.id));
+      if (updates.length) await c.env.DB.batch(updates);
+    }
+    note = { summary: parsed.summary, points: parsed.points, logic: parsed.logic };
+  }
+  // Re-read: the designer may have changed the month meanwhile.
+  const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(fresh.config) as Config;
+  cfg.brief = { ...(cfg.brief ?? {}), [step]: { ...note, at: now() } };
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, note: cfg.brief[step], brief: cfg.brief });
+});
+
+/** The client's approval link for this month (made once, then reused). */
+postRoutes.post("/share", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  if (!config.shareToken) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    config.shareToken = [...bytes].map((x) => x.toString(16).padStart(2, "0")).join("");
+    await saveConfig(c.env, b, config);
+  }
+  const origin = c.env.CANONICAL_ORIGIN || new URL(c.req.url).origin;
+  return c.json({ ok: true, url: `${origin}/share/${config.shareToken}` });
 });
 
 export type { Post };
