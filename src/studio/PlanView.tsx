@@ -72,6 +72,7 @@ export default function PlanView({
   onDeletePlan,
   paused,
   onResume,
+  themeChanged,
 }: {
   client: Client;
   month: string;
@@ -102,6 +103,8 @@ export default function PlanView({
   onClearGrid: () => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
+  /** The theme (reference, colours, props, shots) was edited after the ideas were written. */
+  themeChanged: boolean;
   /** Why generation stopped (the engine's message), when the month is paused. */
   paused: string | null;
   onResume: () => void;
@@ -328,6 +331,18 @@ export default function PlanView({
         </div>
       </div>
 
+      {themeChanged && plan.length > 0 && !running && (
+        <div className="plan-alert" role="status">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>The theme changed after these ideas were written.</strong> The posts still follow the
+            old reference, colours or props. Regenerate ideas so they follow the theme as it is now.
+          </div>
+          <button type="button" className="primary" onClick={() => onGenerateIdeas(notes)} disabled={!!busy}>
+            Regenerate ideas
+          </button>
+        </div>
+      )}
       {paused && (
         <div className="plan-alert" role="alert">
           <AlertTriangle size={16} />

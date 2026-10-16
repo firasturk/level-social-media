@@ -475,7 +475,10 @@ export default function Workspace({
 
   async function exportMonth() {
     if (!batch || !client || exporting) return;
-    const ready = tasks.filter((t) => !!t.output && t.post).sort((a, b) => a.post! - b.post!);
+    // Only posts of the current plan: a plan cut from 12 to 6 leaves the old images behind.
+    const ready = tasks
+      .filter((t) => !!t.output && t.post && plan.some((p) => p.index === t.post))
+      .sort((a, b) => a.post! - b.post!);
     if (!ready.length) {
       toast.error("No generated posts yet.");
       return;
@@ -529,7 +532,10 @@ export default function Workspace({
   /** One long PDF page: cover, Instagram-style feed of the month, a note per post, thank-you. */
   async function exportFeedPdf() {
     if (!batch || !client || exporting) return;
-    const ready = tasks.filter((t) => !!t.output && t.post).sort((a, b) => a.post! - b.post!);
+    // Only posts of the current plan: a plan cut from 12 to 6 leaves the old images behind.
+    const ready = tasks
+      .filter((t) => !!t.output && t.post && plan.some((p) => p.index === t.post))
+      .sort((a, b) => a.post! - b.post!);
     if (!ready.length) {
       toast.error("No generated posts yet.");
       return;
@@ -749,6 +755,10 @@ export default function Workspace({
                 onExportPdf={() => void exportFeedPdf()}
                 onDeletePlan={() => void deletePlan()}
                 paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
+                themeChanged={(() => {
+                  const t = themes.find((x) => x.id === themeId);
+                  return !!t && t.updated > (config?.plannedAt ?? 0);
+                })()}
                 onResume={() => void resumeMonth()}
               />
             </div>

@@ -188,8 +188,20 @@ export const POST_SHADOW_RULE =
 export const POST_PEOPLE_RULE =
   "PEOPLE: only when the post brief asks for people, and then exactly the number it names, each with one head, two arms, two hands with five fingers and two legs, natural faces and expressions, no duplicated or extra limbs. A real person from image 1, when present, is kept identical in face, hair and skin.";
 
+/** No ambassador in the post: nobody appears; a hand is the most the picture may show. */
+export const NO_PEOPLE_RULE =
+  "PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.";
+
+/** Ambassadors in the post: only them, from their portraits. */
+export const ONLY_AMBASSADORS_RULE =
+  "PEOPLE: only the ambassadors from the attached portraits, each exactly once, each with one head, two arms, two hands with five fingers, natural face and expression. No other people: no friends, crowds, staff or passers-by, whatever the style reference shows.";
+
+/** The product is photographed, never invented: nothing is added to it, nothing else is food. */
+export const PRODUCT_TRUTH_RULE =
+  "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
+
 const AVOID =
-  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, borders or bars, collage, split frames, cartoon or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
+  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
 
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
@@ -259,6 +271,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(HEADLINE_SPACE_RULE);
   const palette = paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
+  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE);
   if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
     parts.push(
@@ -267,10 +280,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   parts.push(NO_TEXT_RULE);
   parts.push(FULL_FRAME_RULE);
   parts.push(
-    "PHOTOGRAPHY: a real photograph with a full-frame camera look, true materials and textures, natural depth of field, honest colour and contrast; the light has one clear source and direction and every object casts a shadow consistent with it.",
+    "PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.",
   );
   parts.push(POST_SHADOW_RULE);
-  parts.push(POST_PEOPLE_RULE);
+  parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
   parts.push(SAFE_WORDING_RULE);
   if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
   parts.push(AVOID);
@@ -371,6 +384,17 @@ export interface IdeasRequest {
   types?: PostType[];
 }
 
+/** Who may appear in the briefs: the month's ambassadors only, or nobody. */
+function peopleRule(r: IdeasRequest): string {
+  return r.ambassadors?.length
+    ? "PEOPLE: the cast ambassadors above are the only people any brief may show, and only in posts whose \"people\" lists them; never add friends, groups, staff, models or passers-by, even when the references show them. Every other post shows no person at all (a hand holding the product is the most it may show)."
+    : "PEOPLE: no brief shows a person, model, face, group or crowd, even when the references show them; the posts are product photography. A hand holding or placing the product is the most a brief may show, and \"people\" is always [].";
+}
+
+/** The products are the only food: nothing is invented around them or added onto them. */
+const PRODUCT_ONLY_IDEAS =
+  "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
+
 /** The month's ambassadors as an instruction block for the ideas writer (empty when none). */
 function ambassadorsBlock(r: IdeasRequest): string {
   if (!r.ambassadors?.length) return "";
@@ -414,7 +438,8 @@ export function ideasInstruction(r: IdeasRequest): string {
       ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot".\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "",
     ambassadorsBlock(r),
-    "PEOPLE: when the references or the theme show people with the product (a hand holding the cup, a person at a table), write people into the briefs the same way, naming how many and how they are framed; the image engine adds people only when a brief asks for them. State each person's gender and rough age in the brief (\"a man in his thirties\", \"a boy of ten\"), never a vague \"a person\", and keep every person inside the client's ALWAYS and NEVER rules: a rule that excludes women, children or anyone else is absolute, whatever the references show.",
+    peopleRule(r),
+    PRODUCT_ONLY_IDEAS,
     r.products.length
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
@@ -563,7 +588,8 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
       : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the tiles' staging naturally and mention them in the briefs.` : "",
     ambassadorsBlock(r),
-    "PEOPLE: where the grid's tiles show people with the product, write people into those briefs the same way (how many, how framed); the image engine adds people only when a brief asks for them. State each person's gender and rough age in the brief, never a vague \"a person\", and keep every person inside the client's ALWAYS and NEVER rules: a rule that excludes women, children or anyone else is absolute, whatever the grid shows.",
+    peopleRule(r),
+    PRODUCT_ONLY_IDEAS,
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,
