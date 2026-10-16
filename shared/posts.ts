@@ -276,13 +276,40 @@ export function photoRules(text: string | undefined): string {
 }
 
 /** Colour words of the reference analysis give way to the designer's chosen colours. */
-function withoutPaletteText(text: string): string {
+export function withoutPaletteText(text: string): string {
+  return withoutColourWords(
+    text
+      .replace(/##\s*Palette[\s\S]*?(?=\n##\s|$)/i, "")
+      .split("\n")
+      .map((line) =>
+        line
+          .split(/(?<=[.!?])\s+/)
+          .filter((sentence) => !/\b(palette|colou?r scheme|dominated by)\b/i.test(sentence))
+          .join(" "),
+      )
+      .join("\n"),
+  ).trim();
+}
+
+const COLOUR_WORDS =
+  "red|reds|crimson|burgundy|maroon|scarlet|pink|blush|fuchsia|magenta|orange|coral|terracotta|rust|ochre|yellow|mustard|green|sage|emerald|teal|turquoise|blue|navy|cobalt|azure|purple|violet|lilac|lavender|tan|beige|cream|ivory|camel|khaki|sand(?=-colou?red)";
+
+/**
+ * "a glossy red car hood" -> "a glossy car hood": once the designer has chosen the month's colours,
+ * the colours the reference happened to have are dropped from its shots and visual language.
+ */
+export function withoutColourWords(text: string): string {
+  const mod = "(?:deep|dark|light|pale|bright|rich|warm|soft|muted|dusty|vibrant|vivid|toasted|burnt)";
+  const word = `(?:${mod}[\\s-]+)*(?:${COLOUR_WORDS})(?:-(?:colou?red|toned|coloured))?`;
   return text
-    .replace(/##\s*Palette[\s\S]*?(?=\n##\s|$)/i, "")
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => !/\b(palette|colou?r scheme|dominated by)\b/i.test(sentence))
-    .join(" ")
-    .trim();
+    .replace(new RegExp(`\\b${word}(?:(?:\\s*(?:,|and|or|&|-)\\s*)${word})*\\b\\s?`, "gi"), "")
+    .replace(/\b([Aa])n? +(?=\w)/g, (m, a: string, at: number, all: string) =>
+      /[aeiou]/i.test(all[at + m.length] ?? "") ? `${a}n ` : `${a} `,
+    )
+    .replace(/ {2,}/g, " ")
+    .replace(/ ([,.;:])/g, "$1")
+    .replace(/,\s*([.;:])/g, "$1")
+    .replace(/\b(with|and|in|of) (and|or)\b/gi, "$1");
 }
 
 export function paletteRule(palette: string[], chosen = false): string {
@@ -384,7 +411,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     );
   parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
   const theme = chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
-  const style = [b.style.trim(), theme].filter(Boolean).join("\n");
+  const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
   const always = photoRules(b.always);
@@ -398,7 +425,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim())
     parts.push(
-      `REFERENCE SHOT: this post recreates one picture of the reference, with the client's product in the place of the reference's product and new faces for any people: ${clean(b.shot.trim())}`,
+      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really carried, held or served (a box or tin by its own handle or in a gift bag, a tray on a table, a piece lifted by hand); it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate made for a different item, and it is never cut out and pasted onto the scene.`,
     );
   if (b.props?.trim())
     parts.push(
@@ -413,6 +440,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(HEADLINE_SPACE_RULE);
   const palette = paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
+  if (chosen)
+    parts.push(
+      `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to the props, fabrics and accents.`,
+    );
   if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE);
   if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
@@ -566,7 +597,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.monthPalette?.length
-      ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. Every brief builds its backgrounds, surfaces, props and fabrics from these colours. Where the theme, its visual language or the shots name other colours (for example pink walls in a reference), write these colours instead.${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
+      ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. The background of every brief (wall, backdrop, main surface) is ${r.monthPalette[0]}; the other colours go to props, fabrics and accents. Every colour a brief names comes from this list: a car, a cloth, a wall or a cup in the brief is described in one of these colours, never in a colour of the reference (no red car or crimson velvet unless red is in this list).${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
       : r.palette.length
         ? `BRAND PALETTE: ${r.palette.join(", ")}.`
         : "",
@@ -578,7 +609,7 @@ export function ideasInstruction(r: IdeasRequest): string {
       ? `VISUAL LANGUAGE OF THE THEME'S REFERENCES (the posts live in this world):\n${r.themeLibrary.trim()}`
       : "",
     r.shots?.length
-      ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot".\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+      ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot". A shot shows the place, camera and gesture, not what to hold: where the reference holds a drink, a cup carrier, a sandwich or anything this client does not sell, rewrite the moment around how THIS product is really carried, held or served (a tin or box by its handle or in a gift bag, a tray on a table, one piece lifted by hand). Never put the product into a cup, carrier, glass or wrapper made for the reference's item.\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "",
     ambassadorsBlock(r),
     peopleRule(r),
@@ -848,7 +879,7 @@ export function themeBuilderInstruction(title: string, count: number): string {
     "0. description: one sentence (max 160 characters) a designer reads under the theme's name.",
     "1. direction: 4-8 sentences that start with 'Goal: produce posts that ...', naming the world, the light signature, the palette, the composition habits and the mood, ending with 'No text, logos or prices are drawn inside the image.'",
     "2. library: Markdown with '## Scenes' (one numbered line per image describing its setting and props in one dense sentence), '## Light' (3-4 dash lines), '## Palette' (2-3 dash lines with colour words), '## Composition' (2-3 dash lines), '## People' (1-2 dash lines: how often people appear, how many, how they are framed and what they do; or 'none' when the references show no people), '## Mood' (1-2 dash lines) and '## Avoid' (one dash line of what would break this world).",
-    "3. shots: one entry per picture (every tile of a collage counts), in reading order, each a ready brief for an image engine in 2-4 sentences: the set and its materials, the camera angle and distance, where the product sits and what happens to it (pouring, held, stacked...), the props, the light, and where calm space is left for a headline. Write 'the product' instead of the reference's product, never its brand or text; describe people by role, framing and action only.",
+    "3. shots: one entry per picture (every tile of a collage counts), in reading order, each a ready brief for an image engine in 2-4 sentences: the set and its materials, the camera angle and distance, where the product sits and what happens to it (pouring, held, stacked...), the props, the light, and where calm space is left for a headline. Write 'the product' instead of the reference's product, never its brand or text; describe people by role, framing and action only. Name no colours in the shots (write 'a vintage car hood', 'a draped velvet cloth', not 'a red car hood'): the designer picks the month's colours separately. Describe what the hands or the person do in a way any boxed or plated product fits; never name the reference's drink, cup, cup carrier, straw or food.",
     `4. ${PALETTE_ASK}`,
     "Return ONLY a JSON object with keys description, direction, library, shots and palette.",
   ].join("\n\n");

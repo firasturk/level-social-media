@@ -20,6 +20,9 @@ import {
   buildPostPrompt,
   colourLabel,
   decodeEntities,
+  photoRules,
+  withoutColourWords,
+  withoutPaletteText,
   captionsCsv,
   GRID_SCHEMA,
   gridIdeasInstruction,
@@ -731,25 +734,29 @@ function ideasContext(
   productNotes: Record<string, string>,
   ambassadors: AmbassadorRow[] = [],
 ): Omit<IdeasRequest, "count"> {
+  // Chosen colours win: the colour words of the references and the brand style give way.
+  const chosen = monthPaletteOf(theme).length > 0;
+  const recolour = (t: string) => (chosen ? withoutPaletteText(t) : t);
   return {
     clientName: client.name,
     tone: client.tone,
-    dos: client.dos,
-    donts: client.donts,
+    // Layout rules (logo placement, bands, marks) are the overlay's business, not the scene's.
+    dos: photoRules(client.dos),
+    donts: photoRules(client.donts),
     language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
       | "ar"
       | "en"
       | "both",
     palette: paletteOf(client),
-    style: client.style,
+    style: recolour(client.style),
     themeTitle: theme?.title ?? "",
-    themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
-    themeLibrary: theme?.library ?? "",
+    themeDirection: recolour(theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : ""),
+    themeLibrary: recolour(theme?.library ?? ""),
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
     monthPalette: monthPaletteOf(theme),
     ambassadors: ambassadors.map((a) => ({ name: a.name, description: a.description })),
-    shots: theme ? shotsOf(theme) : [],
+    shots: theme ? shotsOf(theme).map((t) => (chosen ? withoutColourWords(t) : t)) : [],
     products,
     productNotes,
     month: config.month ?? "",

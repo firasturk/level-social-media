@@ -25,6 +25,8 @@ import Sidebar, { type Page } from "./Sidebar";
 import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView from "./PlanView";
+import Journey from "./Journey";
+import { Compass } from "lucide-react";
 import { useBatch } from "./useBatch";
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
 import type { EngineInfo } from "./ConnectionDialog";
@@ -34,6 +36,16 @@ const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 
 const CLIENT_KEY = "lsm-client";
+/** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
+const JOURNEY_KEY = "lsm-journey-done";
+
+function journeyDone(): boolean {
+  try {
+    return sessionStorage.getItem(JOURNEY_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
 const MONTH_KEY = "lsm-month";
 
 function remembered(key: string): string {
@@ -87,6 +99,16 @@ export default function Workspace({
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
+  const [journey, setJourney] = useState(() => !journeyDone());
+  const finishJourney = useCallback(() => {
+    try {
+      sessionStorage.setItem(JOURNEY_KEY, "1");
+    } catch {
+      /* private mode */
+    }
+    setJourney(false);
+    setPage("studio");
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setBootTimedOut(true), 7000);
@@ -702,6 +724,9 @@ export default function Workspace({
                 <h1>{client.name}</h1>
                 <p>Brand kit and theme on the left; the month's products and posts on the right.</p>
               </div>
+              <button type="button" className="secondary" onClick={() => setJourney(true)}>
+                <Compass size={15} /> Start journey
+              </button>
             </div>
             <div className="workbench posts-workbench">
               <BrandPanel
@@ -771,6 +796,25 @@ export default function Workspace({
           <span>Every post is reviewed by a designer before publishing.</span>
         </footer>
       </main>
+
+      {journey && stateReady && clients.some((c) => c.status === "active") && (
+        <Journey
+          user={user}
+          clients={clients}
+          clientId={clientId}
+          onClient={setClientId}
+          onClientsChanged={setClients}
+          themes={themes}
+          themeId={themeId}
+          onTheme={(id) => void updateSettings({ theme: id })}
+          onThemesChanged={setThemes}
+          ambassadors={ambassadors}
+          onAmbassadorsChanged={setAmbassadors}
+          cast={castIds}
+          onCast={(ids) => void updateSettings({ ambassadors: ids })}
+          onDone={finishJourney}
+        />
+      )}
 
       <Suspense fallback={null}>
         <ConnectionDialog

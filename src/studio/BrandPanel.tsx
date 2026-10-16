@@ -197,6 +197,7 @@ function Section({
   children,
   actions,
   kit,
+  bare,
 }: {
   title: string;
   subtitle?: string;
@@ -204,8 +205,17 @@ function Section({
   children: ReactNode;
   actions?: ReactNode;
   kit?: KitKey;
+  /** Rendered without its collapsible head (the journey screens show one section each). */
+  bare?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  if (bare)
+    return (
+      <div className="bp-bare">
+        {actions}
+        {children}
+      </div>
+    );
   return (
     <section className={`bp-section ${open ? "open" : ""}`}>
       <button type="button" className="bp-head" onClick={() => setOpen((v) => !v)}>
@@ -258,12 +268,14 @@ const DEFAULT_COLORS = [
   { name: "Accent", hex: "#c8a24a" },
 ];
 
-function BrandKit({
+export function BrandKit({
   client,
   onClientsChanged,
+  bare,
 }: {
   client: Client;
   onClientsChanged: (clients: Client[]) => void;
+  bare?: boolean;
 }) {
   const [draft, setDraft] = useState<KitDraft>(() => draftOf(client));
   const [saving, setSaving] = useState(false);
@@ -370,6 +382,7 @@ function BrandKit({
 
   return (
     <Section
+      bare={bare}
       kit="brand"
       title="Brand kit"
       subtitle={`${client.name}: colours, fonts, tone`}
@@ -570,20 +583,27 @@ function BrandKit({
 
 /* ───────────── Theme ───────────── */
 
-function ThemeSection({
+export type ThemePart = "pick" | "references" | "direction" | "colours" | "props" | "shots";
+
+export function ThemeSection({
   client,
   themes,
   theme,
   onTheme,
   onThemesChanged,
+  parts,
+  bare,
 }: {
   client: Client;
   themes: Theme[];
   theme: string;
   onTheme: (id: string) => void;
   onThemesChanged: (themes: Theme[]) => void;
-  /** The theme's references changed and were read again: the month should follow them. */
+  /** Only these parts (the journey shows the theme over several screens); all when omitted. */
+  parts?: ThemePart[];
+  bare?: boolean;
 }) {
+  const show = (p: ThemePart) => !parts || parts.includes(p);
   const current = themes.find((t) => t.id === theme) ?? null;
   const [direction, setDirection] = useState(current?.direction ?? "");
   const [props, setProps] = useState(current?.props ?? "");
@@ -771,7 +791,9 @@ function ThemeSection({
   }
 
   return (
-    <Section kit="theme" title="Theme" subtitle={current ? current.title : "Pick or create a theme"}>
+    <Section kit="theme" title="Theme" subtitle={current ? current.title : "Pick or create a theme"} bare={bare}>
+      {show("pick") && (
+      <>
       <div className="field-row">
         <label className="field-label">Theme of the month</label>
         <button type="button" className="text-button" onClick={() => void create()} disabled={!!busy}>
@@ -800,7 +822,6 @@ function ThemeSection({
         </div>
       )}
       {current && (
-        <>
           <div className="theme-tools">
             <button type="button" className="text-button" onClick={() => void rename()}>
               Rename
@@ -809,6 +830,12 @@ function ThemeSection({
               <Trash2 size={13} /> Delete
             </button>
           </div>
+      )}
+      </>
+      )}
+      {current && (
+        <>
+          {show("references") && (
           <Group kit="references">
           <ReferenceLibrary
             key={`${current.id}:${libKey}`}
@@ -859,6 +886,8 @@ function ThemeSection({
             </div>
           )}
           </Group>
+          )}
+          {show("direction") && (
           <Group kit="direction">
           <textarea
             id="direction"
@@ -875,6 +904,8 @@ function ThemeSection({
             </details>
           )}
           </Group>
+          )}
+          {show("colours") && (
           <Group
             kit="colours"
             title="Colours this month"
@@ -894,7 +925,7 @@ function ThemeSection({
           >
           <div className="theme-palette">
             {colors.map((c, i) => (
-              <div className="swatch-edit" key={i}>
+              <div className={`swatch-edit ${i === 0 ? "is-background" : ""}`} key={i}>
                 <input
                   type="color"
                   value={c.hex}
@@ -914,6 +945,20 @@ function ThemeSection({
                   aria-label={`Colour ${i + 1} name`}
                   onChange={(e) => setColors((l) => l.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
                 />
+                {i === 0 ? (
+                  <span className="swatch-role" title="The backdrop, wall and main surface of every post">
+                    Background
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="swatch-role as-button"
+                    title="Use this colour for the backdrop, wall and main surface"
+                    onClick={() => setColors((l) => [l[i], ...l.filter((_, j) => j !== i)])}
+                  >
+                    Use as background
+                  </button>
+                )}
                 <button
                   type="button"
                   className="icon-button"
@@ -936,10 +981,12 @@ function ThemeSection({
           </div>
           <p className="field-hint">
             {colors.length
-              ? "The posts are built in these colours, whatever colours the references have. Change any of them to steer the month."
+              ? "The posts are built in these colours, whatever colours the references have: the first is the background, the others go to props and fabrics. Change any of them to steer the month."
               : "Press Analyse or Suggest to read the references' colours, or add your own. Without colours the brand palette is used."}
           </p>
           </Group>
+          )}
+          {show("props") && (
           <Group kit="props">
           <textarea
             id="theme-props"
@@ -951,6 +998,8 @@ function ThemeSection({
           />
           <p className="field-hint">The ideas and every image prompt ask for these props, placed naturally around the product.</p>
           </Group>
+          )}
+          {show("shots") && (
           <Group kit="shots" title="Shots from the references" note={current.shots?.length ? `${current.shots.length}` : undefined}>
           <textarea
             id="theme-shots"
@@ -964,6 +1013,7 @@ function ThemeSection({
             The month is planned over these shots: fewer posts than shots picks the most varied ones, more posts reuses shots with other products. Each post follows its shot in the image prompt.
           </p>
           </Group>
+          )}
         </>
       )}
     </Section>
