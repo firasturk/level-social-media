@@ -112,6 +112,10 @@ export interface Theme {
   props: string;
   /** One ready shot per reference picture (collage tiles count), written by Analyse theme. */
   shots: string[];
+  /** The month's colours: suggested by Analyse, editable; they replace the references' colours. */
+  palette: { name: string; hex: string }[];
+  /** true while the palette is still the suggestion; false once the designer changed it. */
+  paletteAuto: boolean;
   hidden: boolean;
   references: number;
   thumb?: string;

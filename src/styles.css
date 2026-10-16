@@ -5179,3 +5179,47 @@ label.num select {
   margin: 2px 0 8px;
   cursor: pointer;
 }
+
+/* The theme's colours: an editable list of swatches. */
+.field-note {
+  font-size: 12px;
+  color: var(--ink-400);
+  margin: 0 auto 0 10px;
+}
+.theme-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.swatch-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.swatch-edit input[type="color"] {
+  width: 36px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  flex: none;
+  cursor: pointer;
+}
+.swatch-edit .swatch-name {
+  flex: 1;
+  min-width: 0;
+}
+.swatch-add {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}

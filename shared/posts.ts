@@ -121,6 +121,8 @@ export interface PostBrief {
   brief: string;
   /** Hex palette with names, e.g. "Primary #1a1a1a". */
   palette: string[];
+  /** true when the palette is the theme's chosen colours (they override the reference's). */
+  paletteChosen?: boolean;
   /** The client's style text (from the brand kit) and the theme's direction. */
   style: string;
   theme: string;
@@ -156,8 +158,10 @@ export const NO_TEXT_RULE =
 export const ONE_PRODUCT_RULE =
   "PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.";
 
-export function paletteRule(palette: string[]): string {
+export function paletteRule(palette: string[], chosen = false): string {
   if (!palette.length) return "";
+  if (chosen)
+    return `COLOURS (chosen by the designer for this month; they win over everything else): the backgrounds, surfaces, props, fabrics and light sit inside this palette: ${palette.join(", ")}. They replace the colours of the style reference and any colour named in the shot or the visual language above: a pink reference still gives a scene in these colours. The product keeps its own exact colours.`;
   return `PALETTE: the scene, props, surfaces and light sit inside this palette: ${palette.join(", ")}. The product keeps its own exact colours.`;
 }
 
@@ -242,7 +246,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
     parts.push(HEADLINE_SPACE_RULE);
-  const palette = paletteRule(b.palette);
+  const palette = paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
   if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
@@ -338,6 +342,8 @@ export interface IdeasRequest {
   props?: string;
   /** The client's overlay shows no second line: every subline stays "". */
   noSubline?: boolean;
+  /** The theme's chosen colours; they replace every colour the references and shots name. */
+  monthPalette?: string[];
   /** One shot per reference picture, written by Analyse theme; the month is planned over them. */
   shots?: string[];
   products: string[];
@@ -372,7 +378,11 @@ export function ideasInstruction(r: IdeasRequest): string {
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
-    r.palette.length ? `BRAND PALETTE: ${r.palette.join(", ")}.` : "",
+    r.monthPalette?.length
+      ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. Every brief builds its backgrounds, surfaces, props and fabrics from these colours. Where the theme, its visual language or the shots name other colours (for example pink walls in a reference), write these colours instead.${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
+      : r.palette.length
+        ? `BRAND PALETTE: ${r.palette.join(", ")}.`
+        : "",
     r.style ? `VISUAL IDENTITY (from the client's past posts): ${r.style}` : "",
     r.themeTitle || r.themeDirection
       ? `THIS MONTH'S THEME "${r.themeTitle}": ${r.themeDirection}`
@@ -507,7 +517,9 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
-    r.palette.length
+    r.monthPalette?.length
+      ? `COLOURS THIS MONTH (chosen by the designer; the posts use these for sets, surfaces and props instead of the grid's colours): ${r.monthPalette.join(", ")}.`
+      : r.palette.length
       ? `BRAND PALETTE (the posts use these colours for sets and props instead of the reference's palette): ${r.palette.join(", ")}.`
       : "",
     r.style ? `VISUAL IDENTITY: ${r.style}` : "",
@@ -549,9 +561,55 @@ export const THEME_SCHEMA = {
     direction: { type: "string" },
     library: { type: "string" },
     shots: { type: "array", items: { type: "string" } },
+    palette: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, hex: { type: "string" } },
+        required: ["name", "hex"],
+      },
+    },
   },
-  required: ["description", "direction", "library", "shots"],
+  required: ["description", "direction", "library", "shots", "palette"],
 };
+
+export const PALETTE_SCHEMA = {
+  type: "object",
+  properties: {
+    palette: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { name: { type: "string" }, hex: { type: "string" } },
+        required: ["name", "hex"],
+      },
+    },
+  },
+  required: ["palette"],
+};
+
+const PALETTE_ASK =
+  "palette: the 4-6 colours that carry the references' colour story (backgrounds, surfaces, props, light), most used first, each as a 6-digit hex like #f2a0b0 and a plain two-word English name like 'Dusty rose'; leave out the colours of products, logos and skin.";
+
+/** Only the colour story of the references, for "Suggest colours". */
+export function paletteInstruction(count: number): string {
+  return `The ${count} attached images are the references of a social-media theme. Return ${PALETTE_ASK} Return ONLY JSON: {"palette": [{"name": "...", "hex": "#rrggbb"}]}.`;
+}
+
+/** Parses a model palette: valid 6-digit hex only, no duplicates, at most 8. */
+export function parsePalette(raw: unknown): { name: string; hex: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: { name: string; hex: string }[] = [];
+  for (const c of raw as { name?: unknown; hex?: unknown }[]) {
+    const hex = String(c?.hex ?? "").trim().toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(hex) || seen.has(hex)) continue;
+    seen.add(hex);
+    out.push({ name: String(c?.name ?? "").trim().slice(0, 40), hex });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
 
 export function themeBuilderInstruction(title: string, count: number): string {
   return [
@@ -563,7 +621,8 @@ export function themeBuilderInstruction(title: string, count: number): string {
     "1. direction: 4-8 sentences that start with 'Goal: produce posts that ...', naming the world, the light signature, the palette, the composition habits and the mood, ending with 'No text, logos or prices are drawn inside the image.'",
     "2. library: Markdown with '## Scenes' (one numbered line per image describing its setting and props in one dense sentence), '## Light' (3-4 dash lines), '## Palette' (2-3 dash lines with colour words), '## Composition' (2-3 dash lines), '## People' (1-2 dash lines: how often people appear, how many, how they are framed and what they do; or 'none' when the references show no people), '## Mood' (1-2 dash lines) and '## Avoid' (one dash line of what would break this world).",
     "3. shots: one entry per picture (every tile of a collage counts), in reading order, each a ready brief for an image engine in 2-4 sentences: the set and its materials, the camera angle and distance, where the product sits and what happens to it (pouring, held, stacked...), the props, the light, and where calm space is left for a headline. Write 'the product' instead of the reference's product, never its brand or text; describe people by role, framing and action only.",
-    "Return ONLY a JSON object with keys description, direction, library and shots.",
+    `4. ${PALETTE_ASK}`,
+    "Return ONLY a JSON object with keys description, direction, library, shots and palette.",
   ].join("\n\n");
 }
 

@@ -31,6 +31,9 @@ import {
   parseIdeas,
   PRODUCT_NOTE_SCHEMA,
   productNoteInstruction,
+  PALETTE_SCHEMA,
+  paletteInstruction,
+  parsePalette,
   singleIdeaInstruction,
   type IdeasRequest,
   POST_TYPES,
@@ -158,9 +161,25 @@ interface ThemeRow {
   props: string;
   /** JSON array of strings. */
   shots: string | null;
+  /** JSON array of {name, hex}. */
+  palette: string | null;
+  palette_auto: number | null;
   hidden: number;
   created: number;
   updated: number;
+}
+
+function themePaletteOf(r: ThemeRow): { name: string; hex: string }[] {
+  try {
+    return parsePalette(JSON.parse(r.palette || "[]"));
+  } catch {
+    return [];
+  }
+}
+
+/** The theme's chosen colours as prompt strings ("Dusty rose #e8b4b8"); empty when it has none. */
+function monthPaletteOf(theme: ThemeRow | null): string[] {
+  return theme ? themePaletteOf(theme).map((c) => `${c.name} ${c.hex}`.trim()) : [];
 }
 
 function shotsOf(r: ThemeRow): string[] {
@@ -199,6 +218,8 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     library: r.library,
     props: r.props ?? "",
     shots: shotsOf(r),
+    palette: themePaletteOf(r),
+    paletteAuto: r.palette_auto !== 0,
     hidden: !!r.hidden,
     references: byId.get(r.id)?.n ?? 0,
     thumb: byId.get(r.id)?.thumb,
@@ -265,8 +286,19 @@ postRoutes.put("/themes/:id", async (c) => {
       library: z.string().trim().max(20000).optional(),
       props: z.string().trim().max(1000).optional(),
       shots: z.array(z.string().trim().max(1200)).max(200).optional(),
+      palette: z
+        .array(z.object({ name: z.string().max(40), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/) }))
+        .max(8)
+        .optional(),
     }),
   );
+  if (d.palette)
+    await run(
+      c.env.DB,
+      "UPDATE skills SET palette = ?, palette_auto = 0 WHERE id = ?",
+      JSON.stringify(parsePalette(d.palette)),
+      row.id,
+    );
   await run(
     c.env.DB,
     "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, shots = ?, updated = ? WHERE id = ?",
@@ -311,9 +343,13 @@ async function referenceImages(env: Env, scope: string, limit: number): Promise<
 async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
   const images = await referenceImages(env, row.id, MAX_ANALYSE_IMAGES);
   if (!images.length) throw new StudioError("Add reference photos to this theme first.");
-  const d = parseJson<{ description?: string; direction?: string; library?: string; shots?: unknown }>(
-    await askText(env, themeBuilderInstruction(row.title, images.length), THEME_SCHEMA, images),
-  );
+  const d = parseJson<{
+    description?: string;
+    direction?: string;
+    library?: string;
+    shots?: unknown;
+    palette?: unknown;
+  }>(await askText(env, themeBuilderInstruction(row.title, images.length), THEME_SCHEMA, images));
   if (!d.direction || !d.library)
     throw new StudioError("The model returned an incomplete theme.", 502);
   const shots = (Array.isArray(d.shots) ? d.shots : [])
@@ -330,7 +366,36 @@ async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
     now(),
     row.id,
   );
+  // The suggested colours replace the palette only while the designer has not chosen their own.
+  const palette = parsePalette(d.palette);
+  if (palette.length && (row.palette_auto !== 0 || !themePaletteOf(row).length))
+    await run(
+      env.DB,
+      "UPDATE skills SET palette = ?, palette_auto = 1 WHERE id = ?",
+      JSON.stringify(palette),
+      row.id,
+    );
 }
+
+/** "Suggest colours": the references' colour story only, replacing the theme's palette. */
+postRoutes.post("/themes/:id/palette", async (c) => {
+  const row = await themeRow(c.env, c.req.param("id"));
+  const images = await referenceImages(c.env, row.id, MAX_ANALYSE_IMAGES);
+  if (!images.length) throw new StudioError("Add reference photos to this theme first.");
+  const d = parseJson<{ palette?: unknown }>(
+    await askText(c.env, paletteInstruction(images.length), PALETTE_SCHEMA, images),
+  );
+  const palette = parsePalette(d.palette);
+  if (!palette.length) throw new StudioError("The model returned no colours. Try again.", 502);
+  await run(
+    c.env.DB,
+    "UPDATE skills SET palette = ?, palette_auto = 1, updated = ? WHERE id = ?",
+    JSON.stringify(palette),
+    now(),
+    row.id,
+  );
+  return c.json({ ok: true, themes: await listThemes(c.env, row.client!) });
+});
 
 /** "Analyse theme", also run automatically after references are added. */
 postRoutes.post("/themes/:id/analyze", async (c) => {
@@ -667,6 +732,7 @@ function ideasContext(
     themeLibrary: theme?.library ?? "",
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
+    monthPalette: monthPaletteOf(theme),
     shots: theme ? shotsOf(theme) : [],
     products,
     productNotes,
@@ -833,6 +899,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     themeDirection: theme?.goal ?? "",
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
+    monthPalette: monthPaletteOf(theme),
     products,
     productNotes,
     month: config.month ?? "",
@@ -1073,7 +1140,8 @@ postRoutes.post("/generate", async (c) => {
       type: post.type,
       title: post.title,
       brief: post.brief,
-      palette: paletteOf(client),
+      palette: monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client),
+      paletteChosen: monthPaletteOf(theme).length > 0,
       style: client.style,
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,

@@ -9,6 +9,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 import { del, get, post, put } from "@/api";
 import {
@@ -496,10 +497,19 @@ function ThemeSection({
   const [direction, setDirection] = useState(current?.direction ?? "");
   const [props, setProps] = useState(current?.props ?? "");
   useEffect(() => setProps(current?.props ?? ""), [current?.id, current?.props]);
+  const paletteKey = JSON.stringify(current?.palette ?? []);
+  const [colors, setColors] = useState<{ name: string; hex: string }[]>(current?.palette ?? []);
+  useEffect(() => setColors(current?.palette ?? []), [current?.id, paletteKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Every change saves itself shortly after the last edit (a colour picker never reliably blurs).
+  useEffect(() => {
+    if (!current || JSON.stringify(colors) === paletteKey) return;
+    const t = setTimeout(() => void savePalette(colors), 700);
+    return () => clearTimeout(t);
+  }, [colors]); // eslint-disable-line react-hooks/exhaustive-deps
   const shotsText = (current?.shots ?? []).join("\n\n");
   const [shots, setShots] = useState(shotsText);
   useEffect(() => setShots(shotsText), [current?.id, shotsText]);
-  const [busy, setBusy] = useState<"" | "analyse" | "import" | "create">("");
+  const [busy, setBusy] = useState<"" | "analyse" | "import" | "create" | "colors">("");
   const [pins, setPins] = useState("");
   const [showPins, setShowPins] = useState(false);
   const [libKey, setLibKey] = useState(0);
@@ -533,6 +543,31 @@ function ThemeSection({
       onThemesChanged(r.themes);
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  }
+
+  /** The designer's colours; from now on Analyse no longer replaces them. */
+  async function savePalette(next: { name: string; hex: string }[]) {
+    if (!current || JSON.stringify(next) === paletteKey) return;
+    try {
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { palette: next });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function suggestColors() {
+    if (!current) return;
+    setBusy("colors");
+    try {
+      const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/palette`);
+      onThemesChanged(r.themes);
+      toast.success("Colours suggested from the references. Change any of them.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
     }
   }
 
@@ -742,6 +777,65 @@ function ThemeSection({
             onChange={(e) => setDirection(e.target.value)}
             onBlur={() => void saveDirection()}
           />
+          <div className="field-row">
+            <label className="field-label">Colours</label>
+            <span className="field-note">
+              {colors.length ? (current.paletteAuto ? "suggested from the references" : "your colours") : ""}
+            </span>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void suggestColors()}
+              disabled={busy === "colors" || !current.references}
+              title="Read the references again and suggest their colours (replaces the list)"
+            >
+              {busy === "colors" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
+              Suggest
+            </button>
+          </div>
+          <div className="theme-palette">
+            {colors.map((c, i) => (
+              <div className="swatch-edit" key={i}>
+                <input
+                  type="color"
+                  value={c.hex}
+                  aria-label={`Colour ${i + 1}`}
+                  onChange={(e) =>
+                    setColors((l) => l.map((x, j) => (j === i ? { ...x, hex: e.target.value.toLowerCase() } : x)))
+                  }
+                />
+                <input
+                  className="swatch-name"
+                  value={c.name}
+                  placeholder={c.hex}
+                  aria-label={`Colour ${i + 1} name`}
+                  onChange={(e) => setColors((l) => l.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={`Remove colour ${i + 1}`}
+                  onClick={() => setColors((l) => l.filter((_, j) => j !== i))}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            {colors.length < 8 && (
+              <button
+                type="button"
+                className="swatch-add"
+                onClick={() => setColors((l) => [...l, { name: "", hex: "#cccccc" }])}
+              >
+                <Plus size={13} /> Colour
+              </button>
+            )}
+          </div>
+          <p className="field-hint">
+            {colors.length
+              ? "The posts are built in these colours, whatever colours the references have. Change any of them to steer the month."
+              : "Press Analyse or Suggest to read the references' colours, or add your own. Without colours the brand palette is used."}
+          </p>
           <label className="field-label" htmlFor="theme-props">
             Props
           </label>
