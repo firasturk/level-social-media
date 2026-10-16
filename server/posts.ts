@@ -18,6 +18,8 @@ import type { Config } from "@shared/config";
 import { stemOf } from "@shared/naming";
 import {
   buildPostPrompt,
+  colourLabel,
+  decodeEntities,
   captionsCsv,
   GRID_SCHEMA,
   gridIdeasInstruction,
@@ -145,7 +147,7 @@ function paletteOf(c: ClientRow): string[] {
     const list = JSON.parse(c.colors) as { name?: string; hex?: string }[];
     return list
       .filter((x) => x && x.hex)
-      .map((x) => `${(x.name || "").trim()} ${String(x.hex).trim()}`.trim());
+      .map((x) => colourLabel(String(x.hex)));
   } catch {
     return [];
   }
@@ -178,9 +180,9 @@ function themePaletteOf(r: ThemeRow): { name: string; hex: string }[] {
   }
 }
 
-/** The theme's chosen colours as prompt strings ("Dusty rose #e8b4b8"); empty when it has none. */
+/** The theme's chosen colours as prompt strings ("deep blue #0042aa", named from the hex); empty when it has none. */
 function monthPaletteOf(theme: ThemeRow | null): string[] {
-  return theme ? themePaletteOf(theme).map((c) => `${c.name} ${c.hex}`.trim()) : [];
+  return theme ? themePaletteOf(theme).map((c) => colourLabel(c.hex)) : [];
 }
 
 function shotsOf(r: ThemeRow): string[] {
@@ -694,7 +696,7 @@ export async function describeUpload(env: Env, sourceId: string): Promise<void> 
 
 /** Product uploads of the plan, by their display name (upload name without folder and extension). */
 function productName(s: SourceRow): string {
-  return stemOf(s.name).split("/").pop() ?? s.name;
+  return decodeEntities(stemOf(s.name).split("/").pop() ?? s.name);
 }
 
 async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> {
@@ -1193,9 +1195,9 @@ postRoutes.post("/generate", async (c) => {
       ref: refId,
       refIsSource: !product && !!refId,
       hasProduct: !!product,
-      product: product
-        ? [productName(product).trim(), product.note?.trim()].filter(Boolean).join(" — ")
-        : undefined,
+      // Only what the photo shows: a file name in the prompt ends up printed on the packaging.
+      product: product ? product.note?.trim() || undefined : undefined,
+      productNames: product ? productNames : undefined,
       extraProducts: extraProducts.length ? extraProducts : undefined,
       ambassadors: (() => {
         const list = (post.people ?? [])

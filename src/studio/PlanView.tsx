@@ -23,6 +23,7 @@ import type { Ambassador, Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
 import {
+  decodeEntities,
   MAX_POST_COUNT,
   POST_TYPE_INFO,
   POST_TYPES,
@@ -818,5 +819,5 @@ export default function PlanView({
 
 /** Upload name without folder and extension: "Denim/cream-mug_01.jpg" -> "cream-mug_01". */
 export function displayName(name: string): string {
-  return (name.split("/").pop() ?? name).replace(/\.[^./]+$/, "");
+  return decodeEntities((name.split("/").pop() ?? name).replace(/\.[^./]+$/, ""));
 }

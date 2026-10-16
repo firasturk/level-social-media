@@ -376,17 +376,6 @@ export default function Workspace({
     }
   }
 
-  /**
-   * A new pin or photo in the month's theme: the month follows it at once. The ideas are written
-   * again from the new reference, then every post is generated again from them.
-   */
-  async function refreshFromTheme(changedTheme: string) {
-    if (!batch || !plan.length || running || busy) return;
-    if (changedTheme !== themeId) return;
-    toast.info("New reference: rewriting this month's ideas, then regenerating the posts.");
-    if (await generateIdeas(config?.notes ?? "")) await generatePosts(undefined, true, false);
-  }
-
   async function gridIdeas(refId: string, notes: string) {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
@@ -730,7 +719,6 @@ export default function Workspace({
                 onAmbassadorsChanged={setAmbassadors}
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
-                onReferencesRead={(id) => void refreshFromTheme(id)}
               />
               <PlanView
                 client={client}

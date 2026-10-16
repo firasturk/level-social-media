@@ -24,7 +24,7 @@ import FontPicker from "./FontPicker";
 import Ambassadors from "./Ambassadors";
 import { Group, KitIcon, type KitKey } from "./kit";
 import type { Ambassador, Client, EngineModel, Theme } from "@shared/types";
-import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
+import { colourName, FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
 import { SIZES, type Size } from "@shared/config";
 import {
   OVERLAY_TEMPLATES,
@@ -60,7 +60,6 @@ export default function BrandPanel({
   onAmbassadorsChanged,
   cast,
   onCast,
-  onReferencesRead,
 }: {
   client: Client;
   onClientsChanged: (clients: Client[]) => void;
@@ -80,7 +79,6 @@ export default function BrandPanel({
   cast: string[];
   onCast: (ids: string[]) => void;
   /** A theme's references changed and were read again (new pin or photo). */
-  onReferencesRead?: (themeId: string) => void;
 }) {
   return (
     <aside className="brand-panel">
@@ -110,7 +108,6 @@ export default function BrandPanel({
         theme={theme}
         onTheme={onTheme}
         onThemesChanged={onThemesChanged}
-        onReferencesRead={onReferencesRead}
       />
       <OverlaySection client={client} onClientsChanged={onClientsChanged} />
       <Section kit="output" title="Output" subtitle="Engine, size and count" defaultOpen={false}>
@@ -406,7 +403,7 @@ function BrandKit({
               <input
                 type="color"
                 value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : "#888888"}
-                onChange={(e) => setColor(i, { hex: e.target.value })}
+                onChange={(e) => setColor(i, { hex: e.target.value, name: colourName(e.target.value) })}
                 aria-label={`${c.name || "Colour"} value`}
               />
               <input
@@ -579,7 +576,6 @@ function ThemeSection({
   theme,
   onTheme,
   onThemesChanged,
-  onReferencesRead,
 }: {
   client: Client;
   themes: Theme[];
@@ -587,7 +583,6 @@ function ThemeSection({
   onTheme: (id: string) => void;
   onThemesChanged: (themes: Theme[]) => void;
   /** The theme's references changed and were read again: the month should follow them. */
-  onReferencesRead?: (themeId: string) => void;
 }) {
   const current = themes.find((t) => t.id === theme) ?? null;
   const [direction, setDirection] = useState(current?.direction ?? "");
@@ -716,14 +711,13 @@ function ThemeSection({
     }
   }
 
-  async function analyse(silent = false, referencesChanged = false) {
+  async function analyse(silent = false) {
     if (!current) return;
     setBusy("analyse");
     try {
       const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/analyze`);
       onThemesChanged(r.themes);
       toast.success(silent ? "Theme direction updated from the references." : "Theme written from its references.");
-      if (referencesChanged) onReferencesRead?.(current.id);
     } catch (e) {
       if (!silent) toast.error((e as Error).message);
     } finally {
@@ -761,7 +755,6 @@ function ThemeSection({
       if (r.analysed) {
         await reloadThemes();
         toast.success("Theme direction written from the imported references.");
-        if (r.added.length) onReferencesRead?.(current.id);
       }
       if (r.added.length) toast.success(`${r.added.length} reference${r.added.length > 1 ? "s" : ""} imported.`);
       if (r.failed.length)
@@ -820,7 +813,7 @@ function ThemeSection({
           <ReferenceLibrary
             key={`${current.id}:${libKey}`}
             skill={current.id}
-            onChanged={(count) => (count > 0 ? void analyse(true, true) : reloadThemes())}
+            onChanged={(count) => (count > 0 ? void analyse(true) : reloadThemes())}
             title="Photos and pins"
             empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
             hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."
@@ -907,7 +900,11 @@ function ThemeSection({
                   value={c.hex}
                   aria-label={`Colour ${i + 1}`}
                   onChange={(e) =>
-                    setColors((l) => l.map((x, j) => (j === i ? { ...x, hex: e.target.value.toLowerCase() } : x)))
+                    setColors((l) =>
+                      l.map((x, j) =>
+                        j === i ? { name: colourName(e.target.value), hex: e.target.value.toLowerCase() } : x,
+                      ),
+                    )
                   }
                 />
                 <input

@@ -28,6 +28,12 @@ const SWAPS: [RegExp, string][] = [
 ];
 
 export function sanitizePrompt(text: string): string {
+  // The rule itself names the words it forbids; it passes through untouched.
+  const at = text.indexOf(SAFE_WORDING_RULE);
+  if (at >= 0)
+    return (
+      sanitizePrompt(text.slice(0, at)) + SAFE_WORDING_RULE + sanitizePrompt(text.slice(at + SAFE_WORDING_RULE.length))
+    );
   let out = text;
   for (const [re, rep] of SWAPS) out = out.replace(re, rep);
   return out;

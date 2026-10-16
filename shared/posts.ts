@@ -147,6 +147,8 @@ export interface PostBrief {
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
   shot?: string;
+  /** Every product name of the month, so the prompt can keep file names away from the model. */
+  productNames?: string[];
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
   extraProducts?: { name: string; note?: string; key: string }[];
   /** Brand ambassadors in this post, attached after the products: name, look and portrait key. */
@@ -161,6 +163,127 @@ export const NO_TEXT_RULE =
 
 export const ONE_PRODUCT_RULE =
   "PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.";
+
+/**
+ * A plain colour word for a hex ("deep blue", "cream", "tan"), so the prompt never carries a
+ * stale name that contradicts the colour the designer actually picked ("Deep Crimson #0042aa").
+ */
+export function colourName(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "";
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+  }
+  if (s < 0.1 || d < 0.04) {
+    if (l < 0.1) return "black";
+    if (l < 0.3) return "charcoal";
+    if (l < 0.55) return "grey";
+    if (l < 0.8) return "light grey";
+    if (l < 0.95) return "off-white";
+    return "white";
+  }
+  // Warm, quiet tones read as the names designers use for them.
+  if (h >= 15 && h < 50) {
+    if (l < 0.45) return l < 0.22 ? "dark brown" : "brown";
+    if (l >= 0.85) return "cream";
+    if (s < 0.6 && l >= 0.7) return "sand beige";
+    if (s < 0.6) return "tan";
+  }
+  const hue =
+    h < 10 ? "red"
+    : h < 20 ? "red-orange"
+    : h < 40 ? "orange"
+    : h < 52 ? "amber"
+    : h < 66 ? "yellow"
+    : h < 85 ? "yellow-green"
+    : h < 155 ? "green"
+    : h < 180 ? "teal"
+    : h < 200 ? "cyan"
+    : h < 245 ? "blue"
+    : h < 265 ? "indigo"
+    : h < 290 ? "purple"
+    : h < 320 ? "magenta"
+    : h < 345 ? "pink"
+    : "red";
+  const tone =
+    l < 0.2 ? "very dark "
+    : l < 0.38 ? "deep "
+    : l > 0.85 ? "pale "
+    : l > 0.68 ? "light "
+    : "";
+  const muted = s < 0.3 ? "muted " : "";
+  return `${tone}${muted}${hue}`;
+}
+
+/** "deep blue #0042aa": the colour word always comes from the hex itself. */
+export function colourLabel(hex: string): string {
+  const h = hex.trim().toLowerCase();
+  const name = colourName(h);
+  return name ? `${name} ${h}` : h;
+}
+
+/**
+ * The product's file name never reaches the image model: it gets printed on the packaging
+ * ("50 - Pistachio Burma" written on a tin). Every spelling of a known product name in the text,
+ * whole or by its dash-separated parts, becomes "the product".
+ */
+export function withoutProductNames(text: string, names: string[]): string {
+  const variants = new Set<string>();
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name) continue;
+    const parts = name.split(/\s*[-–—_]\s*/).filter(Boolean);
+    for (let i = 0; i < parts.length; i++)
+      for (let j = i + 1; j <= parts.length; j++) {
+        const run = parts.slice(i, j);
+        if (run.join("").length < 4 || (run.length === 1 && /^\d+$/.test(run[0]))) continue;
+        variants.add(run.join(" - "));
+        variants.add(run.join("-"));
+        variants.add(run.join(" "));
+      }
+    variants.add(name);
+  }
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*");
+  let out = text;
+  for (const v of [...variants].sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(`(?:the\\s+)?["'“”‘’«»]?${esc(v)}["'“”‘’«»]?`, "gi"), "the product");
+  }
+  return out.replace(/the product(?:\s*[-–—,]?\s*the product)+/gi, "the product").replace(/\bthe the product\b/gi, "the product");
+}
+
+/** Client rules about the layout (logo, marks, bands, type) are the designer's, never drawn in the photo. */
+const LAYOUT_RULE = /\b(logo|logos|mark|marks|band|ornament|ornaments|kufic|typeset|typography|lettering|font|fonts|corner|ground|frame|border)\b/i;
+
+export function photoRules(text: string | undefined): string {
+  return (text ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !LAYOUT_RULE.test(l))
+    .join("\n");
+}
+
+/** Colour words of the reference analysis give way to the designer's chosen colours. */
+function withoutPaletteText(text: string): string {
+  return text
+    .replace(/##\s*Palette[\s\S]*?(?=\n##\s|$)/i, "")
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(palette|colou?r scheme|dominated by)\b/i.test(sentence))
+    .join(" ")
+    .trim();
+}
 
 export function paletteRule(palette: string[], chosen = false): string {
   if (!palette.length) return "";
@@ -198,7 +321,11 @@ export const ONLY_AMBASSADORS_RULE =
 
 /** The product is photographed, never invented: nothing is added to it, nothing else is food. */
 export const PRODUCT_TRUTH_RULE =
-  "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
+  "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
+
+/** The photo is only the photograph: the logo, the corner mark and any band or frame come later. */
+export const NO_DESIGN_RULE =
+  "PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.";
 
 const AVOID =
   "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
@@ -208,6 +335,15 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const parts: string[] = [];
   const extras = b.extraProducts ?? [];
   const people = b.ambassadors ?? [];
+  // Older briefs carry "file name — note" in b.product; the name part never reaches the model.
+  const names = [...(b.productNames ?? []), ...extras.map((e) => e.name)];
+  const productText = (() => {
+    const raw = (b.product ?? "").trim();
+    const note = raw.includes(" — ") ? raw.slice(raw.indexOf(" — ") + 3) : raw;
+    return withoutProductNames(note, names).trim();
+  })();
+  const clean = (t: string) => withoutProductNames(t, names);
+  const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
@@ -215,7 +351,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (b.hasProduct && extras.length) {
     n = extras.length + 1;
     parts.push(
-      `Images 1 to ${n} are product photos: ${n} different products that appear TOGETHER in this one picture, each reproduced exactly (shape, colours, label, packaging) and each appearing once. ${extras.map((e, i) => `Image ${i + 2}: ${e.name}${e.note ? ` — ${e.note}` : ""}.`).join(" ")}`,
+      `Images 1 to ${n} are product photos: ${n} different products that appear TOGETHER in this one picture, each reproduced exactly (shape, colours, label, packaging) and each appearing once. ${extras.map((e, i) => `Image ${i + 2}: ${e.note ? withoutProductNames(e.note, names) : "another of the client's products"}.`).join(" ")}`,
     );
   } else if (b.hasProduct) {
     n = 1;
@@ -240,23 +376,29 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       "The last image is the previous result of this post: apply the revision below to it and keep everything else.",
     );
-  if (b.hasProduct && b.product) parts.push(`THE PRODUCT IN IMAGE 1: ${b.product.trim()}`);
+  if (b.hasProduct && productText && productText.toLowerCase() !== "the product")
+    parts.push(`THE PRODUCT IN IMAGE 1 (as photographed): ${productText}`);
   if ((b.take ?? 1) > 1)
     parts.push(
       `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
     );
-  parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${b.title}\n${b.brief.trim()}`);
-  const style = [b.style.trim(), b.theme.trim()].filter(Boolean).join("\n");
+  parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
+  const theme = chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
+  const style = [b.style.trim(), theme].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
-  const rules = [
-    b.always?.trim() ? `ALWAYS: ${b.always.trim()}` : "",
-    b.never?.trim() ? `NEVER: ${b.never.trim()}` : "",
-  ].filter(Boolean);
-  if (rules.length) parts.push(`CLIENT RULES (these override the reference and the brief):\n${rules.join("\n")}`);
-  if (b.library) parts.push(`VISUAL LANGUAGE:\n${b.library.trim()}`);
+  // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
+  const always = photoRules(b.always);
+  const never = photoRules(b.never);
+  const rules = [always ? `ALWAYS: ${always}` : "", never ? `NEVER: ${never}` : ""].filter(Boolean);
+  if (rules.length)
+    parts.push(
+      `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
+    );
+  const library = b.library ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
+  if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim())
     parts.push(
-      `REFERENCE SHOT: this post recreates one picture of the reference, with the client's product in the place of the reference's product and new faces for any people: ${b.shot.trim()}`,
+      `REFERENCE SHOT: this post recreates one picture of the reference, with the client's product in the place of the reference's product and new faces for any people: ${clean(b.shot.trim())}`,
     );
   if (b.props?.trim())
     parts.push(
@@ -284,7 +426,8 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   );
   parts.push(POST_SHADOW_RULE);
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
-  parts.push(SAFE_WORDING_RULE);
+  if (people.length) parts.push(SAFE_WORDING_RULE);
+  parts.push(NO_DESIGN_RULE);
   if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
   parts.push(AVOID);
   return parts.join("\n\n");
@@ -393,7 +536,7 @@ function peopleRule(r: IdeasRequest): string {
 
 /** The products are the only food: nothing is invented around them or added onto them. */
 const PRODUCT_ONLY_IDEAS =
-  "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
+  "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. In briefs, refer to a product as \"the product\" (or by what it looks like), never by its file name or number. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
 
 /** The month's ambassadors as an instruction block for the ideas writer (empty when none). */
 function ambassadorsBlock(r: IdeasRequest): string {
@@ -456,12 +599,23 @@ ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` 
 
 /** Turn the model's answer into posts, dropping anything malformed. */
 /** Loose key for product names: case, extension, underscores, punctuation and spacing do not count. */
+/** File names saved from websites carry HTML entities ("Burma &#038; Ush"); read them as text. */
+export function decodeEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&#39;/gi, "'")
+    .replace(/&nbsp;/gi, " ");
+}
+
 export function productKeyOf(name: string): string {
-  return name
+  return decodeEntities(name)
     .normalize("NFC")
     .replace(/\.[a-z0-9]{2,5}$/i, "")
     .toLowerCase()
-    .replace(/[_\-.,'"()\u0640]+/g, " ")
+    .replace(/[_\-.,'"()&\u0640]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -479,7 +633,18 @@ export function matchProduct(name: string | undefined | null, products: string[]
     .map((p) => ({ p, k: productKeyOf(p) }))
     .filter(({ k }) => k.length >= 3 && (key.includes(k) || (k.length >= 5 && k.includes(key))))
     .sort((a, b) => b.k.length - a.k.length)[0];
-  return partial?.p;
+  if (partial) return partial.p;
+  // Last chance: most of the product's words appear in the text ("Pistachio Burma tin").
+  const words = new Set(key.split(" ").filter((w) => w.length >= 3));
+  const scored = products
+    .map((p) => {
+      const pw = [...new Set(productKeyOf(p).split(" ").filter((w) => w.length >= 3 && !/^\d+$/.test(w)))];
+      const hits = pw.filter((w) => words.has(w)).length;
+      return { p, hits, share: pw.length ? hits / pw.length : 0 };
+    })
+    .filter((x) => x.hits >= 2 && x.share >= 0.5)
+    .sort((a, b) => b.share - a.share || b.hits - a.hits);
+  return scored[0]?.p;
 }
 
 export function parseIdeas(
@@ -512,7 +677,9 @@ export function parseIdeas(
     const title = String(raw.title ?? "").trim();
     // The product field first; a product named in the title stands in when the field is empty.
     const lead =
-      matchProduct(String(raw.product ?? ""), products) ?? matchProduct(title, products);
+      matchProduct(String(raw.product ?? ""), products) ??
+      matchProduct(title, products) ??
+      (String(raw.product ?? "").trim() ? matchProduct(brief, products) : undefined);
     const listed = Array.isArray(raw.products)
       ? (raw.products as unknown[]).map((x) => matchProduct(String(x ?? ""), products))
       : [];
