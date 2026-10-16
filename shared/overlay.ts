@@ -196,19 +196,55 @@ export function resolveOverlay(raw: Partial<OverlaySpec> | null | undefined): Ov
   };
 }
 
+/** A hosted font offered in the pickers, with the weight it looks right at. */
+export interface FontChoice {
+  family: string;
+  weight: number;
+  /** One or two words on its character. */
+  style: string;
+}
+
+/** Ten Arabic display faces for headlines, calligraphic first. */
+export const HEADLINE_FONTS: FontChoice[] = [
+  { family: "Gulzar", weight: 400, style: "Calligraphic, Nastaliq" },
+  { family: "Noto Nastaliq Urdu", weight: 700, style: "Calligraphic, bold" },
+  { family: "Aref Ruqaa", weight: 700, style: "Ruq'a" },
+  { family: "Amiri", weight: 700, style: "Classic Naskh" },
+  { family: "Reem Kufi", weight: 700, style: "Kufi" },
+  { family: "El Messiri", weight: 700, style: "Elegant modern" },
+  { family: "Lalezar", weight: 400, style: "Heavy display" },
+  { family: "Rakkas", weight: 400, style: "Bold display" },
+  { family: "Lemonada", weight: 700, style: "Rounded, playful" },
+  { family: "Cairo", weight: 900, style: "Bold modern" },
+];
+
+/** Ten readable Arabic text faces for the second line and body copy. */
+export const BODY_FONTS: FontChoice[] = [
+  { family: "Almarai", weight: 400, style: "Clean sans" },
+  { family: "Tajawal", weight: 400, style: "Geometric sans" },
+  { family: "Cairo", weight: 400, style: "Modern sans" },
+  { family: "IBM Plex Sans Arabic", weight: 400, style: "Corporate sans" },
+  { family: "Noto Kufi Arabic", weight: 400, style: "Kufi sans" },
+  { family: "Readex Pro", weight: 400, style: "Wide sans" },
+  { family: "Alexandria", weight: 400, style: "Friendly sans" },
+  { family: "Changa", weight: 400, style: "Condensed" },
+  { family: "Noto Naskh Arabic", weight: 400, style: "Naskh" },
+  { family: "Vazirmatn", weight: 400, style: "Neutral sans" },
+];
+
+/** Latin faces kept for English-first clients. */
+export const LATIN_FONTS: FontChoice[] = [
+  { family: "Montserrat", weight: 600, style: "Latin" },
+  { family: "Inter", weight: 600, style: "Latin" },
+];
+
 /** Google Fonts families the overlay may use without a file; everything else needs an uploaded font. */
 export const HOSTED_FONTS = [
-  "Inter",
-  "Tajawal",
-  "Montserrat",
-  "Cairo",
-  "Almarai",
-  "Noto Kufi Arabic",
-  // Calligraphic Arabic, closest first to a hand-lettered Nastaliq / Ruq'a headline.
-  "Gulzar",
-  "Noto Nastaliq Urdu",
-  "Aref Ruqaa",
-  "Mirza",
-  "Lateef",
-  "Amiri",
+  ...new Set([
+    ...HEADLINE_FONTS.map((f) => f.family),
+    ...BODY_FONTS.map((f) => f.family),
+    ...LATIN_FONTS.map((f) => f.family),
+    "Mirza",
+    "Lateef",
+  ]),
 ];

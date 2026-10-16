@@ -20,11 +20,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ReferenceLibrary from "./ReferenceLibrary";
+import FontPicker from "./FontPicker";
 import type { Client, EngineModel, Theme } from "@shared/types";
 import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
 import { SIZES, type Size } from "@shared/config";
 import {
-  HOSTED_FONTS,
   OVERLAY_TEMPLATES,
   resolveOverlay,
   type OverlaySpec,
@@ -238,6 +238,27 @@ function BrandKit({
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
+  /**
+   * A font choice saves at once and also sets the overlay, so the posts change with it: the
+   * headline font draws the headline, the body font the second line.
+   */
+  async function saveFont(which: "headline" | "body", family: string, weight: number | null) {
+    const fonts = { ...draft.fonts, [which]: family };
+    setDraft((d) => ({ ...d, fonts }));
+    const raw = client.overlay ?? {};
+    const overlay =
+      which === "headline"
+        ? { ...raw, headline: { ...(raw.headline ?? {}), font: family, ...(weight ? { weight } : {}) } }
+        : { ...raw, subline: { ...(raw.subline ?? {}), font: family, ...(weight ? { weight } : {}) } };
+    try {
+      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, { fonts, overlay });
+      onClientsChanged(r.clients);
+      toast.success(`${which === "headline" ? "Headline" : "Body"} font: ${family}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   /** Saves the kit; the fields also save themselves when you click out of them (silent). */
   async function save(silent = false) {
     if (silent && !dirtyRef.current) return;
@@ -361,32 +382,27 @@ function BrandKit({
       )}
       <div className="field-grid">
         <div>
-          <label className="field-label" htmlFor="font-headline">
-            Headline font
-          </label>
-          <input
-            id="font-headline"
+          <label className="field-label">Headline font</label>
+          <FontPicker
+            kind="headline"
+            label="Headline font"
             value={draft.fonts.headline}
-            placeholder="e.g. Montserrat"
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, fonts: { ...d.fonts, headline: e.target.value } }))
-            }
+            brandFonts={client.fontFiles.map((f) => f.name)}
+            onChange={(family, weight) => void saveFont("headline", family, weight)}
           />
         </div>
         <div>
-          <label className="field-label" htmlFor="font-body">
-            Body font
-          </label>
-          <input
-            id="font-body"
+          <label className="field-label">Body font</label>
+          <FontPicker
+            kind="body"
+            label="Body font"
             value={draft.fonts.body}
-            placeholder="e.g. Inter"
-            onChange={(e) =>
-              setDraft((d) => ({ ...d, fonts: { ...d.fonts, body: e.target.value } }))
-            }
+            brandFonts={client.fontFiles.map((f) => f.name)}
+            onChange={(family, weight) => void saveFont("body", family, weight)}
           />
         </div>
       </div>
+      <p className="field-hint">The headline font draws the text on every post; the body font draws the second line.</p>
       <label className="field-label" htmlFor="tone">
         Tone of voice
       </label>
@@ -900,7 +916,6 @@ function OverlaySection({
   const [fontBusy, setFontBusy] = useState(false);
   useEffect(() => setSpec(resolveOverlay(client.overlay)), [client]);
   const dirty = JSON.stringify(spec) !== JSON.stringify(resolveOverlay(client.overlay));
-  const fontNames = [...new Set([...client.fontFiles.map((f) => f.name), ...HOSTED_FONTS])];
 
   const patchHeadline = (p: Partial<OverlaySpec["headline"]>) =>
     setSpec((o) => ({ ...o, headline: { ...o.headline, ...p } }));
@@ -943,7 +958,10 @@ function OverlaySection({
   async function save() {
     setSaving(true);
     try {
-      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, { overlay: spec });
+      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, {
+        overlay: spec,
+        fonts: { headline: spec.headline.font, body: spec.subline.font },
+      });
       onClientsChanged(r.clients);
       toast.success("Overlay saved.");
     } catch (e) {
@@ -986,17 +1004,6 @@ function OverlaySection({
     }
   }
 
-  const fontField = (value: string, onChange: (v: string) => void, label: string) => (
-    <>
-      <input
-        list={`fonts-${client.id}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={label}
-        placeholder="Font family"
-      />
-    </>
-  );
 
   return (
     <Section
@@ -1016,11 +1023,6 @@ function OverlaySection({
         ) : null
       }
     >
-      <datalist id={`fonts-${client.id}`}>
-        {fontNames.map((f) => (
-          <option key={f} value={f} />
-        ))}
-      </datalist>
       <label className="field-label">Layout</label>
       <Select
         value={spec.template}
@@ -1061,7 +1063,7 @@ function OverlaySection({
             </div>
           ) : (
             <div className="prompt-tip">
-              No font files yet. Hosted fonts work without a file: {HOSTED_FONTS.join(", ")}. Upload a .ttf or .woff2 for any other family.
+              No font files yet. The 10 headline and 10 body fonts in the pickers work without a file. Upload a .ttf or .woff2 for any other family; it appears first in the pickers.
             </div>
           )}
           <label className="field-label">Logo</label>
@@ -1141,7 +1143,13 @@ function OverlaySection({
           )}
           <label className="field-label">Headline</label>
           <div className="field-grid">
-            {fontField(spec.headline.font, (font) => patchHeadline({ font }), "Headline font")}
+            <FontPicker
+              kind="headline"
+              label="Headline font"
+              value={spec.headline.font}
+              brandFonts={client.fontFiles.map((f) => f.name)}
+              onChange={(font, weight) => patchHeadline({ font, ...(weight ? { weight } : {}) })}
+            />
             <Select value={spec.headline.position} onValueChange={(v) => patchHeadline({ position: v as OverlaySpec["headline"]["position"] })}>
               <SelectTrigger aria-label="Headline position"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -1179,7 +1187,13 @@ function OverlaySection({
             Show a second line under the headline
           </label>
           <div className="field-grid three">
-            {fontField(spec.subline.font, (font) => patchSubline({ font }), "Second line font")}
+            <FontPicker
+              kind="body"
+              label="Second line font"
+              value={spec.subline.font}
+              brandFonts={client.fontFiles.map((f) => f.name)}
+              onChange={(font, weight) => patchSubline({ font, ...(weight ? { weight } : {}) })}
+            />
             <label className="num"><span>Size</span><input type="number" value={px(spec.subline.size)} onChange={(e) => patchSubline({ size: frac(Number(e.target.value)) })} /></label>
             <label className="num"><span>Colour</span><input type="color" value={spec.subline.color} onChange={(e) => patchSubline({ color: e.target.value })} /></label>
           </div>

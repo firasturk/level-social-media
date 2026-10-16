@@ -5223,3 +5223,29 @@ label.num select {
   font-size: 12px;
   cursor: pointer;
 }
+
+/* Font pickers: every option drawn in its own font. */
+.font-picker {
+  width: 100%;
+}
+.font-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-width: 220px;
+}
+.font-option-name {
+  font-size: 14px;
+}
+.font-option-sample {
+  font-size: 18px;
+  opacity: 0.75;
+}
+.font-picker .font-option-sample {
+  display: none;
+}
+.font-picker-list {
+  max-height: 420px;
+}
