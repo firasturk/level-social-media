@@ -13,6 +13,8 @@ import type { ImageBytes } from "./openai";
 import { advanceBatch } from "./engine";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
+import { styleRow, type StyleRow } from "./styles";
+import { ADAPT_SCHEMA, adaptStyleInstruction } from "@shared/styles";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
@@ -1340,6 +1342,13 @@ postRoutes.post("/generate", async (c) => {
     }
   }
   const wanted = new Set(d.indexes ?? plan.map((p) => p.index));
+  // Posts with a gallery style use its picture as their style reference.
+  const styleIds = [...new Set(plan.map((p) => p.style).filter((x): x is string => !!x))];
+  const styles = new Map(
+    (await Promise.all(styleIds.map((id) => styleRow(c.env, id))))
+      .filter((r): r is StyleRow => !!r?.image_key)
+      .map((r) => [r.id, r]),
+  );
   const statements: D1PreparedStatement[] = [];
   let planned = 0;
   const skipped: number[] = [];
@@ -1395,12 +1404,33 @@ postRoutes.post("/generate", async (c) => {
       ? await first<{ id: string, key: string }>(c.env.DB, "SELECT id, key FROM refs WHERE id = ?", config.gridRef)
       : null;
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
-    const refId = gridRef ? gridRef.id : pickLeastUsed(refs, used);
+    const styled = post.style ? styles.get(post.style) : undefined;
+    const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
     // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
     const exactProduct =
-      config.exact && product && !extraProducts.length && post.type !== "offer" && refId ? product : undefined;
+      config.exact && product && !extraProducts.length && post.type !== "offer" && (refId || styled) ? product : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
+    if (!sourceId && styled) {
+      // No product photo in the picture: the style's own picture is image 1.
+      const stem = `style-${styled.id}`;
+      const existingStyle = sources.find((s) => s.stem === stem);
+      if (existingStyle) sourceId = existingStyle.id;
+      else {
+        sourceId = uuid();
+        await run(
+          c.env.DB,
+          "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, created) VALUES (?, ?, ?, ?, ?, NULL, 'image/jpeg', 0, 'supporting', 'reference', ?)",
+          sourceId,
+          b.id,
+          `style/${styled.id}.jpg`,
+          stem,
+          styled.image_key,
+          now(),
+        );
+        sources.push({ id: sourceId, name: `style/${styled.id}.jpg`, stem, key: styled.image_key!, kind: "reference", role: "supporting" });
+      }
+    }
     if (!sourceId) {
       if (!refId)
         throw new StudioError(
@@ -1462,7 +1492,8 @@ postRoutes.post("/generate", async (c) => {
       tile: config.gridRef ? post.tile : undefined,
       format: config.format ?? "4:5",
       ref: refId,
-      refIsSource: (!product || !!exactProduct) && !!refId,
+      styleKey: styled?.image_key ?? undefined,
+      refIsSource: (!product || !!exactProduct) && !!(refId || styled),
       hasProduct: !!product && !exactProduct,
       exact: exactProduct ? { source: exactProduct.id } : undefined,
       // Only what the photo shows: a file name in the prompt ends up printed on the packaging.
@@ -1996,7 +2027,20 @@ postRoutes.post("/shots", async (c) => {
   };
   const cast = await monthAmbassadors(c.env, config);
   const occasions = pickedOccasions(config.month ?? "", config.occasions);
-  const wanted = new Set(d.indexes ?? plan.map((p) => p.index));
+  // A post with a gallery style keeps its own shot (that style written for its product).
+  const wanted = new Set((d.indexes ?? plan.map((p) => p.index)).filter((i) => !plan.find((p) => p.index === i)?.style));
+  const styledMissing = plan
+    .filter((p) => p.style && !p.scene && (!d.indexes || d.indexes.includes(p.index)))
+    .map((p) => ({ index: p.index, style: p.style! }));
+  const styledScenes = styledMissing.length ? await writeStyleScenes(c.env, b, config, styledMissing) : new Map<number, { style?: string; scene?: string }>();
+  if (!wanted.size) {
+    const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+    const cfg = JSON.parse(fresh.config) as Config;
+    cfg.plan = (cfg.plan ?? []).map((p) => (styledScenes.get(p.index)?.scene ? { ...p, scene: styledScenes.get(p.index)!.scene } : p));
+    if (!d.indexes) cfg.shotsFor = d.sig;
+    await saveConfig(c.env, fresh, cfg);
+    return c.json({ ok: true, plan: cfg.plan });
+  }
   const posts: ShotPost[] = plan
     .filter((p) => wanted.has(p.index))
     .map((p) => {
@@ -2050,9 +2094,104 @@ postRoutes.post("/shots", async (c) => {
   if (!shots.size) throw new StudioError("The model returned no shots. Try again.", 502);
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
-  cfg.plan = (cfg.plan ?? []).map((p) => (shots.has(p.index) ? { ...p, scene: shots.get(p.index) } : p));
+  cfg.plan = (cfg.plan ?? []).map((p) =>
+    shots.has(p.index)
+      ? { ...p, scene: shots.get(p.index) }
+      : styledScenes.get(p.index)?.scene
+        ? { ...p, scene: styledScenes.get(p.index)!.scene }
+        : p,
+  );
   if (!d.indexes) cfg.shotsFor = d.sig;
   delete cfg.shots;
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, plan: cfg.plan });
+});
+
+/** Gallery styles written for their posts' real products: the new shot of each post, by index. */
+async function writeStyleScenes(
+  env: Env,
+  b: BatchRow,
+  config: Config,
+  assign: { index: number; style: string | null }[],
+): Promise<Map<number, { style?: string; scene?: string }>> {
+  const plan = config.plan ?? [];
+  const client = await clientRow(env, config.client);
+  const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
+  const sources = await all<SourceRow>(
+    env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(env, sources);
+  const names = sources.map(productName);
+  const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
+  const cast = await monthAmbassadors(env, config);
+  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const scenes = new Map<number, { style?: string; scene?: string }>();
+  await Promise.all(
+    assign.map(async (a) => {
+      const post = plan.find((p) => p.index === a.index);
+      if (!post) return;
+      if (!a.style) return scenes.set(a.index, {});
+      const style = await styleRow(env, a.style);
+      if (!style || !style.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
+      const m = matchProduct(post.type === "offer" ? post.offer?.products[0] : post.product, names);
+      const src = m ? sources.find((x) => productName(x) === m) : undefined;
+      const text = await askText(
+        env,
+        adaptStyleInstruction({
+          style: { title: style.title, kind: style.kind, prompt: style.prompt },
+          product: src?.note?.trim() || "",
+          category: src?.category || undefined,
+          post: { type: POST_TYPE_INFO[post.type]?.label ?? post.type, headline: post.headline ?? "", brief: withoutProductNames(post.brief, names).slice(0, 500) },
+          brand: { name: client.name, style: client.style, always: photoRules(client.dos), never: photoRules(client.donts) },
+          palette,
+          people: (post.people ?? [])
+            .map((n) => cast.find((x) => x.name.toLowerCase() === n.toLowerCase()))
+            .filter((x): x is AmbassadorRow => !!x)
+            .map((x) => `${x.name} (${x.description})`),
+          sellsDrinks,
+          service: sources.length ? undefined : client.service || undefined,
+        }),
+        ADAPT_SCHEMA,
+      );
+      const scene = withoutProductNames(String(parseJson<{ prompt?: unknown }>(text).prompt ?? "").trim(), names).slice(0, 1500);
+      if (!scene) throw new StudioError("The model returned no shot. Try again.", 502);
+      scenes.set(a.index, { style: style.id, scene });
+    }),
+  );
+  return scenes;
+}
+
+/**
+ * "Pick your style": gallery styles assigned to posts. Each style is written for its post's real
+ * product (its ingredients, packaging and colours), the brand and the post's people; the result is
+ * the post's shot, and the style's picture becomes its style reference at Generate.
+ */
+postRoutes.post("/style", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      assign: z
+        .array(z.object({ index: z.number().int().min(1).max(MAX_POST_COUNT), style: z.string().max(80).nullable() }))
+        .min(1)
+        .max(MAX_POST_COUNT),
+    }),
+  );
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const scenes = await writeStyleScenes(c.env, b, JSON.parse(b.config) as Config, d.assign);
+  const fresh = await ownedPlan(c.env, user, d.batch);
+  const cfg = JSON.parse(fresh.config) as Config;
+  cfg.plan = (cfg.plan ?? []).map((p) => {
+    const s = scenes.get(p.index);
+    if (!s) return p;
+    const { style: _style, scene: _scene, ...rest } = p;
+    void _style;
+    void _scene;
+    return s.style ? { ...rest, style: s.style, scene: s.scene } : rest;
+  });
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, plan: cfg.plan });
 });

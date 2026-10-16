@@ -4,6 +4,7 @@ import {
   Download,
   AlertTriangle,
   Check,
+  Images,
   Eye,
   FileText,
   Grid3x3,
@@ -22,6 +23,7 @@ import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
+import { StylePicker, styleThumb, useStyles } from "./StyleGallery";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -82,6 +84,7 @@ export default function PlanView({
   themeChanged,
   approvals = {},
   onRewrite,
+  onStyles,
   monthOccasions,
 }: {
   client: Client;
@@ -119,6 +122,8 @@ export default function PlanView({
   approvals?: Record<string, Approval>;
   /** Saves the plan, then writes this post's idea again for its (new) type; no image is made. */
   onRewrite: (index: number, plan: Post[]) => void;
+  /** Gallery styles for posts, each written for its post's product (null takes it off). */
+  onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   /** The occasions the month posts (names, custom ones, uploaded portraits). */
   monthOccasions?: MonthOccasions;
   /** Why generation stopped (the engine's message), when the month is paused. */
@@ -168,6 +173,9 @@ export default function PlanView({
       });
     });
   }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { styles } = useStyles();
+  const styleOf = (id: string) => styles.find((st) => st.id === id);
+  const [picking, setPicking] = useState<number | null>(null);
   const dirty = JSON.stringify(draft) !== planKey;
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -230,6 +238,15 @@ export default function PlanView({
 
   return (
     <section className={`plan ${dragging ? "dragging" : ""}`} {...dropProps}>
+      <StylePicker
+        open={picking !== null}
+        onClose={() => setPicking(null)}
+        title={`Pick a style for post ${picking ?? ""}`}
+        max={1}
+        label={() => "Use for this post"}
+        kind={picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : "product"}
+        onPick={(ids) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined)}
+      />
       <input
         ref={fileInput}
         type="file"
@@ -640,6 +657,26 @@ export default function PlanView({
                         <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's
                         gallery; if it is not there, upload it or pick another product.
                       </p>
+                    )}
+                    {p.type !== "greeting" && (
+                      <div className="post-extras post-style">
+                        <span>style</span>
+                        {p.style ? (
+                          <span className="style-chip" title="This post's style from the gallery: click to change">
+                            <button type="button" className="style-chip-main" onClick={() => setPicking(p.index)} disabled={!!busy}>
+                              {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
+                              <span>{styleOf(p.style)?.title ?? "Style"}</span>
+                            </button>
+                            <button type="button" className="style-chip-x" onClick={() => void onStyles([{ index: p.index, style: null }])} aria-label="Take the style off">
+                              <X size={11} />
+                            </button>
+                          </span>
+                        ) : (
+                          <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
+                            <Images size={12} /> Pick a style
+                          </button>
+                        )}
+                      </div>
                     )}
                     {cast.length > 0 && (
                       <div className="post-extras post-people">

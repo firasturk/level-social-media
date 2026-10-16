@@ -30,6 +30,7 @@ import PlanView from "./PlanView";
 import Journey from "./Journey";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
+import StyleGallery from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass } from "lucide-react";
 import { useBatch } from "./useBatch";
@@ -493,6 +494,21 @@ export default function Workspace({
     }
   }
 
+  /** Gallery styles for posts: each is written for its post's product (null takes the style off). */
+  async function assignStyles(assign: { index: number; style: string | null }[]) {
+    if (!batch || !assign.length) return;
+    const t = toast.loading(
+      assign.length > 1 ? `Writing ${assign.length} styles for your products…` : "Writing the style for this product…",
+    );
+    try {
+      await post("/api/studio/posts/style", { batch: batch.id, assign });
+      await refresh();
+      toast.success(assign.some((a) => a.style) ? "Style written for the product." : "Style taken off.", { id: t });
+    } catch (e) {
+      toast.error((e as Error).message, { id: t });
+    }
+  }
+
   async function savePlan(next: Post[]) {
     if (!batch) return;
     try {
@@ -835,6 +851,22 @@ export default function Workspace({
               <AdminView me={user.id} />
             </Suspense>
           </>
+        ) : page === "styles" ? (
+          <>
+            <div className="workspace-head">
+              <div>
+                <div className="eyebrow">Pick your style</div>
+                <h1>Styles</h1>
+                <p>
+                  Product-photo styles read from Pinterest. Remove one and a new one takes its place; select some to update them or bring new ideas.
+                  Picked for a post, a style is written for that post's own product and brand.
+                </p>
+              </div>
+            </div>
+            <section className="style-page">
+              <StyleGallery admin={user.role === "admin"} />
+            </section>
+          </>
         ) : page === "batches" ? (
           <>
             <div className="workspace-head">
@@ -902,6 +934,7 @@ export default function Workspace({
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
               <PlanView
+                onStyles={assignStyles}
                 client={client}
                 month={month}
                 onMonth={setMonth}
@@ -997,6 +1030,7 @@ export default function Workspace({
           ideasBusy={busy === "ideas"}
           rewriting={busy === "reidea"}
           onRewrite={(i, next) => void rewritePost(i, next)}
+          onStyles={assignStyles}
           onGenerate={generateFromJourney}
           testPost={testPost}
           onTest={testOnePost}

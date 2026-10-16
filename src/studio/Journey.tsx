@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   FlaskConical,
+  Images,
   ImagePlus,
   LoaderCircle,
   Minus,
@@ -38,6 +39,8 @@ import {
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
 import { fixNote, postProblems } from "@shared/qa";
+import type { StyleItem } from "@shared/styles";
+import { StylePicker, styleThumb, useStyles } from "./StyleGallery";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -168,6 +171,8 @@ export interface JourneyProps {
   /** A single post is being written again (its type changed or its offer was filled). */
   rewriting: boolean;
   onRewrite: (index: number, plan: Post[]) => void;
+  /** Gallery styles for posts, each written for its post's product (null takes it off). */
+  onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   onGenerate: () => Promise<void>;
   /** The post tested before the month is generated, with its image and its review. */
   testPost: TestPost | null;
@@ -829,6 +834,8 @@ export default function Journey(p: JourneyProps) {
                     </div>
                     <MonthShots
                       plan={p.plan}
+                      admin={p.user.role === "admin"}
+                      onStyles={p.onStyles}
                       busy={adapting}
                       empty={!theme.shots.length}
                       onRewrite={() => void adaptShots(true)}
@@ -1306,6 +1313,8 @@ function GalleryBox({
 
 function MonthShots({
   plan,
+  admin,
+  onStyles,
   busy,
   empty,
   onRewrite,
@@ -1313,6 +1322,8 @@ function MonthShots({
   onSave,
 }: {
   plan: Post[];
+  admin: boolean;
+  onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   busy: boolean;
   empty: boolean;
   onRewrite: () => void;
@@ -1320,12 +1331,59 @@ function MonthShots({
   onSave: (index: number, scene: string) => void;
 }) {
   const written = plan.filter((x) => x.scene).length;
+  const { styles } = useStyles();
+  // null: closed; "grid": styles for the whole grid; a number: the style of that post.
+  const [picking, setPicking] = useState<"grid" | number | null>(null);
+  const [styling, setStyling] = useState(false);
+  const styled = plan.filter((x) => x.style).length;
+  const gridPosts = plan.filter((x) => x.type !== "greeting");
+  async function apply(assign: { index: number; style: string | null }[]) {
+    setStyling(true);
+    try {
+      await onStyles(assign);
+    } finally {
+      setStyling(false);
+    }
+  }
   return (
     <div className="journey-box">
+      <StylePicker
+        open={picking !== null}
+        onClose={() => setPicking(null)}
+        admin={admin}
+        title={picking === "grid" ? "Pick your styles for the grid" : `Pick a style for post ${picking}`}
+        max={picking === "grid" ? Math.max(1, gridPosts.length) : 1}
+        label={(n) => (picking === "grid" ? `Use ${n || ""} for the grid` : "Use for this post")}
+        kind={typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : "product"}
+        onPick={(ids) => {
+          if (picking === "grid") {
+            // The styles are spread over the posts in order; people styles go to posts with people first.
+            const people = ids.filter((id) => styles.find((st) => st.id === id)?.kind === "people");
+            const product = ids.filter((id) => !people.includes(id));
+            let a = 0;
+            let b = 0;
+            const assign = gridPosts.map((x, i) => {
+              const pool = x.people?.length && people.length ? people : product.length ? product : people;
+              const k = pool === people ? a++ : b++;
+              return { index: x.index, style: pool[k % pool.length] ?? ids[i % ids.length] };
+            });
+            void apply(assign);
+          } else if (typeof picking === "number") void apply([{ index: picking, style: ids[0] }]);
+        }}
+      />
       <BoxTitle
         kit="shots"
         actions={
           <>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setPicking("grid")}
+              disabled={busy || styling || !plan.length}
+              title="Pick styles from the gallery: each is written for its post's product"
+            >
+              {styling ? <LoaderCircle className="spinning" size={13} /> : <Images size={13} />} Styles{styled ? ` · ${styled}` : ""}
+            </button>
             {onReadPins && (
               <button type="button" className="text-button" onClick={onReadPins} disabled={busy} title="Read the pins again, then write the shots again">
                 <RefreshCw size={13} /> Pins
@@ -1351,7 +1409,16 @@ function MonthShots({
       ) : (
         <ol className="shot-list">
           {plan.map((x, i) => (
-            <ShotRow key={`${x.index}:${x.scene ?? ""}`} post={x} order={i} busy={busy} onSave={(t) => onSave(x.index, t)} />
+            <ShotRow
+              key={`${x.index}:${x.scene ?? ""}`}
+              post={x}
+              order={i}
+              busy={busy || styling}
+              style={x.style ? styles.find((st) => st.id === x.style) : undefined}
+              onStyle={() => setPicking(x.index)}
+              onUnstyle={() => void apply([{ index: x.index, style: null }])}
+              onSave={(t) => onSave(x.index, t)}
+            />
           ))}
         </ol>
       )}
@@ -1359,7 +1426,23 @@ function MonthShots({
   );
 }
 
-function ShotRow({ post, order, busy, onSave }: { post: Post; order: number; busy: boolean; onSave: (scene: string) => void }) {
+function ShotRow({
+  post,
+  order,
+  busy,
+  style,
+  onStyle,
+  onUnstyle,
+  onSave,
+}: {
+  post: Post;
+  order: number;
+  busy: boolean;
+  style?: StyleItem;
+  onStyle: () => void;
+  onUnstyle: () => void;
+  onSave: (scene: string) => void;
+}) {
   const [text, setText] = useState(post.scene ?? "");
   return (
     <li className="shot-row" style={{ "--i": order } as React.CSSProperties}>
@@ -1370,6 +1453,21 @@ function ShotRow({ post, order, busy, onSave }: { post: Post; order: number; bus
         <span className="shot-headline" dir="auto">
           {post.headline}
         </span>
+        {post.style ? (
+          <span className="style-chip" title="This post's style from the gallery: click to change">
+            <button type="button" className="style-chip-main" onClick={onStyle} disabled={busy}>
+              {style && <img src={styleThumb(style)} alt="" />}
+              <span>{style?.title ?? "Style"}</span>
+            </button>
+            <button type="button" className="style-chip-x" onClick={onUnstyle} disabled={busy} aria-label="Take the style off" title="Back to the pins' shot">
+              <X size={11} />
+            </button>
+          </span>
+        ) : (
+          <button type="button" className="text-button shot-style" onClick={onStyle} disabled={busy} title="Pick a style from the gallery for this post">
+            <Images size={12} /> Style
+          </button>
+        )}
       </div>
       {post.scene || !busy ? (
         <textarea

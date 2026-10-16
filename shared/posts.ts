@@ -141,6 +141,8 @@ export interface Post {
   offer?: PostOffer;
   /** This post's own shot: the pins' look written for its product, type, occasion and people. */
   scene?: string;
+  /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
+  style?: string;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -149,6 +151,8 @@ export interface PostBrief {
   index: number;
   /** A test post made smaller than the month's size: it is made again with the rest. */
   draft?: "1K";
+  /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
+  styleKey?: string;
   /**
    * Exact product mode: the engine paints the scene with an empty place, and the real photo of this
    * product (sources.id) is set into it afterwards, so the product is never redrawn.
@@ -453,7 +457,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   } else if (b.hasProduct) {
     n = 1;
     parts.push("Image 1 is the product photo: the product is the source of truth and is reproduced exactly.");
-  } else if (b.ref) {
+  } else if (b.ref || b.styleKey) {
     n = 1;
     parts.push(`No product is attached. Image 1 is a style reference: ${styleRef}.`);
   } else parts.push("No product is attached.");
@@ -464,7 +468,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `${people.length > 1 ? `Images ${first} to ${n} are portraits of the brand's ambassadors` : `Image ${first} is the portrait of the brand's ambassador`}: ${people.map((p, i) => `Image ${first + i}: ${p.name}${p.description ? ` (${p.description})` : ""}.`).join(" ")} Every ambassador in the picture is exactly this person: the same face, features, hair, skin tone and build as the portrait, in a new pose, expression and outfit that fit the scene; the portrait's background, framing and clothes are not copied. No other people appear unless the post asks for them.`,
     );
   }
-  if (b.hasProduct && b.ref && !b.refIsSource) {
+  if (b.hasProduct && (b.ref || b.styleKey) && !b.refIsSource) {
     n += 1;
     parts.push(`Image ${n} is a style reference: ${styleRef}.`);
   }

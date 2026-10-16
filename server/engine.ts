@@ -1756,7 +1756,10 @@ async function submitTask(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    if (pb.ref && !pb.refIsSource) {
+    if (pb.styleKey && !pb.refIsSource) {
+      imageUrls.push(await signObjectUrl(env, pb.styleKey));
+      roles.mood = true;
+    } else if (pb.ref && !pb.refIsSource) {
       imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
       roles.mood = true;
     }
@@ -1937,7 +1940,13 @@ async function submitOpenAITask(
           mime: obj.httpMetadata?.contentType || "image/jpeg",
         });
     }
-    if (pb.ref && !pb.refIsSource) {
+    if (pb.styleKey && !pb.refIsSource) {
+      const obj = await env.BUCKET.get(pb.styleKey);
+      if (obj) {
+        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+        roles.mood = true;
+      }
+    } else if (pb.ref && !pb.refIsSource) {
       images.push(await referenceBytes(env, pb.ref));
       roles.mood = true;
     }
@@ -2345,7 +2354,10 @@ async function collectReferenceKeys(
   if (config.mode === "post") {
     const pb = postBrief(task);
     for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? [])]) keys.push(extra.key);
-    if (pb.ref && !pb.refIsSource) {
+    if (pb.styleKey && !pb.refIsSource) {
+      keys.push(pb.styleKey);
+      roles.mood = true;
+    } else if (pb.ref && !pb.refIsSource) {
       const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
       if (ref) {
         keys.push(ref.key);

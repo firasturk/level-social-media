@@ -1,11 +1,11 @@
-import { FolderOpen, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
 import type { Client, EngineModel, User } from "@shared/types";
 import type { EngineInfo } from "./ConnectionDialog";
 
-export type Page = "studio" | "batches" | "admin";
+export type Page = "studio" | "batches" | "styles" | "admin";
 
 /** Left rail: brand, pages, the client list and the connection/user footer. */
 export default function Sidebar({
@@ -65,6 +65,10 @@ export default function Sidebar({
           <FolderOpen size={17} />
           Months
           <span className="count">{batches}</span>
+        </button>
+        <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
+          <Images size={17} />
+          Styles
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => onPage("admin")}>
