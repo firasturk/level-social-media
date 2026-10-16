@@ -8438,3 +8438,42 @@ label.num select {
     font-size: 12px;
   }
 }
+.brand-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.brand-swatches-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-500);
+  margin-right: 2px;
+}
+.brand-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-700);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.brand-swatch i {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgb(0 0 0 / 0.12);
+}
+.brand-swatch.on {
+  border-color: var(--ink-900);
+  color: var(--ink-900);
+  font-weight: 600;
+}

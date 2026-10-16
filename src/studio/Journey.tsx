@@ -251,7 +251,8 @@ export default function Journey(p: JourneyProps) {
     products: `${productIds}|${client?.service ?? ""}`,
     count: `${p.postCount}:${p.month}:${JSON.stringify(p.config?.occasions?.picked ?? [])}:${(p.config?.occasions?.custom ?? []).length}`,
     brand: String(client?.updated ?? ""),
-    theme: `${p.themeId}:${theme?.updated ?? ""}:${p.cast.join(",")}`,
+    // The theme's world (its pins and their reading), not its props: props belong to the shots.
+    theme: `${p.themeId}:${theme?.analysed ?? ""}:${theme?.latestRef ?? ""}:${theme?.references ?? ""}:${p.cast.join(",")}`,
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
     shots: `${p.plan.map((x) => x.scene ?? "").join("|")}:${theme?.props ?? ""}`,
   };
@@ -488,7 +489,8 @@ export default function Journey(p: JourneyProps) {
           break;
         }
         const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
-        if (briefAt > plannedAt || (theme && theme.updated > plannedAt))
+        // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
+        if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
           out.push({ text: "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite });
         else if (p.plan.length !== p.postCount)
           out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite });
@@ -1358,16 +1360,16 @@ function MonthShots({
           kind: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
           onPick: (ids: string[]) => {
             if (picking === "grid") {
-              // The styles are spread over the posts in order; people styles go to posts with people first.
-              const people = ids.filter((id) => styles.find((st) => st.id === id)?.kind === "people");
-              const product = ids.filter((id) => !people.includes(id));
-              let a = 0;
-              let b = 0;
-              const assign = gridPosts.map((x, i) => {
-                const pool = x.people?.length && people.length ? people : product.length ? product : people;
-                const k = pool === people ? a++ : b++;
-                return { index: x.index, style: pool[k % pool.length] ?? ids[i % ids.length] };
+              // Every picked style is used, spread over the posts in order; a people style then swaps
+              // onto a post that has people when one is free.
+              const isPeople = (id: string) => styles.find((st) => st.id === id)?.kind === "people";
+              const order = gridPosts.map((_, i) => ids[i % ids.length]);
+              gridPosts.forEach((x, i) => {
+                if (!x.people?.length || isPeople(order[i])) return;
+                const j = gridPosts.findIndex((y, k) => !y.people?.length && isPeople(order[k]));
+                if (j >= 0) [order[i], order[j]] = [order[j], order[i]];
               });
+              const assign = gridPosts.map((x, i) => ({ index: x.index, style: order[i] }));
               void apply(assign);
             } else if (typeof picking === "number") void apply([{ index: picking, style: ids[0] }]);
           },

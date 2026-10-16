@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode, useRef } from "react";
 import { askConfirm, askInput } from "@/lib/confirm";
 import { toast } from "sonner";
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   Link as LinkIcon,
@@ -1080,9 +1081,46 @@ export function ThemeSection({
               </button>
             )}
           </div>
+          {client.colors.length > 0 && (
+            <div className="brand-swatches">
+              <span className="brand-swatches-label">Brand colours</span>
+              {client.colors.map((c) => {
+                const on = colors.some((x) => x.hex.toLowerCase() === c.hex.toLowerCase());
+                return (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    className={`brand-swatch ${on ? "on" : ""}`}
+                    title={on ? `${c.name || c.hex}: in this month (click to take it out)` : `Add ${c.name || c.hex} to this month`}
+                    onClick={() =>
+                      setColors((l) =>
+                        on
+                          ? l.filter((x) => x.hex.toLowerCase() !== c.hex.toLowerCase())
+                          : l.length >= 8
+                            ? l
+                            : [...l, { name: c.name || colourName(c.hex), hex: c.hex.toLowerCase() }],
+                      )
+                    }
+                  >
+                    <i style={{ background: c.hex }} />
+                    {c.name || c.hex}
+                    {on ? <Check size={11} /> : <Plus size={11} />}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="text-button"
+                title="This month in the brand's colours only (replaces the list)"
+                onClick={() => setColors(client.colors.slice(0, 8).map((c) => ({ name: c.name || colourName(c.hex), hex: c.hex.toLowerCase() })))}
+              >
+                Brand colours only
+              </button>
+            </div>
+          )}
           <p className="field-hint">
             {colors.length
-              ? "The posts are built in these colours, whatever colours the references have: the first is the background, the others go to props and fabrics. Change any of them to steer the month."
+              ? "The posts are built in these colours, whatever colours the references have: the first is the background, the others go to the surfaces, fabrics and clothes. Mix the theme's colours with the brand's, or use one of them."
               : "Press Analyse or Suggest to read the references' colours, or add your own. Without colours the brand palette is used."}
           </p>
           </Group>

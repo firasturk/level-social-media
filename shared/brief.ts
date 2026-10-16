@@ -3,6 +3,7 @@
  * means for the month, and one rule the ideas writer then follows.
  */
 import type { BriefNote, BriefStep } from "./config";
+import { NO_PROPS_RULE } from "./posts";
 
 export const BRIEF_SCHEMA = {
   type: "object",
@@ -32,7 +33,7 @@ const ASK: Record<Exclude<BriefStep, "count">, string> = {
   colours:
     "Read the chosen colours like an art director next to the product packaging: which colour carries the background (the first one), which colours go to props and fabrics, and where the product packaging needs contrast against the background (for example navy tins on a cream background). Flag any clash. The logic line states the colour rule of the month.",
   shots:
-    "Read the shots and props like a photographer planning the shoot with these products: which shots suit which kind of product, which gestures change because the client does not sell what the reference held (no drinks, cups or carriers unless the client sells them), and how the props are placed. Never name a colour that is not in the month's colours. The logic line says how the shots are used across the month.",
+    "Read the shots and props like a photographer planning the shoot with these products: which shots suit which kind of product, which gestures change because the client does not sell what the reference held (no drinks, cups or carriers unless the client sells them), and how the props from the screen's PROPS line are placed (when it says none, the month has no props: never suggest any, no blocks, beads, fabrics or decorations). Never name a colour that is not in the month's colours. The logic line says how the shots are used across the month.",
 };
 
 export function briefInstruction(step: Exclude<BriefStep, "count">, context: string): string {
@@ -64,9 +65,9 @@ export function parseBrief(raw: unknown): Omit<BriefNote, "at"> & { categories: 
 }
 
 /** The logic lines of the steps done so far, in journey order. */
-export function briefLines(brief: Partial<Record<BriefStep, BriefNote>> | undefined): string[] {
+export function briefLines(brief: Partial<Record<BriefStep, BriefNote>> | undefined, without: BriefStep[] = []): string[] {
   if (!brief) return [];
-  const order: BriefStep[] = ["products", "count", "brand", "theme", "colours", "shots"];
+  const order = (["products", "count", "brand", "theme", "colours", "shots"] as BriefStep[]).filter((k) => !without.includes(k));
   return order.map((k) => brief[k]?.logic?.trim() ?? "").filter(Boolean);
 }
 
@@ -127,9 +128,9 @@ export function adaptShotsInstruction(r: {
     "PEOPLE: only the people listed for a post appear, each as described (their own gender and look; a man never wears a headscarf, hijab or dress; a woman wears a hijab only when her look says so), dressed as their look says (modest clothing when it says so: no bare shoulders, sleeveless tops, low necklines or short skirts); a post with no people shows at most a hand.",
     "NEVER write any of these unless a post's own product is one: glass, cup, mug, beverage, drink, juice, coffee, tea, liquid, straw, bottle, carrier, sandwich, snack bar, burger or any food that is not the brand's product.",
     r.palette.length
-      ? `COLOURS: name only these colours: ${r.palette.join(", ")}. The background (wall, backdrop, main surface) is ${r.palette[0]}; clothing, fabrics, car paint and props take the other colours. Never name any other colour.`
+      ? `COLOURS: name only these colours: ${r.palette.join(", ")}. The background (wall, backdrop, main surface) is ${r.palette[0]}; ${r.props?.trim() ? "clothing, fabrics, car paint and props" : "clothing, surfaces and car paint"} take the other colours. Never name any other colour.`
       : "",
-    r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : "",
+    r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : NO_PROPS_RULE,
     r.service?.trim()
       ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. The hands hold something of the service's moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
       : "",

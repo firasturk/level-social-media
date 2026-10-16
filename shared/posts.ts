@@ -206,6 +206,10 @@ export interface PostBrief {
   tile?: string;
 }
 
+/** The designer cleared the props: nothing decorative is added to the scenes. */
+export const NO_PROPS_RULE =
+  "PROPS: none this month. Add no decorations of your own (no geometric blocks, cubes, pedestals, beads, pearls scattered around, fabric accents, ribbons, leaves, flowers or petals): the picture holds the surface, the product, the people the post names and what its idea itself needs.";
+
 export const NO_TEXT_RULE =
   "TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.";
 
@@ -520,6 +524,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `PROPS: the scene includes ${b.props.trim()}, placed naturally around the subject in the same light; they never cover the product.`,
     );
+  else if (!b.styleKey) parts.push(NO_PROPS_RULE);
   if (b.grid)
     parts.push(
       `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, text or logos.${b.tile ? ` THIS POST FOLLOWS TILE: ${b.tile.trim()}` : ""}\n${b.grid.trim()}`,
@@ -531,7 +536,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (palette) parts.push(palette);
   if (chosen)
     parts.push(
-      `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to the props, fabrics and accents.`,
+      `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to ${b.props?.trim() ? "the props, fabrics and accents" : "the surfaces, the light and the people's clothes"}.`,
     );
   if (b.exact && images.revision)
     parts.push(
@@ -738,7 +743,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.monthPalette?.length
-      ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. The background of every brief (wall, backdrop, main surface) is ${r.monthPalette[0]}; the other colours go to props, fabrics and accents. Every colour a brief names comes from this list: a car, a cloth, a wall or a cup in the brief is described in one of these colours, never in a colour of the reference (no red car or crimson velvet unless red is in this list).${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
+      ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. The background of every brief (wall, backdrop, main surface) is ${r.monthPalette[0]}; the other colours go to ${r.props?.trim() ? "props, fabrics and accents" : "surfaces, light and the people's clothes"}. Every colour a brief names comes from this list: a car, a cloth, a wall or a cup in the brief is described in one of these colours, never in a colour of the reference (no red car or crimson velvet unless red is in this list).${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
       : r.palette.length
         ? `BRAND PALETTE: ${r.palette.join(", ")}.`
         : "",
@@ -763,7 +768,7 @@ ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` 
       : r.service?.trim()
         ? serviceBlock(r)
         : "No product photos were uploaded: set product to an empty string for every post.",
-    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
+    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : NO_PROPS_RULE,
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     r.types?.length
       ? `POST TYPES (field "type", only these, mixed across the month):\n${types}`
@@ -950,7 +955,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     r.products.length
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product field; spread the posts over different products, and when there are more products than posts leave some products out rather than adding posts). The description after each name is what its photo actually shows: each post's title, headline, subline, brief and caption are about THAT item, never another product:\n${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : "No product photos were uploaded: set product to \"\" for every post and stage the client's kind of product generically.",
-    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the tiles' staging naturally and mention them in the briefs.` : "",
+    r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the tiles' staging naturally and mention them in the briefs.` : NO_PROPS_RULE,
     ambassadorsBlock(r),
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,

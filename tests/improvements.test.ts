@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { castLook } from "@shared/cast";
 import { fixNote, parsePostReview, postProblems, postReviewInstruction } from "@shared/qa";
 import { buildPostPrompt, type Post, type PostBrief } from "@shared/posts";
+import { briefLines } from "@shared/brief";
 import { testSize } from "@shared/pricing";
 import { alphaFromBackground, composite, coverage, cutout, placement, plainBackground } from "../server/compose";
 
@@ -114,5 +115,30 @@ describe("exact product mode", () => {
     const px = new Uint8Array(W * W * 4);
     for (let i = 0; i < px.length; i += 4) px.set([(i * 37) % 255, (i * 91) % 255, (i * 13) % 255, 255], i);
     expect(plainBackground({ data: px, width: W, height: W })).toBeNull();
+  });
+});
+
+describe("props the designer cleared", () => {
+  const base: PostBrief = {
+    post: true, index: 1, type: "lifestyle", title: "T", brief: "B", palette: ["Blue #0061ff", "Orange #e87a3e"], paletteChosen: true,
+    style: "", theme: "", format: "4:5", ref: null, refIsSource: false, hasProduct: true,
+  };
+  it("asks for no decorations at all when the props are empty", () => {
+    const p = buildPostPrompt(base);
+    expect(p).toContain("PROPS: none this month");
+    expect(p).not.toContain("go to the props");
+  });
+  it("keeps the props the designer wrote", () => {
+    const p = buildPostPrompt({ ...base, props: "autumn leaves" });
+    expect(p).toContain("the scene includes autumn leaves");
+    expect(p).not.toContain("PROPS: none this month");
+  });
+});
+
+describe("the ideas read only the screens before them", () => {
+  it("leaves the shots reading out", () => {
+    const at = 1;
+    const lines = briefLines({ theme: { summary: "", points: [], logic: "Theme rule", at }, shots: { summary: "", points: [], logic: "Use cyan props", at } }, ["shots"]);
+    expect(lines).toEqual(["Theme rule"]);
   });
 });

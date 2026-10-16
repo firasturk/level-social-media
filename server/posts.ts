@@ -827,7 +827,8 @@ function ideasContext(
       elements: o.elements,
       portrait: o.portrait,
     })),
-    brief: briefLines(config.brief),
+    // The shots are read after the ideas: their old reading never steers new ideas (props included).
+    brief: briefLines(config.brief, ["shots"]),
     service: products.length ? undefined : client.service || undefined,
   };
 }
