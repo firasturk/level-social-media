@@ -494,6 +494,22 @@ export default function Workspace({
     }
   }
 
+  /** New styles waiting for the admin's approval (the daily update and New ideas). */
+  const [pendingStyles, setPendingStyles] = useState(0);
+  const loadPending = useCallback(async () => {
+    if (user.role !== "admin") return;
+    try {
+      setPendingStyles((await get<{ n: number }>("/api/studio/styles/pending")).n);
+    } catch {
+      /* the badge waits for the next check */
+    }
+  }, [user.role]);
+  useEffect(() => {
+    void loadPending();
+    const t = setInterval(() => void loadPending(), 10 * 60_000);
+    return () => clearInterval(t);
+  }, [loadPending]);
+
   /** Gallery styles for posts: each is written for its post's product (null takes the style off). */
   async function assignStyles(assign: { index: number; style: string | null }[]) {
     if (!batch || !assign.length) return;
@@ -822,6 +838,7 @@ export default function Workspace({
       <BootScreen done={bootTimedOut || stateReady} />
       <Sidebar
         page={page}
+        pendingStyles={pendingStyles}
         onPage={setPage}
         user={user}
         batches={batches.length}
@@ -864,7 +881,15 @@ export default function Workspace({
               </div>
             </div>
             <section className="style-page">
-              <StyleScreen open admin={user.role === "admin"} onClose={() => setPage("studio")} />
+              <StyleScreen
+                open
+                admin={user.role === "admin"}
+                onPendingChange={() => void loadPending()}
+                onClose={() => {
+                  setPage("studio");
+                  void loadPending();
+                }}
+              />
             </section>
           </>
         ) : page === "batches" ? (

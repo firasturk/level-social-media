@@ -78,10 +78,15 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
 
 /** One page of the library: a tab (all, trends or a category), a search and a page number. */
 async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number } = {}) {
-  const where = ["status = 'active'"];
+  const admin = user.role === "admin";
+  // The admin's queue: what the daily update and New ideas brought, waiting for approval.
+  const reviewing = admin && opts.tab === "review";
+  const where = [reviewing ? "status = 'review'" : "status = 'active'"];
   const args: unknown[] = [];
   const trendsFrom = now() - TREND_DAYS * 86_400_000;
-  if (opts.tab === "trends") {
+  if (reviewing) {
+    /* the whole queue */
+  } else if (opts.tab === "trends") {
     where.push("created >= ?");
     args.push(trendsFrom);
   } else if (opts.tab && STYLE_CATEGORY_IDS.includes(opts.tab as StyleCategory)) {
@@ -95,7 +100,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
       const like = `%${word}%`;
       args.push(like, like, like, like);
     }
-  const order = opts.tab === "trends" ? "created DESC" : "score DESC, created DESC";
+  const order = opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC";
   const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
   const page = Math.min(pages, Math.max(1, opts.page ?? 1));
@@ -111,6 +116,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   const pool = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
   const counts: Record<string, number> = { all: cats.reduce((x, c) => x + c.n, 0), trends };
   for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
+  if (admin) counts.review = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review'"))?.n ?? 0;
   return { ok: true, styles: rows.map((r) => toItem(r, user.role === "admin")), total, page, pages, counts, pool };
 }
 
@@ -246,8 +252,11 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
   return { image, thumb, bytes, mime, w, h };
 }
 
-/** Reads one pool pin: a usable style joins the library (or is rejected); its picture is kept. */
-async function readPin(env: Env, row: StyleRow): Promise<"active" | "rejected"> {
+/**
+ * Reads one pool pin: a usable style waits for the admin's approval (or is rejected); its picture
+ * is kept. Only what the admin approves reaches the team's library.
+ */
+async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> {
   try {
     const stored = await storeImage(env, row);
     const text = await askText(env, describeStyleInstruction(row.note), STYLE_SCHEMA, [{ bytes: stored.bytes, mime: stored.mime }]);
@@ -259,7 +268,7 @@ async function readPin(env: Env, row: StyleRow): Promise<"active" | "rejected"> 
     }
     await run(
       env.DB,
-      "UPDATE styles SET status = 'active', kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
+      "UPDATE styles SET status = 'review', kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
       s.kind,
       s.category,
       s.score,
@@ -274,7 +283,7 @@ async function readPin(env: Env, row: StyleRow): Promise<"active" | "rejected"> 
       now(),
       row.id,
     );
-    return "active";
+    return "review";
   } catch (e) {
     console.error("[styles] read failed", row.pin, errorMessage(e));
     await run(env.DB, "UPDATE styles SET status = 'rejected', updated = ? WHERE id = ?", now(), row.id);
@@ -289,7 +298,7 @@ export async function readSome(env: Env, budget = READ_AT_ONCE): Promise<number>
   // The newest pins first: what was collected today is read before older leftovers.
   const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created DESC LIMIT ?", budget);
   const done = await Promise.all(pool.map((r) => readPin(env, r)));
-  return done.filter((x) => x === "active").length;
+  return done.filter((x) => x === "review").length;
 }
 
 /** New pins for the pool: "more like this" of the library's best styles and the day's searches. */
@@ -442,7 +451,9 @@ styleRoutes.post("/add", async (c) => {
         if (!st.prompt) return failed.push(link);
         await run(
           c.env.DB,
-          "UPDATE styles SET status = 'active', position = -1, kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
+          "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
+          // The admin's own pins go straight in; anyone else's wait for the admin.
+          c.get("user").role === "admin" ? "active" : "review",
           st.kind,
           st.category,
           Math.max(st.score, 9),
@@ -464,7 +475,7 @@ styleRoutes.post("/add", async (c) => {
       }
     }),
   );
-  return c.json({ ...(await list(c.env, c.get("user"), { tab: "trends" })), added: added.length, failed });
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: c.get("user").role === "admin" ? "trends" : "all" })), added: added.length, failed });
 });
 
 /** Reads a few more pins into the library now (admins may read more at once). */
@@ -476,17 +487,16 @@ styleRoutes.post("/fill", async (c) => {
 
 /** Takes styles out of the library. */
 async function remove(env: Env, ids: string[]) {
-  for (const id of ids) await run(env.DB, "UPDATE styles SET status = 'removed', updated = ? WHERE id = ? AND status = 'active'", now(), id);
+  for (const id of ids) await run(env.DB, "UPDATE styles SET status = 'removed', updated = ? WHERE id = ? AND status IN ('active','review')", now(), id);
 }
 
 styleRoutes.delete("/:id", async (c) => {
+  // Crossed out is gone: nothing takes its place, and the picture never comes back.
   await remove(c.env, [c.req.param("id")]);
-  // The library keeps growing: one more pin is read behind.
-  c.executionCtx.waitUntil(readSome(c.env, 1).catch((e) => console.error("[styles] read failed", errorMessage(e))));
   return c.json(await list(c.env, c.get("user"), listQuery(c)));
 });
 
-/** "New ideas": the selected styles leave and as many new ones are read now (they open on Trends). */
+/** "New ideas": the selected styles leave and as many new ones are read now (they wait for the admin's approval). */
 styleRoutes.post("/replace", async (c) => {
   const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(200) }));
   await remove(c.env, d.ids);
@@ -582,6 +592,29 @@ styleRoutes.post("/classify", async (c) => {
     done++;
   }
   return c.json({ ok: true, done, checked: rows.length });
+});
+
+/** The admin approves styles from the queue: they join the library (and show as new on Trends). */
+styleRoutes.post("/approve", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Only an admin approves styles.", 403);
+  const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(200) }));
+  for (const id of d.ids)
+    await run(c.env.DB, "UPDATE styles SET status = 'active', created = ?, updated = ? WHERE id = ? AND status = 'review'", now(), now(), id);
+  return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), approved: d.ids.length });
+});
+
+/** Takes several styles out at once (the admin's Reject, or a team member's clean-up). */
+styleRoutes.post("/remove", async (c) => {
+  const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(200) }));
+  await remove(c.env, d.ids);
+  return c.json(await list(c.env, c.get("user"), listQuery(c)));
+});
+
+/** How many styles wait for the admin (the sidebar's badge). */
+styleRoutes.get("/pending", async (c) => {
+  if (c.get("user").role !== "admin") return c.json({ ok: true, n: 0 });
+  const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review'"))?.n ?? 0;
+  return c.json({ ok: true, n });
 });
 
 /** "Update": the selected styles are read again into a fresh variation of the same idea. */

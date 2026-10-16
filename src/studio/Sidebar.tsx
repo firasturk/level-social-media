@@ -24,7 +24,10 @@ export default function Sidebar({
   locked,
   onClient,
   onClientsChanged,
+  pendingStyles = 0,
 }: {
+  /** Styles waiting for the admin's approval. */
+  pendingStyles?: number;
   page: Page;
   onPage: (p: Page) => void;
   user: User;
@@ -69,6 +72,11 @@ export default function Sidebar({
         <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
           <Images size={17} />
           Styles
+          {pendingStyles > 0 && (
+            <span className="count waiting" title={`${pendingStyles} new styles waiting for your approval`}>
+              {pendingStyles}
+            </span>
+          )}
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => onPage("admin")}>

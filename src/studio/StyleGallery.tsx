@@ -78,10 +78,13 @@ export default function StyleScreen({
   onClose,
   admin,
   pick,
+  onPendingChange,
 }: {
   open: boolean;
   onClose: () => void;
   admin?: boolean;
+  /** The admin's queue changed (the sidebar's badge follows). */
+  onPendingChange?: () => void;
   /** Picking for one post ("post") or for the grid ("grid", spread over `posts` posts). */
   pick?: {
     mode: "post" | "grid";
@@ -92,6 +95,7 @@ export default function StyleScreen({
   };
 }) {
   const [tab, setTab] = useState(pick?.tab ?? "all");
+  const reviewing = !!admin && tab === "review";
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -208,9 +212,26 @@ export default function StyleScreen({
       toast.success(
         what === "refresh"
           ? `${list.length} style${list.length > 1 ? "s" : ""} written again.${ids.length > 12 ? " Up to 12 at a time." : ""}`
-          : `${list.length} removed · ${r.added ?? 0} new idea${r.added === 1 ? "" : "s"} added (see Trends).`,
+          : `${list.length} removed · ${r.added ?? 0} new idea${r.added === 1 ? "" : "s"} ${admin ? "waiting in To approve" : "sent to the admin for approval"}.`,
       );
       setSelected([]);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** The admin's queue: approve the good ones (they reach the team), reject the rest (gone for good). */
+  async function judge(what: "approve" | "remove", list: string[]) {
+    if (!list.length) return;
+    setBusy(what);
+    try {
+      const r = await post<Page>(`/api/studio/styles/${what}?${query()}`, { ids: list });
+      changed(r);
+      toast.success(what === "approve" ? `${list.length} approved: the team sees them now.` : `${list.length} rejected.`);
+      setSelected([]);
+      onPendingChange?.();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -314,13 +335,13 @@ export default function StyleScreen({
         )}
         <div className="style-top-row">
           <div className="style-tabs" role="tablist">
-            {TABS.map((t) => (
+            {[...(admin ? [{ id: "review", label: "To approve" }] : []), ...TABS].map((t) => (
               <button
                 key={t.id}
                 type="button"
                 role="tab"
                 aria-selected={tab === t.id}
-                className={`journey-chip ${tab === t.id ? "active" : ""}`}
+                className={`journey-chip ${tab === t.id ? "active" : ""} ${t.id === "review" && counts.review ? "waiting" : ""}`}
                 onClick={() => {
                   setTab(t.id);
                   setPage(1);
@@ -353,6 +374,11 @@ export default function StyleScreen({
             <button type="button" className="text-button" disabled={!n} onClick={() => setSelected([])}>
               Select none
             </button>
+            {reviewing && shown.length > 0 && (
+              <button type="button" className="text-button style-approve-all" disabled={!!busy} onClick={() => void judge("approve", shown.map((s) => s.id))}>
+                Approve all on this page
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -365,6 +391,7 @@ export default function StyleScreen({
               {data.total} style{data.total === 1 ? "" : "s"}
               {q ? ` for “${q}”` : ""} · page {data.page} of {pageCount}
               {tab === "trends" ? " · new in the last two weeks" : ""}
+              {reviewing ? " · waiting for your approval: only what you approve reaches the team" : ""}
             </span>
           ) : (
             <span>Loading the library…</span>
@@ -396,7 +423,12 @@ export default function StyleScreen({
                   <button type="button" onClick={() => setPreview(s)} aria-label={`Open ${s.title}`} title="Open">
                     <Maximize2 size={13} />
                   </button>
-                  <button type="button" onClick={() => void remove(s)} aria-label={`Remove ${s.title}`} title="Remove from the library">
+                  <button
+                    type="button"
+                    onClick={() => (reviewing ? void judge("remove", [s.id]) : void remove(s))}
+                    aria-label={`${reviewing ? "Reject" : "Remove"} ${s.title}`}
+                    title={reviewing ? "Reject: it never reaches the team" : "Remove from the library for good"}
+                  >
                     <X size={13} />
                   </button>
                 </span>
@@ -407,7 +439,11 @@ export default function StyleScreen({
             Array.from({ length: 18 }, (_, i) => (
               <div key={`s${i}`} className="style-tile skeleton" style={{ flexGrow: 0.75, flexBasis: "calc(var(--row) * 0.75)" }} />
             ))}
-          {data && !shown.length && <p className="style-empty">{q ? `Nothing for “${q}” here. Try another word or another tab.` : "No styles here yet: new ones come in every day."}</p>}
+          {data && !shown.length && (
+            <p className="style-empty">
+              {reviewing ? "Nothing waiting: new styles arrive here every day for your approval." : q ? `Nothing for “${q}” here. Try another word or another tab.` : "No styles here yet: new ones come in every day."}
+            </p>
+          )}
           <span className="style-rows-end" />
         </div>
         {pageCount > 1 && (
@@ -430,10 +466,20 @@ export default function StyleScreen({
         )}
       </div>
 
-      {(n > 0 || pick) && (
+      {(n > 0 || (pick && !reviewing)) && (
         <div className="style-dock">
           <span className="style-dock-count">{n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : "Select one style"}</span>
-          {n > 0 && (
+          {n > 0 && reviewing && (
+            <>
+              <button type="button" className="secondary" disabled={!!busy} onClick={() => void judge("remove", ids)} title="Reject: they never reach the team">
+                {busy === "remove" ? <LoaderCircle className="spinning" size={14} /> : <X size={14} />} Reject
+              </button>
+              <button type="button" className="primary" disabled={!!busy} onClick={() => void judge("approve", ids)} title="Approve: the team sees them in the library">
+                {busy === "approve" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Approve {n}
+              </button>
+            </>
+          )}
+          {n > 0 && !reviewing && (
             <>
               <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("refresh")} title="Write the selected styles again: a fresh take on the same idea">
                 {busy === "refresh" ? <LoaderCircle className="spinning" size={14} /> : <RefreshCw size={14} />} Update
@@ -443,7 +489,7 @@ export default function StyleScreen({
               </button>
             </>
           )}
-          {pick && (
+          {pick && !reviewing && (
             <button type="button" className="primary" disabled={!n || !!busy || (pick.mode === "post" && n !== 1)} onClick={() => void use()}>
               {busy === "pick" ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} {useLabel}
             </button>

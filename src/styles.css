@@ -8756,3 +8756,23 @@ label.num select {
     padding: 2px 0;
   }
 }
+/* The admin's approval queue. */
+.style-screen .style-top .journey-chip.waiting:not(.active) {
+  border-color: #d946a8;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgb(217 70 168 / 0.25);
+  animation: style-waiting 2.4s ease-in-out infinite;
+}
+@keyframes style-waiting {
+  50% {
+    box-shadow: 0 0 0 6px rgb(217 70 168 / 0.08);
+  }
+}
+.style-screen .style-top .style-approve-all {
+  color: #f0abfc;
+  font-weight: 700;
+}
+.sidebar-nav .count.waiting {
+  background: linear-gradient(90deg, #d946a8, #7c3aed);
+  color: #fff;
+}
