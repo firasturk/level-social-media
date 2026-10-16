@@ -244,7 +244,7 @@ export default function PlanView({
         pick={{
           mode: "post",
           label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,
-          tab: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          tab: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "lifestyle" : undefined,
           onPick: (ids: string[]) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined),
         }}
       />

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { Check, ChevronLeft, ChevronRight, Link2, LoaderCircle, Maximize2, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { del, get, post } from "@/api";
+import { AnimatedLevelLogo } from "@/components/LevelLogo";
 import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
 
 type Page = {
@@ -274,6 +275,7 @@ export default function StyleScreen({
     <div className="style-screen" role="dialog" aria-modal aria-label="Pick your style">
       <header className="style-top">
         <div className="style-top-row">
+          <AnimatedLevelLogo className="style-logo" />
           <div className="style-heading">
             <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
             <h1>Pick your style</h1>
@@ -382,7 +384,7 @@ export default function StyleScreen({
                 <button type="button" className="style-tile-image" style={{ aspectRatio: `${ar}` }} onClick={() => toggle(s)} aria-pressed={on} title={s.tags}>
                   <img src={styleThumb(s)} alt={s.title} loading="lazy" decoding="async" />
                   <span className="style-tile-label">
-                    <small>{STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? (s.kind === "people" ? "With people" : "Product shot")}</small>
+                    <small>{STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style"}</small>
                     <b>{s.title}</b>
                   </span>
                 </button>

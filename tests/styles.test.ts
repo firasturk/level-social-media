@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptStyleInstruction, describeStyleInstruction, parseStyle, seasonWords } from "@shared/styles";
+import { adaptStyleInstruction, describeStyleInstruction, parseStyle, pictureSig, seasonWords } from "@shared/styles";
 import { buildPostPrompt, type PostBrief } from "@shared/posts";
 
 describe("style gallery", () => {
@@ -55,9 +55,14 @@ describe("style gallery", () => {
 describe("the open style library", () => {
   it("puts every style on a shelf", () => {
     const base = { keep: true, score: 9, kind: "product", title: "Fridge Stash", tags: "", prompt: "p".repeat(80) };
-    expect(parseStyle({ ...base, category: "food" }).category).toBe("food");
-    expect(parseStyle({ ...base, category: "nonsense" }).category).toBe("product");
-    expect(parseStyle({ ...base, kind: "people" }).category).toBe("people");
+    expect(parseStyle({ ...base, category: "sweets" }).category).toBe("sweets");
+    expect(parseStyle({ ...base, category: "drinks" }).category).toBe("drinks");
+    expect(parseStyle({ ...base, category: "nonsense" }).category).toBe("lifestyle");
+  });
+
+  it("knows a picture under any pin", () => {
+    expect(pictureSig("https://i.pinimg.com/736x/39/5c/39/395c39e081a60ee237f7c302eeed5337.jpg")).toBe("395c39e081a60ee237f7c302eeed5337");
+    expect(pictureSig("https://i.pinimg.com/originals/39/5c/39/395c39e081a60ee237f7c302eeed5337.png")).toBe("395c39e081a60ee237f7c302eeed5337");
   });
 
   it("knows the season's words for the daily search", () => {

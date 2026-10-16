@@ -1363,7 +1363,7 @@ function MonthShots({
           mode: picking === "grid" ? "grid" : "post",
           posts: gridPosts.length,
           label: typeof picking === "number" ? `Post ${String(picking).padStart(2, "0")}` : undefined,
-          tab: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          tab: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "lifestyle" : undefined,
           onPick: (ids: string[], items: StyleItem[]) => {
             if (picking === "grid") {
               // Every picked style is used, spread over the posts in order; a people style then swaps

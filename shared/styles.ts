@@ -8,19 +8,21 @@ export type StyleKind = (typeof STYLE_KINDS)[number];
 
 /** The library's categories, as the team browses them. */
 export const STYLE_CATEGORIES = [
-  { id: "product", label: "Product shot" },
+  { id: "corporate", label: "Corporate" },
+  { id: "fashion", label: "Fashion" },
+  { id: "food", label: "Food" },
+  { id: "drinks", label: "Drinks" },
+  { id: "sweets", label: "Sweets" },
   { id: "lifestyle", label: "Lifestyle" },
-  { id: "people", label: "With people" },
-  { id: "food", label: "Food & dessert" },
-  { id: "beauty", label: "Beauty & care" },
-  { id: "luxury", label: "Luxury & gifts" },
+  { id: "beauty", label: "Beauty" },
   { id: "seasonal", label: "Seasonal" },
+  { id: "luxury", label: "Luxury" },
 ] as const;
 export type StyleCategory = (typeof STYLE_CATEGORIES)[number]["id"];
 export const STYLE_CATEGORY_IDS = STYLE_CATEGORIES.map((c) => c.id) as StyleCategory[];
 
 /** Styles per page of the library. */
-export const STYLE_PAGE_SIZE = 48;
+export const STYLE_PAGE_SIZE = 120;
 /** "Trends": what joined the library in the last two weeks. */
 export const TREND_DAYS = 14;
 
@@ -58,7 +60,7 @@ export const STYLE_SCHEMA = {
     keep: { type: "boolean" },
     score: { type: "integer" },
     kind: { type: "string", enum: ["product", "people"] },
-    category: { type: "string", enum: ["product", "lifestyle", "people", "food", "beauty", "luxury", "seasonal"] },
+    category: { type: "string", enum: ["corporate", "fashion", "food", "drinks", "sweets", "lifestyle", "beauty", "seasonal", "luxury"] },
     title: { type: "string" },
     tags: { type: "string" },
     prompt: { type: "string" },
@@ -75,14 +77,14 @@ export function describeStyleInstruction(note: string, previous?: { title: strin
     STYLE_BAR,
     "score: 1-10, how far this pin reaches the bar (9-10: as bold and original as the team's picks; 7-8: a strong concept; 4-6: a nice but ordinary product photo; 1-3: catalogue or stock).",
     'kind: "people" when a person, or hands and arms that are part of the style, hold, use or present the product; otherwise "product".',
-    'category: the shelf it belongs on: "product" (a product-only shot or set piece), "lifestyle" (the product living in a real place or moment), "people" (a person with the product is the idea), "food" (desserts, sweets, food or drink staging), "beauty" (skincare, cosmetics, care), "luxury" (gifts, premium boxes, jewellery-like staging), "seasonal" (an occasion or season: Ramadan, Eid, winter, summer, Valentine).',
+    'category: the shelf it belongs on, by what the pin advertises: "corporate" (banks, insurance, telecom, tech, services, B2B), "fashion" (clothes, shoes, bags, accessories), "food" (meals, snacks, savoury food), "drinks" (coffee, juice, soft drinks, milkshakes, any beverage), "sweets" (desserts, chocolate, pastries, sweets, ice cream), "lifestyle" (home, everyday products, people living with a product), "beauty" (skincare, cosmetics, perfume, care), "seasonal" (an occasion or season: Ramadan, Eid, winter, summer, Valentine), "luxury" (premium gifts, jewellery, high-end boxes).',
     'title: 2-3 words naming the idea, like a product-shot preset ("Claw Machine Grab", "Cloud Swing", "Fridge Stash", "Balloon Lift", "Giant In The City").',
     "tags: 3-5 short words, comma separated (surface, effect, mood).",
     "prompt: a reusable photo prompt in English, 110-190 words, for ANY product, that keeps the pin's IDEA (the surprising scale, object or set piece) as its heart. Write 'the product' for the item. Describe: camera angle and distance; how the product sits, stands, floats or is held; the set and surface; the props and how they are arranged; effects (splash, condensation, frost, smoke, light beams); the light (direction, hardness, colour); the background (write 'the brand's main colour' where the pin uses a strong single colour); depth of field and lens; the mood. Where the pin shows a flavour or ingredient (raspberries, citrus slices, coffee beans), write 'the product's own key ingredients' (for example 'pieces of the product's own key ingredients frozen inside crystal-clear ice cubes'), never a specific fruit, food or brand. For a person write 'the brand ambassador' with pose, hands, framing and modest clothing, never a specific face. No text, logos or brand names in the picture. Use a written prompt on the pin as inspiration only; write your own.",
     previous
       ? `This style already exists as "${previous.title}": ${previous.prompt}\nWrite a FRESH variation of the same idea: keep what makes the style recognisable, change the camera angle, the arrangement or the set so it reads new. Keep the same kind.`
       : "",
-    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "category": "product", "title": "...", "tags": "...", "prompt": "..."}.',
+    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "category": "sweets", "title": "...", "tags": "...", "prompt": "..."}.',
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -97,7 +99,7 @@ export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: 
     keep: d.keep !== false && prompt.length > 40 && !!title && score >= MIN_SCORE,
     score,
     kind: d.kind === "people" ? "people" : "product",
-    category: STYLE_CATEGORY_IDS.includes(d.category as StyleCategory) ? (d.category as StyleCategory) : d.kind === "people" ? "people" : "product",
+    category: STYLE_CATEGORY_IDS.includes(d.category as StyleCategory) ? (d.category as StyleCategory) : "lifestyle",
     title,
     tags: String(d.tags ?? "").trim().slice(0, 120),
     prompt,
@@ -158,24 +160,20 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
 /** Pinterest searches that fill the pool, by the kind they mostly bring. */
 /** What the daily refresh searches for, by category (the season's words are added on the day). */
 export const STYLE_QUERIES: Record<StyleCategory, string[]> = {
-  product: [
-    "creative product advertising concept surreal",
-    "giant product in city ad cgi",
-    "claw machine product advertising",
-    "product balloons sky advertising",
-    "oversized product surreal campaign",
-    "nano banana pro product concept prompt",
+  corporate: [
+    "creative insurance advertising concept",
+    "creative bank advertising campaign surreal",
+    "telecom creative ad concept 3d",
+    "corporate creative advertising poster concept",
   ],
-  lifestyle: ["creative lifestyle product photography concept", "product in everyday scene surreal ad", "product picnic advertising creative"],
-  people: [
-    "surreal advertising model holding oversized product",
-    "creative campaign person product balloons",
-    "model monochrome set product advertising",
-  ],
-  food: ["creative dessert advertising concept", "surreal food product photography", "chocolate box creative ad campaign", "sweets packaging creative photography"],
-  beauty: ["creative skincare advertising concept 3d", "surreal cosmetics product ad", "skincare product creative set design"],
-  luxury: ["luxury gift box creative advertising", "premium packaging surreal campaign", "luxury product set design advertising"],
+  fashion: ["creative fashion advertising concept surreal", "shoes creative advertising set design", "handbag creative campaign surreal", "fashion product cgi campaign"],
+  food: ["creative food advertising concept surreal", "burger creative advertising cgi", "snack packaging creative campaign", "food product giant scale advertising"],
+  drinks: ["creative drink advertising concept", "coffee creative advertising surreal", "juice bottle creative campaign splash", "soft drink can creative cgi ad", "boba tea creative advertising"],
+  sweets: ["creative dessert advertising concept", "chocolate box creative ad campaign", "pastry creative advertising surreal", "ice cream creative campaign cgi", "sweets packaging creative photography"],
+  lifestyle: ["creative lifestyle product advertising concept", "surreal advertising model holding oversized product", "product in everyday scene surreal ad", "playful product set design advertising"],
+  beauty: ["creative skincare advertising concept 3d", "surreal cosmetics product ad", "perfume creative campaign surreal"],
   seasonal: ["ramadan product advertising creative", "eid gift box advertising concept", "winter product advertising surreal", "summer product advertising creative"],
+  luxury: ["luxury gift box creative advertising", "premium packaging surreal campaign", "luxury product set design advertising", "jewellery creative campaign surreal"],
 };
 
 /** Words of the season for the daily search (a Jordanian brand's calendar). */
@@ -190,4 +188,9 @@ export function seasonWords(date: Date): string[] {
   if (m === 2) out.push("valentine");
   if (m === 12) out.push("christmas new year");
   return out;
+}
+
+/** A picture's fingerprint: the pinimg file name, the same for every pin of that picture. */
+export function pictureSig(url: string): string | null {
+  return /\/([0-9a-f]{32})\.[a-z]+$/i.exec(url)?.[1]?.toLowerCase() ?? null;
 }

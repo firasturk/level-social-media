@@ -14,6 +14,7 @@ import type { User } from "@shared/types";
 import {
   describeStyleInstruction,
   parseStyle,
+  pictureSig,
   seasonWords,
   STYLE_CATEGORIES,
   STYLE_CATEGORY_IDS,
@@ -186,18 +187,24 @@ export async function relatedPins(pin: string): Promise<Pin[]> {
     .filter((p) => p.pin.length >= 6 && /^https:\/\/i\.pinimg\.com\//.test(p.url));
 }
 
-/** Collected pins join the pool (a pin already known is skipped). */
+/**
+ * Collected pins join the pool. A pin already known is skipped, and so is a picture the library
+ * has ever seen under another pin: a style the team took out never comes back.
+ */
 async function addToPool(env: Env, pins: Pin[], kind: StyleKind): Promise<number> {
   let added = 0;
   for (const p of pins) {
+    const sig = pictureSig(p.url);
+    if (sig && (await first(env.DB, "SELECT 1 AS x FROM styles WHERE sig = ?", sig))) continue;
     const changed = await run(
       env.DB,
-      "INSERT OR IGNORE INTO styles (id, kind, status, pin, source, note, created, updated) VALUES (?, ?, 'pool', ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO styles (id, kind, status, pin, source, note, sig, created, updated) VALUES (?, ?, 'pool', ?, ?, ?, ?, ?, ?)",
       uuid(),
       kind,
       p.pin,
       p.url,
       p.note,
+      sig,
       now(),
       now(),
     );
@@ -279,7 +286,8 @@ async function readPin(env: Env, row: StyleRow): Promise<"active" | "rejected"> 
 export async function readSome(env: Env, budget = READ_AT_ONCE): Promise<number> {
   const left = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
   if (left < budget) await collect(env, 2);
-  const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created LIMIT ?", budget);
+  // The newest pins first: what was collected today is read before older leftovers.
+  const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created DESC LIMIT ?", budget);
   const done = await Promise.all(pool.map((r) => readPin(env, r)));
   return done.filter((x) => x === "active").length;
 }
@@ -305,7 +313,7 @@ async function collect(env: Env, searches: number): Promise<number> {
     let query = list[Math.floor(Math.random() * list.length)];
     if (cat === "seasonal" || Math.random() < 0.25) query = `${season[Math.floor(Math.random() * season.length)]} ${query}`;
     try {
-      added += await addToPool(env, await searchPins(query), cat === "people" ? "people" : "product");
+      added += await addToPool(env, await searchPins(query), "product");
     } catch (e) {
       console.error("[styles] search failed", query, errorMessage(e));
     }
@@ -417,11 +425,12 @@ styleRoutes.post("/add", async (c) => {
         if (!pin) return failed.push(link);
         await run(
           c.env.DB,
-          "INSERT INTO styles (id, kind, status, pin, source, note, created, updated) VALUES (?, 'product', 'pool', ?, ?, ?, ?, ?) ON CONFLICT(pin) DO UPDATE SET status = 'pool', source = excluded.source, updated = excluded.updated",
+          "INSERT INTO styles (id, kind, status, pin, source, note, sig, created, updated) VALUES (?, 'product', 'pool', ?, ?, ?, ?, ?, ?) ON CONFLICT(pin) DO UPDATE SET status = 'pool', source = excluded.source, updated = excluded.updated",
           uuid(),
           pin.pin,
           pin.url,
           pin.note,
+          pictureSig(pin.url),
           now(),
           now(),
         );
@@ -546,6 +555,33 @@ styleRoutes.post("/recheck", async (c) => {
     }),
   );
   return c.json({ ok: true, checked: rows.length, rejected: out });
+});
+
+/** Admins: the library's styles sorted onto the shelves again from what they say (one text call per batch). */
+styleRoutes.post("/classify", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
+  const d = await body(c, z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(60).default(40) }));
+  const rows = await all<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE status = 'active' ORDER BY created LIMIT ? OFFSET ?", d.limit, d.offset);
+  if (!rows.length) return c.json({ ok: true, done: 0 });
+  const shelves = STYLE_CATEGORIES.map((x) => x.id);
+  const text = await askText(
+    c.env,
+    [
+      `Put each photo style on one shelf, by what its picture advertises: ${shelves.join(", ")}. corporate = banks, insurance, telecom, tech, services; fashion = clothes, shoes, bags, accessories; food = meals and savoury food; drinks = any beverage; sweets = desserts, chocolate, pastries, ice cream; lifestyle = home, everyday products, people living with a product; beauty = skincare, cosmetics, perfume; seasonal = an occasion or season; luxury = premium gifts, jewellery, high-end boxes.`,
+      rows.map((r, i) => `${i + 1}. ${r.title} | ${r.tags} | ${(r.note || "").slice(0, 200)} | ${r.prompt.slice(0, 300)}`).join("\n"),
+      'Return ONLY JSON: {"shelves": ["sweets", "beauty", ...]} with one shelf per style, in order.',
+    ].join("\n\n"),
+    { type: "object", properties: { shelves: { type: "array", items: { type: "string", enum: shelves } } }, required: ["shelves"] },
+  );
+  const got = (JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as { shelves?: string[] }).shelves ?? [];
+  let done = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const shelf = got[i];
+    if (!shelf || !shelves.includes(shelf as StyleCategory)) continue;
+    await run(c.env.DB, "UPDATE styles SET category = ? WHERE id = ?", shelf, rows[i].id);
+    done++;
+  }
+  return c.json({ ok: true, done, checked: rows.length });
 });
 
 /** "Update": the selected styles are read again into a fresh variation of the same idea. */
