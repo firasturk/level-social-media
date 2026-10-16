@@ -118,6 +118,16 @@ export async function drawOverlay(
   }
   const margin = spec.margin * W;
   const scale = patch.scale ?? 1;
+  // A web font only downloads once something asks for it; a canvas never does on its own, so
+  // without this the text silently falls back to the default face. Ask for the exact faces,
+  // with the text itself so the right (Arabic or Latin) subset is fetched.
+  await Promise.all([
+    document.fonts.load(`${spec.headline.weight} 48px ${fontStack(spec.headline.font)}`, headline || "حب Ab"),
+    document.fonts.load(
+      `${spec.subline.weight} 32px ${fontStack(spec.subline.font || spec.headline.font)}`,
+      subline || "حب Ab",
+    ),
+  ]).catch(() => []);
   await document.fonts.ready;
 
   // Scrim behind the text block.
