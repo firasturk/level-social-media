@@ -107,7 +107,7 @@ export async function drawOverlay(
   const p = anim ? Math.max(0, Math.min(1, anim.progress)) : 1;
   const ease = 1 - Math.pow(1 - p, 3);
   let headline = (text.headline ?? "").trim();
-  let subline = (text.subline ?? "").trim();
+  let subline = spec.subline.show === false ? "" : (text.subline ?? "").trim();
   if (anim?.preset === "typewriter") {
     const total = headline.length + subline.length;
     const shown = Math.round(total * ease);

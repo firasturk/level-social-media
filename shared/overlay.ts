@@ -45,7 +45,8 @@ export interface OverlaySpec {
     /** Distance from the top (position "top") or bottom (position "bottom") edge. */
     inset: number;
   };
-  subline: { font: string; size: number; weight: number; color: string; gap: number };
+  /** The second line; show false hides it on every post (and the ideas writer leaves it empty). */
+  subline: { font: string; size: number; weight: number; color: string; gap: number; show?: boolean };
   /** Side safe margin. */
   margin: number;
   /** Opacity of the dark fade behind a headline (0 = none) and its colour. */
@@ -102,7 +103,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
   },
   /**
    * Habibah: the Arabic oval logo centred at the top, a calligraphic Arabic headline (Gulzar, close
-   * to the brand's hand-lettering) over an Almarai sub-line at the bottom in white on a navy fade,
+   * to the brand's hand-lettering) alone at the bottom in white on a navy fade (no second line),
    * the AlBandar Group mark small and white in the bottom-left corner. No gold.
    */
   habibah: {
@@ -122,7 +123,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
       letterSpacing: 0,
       inset: 0.09,
     },
-    subline: { font: "Almarai", size: 0.036, weight: 400, color: "#ffffff", gap: 0.014 },
+    subline: { font: "Almarai", size: 0.036, weight: 400, color: "#ffffff", gap: 0.014, show: false },
     margin: 0.08,
     scrim: 0.5,
     scrimColor: "#002a5c",

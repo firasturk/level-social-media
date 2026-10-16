@@ -12,6 +12,7 @@ import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch } from "./engine";
 import { postSchema } from "@shared/config-schema";
+import { resolveOverlay } from "@shared/overlay";
 import type { Config } from "@shared/config";
 import { stemOf } from "@shared/naming";
 import {
@@ -117,6 +118,16 @@ interface ClientRow {
   style: string;
   language: string;
   status: string;
+  overlay: string | null;
+}
+
+/** True when the client's overlay hides the second line, so no sublines are written. */
+function hidesSubline(client: ClientRow): boolean {
+  try {
+    return resolveOverlay(client.overlay ? JSON.parse(client.overlay) : null).subline.show === false;
+  } catch {
+    return false;
+  }
 }
 
 async function clientRow(env: Env, id: string | undefined): Promise<ClientRow> {
@@ -655,6 +666,7 @@ function ideasContext(
     themeDirection: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
     themeLibrary: theme?.library ?? "",
     props: theme?.props ?? "",
+    noSubline: hidesSubline(client),
     shots: theme ? shotsOf(theme) : [],
     products,
     productNotes,
@@ -710,7 +722,7 @@ postRoutes.post("/reidea", async (c) => {
     caption: fresh.caption,
     hashtags: fresh.hashtags,
     headline: fresh.headline,
-    subline: fresh.subline,
+    subline: hidesSubline(client) ? undefined : fresh.subline,
     shot: fresh.shot ?? current.shot,
     products: fresh.products ?? current.products,
   };
@@ -752,7 +764,9 @@ postRoutes.post("/ideas", async (c) => {
     notes: d.notes ?? config.notes,
     types: d.types,
   });
-  const plan = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), count, products);
+  const plan = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), count, products).map(
+    (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
+  );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
   config.plan = plan;
   config.plannedAt = now();
@@ -818,6 +832,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     themeTitle: theme?.title ?? "",
     themeDirection: theme?.goal ?? "",
     props: theme?.props ?? "",
+    noSubline: hidesSubline(client),
     products,
     productNotes,
     month: config.month ?? "",
@@ -826,7 +841,9 @@ postRoutes.post("/grid-ideas", async (c) => {
   });
   const text = await askText(c.env, instruction, GRID_SCHEMA, [image]);
   const read = parseJson<Partial<GridRead> & { posts?: unknown }>(text);
-  const plan = parseIdeas(JSON.stringify({ posts: read.posts ?? [] }), count, products);
+  const plan = parseIdeas(JSON.stringify({ posts: read.posts ?? [] }), count, products).map(
+    (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
+  );
   if (!plan.length) throw new StudioError("The model returned no usable posts. Try again.", 502);
   const grid: GridRead = {
     world: String(read.world ?? "").trim(),

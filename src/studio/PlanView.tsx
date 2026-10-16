@@ -582,14 +582,16 @@ export default function PlanView({
                         aria-label="Headline"
                         disabled={p.overlay === false}
                       />
-                      <input
-                        value={p.subline ?? ""}
-                        dir="auto"
-                        onChange={(e) => patch(p.index, { subline: e.target.value })}
-                        placeholder="Second line"
-                        aria-label="Second line"
-                        disabled={p.overlay === false}
-                      />
+                      {overlay.subline.show !== false && (
+                        <input
+                          value={p.subline ?? ""}
+                          dir="auto"
+                          onChange={(e) => patch(p.index, { subline: e.target.value })}
+                          placeholder="Second line"
+                          aria-label="Second line"
+                          disabled={p.overlay === false}
+                        />
+                      )}
                       <label className="post-overlay-toggle" title="Draw the headline and logo on this post">
                         <input
                           type="checkbox"

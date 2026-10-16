@@ -1076,6 +1076,14 @@ function OverlaySection({
             </SelectContent>
           </Select>
           <label className="field-label">Second line</label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={spec.subline.show !== false}
+              onChange={(e) => patchSubline({ show: e.target.checked })}
+            />
+            Show a second line under the headline
+          </label>
           <div className="field-grid three">
             {fontField(spec.subline.font, (font) => patchSubline({ font }), "Second line font")}
             <label className="num"><span>Size</span><input type="number" value={px(spec.subline.size)} onChange={(e) => patchSubline({ size: frac(Number(e.target.value)) })} /></label>
