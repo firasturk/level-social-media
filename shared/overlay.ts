@@ -101,8 +101,9 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
     scrimColor: "#000000",
   },
   /**
-   * Habibah: the Arabic oval logo centred at the top, an Arabic headline at the bottom in white on
-   * a navy fade, the AlBandar Group mark small and white in the bottom-left corner. No gold.
+   * Habibah: the Arabic oval logo centred at the top, a calligraphic Arabic headline (Gulzar, close
+   * to the brand's hand-lettering) over an Almarai sub-line at the bottom in white on a navy fade,
+   * the AlBandar Group mark small and white in the bottom-left corner. No gold.
    */
   habibah: {
     template: "habibah",
@@ -110,11 +111,11 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
     badge: { position: "bottom-left", width: 0.085, inset: 0.04, color: "#ffffff" },
     headline: {
       position: "bottom",
-      font: "Almarai",
-      size: 0.072,
-      weight: 800,
+      font: "Gulzar",
+      size: 0.095,
+      weight: 400,
       color: "#ffffff",
-      lineHeight: 1.25,
+      lineHeight: 1.45,
       align: "center",
       shadow: "",
       shadowOffset: 0,
@@ -195,4 +196,18 @@ export function resolveOverlay(raw: Partial<OverlaySpec> | null | undefined): Ov
 }
 
 /** Google Fonts families the overlay may use without a file; everything else needs an uploaded font. */
-export const HOSTED_FONTS = ["Inter", "Tajawal", "Montserrat", "Cairo", "Almarai", "Noto Kufi Arabic"];
+export const HOSTED_FONTS = [
+  "Inter",
+  "Tajawal",
+  "Montserrat",
+  "Cairo",
+  "Almarai",
+  "Noto Kufi Arabic",
+  // Calligraphic Arabic, closest first to a hand-lettered Nastaliq / Ruq'a headline.
+  "Gulzar",
+  "Noto Nastaliq Urdu",
+  "Aref Ruqaa",
+  "Mirza",
+  "Lateef",
+  "Amiri",
+];
