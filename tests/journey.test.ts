@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dateInMonth, occasionsOf, spreadDates, withDates } from "@shared/occasions";
-import { briefLines, parseBrief } from "@shared/brief";
+import { adaptShotsInstruction, briefLines, FOREIGN_ITEMS, parseBrief } from "@shared/brief";
 import { ideasInstruction, parseIdeas } from "@shared/posts";
 
 describe("occasions and posting dates", () => {
@@ -65,5 +65,20 @@ describe("the brief", () => {
     expect(text).toContain("Show tins by their handle.");
     expect(text).toContain("2026-05-25 Independence Day");
     expect(text).toContain('date (the posting day');
+  });
+});
+
+describe("the month's shots", () => {
+  it("spots what the client does not sell", () => {
+    expect(FOREIGN_ITEMS.test("A hand holds a glass filled with a layered beverage")).toBe(true);
+    expect(FOREIGN_ITEMS.test("holding a textured snack bar vertically")).toBe(true);
+    expect(FOREIGN_ITEMS.test("A hand holds the blue and silver gift box against a cream wall. You can see the tin.")).toBe(false);
+  });
+
+  it("asks for the client's products and colours only", () => {
+    const t = adaptShotsInstruction({ shots: ["A hand holds a glass."], products: ["- Tin: a round silver tin"], palette: ["deep blue #0042aa", "cream #f5e6d3"] });
+    expect(t).toContain("The background (wall, backdrop, main surface) is deep blue #0042aa");
+    expect(t).toContain("- Tin: a round silver tin");
+    expect(t).toContain("exactly 1 entries");
   });
 });

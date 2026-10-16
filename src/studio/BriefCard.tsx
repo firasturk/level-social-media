@@ -57,7 +57,7 @@ export default function BriefCard({
         <button type="button" className="secondary" onClick={onShare} title="Copy a link the client opens to approve the posts">
           <Link2 size={14} /> Client link
         </button>
-        {lines.length > 0 && (
+        {(lines.length > 0 || !!config.shots?.length) && (
           <button type="button" className="text-button" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             The logic {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
@@ -69,6 +69,16 @@ export default function BriefCard({
             <li key={i}>{l}</li>
           ))}
         </ol>
+      )}
+      {open && !!config.shots?.length && (
+        <>
+          <strong className="brief-card-sub">This month's shots (written for its products)</strong>
+          <ol className="brief-card-logic">
+            {config.shots.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ol>
+        </>
       )}
     </section>
   );

@@ -282,7 +282,7 @@ export default function Workspace({
   }
 
   async function updateSettings(
-    patch: Partial<OutputSettings> & { theme?: string; ambassadors?: string[] },
+    patch: Partial<OutputSettings> & { theme?: string; ambassadors?: string[]; shots?: string[] },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
     if (!batch) return;

@@ -6742,3 +6742,16 @@ label.num select {
   height: 100%;
   width: auto;
 }
+
+.journey-shots {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.brief-card-sub {
+  display: block;
+  margin-top: 12px;
+  font-size: 12.5px;
+}

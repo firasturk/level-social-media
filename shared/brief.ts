@@ -69,3 +69,42 @@ export function briefLines(brief: Partial<Record<BriefStep, BriefNote>> | undefi
   const order: BriefStep[] = ["products", "count", "brand", "theme", "colours", "shots"];
   return order.map((k) => brief[k]?.logic?.trim() ?? "").filter(Boolean);
 }
+
+export const SHOTS_SCHEMA = {
+  type: "object",
+  properties: { shots: { type: "array", items: { type: "string" } } },
+  required: ["shots"],
+};
+
+/** What a reference held that this client does not sell: it never reaches a month's shot. */
+export const FOREIGN_ITEMS =
+  /\b(glass(es)?|cups?|mugs?|beverages?|drinks?|juices?|coffee|tea|latte|smoothies?|milkshakes?|liquids?|straws?|sandwich(es)?|snack bars?|burgers?|pizzas?|fries|bottles?|cup carriers?|wine|cocktails?)\b/i;
+
+/**
+ * The pins' shots rewritten as this month's shoot: same place, camera, light and gesture, with the
+ * client's own products in the hands and on the tables, and only the month's colours.
+ */
+export function adaptShotsInstruction(r: {
+  shots: string[];
+  products: string[];
+  palette: string[];
+  props?: string;
+  strict?: boolean;
+}): string {
+  return [
+    `You are the photographer planning this month's shoot for a brand. Below are ${r.shots.length} shots read from Pinterest references. The references show other brands' items (drinks, glasses, cups, snacks, sandwiches...). Rewrite every shot for THIS brand's products, in the same order, one shot per entry, 2-4 sentences each.`,
+    "Keep from each reference shot: the place and surfaces, the camera angle and distance, the light, the framing, the gesture of the hands or the person, the composition and the calm space left for a headline.",
+    "Replace whatever the reference shows or holds with one of the brand's products, choosing the product whose kind fits the gesture naturally: a gift box opened on a table or held in both hands, a tin carried by its handle or held against the body, one piece lifted between the fingers, a tray on a surface. Describe the product by its kind and look (for example 'the blue and silver gift box of mini tarts'), never by a file name or number.",
+    "NEVER write any of these unless the brand's products listed below are one: glass, cup, mug, beverage, drink, juice, coffee, tea, liquid, straw, bottle, can, carrier, sandwich, snack bar, burger or any food that is not the brand's product. A hand that held a glass now holds the product.",
+    r.palette.length
+      ? `COLOURS: name only these colours: ${r.palette.join(", ")}. The background (wall, backdrop, main surface) is ${r.palette[0]}; clothing, fabrics, car paint and props take the other colours. Never name any other colour (no red sleeve, no crimson velvet).`
+      : "",
+    r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : "",
+    r.strict ? "Your previous answer still named a drink, glass, cup or other item the brand does not sell. Remove every such item." : "",
+    `THE BRAND'S PRODUCTS:\n${r.products.join("\n") || "(no products: show the brand's world without objects in the hands)"}`,
+    `THE REFERENCE SHOTS:\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
+    `Return ONLY JSON: {"shots": ["...", ...]} with exactly ${r.shots.length} entries.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}

@@ -15,7 +15,7 @@ import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
 import { BRIEF_STEPS, type BriefNote, type BriefStep, type Config } from "@shared/config";
-import { BRIEF_SCHEMA, briefInstruction, briefLines, parseBrief } from "@shared/brief";
+import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA } from "@shared/brief";
 import { occasionsOf, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
 import {
@@ -191,6 +191,21 @@ function monthPaletteOf(theme: ThemeRow | null): string[] {
   return theme ? themePaletteOf(theme).map((c) => colourLabel(c.hex)) : [];
 }
 
+/** The theme's shots changed: months that rewrote the old ones write them again. */
+async function dropMonthShots(env: Env, themeId: string): Promise<void> {
+  await run(
+    env.DB,
+    "UPDATE batches SET config = json_remove(config, '$.shots', '$.shotsFor') WHERE theme = ? AND json_extract(config, '$.shots') IS NOT NULL",
+    themeId,
+  );
+}
+
+/** The month's shots: the theme's, rewritten for the month's products when that was done. */
+function monthShots(config: Config, theme: ThemeRow | null): string[] {
+  if (config.shots?.length) return config.shots;
+  return theme ? shotsOf(theme) : [];
+}
+
 function shotsOf(r: ThemeRow): string[] {
   try {
     const v = JSON.parse(r.shots || "[]") as unknown;
@@ -320,6 +335,7 @@ postRoutes.put("/themes/:id", async (c) => {
     now(),
     row.id,
   );
+  if (d.shots) await dropMonthShots(c.env, row.id);
   return c.json({ ok: true, themes: await listThemes(c.env, row.client!) });
 });
 
@@ -375,6 +391,7 @@ async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
     now(),
     row.id,
   );
+  await dropMonthShots(env, row.id);
   // The suggested colours replace the palette only while the designer has not chosen their own.
   const palette = parsePalette(d.palette);
   if (palette.length && (row.palette_auto !== 0 || !themePaletteOf(row).length))
@@ -759,7 +776,7 @@ function ideasContext(
     noSubline: hidesSubline(client),
     monthPalette: monthPaletteOf(theme),
     ambassadors: ambassadors.map((a) => ({ name: a.name, description: a.description })),
-    shots: theme ? shotsOf(theme).map((t) => (chosen ? withoutColourWords(t) : t)) : [],
+    shots: monthShots(config, theme).map((t) => (chosen ? withoutColourWords(t) : t)),
     products,
     productNotes,
     month: config.month ?? "",
@@ -1013,10 +1030,17 @@ postRoutes.put("/settings", async (c) => {
       notes: z.string().max(2000).optional(),
       gridRef: z.null().optional(),
       ambassadors: z.array(z.string().max(80)).max(3).optional(),
+      shots: z.array(z.string().trim().max(1200)).max(200).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  if (d.shots) config.shots = d.shots.filter(Boolean);
+  // A new theme brings its own shots: the month's rewrite of the old ones is dropped.
+  if (d.theme !== undefined && (d.theme ?? undefined) !== config.theme) {
+    delete config.shots;
+    delete config.shotsFor;
+  }
   if (d.theme !== undefined) config.theme = d.theme ?? undefined;
   if (d.format) {
     config.format = d.format;
@@ -1198,7 +1222,7 @@ postRoutes.post("/generate", async (c) => {
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
-      shot: theme && post.shot ? shotsOf(theme)[post.shot - 1] : undefined,
+      shot: post.shot ? monthShots(config, theme)[post.shot - 1] : undefined,
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       grid: config.gridRef ? config.gridNotes || undefined : undefined,
@@ -1563,7 +1587,7 @@ postRoutes.post("/brief", async (c) => {
                   `PRODUCTS AND THEIR PACKAGING:\n${productLines.join("\n") || "none"}`,
                 ].join("\n")
               : [
-                  `SHOTS FROM THE PINS:\n${(theme ? shotsOf(theme) : []).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") || "none"}`,
+                  `THIS MONTH'S SHOTS:\n${monthShots(config, theme).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") || "none"}`,
                   chosen ? `THE MONTH'S COLOURS (first = background; they replace every colour of the pins): ${monthPaletteOf(theme).join(", ")}` : "",
                   `PROPS: ${theme?.props || "none"}`,
                   `PRODUCTS:\n${productLines.join("\n") || "none"}`,
@@ -1586,6 +1610,57 @@ postRoutes.post("/brief", async (c) => {
   cfg.brief = { ...(cfg.brief ?? {}), [step]: { ...note, at: now() } };
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, note: cfg.brief[step], brief: cfg.brief });
+});
+
+/** The theme's shots rewritten for this month's products and colours (nothing the client does not sell). */
+postRoutes.post("/shots", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), sig: z.string().max(400).optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const theme = config.theme
+    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    : null;
+  const base = theme ? shotsOf(theme) : [];
+  if (!base.length) throw new StudioError("The theme has no shots yet: add pins and read them first.", 409);
+  const sources = await all<SourceRow & { category: string | null }>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(c.env, sources);
+  const products = sources.map((s) => `- ${s.category || "Product"}: ${s.note || "(photo not read)"}`);
+  // The client may sell drinks: then cups and glasses are their products, not foreign items.
+  const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
+  const palette = monthPaletteOf(theme);
+  const ask = async (strict: boolean) => {
+    const raw = parseJson<{ shots?: unknown }>(
+      await askText(
+        c.env,
+        adaptShotsInstruction({
+          shots: palette.length ? base.map(withoutColourWords) : base,
+          products,
+          palette,
+          props: theme?.props,
+          strict,
+        }),
+        SHOTS_SCHEMA,
+      ),
+    );
+    return (Array.isArray(raw.shots) ? raw.shots : [])
+      .map((x) => String(x ?? "").trim().slice(0, 1200))
+      .filter(Boolean);
+  };
+  let shots = await ask(false);
+  if (!sellsDrinks && shots.some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
+  if (!shots.length) throw new StudioError("The model returned no shots. Try again.", 502);
+  // Never fewer shots than the theme: a missing one falls back to the theme's (recoloured).
+  const full = base.map((t, i) => shots[i] ?? (palette.length ? withoutColourWords(t) : t));
+  const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(fresh.config) as Config;
+  cfg.shots = full;
+  cfg.shotsFor = d.sig;
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, shots: full });
 });
 
 /** The client's approval link for this month (made once, then reused). */

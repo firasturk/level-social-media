@@ -83,6 +83,10 @@ export interface Config {
   gridNotes?: string;
   /** The creative brief of the journey: what each step's analysis understood. */
   brief?: Partial<Record<BriefStep, BriefNote>>;
+  /** The theme's shots rewritten for this month's products and colours (the month uses these). */
+  shots?: string[];
+  /** What the month's shots were written from (theme shots, products, colours), to know when they are stale. */
+  shotsFor?: string;
   /** Secret of the client's approval link (/share/<token>); absent until a link is made. */
   shareToken?: string;
   /** The client's answers on the approval link, by post index. */

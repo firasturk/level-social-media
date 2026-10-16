@@ -56,6 +56,13 @@ function firstName(user: User): string {
   return n ? n[0].toUpperCase() + n.slice(1) : "";
 }
 
+/** A short stable fingerprint of a text (what the month's shots were written from). */
+function hash(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;
+  return `${text.length.toString(36)}-${h.toString(36)}`;
+}
+
 function nextMonth(month: string): string {
   const [y, m] = month.split("-").map(Number);
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
@@ -94,7 +101,7 @@ export interface JourneyProps {
   uploading: boolean;
   postCount: number;
   format: Format;
-  onSettings: (patch: { postCount?: number; format?: Format }) => void;
+  onSettings: (patch: { postCount?: number; format?: Format; shots?: string[] }) => void;
   themes: Theme[];
   themeId: string;
   onTheme: (id: string) => void;
@@ -150,6 +157,8 @@ export default function Journey(p: JourneyProps) {
 
   /* ── The brief: one analysis per screen, run when the screen's content changes ── */
   const [briefBusy, setBriefBusy] = useState<BriefStep | "">("");
+  const [adapting, setAdapting] = useState(false);
+  const [reading, setReading] = useState(false);
   const brief = p.config?.brief ?? {};
   const seen = useRef<Partial<Record<BriefStep, string>>>({});
   const runBrief = useCallback(
@@ -175,12 +184,14 @@ export default function Journey(p: JourneyProps) {
     brand: String(client?.updated ?? ""),
     theme: `${p.themeId}:${theme?.updated ?? ""}:${p.cast.join(",")}`,
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
-    shots: `${(theme?.shots ?? []).join("|")}:${theme?.props ?? ""}`,
+    shots: `${(p.config?.shots ?? []).join("|")}:${theme?.props ?? ""}`,
   };
   const stepBrief = STEPS[step].brief;
   const sig = stepBrief ? signature[stepBrief] : undefined;
   useEffect(() => {
     if (!stepBrief || !p.batchId || briefBusy) return;
+    // The shots are read once they are written for this month's products.
+    if (stepBrief === "shots" && (adapting || !p.config?.shots?.length) && theme?.shots.length) return;
     const note = brief[stepBrief];
     const before = seen.current[stepBrief];
     if (note && before === undefined) {
@@ -198,10 +209,38 @@ export default function Journey(p: JourneyProps) {
     );
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief])]);
+  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting]);
+
+  /* ── The pins' shots rewritten for this month's products and colours ── */
+  const shotsSig = hash(
+    `${p.themeId}|${(theme?.shots ?? []).join("|")}|${productIds}|${JSON.stringify(theme?.palette ?? [])}`,
+  );
+  const adaptedFor = useRef("");
+  const adaptShots = useCallback(
+    async (force = false) => {
+      if (!p.batchId || !theme?.shots.length) return;
+      if (!force && adaptedFor.current === shotsSig) return;
+      adaptedFor.current = shotsSig;
+      setAdapting(true);
+      try {
+        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig });
+        await p.refresh();
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setAdapting(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.batchId, theme?.shots, shotsSig, p.refresh],
+  );
+  useEffect(() => {
+    if (key !== "scene" || !p.config || reading) return;
+    if (p.config.shots?.length && p.config.shotsFor === shotsSig) return;
+    void adaptShots();
+  }, [key, shotsSig, p.config?.shotsFor, !!p.config?.shots?.length, reading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Reading the pins (theme analysis) before colours and shots ── */
-  const [reading, setReading] = useState(false);
   async function readReferences(force = false) {
     if (!theme || !theme.references) return;
     if (!force && theme.shots.length && theme.palette.length) return;
@@ -420,14 +459,14 @@ export default function Journey(p: JourneyProps) {
                     <div className="journey-box">
                       <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
                     </div>
-                    <div className="journey-box">
-                      <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["shots"]} bare />
-                      {theme.references > 0 && (
-                        <button type="button" className="text-button" onClick={() => void readReferences(true)}>
-                          <RefreshCw size={13} /> Read the pins again
-                        </button>
-                      )}
-                    </div>
+                    <MonthShots
+                      shots={p.config?.shots ?? []}
+                      busy={adapting}
+                      empty={!theme.shots.length}
+                      onRewrite={() => void adaptShots(true)}
+                      onReadPins={theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
+                      onSave={(shots) => p.onSettings({ shots })}
+                    />
                   </>
                 ) : (
                   <div className="journey-box">
@@ -765,6 +804,73 @@ function GalleryBox({
         <p className="field-hint">
           {items.length ? "Every gallery product is already in this month." : "The gallery fills up with every product uploaded for this client."}
         </p>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── This month's shots ───────────── */
+
+function MonthShots({
+  shots,
+  busy,
+  empty,
+  onRewrite,
+  onReadPins,
+  onSave,
+}: {
+  shots: string[];
+  busy: boolean;
+  empty: boolean;
+  onRewrite: () => void;
+  onReadPins?: () => void;
+  onSave: (shots: string[]) => void;
+}) {
+  const text = shots.join("\n\n");
+  const [draft, setDraft] = useState(text);
+  useEffect(() => setDraft(text), [text]);
+  const save = () => {
+    if (draft === text) return;
+    onSave(
+      draft
+        .split(/\n\s*\n/)
+        .map((x) => x.replace(/^\s*\d+[.)]\s*/, "").trim())
+        .filter(Boolean),
+    );
+  };
+  return (
+    <div className="journey-box">
+      <BoxTitle
+        kit="shots"
+        actions={
+          <>
+            {onReadPins && (
+              <button type="button" className="text-button" onClick={onReadPins} disabled={busy} title="Read the pins again, then rewrite the shots">
+                <RefreshCw size={13} /> Pins
+              </button>
+            )}
+            <button type="button" className="text-button" onClick={onRewrite} disabled={busy || empty} title="Write the shots again for this month's products and colours">
+              {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Rewrite
+            </button>
+          </>
+        }
+      >
+        This month's shots{shots.length ? ` · ${shots.length}` : ""}
+      </BoxTitle>
+      {busy ? (
+        <div className="journey-reading">
+          <LoaderCircle className="spinning" size={18} />
+          Rewriting the pins' shots for your products and colours…
+        </div>
+      ) : empty ? (
+        <p className="field-hint">Add pins to the theme (Visual identity) and they are read into shots.</p>
+      ) : (
+        <>
+          <textarea className="journey-shots" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="This month's shots" />
+          <p className="field-hint">
+            Each pin's place, camera, light and gesture, with your products in the hands and on the tables, in your colours. Separate shots with an empty line.
+          </p>
+        </>
       )}
     </div>
   );
