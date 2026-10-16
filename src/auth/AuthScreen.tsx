@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import LevelLogo from "@/components/LevelLogo";
 import { toast } from "sonner";
 import { KeyRound, LoaderCircle, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/theme";
@@ -46,13 +47,7 @@ export default function AuthScreen({
         {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
       </button>
       <form className="auth-card" onSubmit={submit}>
-        <img
-          className="max-logo"
-          src={theme === "dark" ? "/logo-mark.png" : "/logo-mark-dark.png"}
-          alt="Level"
-          width={108}
-          height={36}
-        />
+        <LevelLogo className="auth-wordmark" />
         <h1>{mode === "login" ? "Sign in to Level Social Media" : "Create your studio account"}</h1>
         <p className="quality-note">Private workspace for the Level MENA social-media team.</p>
         {mode === "register" && (

@@ -282,6 +282,21 @@ function BrandKit({
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
+  const secondLineShown = resolveOverlay(client.overlay).subline.show !== false;
+
+  /** Turns the second line on or off for every post of this client. */
+  async function setSecondLine(show: boolean) {
+    const raw = client.overlay ?? {};
+    try {
+      const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, {
+        overlay: { ...raw, subline: { ...(raw.subline ?? {}), show } },
+      });
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   /**
    * A font choice saves at once and also sets the overlay, so the posts change with it: the
    * headline font draws the headline, the body font the second line.
@@ -297,7 +312,9 @@ function BrandKit({
     try {
       const r = await put<ClientsReply>(`/api/studio/clients/${client.id}`, { fonts, overlay });
       onClientsChanged(r.clients);
-      toast.success(`${which === "headline" ? "Headline" : "Body"} font: ${family}.`);
+      if (which === "body" && !secondLineShown)
+        toast.info(`Body font: ${family}. ${client.name}'s posts have no second line, so it does not show on them.`);
+      else toast.success(`${which === "headline" ? "Headline" : "Body"} font: ${family}. The posts are redrawn.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -448,7 +465,17 @@ function BrandKit({
           />
         </div>
       </div>
-      <p className="field-hint">The headline font draws the text on every post; the body font draws the second line.</p>
+      {secondLineShown ? (
+        <p className="field-hint">The headline font draws the text on every post; the body font draws the second line under it.</p>
+      ) : (
+        <p className="field-hint field-warn">
+          {client.name}'s posts carry the headline only, so the body font is not drawn on them.
+        </p>
+      )}
+      <label className="check-row">
+        <input type="checkbox" checked={secondLineShown} onChange={(e) => void setSecondLine(e.target.checked)} />
+        Show a second line under the headline (in the body font)
+      </label>
       </Group>
       <Group kit="voice" title="Tone of voice and language">
       <textarea

@@ -43,11 +43,12 @@ export async function buildFeedPdf(deck: FeedDeck): Promise<Blob> {
     ),
   );
   await document.fonts.ready;
+  const [markBlack, markWhite] = await Promise.all([levelMark("black"), levelMark("white")]);
   const sections: HTMLCanvasElement[] = [
-    cover(deck, brand),
+    cover(deck, brand, markBlack),
     feed(deck, brand),
     ...notes(deck, brand),
-    closing(deck, brand),
+    closing(deck, brand, markWhite),
   ];
   const images: PdfImage[] = [];
   for (const c of sections) {
@@ -188,7 +189,25 @@ const initialsOf = (name: string) =>
     .join("")
     .toUpperCase();
 
-function cover(deck: FeedDeck, brand: string): HTMLCanvasElement {
+/** The Level wordmark (vector) as an image the canvas can draw; null when it cannot load. */
+function levelMark(tone: "black" | "white"): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = `/level-${tone}.svg`;
+  });
+}
+
+/** Draws the wordmark centred at y with the given height. */
+function drawMark(ctx: CanvasRenderingContext2D, mark: HTMLImageElement | null, y: number, h: number) {
+  if (!mark) return false;
+  const w = (h * (mark.naturalWidth || 1485)) / (mark.naturalHeight || 416);
+  ctx.drawImage(mark, (W - w) / 2, y, w, h);
+  return true;
+}
+
+function cover(deck: FeedDeck, brand: string, mark: HTMLImageElement | null): HTMLCanvasElement {
   const accent = deck.client.colors[0]?.hex || "#111";
   const [c, ctx] = canvas(1100, "#ffffff");
   ctx.fillStyle = accent;
@@ -208,7 +227,10 @@ function cover(deck: FeedDeck, brand: string): HTMLCanvasElement {
   ctx.fillText(monthLabel(deck.month), W / 2, 695);
   ctx.fillStyle = "#9a9a9a";
   ctx.font = `400 24px ${SANS}`;
-  ctx.fillText(`${deck.posts.length} posts  ·  prepared by Level Social Media`, W / 2, 790);
+  if (mark) {
+    ctx.fillText(`${deck.posts.length} posts  ·  prepared by`, W / 2, 790);
+    drawMark(ctx, mark, 842, 46);
+  } else ctx.fillText(`${deck.posts.length} posts  ·  prepared by Level Social Media`, W / 2, 790);
   ctx.textAlign = "left";
   return c;
 }
@@ -387,7 +409,7 @@ function notes(deck: FeedDeck, brand: string): HTMLCanvasElement[] {
   return out;
 }
 
-function closing(deck: FeedDeck, brand: string): HTMLCanvasElement {
+function closing(deck: FeedDeck, brand: string, mark: HTMLImageElement | null): HTMLCanvasElement {
   const [c, ctx] = canvas(1000, "#000000");
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
@@ -401,7 +423,8 @@ function closing(deck: FeedDeck, brand: string): HTMLCanvasElement {
   ctx.textAlign = "center";
   ctx.fillStyle = "#6b6b6b";
   ctx.font = `500 22px ${SANS}`;
-  ctx.fillText("LEVEL  ·  SOCIAL MEDIA", W / 2, 820);
+  if (drawMark(ctx, mark, 806, 40)) ctx.fillText("SOCIAL MEDIA", W / 2, 864);
+  else ctx.fillText("LEVEL  ·  SOCIAL MEDIA", W / 2, 820);
   ctx.textAlign = "left";
   return c;
 }

@@ -5448,3 +5448,38 @@ label.num select {
   color: var(--ink-400);
   margin-bottom: 6px;
 }
+
+/* Level wordmark (from the brand file): takes the text colour around it. */
+.level-logo {
+  display: inline-flex;
+  line-height: 0;
+}
+.level-logo svg {
+  height: 100%;
+  width: auto;
+}
+.sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sidebar-wordmark {
+  height: 20px;
+  color: var(--ink-900);
+}
+.boot-wordmark {
+  height: 40px;
+  color: var(--ink-900, #ededed);
+}
+.auth-wordmark {
+  height: 34px;
+  color: var(--ink-900);
+  margin-bottom: 6px;
+}
+
+.field-hint.field-warn {
+  color: var(--warning-text, #b84300);
+}
+:root[data-theme="dark"] .field-hint.field-warn {
+  color: #f5a35c;
+}

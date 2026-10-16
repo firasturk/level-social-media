@@ -1,4 +1,5 @@
 import { FolderOpen, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
 import type { Client, EngineModel, User } from "@shared/types";
@@ -50,9 +51,8 @@ export default function Sidebar({
   return (
     <aside className="sidebar">
       <a href="/" className="sidebar-brand" aria-label="Level Social Media">
-        <img src="/logo.png" alt="" width={34} height={34} />
-        <span>
-          <strong>Level</strong>
+        <span className="sidebar-brand-text">
+          <LevelLogo className="sidebar-wordmark" />
           <small>Social Media</small>
         </span>
       </a>
