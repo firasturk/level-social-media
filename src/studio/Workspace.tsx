@@ -352,10 +352,10 @@ export default function Workspace({
     }
   }
 
-  async function generateIdeas(notes: string) {
+  async function generateIdeas(notes: string): Promise<boolean> {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
-      return;
+      return false;
     }
     setBusy("ideas");
     try {
@@ -367,11 +367,24 @@ export default function Workspace({
       });
       await refresh();
       toast.success(`${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
+      return true;
     } catch (e) {
       toast.error((e as Error).message);
+      return false;
     } finally {
       setBusy("");
     }
+  }
+
+  /**
+   * A new pin or photo in the month's theme: the month follows it at once. The ideas are written
+   * again from the new reference, then every post is generated again from them.
+   */
+  async function refreshFromTheme(changedTheme: string) {
+    if (!batch || !plan.length || running || busy) return;
+    if (changedTheme !== themeId) return;
+    toast.info("New reference: rewriting this month's ideas, then regenerating the posts.");
+    if (await generateIdeas(config?.notes ?? "")) await generatePosts(undefined, true, false);
   }
 
   async function gridIdeas(refId: string, notes: string) {
@@ -417,13 +430,13 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean) {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true) {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
       return;
     }
-    if (regenerate && !indexes) {
+    if (regenerate && !indexes && askFirst) {
       const ok = await askConfirm(
         `Generate all ${plan.length} posts again? The current images are replaced.`,
         { ok: "Regenerate all", danger: false },
@@ -717,6 +730,7 @@ export default function Workspace({
                 onAmbassadorsChanged={setAmbassadors}
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
+                onReferencesRead={(id) => void refreshFromTheme(id)}
               />
               <PlanView
                 client={client}

@@ -60,6 +60,7 @@ export default function BrandPanel({
   onAmbassadorsChanged,
   cast,
   onCast,
+  onReferencesRead,
 }: {
   client: Client;
   onClientsChanged: (clients: Client[]) => void;
@@ -78,6 +79,8 @@ export default function BrandPanel({
   /** Ambassador ids cast in this month. */
   cast: string[];
   onCast: (ids: string[]) => void;
+  /** A theme's references changed and were read again (new pin or photo). */
+  onReferencesRead?: (themeId: string) => void;
 }) {
   return (
     <aside className="brand-panel">
@@ -107,6 +110,7 @@ export default function BrandPanel({
         theme={theme}
         onTheme={onTheme}
         onThemesChanged={onThemesChanged}
+        onReferencesRead={onReferencesRead}
       />
       <OverlaySection client={client} onClientsChanged={onClientsChanged} />
       <Section kit="output" title="Output" subtitle="Engine, size and count" defaultOpen={false}>
@@ -267,7 +271,12 @@ function BrandKit({
   const [draft, setDraft] = useState<KitDraft>(() => draftOf(client));
   const [saving, setSaving] = useState(false);
   const [analysing, setAnalysing] = useState(false);
-  useEffect(() => setDraft(draftOf(client)), [client]);
+  // Live: every change saves itself shortly after the last edit; a save in flight is not undone
+  // by the client coming back from the server.
+  const kitPending = useRef(false);
+  useEffect(() => {
+    if (!kitPending.current) setDraft(draftOf(client));
+  }, [client]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftOf(client));
   // Read inside blur handlers, which close over an older render.
   const dirtyRef = useRef(dirty);
@@ -294,7 +303,14 @@ function BrandKit({
     }
   }
 
-  /** Saves the kit; the fields also save themselves when you click out of them (silent). */
+  useEffect(() => {
+    if (!dirty) return;
+    kitPending.current = true;
+    const t = setTimeout(() => void save(true).finally(() => (kitPending.current = false)), 800);
+    return () => clearTimeout(t);
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Saves the kit; changes save themselves (silent) a moment after the last edit. */
   async function save(silent = false) {
     if (silent && !dirtyRef.current) return;
     setSaving(true);
@@ -343,18 +359,7 @@ function BrandKit({
       kit="brand"
       title="Brand kit"
       subtitle={`${client.name}: colours, fonts, tone`}
-      actions={
-        dirty ? (
-          <div className="bp-save">
-            <button className="primary" onClick={() => void save()} disabled={saving}>
-              {saving ? <LoaderCircle className="spinning" size={15} /> : null} Save brand kit
-            </button>
-            <button className="text-button" onClick={() => setDraft(draftOf(client))}>
-              Discard
-            </button>
-          </div>
-        ) : null
-      }
+      actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
     >
       <Group
         kit="colours"
@@ -547,12 +552,15 @@ function ThemeSection({
   theme,
   onTheme,
   onThemesChanged,
+  onReferencesRead,
 }: {
   client: Client;
   themes: Theme[];
   theme: string;
   onTheme: (id: string) => void;
   onThemesChanged: (themes: Theme[]) => void;
+  /** The theme's references changed and were read again: the month should follow them. */
+  onReferencesRead?: (themeId: string) => void;
 }) {
   const current = themes.find((t) => t.id === theme) ?? null;
   const [direction, setDirection] = useState(current?.direction ?? "");
@@ -681,13 +689,14 @@ function ThemeSection({
     }
   }
 
-  async function analyse(silent = false) {
+  async function analyse(silent = false, referencesChanged = false) {
     if (!current) return;
     setBusy("analyse");
     try {
       const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/analyze`);
       onThemesChanged(r.themes);
       toast.success(silent ? "Theme direction updated from the references." : "Theme written from its references.");
+      if (referencesChanged) onReferencesRead?.(current.id);
     } catch (e) {
       if (!silent) toast.error((e as Error).message);
     } finally {
@@ -725,6 +734,7 @@ function ThemeSection({
       if (r.analysed) {
         await reloadThemes();
         toast.success("Theme direction written from the imported references.");
+        if (r.added.length) onReferencesRead?.(current.id);
       }
       if (r.added.length) toast.success(`${r.added.length} reference${r.added.length > 1 ? "s" : ""} imported.`);
       if (r.failed.length)
@@ -783,7 +793,7 @@ function ThemeSection({
           <ReferenceLibrary
             key={`${current.id}:${libKey}`}
             skill={current.id}
-            onChanged={(count) => (count > 0 ? void analyse(true) : reloadThemes())}
+            onChanged={(count) => (count > 0 ? void analyse(true, true) : reloadThemes())}
             title="Photos and pins"
             empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
             hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."
@@ -960,7 +970,10 @@ function OverlaySection({
   const [spec, setSpec] = useState<OverlaySpec>(() => resolveOverlay(client.overlay));
   const [saving, setSaving] = useState(false);
   const [fontBusy, setFontBusy] = useState(false);
-  useEffect(() => setSpec(resolveOverlay(client.overlay)), [client]);
+  const overlayPending = useRef(false);
+  useEffect(() => {
+    if (!overlayPending.current) setSpec(resolveOverlay(client.overlay));
+  }, [client]);
   const dirty = JSON.stringify(spec) !== JSON.stringify(resolveOverlay(client.overlay));
 
   const patchHeadline = (p: Partial<OverlaySpec["headline"]>) =>
@@ -983,7 +996,7 @@ function OverlaySection({
       const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/badge`, form);
       onClientsChanged(r.clients);
       if (spec.badge.position === "none") patchBadge({ position: "bottom-left" });
-      toast.success("Corner logo added. Save the overlay to keep its placement.");
+      toast.success("Corner logo added.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -1001,6 +1014,14 @@ function OverlaySection({
     }
   }
 
+  // Live: the posts redraw a moment after every change.
+  useEffect(() => {
+    if (!dirty) return;
+    overlayPending.current = true;
+    const t = setTimeout(() => void save().finally(() => (overlayPending.current = false)), 600);
+    return () => clearTimeout(t);
+  }, [spec]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function save() {
     setSaving(true);
     try {
@@ -1009,7 +1030,6 @@ function OverlaySection({
         fonts: { headline: spec.headline.font, body: spec.subline.font },
       });
       onClientsChanged(r.clients);
-      toast.success("Overlay saved.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -1057,18 +1077,7 @@ function OverlaySection({
       title="Overlay"
       subtitle="Headline, sub-line and logo drawn over each post"
       defaultOpen={false}
-      actions={
-        dirty ? (
-          <div className="bp-save">
-            <button className="primary" onClick={() => void save()} disabled={saving}>
-              {saving ? <LoaderCircle className="spinning" size={15} /> : null} Save overlay
-            </button>
-            <button className="text-button" onClick={() => setSpec(resolveOverlay(client.overlay))}>
-              Discard
-            </button>
-          </div>
-        ) : null
-      }
+      actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
     >
       <Group kit="overlay" title="Layout">
       <Select
