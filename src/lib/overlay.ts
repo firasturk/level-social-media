@@ -131,7 +131,7 @@ export async function drawOverlay(
   await document.fonts.ready;
 
   // Scrim behind the text block.
-  if (spec.scrim > 0 && (headline || subline)) {
+  if (spec.scrim > 0 && patch.fade !== false && (headline || subline)) {
     const g =
       spec.headline.position === "top"
         ? ctx.createLinearGradient(0, 0, 0, H * 0.5)

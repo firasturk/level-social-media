@@ -760,6 +760,17 @@ export default function PlanView({
                         />
                         Text on image
                       </label>
+                      {overlay.scrim > 0 && (
+                        <label className="post-overlay-toggle" title="The dark fade behind the headline">
+                          <input
+                            type="checkbox"
+                            checked={p.ov?.fade !== false}
+                            disabled={p.overlay === false}
+                            onChange={(e) => patch(p.index, { ov: { ...(p.ov ?? {}), fade: e.target.checked ? undefined : false } })}
+                          />
+                          Fade under text
+                        </label>
+                      )}
                     </div>
                     <textarea
                       rows={3}

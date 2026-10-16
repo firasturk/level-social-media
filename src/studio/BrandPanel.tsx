@@ -1437,9 +1437,17 @@ function OverlaySection({
           <Group kit="spacing">
           <div className="field-grid three">
             <label className="num"><span>Side margin</span><input type="number" value={px(spec.margin)} onChange={(e) => setSpec((o) => ({ ...o, margin: frac(Number(e.target.value)) }))} /></label>
-            <label className="num"><span>Fade %</span><input type="number" min={0} max={100} value={Math.round(spec.scrim * 100)} onChange={(e) => setSpec((o) => ({ ...o, scrim: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100 }))} /></label>
-            <label className="num"><span>Fade colour</span><input type="color" value={spec.scrimColor} onChange={(e) => setSpec((o) => ({ ...o, scrimColor: e.target.value }))} /></label>
+            <label className="num"><span>Fade %</span><input type="number" min={0} max={100} value={Math.round(spec.scrim * 100)} disabled={spec.scrim === 0} onChange={(e) => setSpec((o) => ({ ...o, scrim: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100 }))} /></label>
+            <label className="num"><span>Fade colour</span><input type="color" value={spec.scrimColor} disabled={spec.scrim === 0} onChange={(e) => setSpec((o) => ({ ...o, scrimColor: e.target.value }))} /></label>
           </div>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={spec.scrim > 0}
+              onChange={(e) => setSpec((o) => ({ ...o, scrim: e.target.checked ? 0.5 : 0, scrimColor: e.target.checked ? "#000000" : o.scrimColor }))}
+            />
+            Dark fade under the text (black keeps every theme's colours)
+          </label>
           <div className="prompt-tip">Sizes are in pixels on a 1080-wide post and scale with the export resolution.</div>
           </Group>
         </>

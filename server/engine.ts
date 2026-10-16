@@ -2386,6 +2386,7 @@ async function collectReferenceBytes(
 
 /** A running batch goes back to idle when nothing is in flight and nothing else can start (e.g. cards 2-5 whose card 1 failed). */
 async function settleIdle(env: Env, batch: BatchRow, config: Config): Promise<void> {
+  const checkedAt = now();
   const inflight = await first<{ n: number }>(
     env.DB,
     "SELECT COUNT(*) AS n FROM tasks WHERE batch = ? AND status IN ('processing','finalizing')",
@@ -2396,9 +2397,13 @@ async function settleIdle(env: Env, batch: BatchRow, config: Config): Promise<vo
   if (startable.length) return;
   const changed = await run(
     env.DB,
-    "UPDATE batches SET state = 'idle', updated = ? WHERE id = ? AND state = 'running'",
+    // Only if nothing was queued or started while this check ran: a "Generate" that lands at the
+    // same moment as the last image finishing must not be left waiting in an idle month.
+    "UPDATE batches SET state = 'idle', updated = ? WHERE id = ? AND state = 'running' AND NOT EXISTS (SELECT 1 FROM tasks WHERE batch = ? AND (status IN ('processing','finalizing') OR (status = 'queued' AND updated >= ?)))",
     now(),
     batch.id,
+    batch.id,
+    checkedAt - 10_000,
   );
   if (changed) {
     const row = await first<{
@@ -2427,5 +2432,12 @@ export async function activeBatchIds(env: Env): Promise<string[]> {
     env.DB,
     "SELECT DISTINCT b.id FROM batches b LEFT JOIN tasks t ON t.batch = b.id AND t.status IN ('processing','finalizing') WHERE b.state = 'running' OR t.id IS NOT NULL LIMIT 50",
   );
-  return rows.map((r) => r.id);
+  // A month of posts left idle with posts still queued has nothing to wait for: it runs again.
+  const stuck = await all<{ id: string }>(
+    env.DB,
+    "SELECT DISTINCT b.id FROM batches b JOIN tasks t ON t.batch = b.id AND t.status = 'queued' WHERE b.state = 'idle' AND b.config LIKE '%\"mode\":\"post\"%' LIMIT 20",
+  );
+  for (const r of stuck)
+    await run(env.DB, "UPDATE batches SET state = 'running', updated = ? WHERE id = ? AND state = 'idle'", now(), r.id);
+  return [...new Set([...rows.map((r) => r.id), ...stuck.map((r) => r.id)])];
 }

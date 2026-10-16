@@ -38,6 +38,7 @@ export const postSchema = z.object({
       logoDy: z.number().min(-2).max(2).optional(),
       logoWidth: z.number().min(0.02).max(1).optional(),
       photo: z.string().max(400).optional(),
+      fade: z.boolean().optional(),
     })
     .optional(),
   tile: z.string().max(400).optional(),

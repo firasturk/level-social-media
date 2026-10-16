@@ -103,7 +103,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
   },
   /**
    * Habibah: the Arabic oval logo centred at the top, a calligraphic Arabic headline (Gulzar, close
-   * to the brand's hand-lettering) alone at the bottom in white on a navy fade (no second line),
+   * to the brand's hand-lettering) alone at the bottom in white on a black fade (no second line),
    * the AlBandar Group mark small and white in the bottom-left corner. No gold.
    */
   habibah: {
@@ -126,7 +126,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
     subline: { font: "Almarai", size: 0.036, weight: 400, color: "#ffffff", gap: 0.014, show: false },
     margin: 0.08,
     scrim: 0.5,
-    scrimColor: "#002a5c",
+    scrimColor: "#000000",
   },
   /** A neutral layout for clients without their own rules. */
   clean: {
@@ -173,6 +173,8 @@ export interface PostOverlayPatch {
   logoWidth?: number;
   /** An official portrait framed on the post (royal occasions), drawn exactly as uploaded. */
   photo?: string;
+  /** false: no dark fade under the text on this post, whatever the client's layout says. */
+  fade?: boolean;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */
