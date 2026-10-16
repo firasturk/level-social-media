@@ -272,8 +272,8 @@ export default function Journey(p: JourneyProps) {
       note ? 1500 : 300,
     );
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     // briefBusy too: a change made while a reading ran is read once that reading ends.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting, briefBusy]);
 
   /* ── The pins' shots rewritten for this month's products and colours ── */
