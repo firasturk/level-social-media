@@ -23,7 +23,7 @@ import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
-import { StylePicker, styleThumb, useStyles } from "./StyleGallery";
+import StyleScreen, { styleThumb, useStyles } from "./StyleGallery";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -238,14 +238,15 @@ export default function PlanView({
 
   return (
     <section className={`plan ${dragging ? "dragging" : ""}`} {...dropProps}>
-      <StylePicker
+      <StyleScreen
         open={picking !== null}
         onClose={() => setPicking(null)}
-        title={`Pick a style for post ${picking ?? ""}`}
-        max={1}
-        label={() => "Use for this post"}
-        kind={picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : "product"}
-        onPick={(ids) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined)}
+        pick={{
+          mode: "post",
+          label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,
+          kind: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          onPick: (ids: string[]) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined),
+        }}
       />
       <input
         ref={fileInput}
@@ -528,7 +529,15 @@ export default function PlanView({
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
               return (
-                <article key={p.index} className={`post-card ${t?.status ?? "idea"}`}>
+                <article key={p.index} className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""}`}>
+                  {p.style && (
+                    <div className="post-style-banner">
+                      {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
+                      <span>
+                        <strong>Style applied</strong> · {styleOf(p.style)?.title ?? "from the gallery"}
+                      </span>
+                    </div>
+                  )}
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>
                     {img && showOverlay && p.overlay !== false ? (
                       <OverlayPreview

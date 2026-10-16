@@ -30,7 +30,7 @@ import PlanView from "./PlanView";
 import Journey from "./Journey";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
-import StyleGallery from "./StyleGallery";
+import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass } from "lucide-react";
 import { useBatch } from "./useBatch";
@@ -864,7 +864,7 @@ export default function Workspace({
               </div>
             </div>
             <section className="style-page">
-              <StyleGallery admin={user.role === "admin"} />
+              <StyleScreen open admin={user.role === "admin"} onClose={() => setPage("studio")} />
             </section>
           </>
         ) : page === "batches" ? (

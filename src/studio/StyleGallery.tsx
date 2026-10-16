@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, LoaderCircle, RefreshCw, Sparkles, X } from "lucide-react";
+import { Check, Link2, LoaderCircle, Maximize2, RefreshCw, Sparkles, X } from "lucide-react";
 import { del, get, post } from "@/api";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STYLE_TARGET, type StyleItem, type StyleKind } from "@shared/styles";
 
 type Reply = { styles: StyleItem[]; pool: number; spare: number };
@@ -72,50 +72,86 @@ export function useStyles(): { styles: StyleItem[]; ready: boolean; filling: boo
   return { styles: r?.styles ?? [], ready: !!r, filling: busy };
 }
 
+/** Puts the team's own pins at the front of the gallery. */
+export async function addPins(links: string[]): Promise<{ added: number; failed: string[] }> {
+  const r = await post<Reply & { added: number; failed: string[] }>("/api/studio/styles/add", { links });
+  setStore(r);
+  return r;
+}
+
 export const styleThumb = (s: Pick<StyleItem, "id" | "updated">, full = false) =>
   `/api/studio/styles/${s.id}/image?v=${s.updated}${full ? "&size=full" : ""}`;
 
+type Tab = "all" | StyleKind;
+
 /**
- * "Pick your style": the gallery of product-photo styles read from Pinterest. Remove one and a new
- * one takes its place; select some to update their prompts or swap them for fresh ideas. In pick
- * mode the selection goes to the month's posts.
+ * "Pick your style", full screen: the styles laid out in even rows like a product-shot gallery.
+ * Click to select (Select all, Select none); remove one and a new one takes its place; Update writes
+ * the selected styles again, New ideas swaps them. When picking, the selection goes to one post or
+ * to the whole grid.
  */
-export default function StyleGallery({
-  pick,
+export default function StyleScreen({
+  open,
+  onClose,
   admin,
+  pick,
 }: {
-  /** Pick mode: what the selection is used for. */
-  pick?: { max: number; label: (n: number) => string; onPick: (ids: string[]) => Promise<void> | void; kind?: StyleKind };
+  open: boolean;
+  onClose: () => void;
   admin?: boolean;
+  /** Picking for one post ("post") or for the grid ("grid", spread over `posts` posts). */
+  pick?: { mode: "post" | "grid"; posts?: number; label?: string; kind?: StyleKind; onPick: (ids: string[]) => Promise<void> | void };
 }) {
   const { styles, ready, filling: busyFill } = useStyles();
-  const [kind, setKind] = useState<StyleKind>(pick?.kind ?? "product");
+  const [tab, setTab] = useState<Tab>(pick?.kind ?? "all");
   const [selected, setSelected] = useState<string[]>([]);
-  const [open, setOpen] = useState<StyleItem | null>(null);
+  const [preview, setPreview] = useState<StyleItem | null>(null);
   const [busy, setBusy] = useState("");
-  const shown = useMemo(() => styles.filter((s) => s.kind === kind), [styles, kind]);
-  const counts = useMemo(
-    () => ({ product: styles.filter((s) => s.kind === "product").length, people: styles.filter((s) => s.kind === "people").length }),
-    [styles],
-  );
+  const [adding, setAdding] = useState(false);
+  const [links, setLinks] = useState("");
+  const scroller = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    if (open) {
+      setSelected([]);
+      setTab(pick?.kind ?? "all");
+    }
+  }, [open, pick?.kind]);
   // An unfilled gallery fills itself while it is open.
   useEffect(() => {
-    if (ready && missing(store) > 0) void fill();
-  }, [ready, styles.length]);
+    if (open && ready && missing(store) > 0) void fill();
+  }, [open, ready, styles.length]);
 
-  const toggle = useCallback(
-    (id: string) =>
-      setSelected((sel) => {
-        if (sel.includes(id)) return sel.filter((x) => x !== id);
-        if (pick?.max === 1) return [id];
-        return pick && sel.length >= pick.max ? sel : [...sel, id];
-      }),
-    [pick],
+  // All: both galleries mixed, the strongest first; a tab keeps its own order.
+  const shown = useMemo(
+    () => (tab === "all" ? [...styles].sort((a, b) => b.score - a.score || a.position - b.position) : styles.filter((s) => s.kind === tab)),
+    [styles, tab],
   );
+  const counts = useMemo(
+    () => ({ all: styles.length, product: styles.filter((s) => s.kind === "product").length, people: styles.filter((s) => s.kind === "people").length }),
+    [styles],
+  );
+  const toggle = useCallback((id: string) => setSelected((sel) => (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id])), []);
+
+  // Esc closes (or the preview first); Ctrl/Cmd+A selects everything shown.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      const typing = (e.target as HTMLElement)?.tagName === "INPUT" || (e.target as HTMLElement)?.tagName === "TEXTAREA";
+      if (e.key === "Escape") {
+        if (preview) setPreview(null);
+        else onClose();
+      } else if (!typing && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        setSelected(shown.map((s) => s.id));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, preview, shown, onClose]);
 
   async function remove(id: string) {
-    // The card leaves at once; the server puts a ready style in its place.
+    // The tile leaves at once; the server puts a ready style in its place.
     if (store) setStore({ ...store, styles: store.styles.filter((s) => s.id !== id) });
     setSelected((sel) => sel.filter((x) => x !== id));
     try {
@@ -129,9 +165,14 @@ export default function StyleGallery({
   async function act(what: "refresh" | "replace") {
     if (!selected.length) return;
     setBusy(what);
+    const ids = what === "refresh" ? selected.slice(0, 12) : selected;
     try {
-      setStore(await post<Reply>(`/api/studio/styles/${what}`, { ids: selected.slice(0, what === "refresh" ? 12 : 70) }));
-      toast.success(what === "refresh" ? `${selected.length} style${selected.length > 1 ? "s" : ""} updated.` : `${selected.length} new idea${selected.length > 1 ? "s" : ""} in their places.`);
+      setStore(await post<Reply>(`/api/studio/styles/${what}`, { ids }));
+      toast.success(
+        what === "refresh"
+          ? `${ids.length} style${ids.length > 1 ? "s" : ""} written again.${selected.length > 12 ? " Up to 12 at a time." : ""}`
+          : `${ids.length} new idea${ids.length > 1 ? "s" : ""} in their places.`,
+      );
       setSelected([]);
     } catch (e) {
       toast.error((e as Error).message);
@@ -142,179 +183,219 @@ export default function StyleGallery({
 
   async function use() {
     if (!pick || !selected.length) return;
+    if (pick.mode === "post" && selected.length !== 1) return;
     setBusy("pick");
     try {
       await pick.onPick(selected);
       setSelected([]);
+      onClose();
     } finally {
       setBusy("");
     }
   }
 
-  return (
-    <div className="style-gallery">
-      <div className="style-bar">
-        <div className="style-tabs" role="tablist">
-          {(["product", "people"] as StyleKind[]).map((k) => (
-            <button key={k} type="button" role="tab" aria-selected={kind === k} className={`journey-chip ${kind === k ? "active" : ""}`} onClick={() => setKind(k)}>
-              {k === "product" ? "Products" : "With people"} · {counts[k]}
+  async function addLinks() {
+    const list = links.split(/\s+/).map((x) => x.trim()).filter((x) => /^https?:\/\//.test(x));
+    if (!list.length) return toast.error("Paste one or more Pinterest links.");
+    setBusy("add");
+    try {
+      const r = await addPins(list.slice(0, 20));
+      toast.success(`${r.added} pin${r.added === 1 ? "" : "s"} added at the front.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
+      setLinks("");
+      setAdding(false);
+      scroller.current?.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  if (!open) return null;
+  const n = selected.length;
+  const useLabel = !pick
+    ? ""
+    : pick.mode === "post"
+      ? n === 1
+        ? "Use for this post"
+        : n > 1
+          ? "Select one for this post"
+          : "Pick a style"
+      : n
+        ? `Use ${n} for the grid${pick.posts ? ` · ${pick.posts} posts` : ""}`
+        : "Pick styles for the grid";
+
+  // On the page itself: an animated parent (the journey's boxes) would trap a fixed screen inside it.
+  return createPortal(
+    <div className="style-screen" role="dialog" aria-modal aria-label="Pick your style">
+      <header className="style-top">
+        <div className="style-top-row">
+          <div className="style-heading">
+            <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Styles"}</span>
+            <strong>Pick your style</strong>
+          </div>
+          <div className="style-top-actions">
+            {busyFill && (
+              <span className="style-filling">
+                <LoaderCircle className="spinning" size={13} /> New styles coming in…
+              </span>
+            )}
+            <button type="button" className="style-pill" onClick={() => setAdding((v) => !v)} title="Add your own Pinterest pins at the front of the gallery">
+              <Link2 size={14} /> Add pins
             </button>
-          ))}
-          {busyFill && (
-            <span className="style-filling">
-              <LoaderCircle className="spinning" size={13} /> Reading new styles from Pinterest…
-            </span>
-          )}
+            <button type="button" className="style-close" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
-        <div className="style-actions">
-          {selected.length > 0 && (
-            <>
-              <span className="style-count">{selected.length} selected</span>
-              <button type="button" className="text-button" onClick={() => setSelected([])}>
-                Clear
+        {adding && (
+          <div className="style-add">
+            <textarea
+              rows={2}
+              value={links}
+              autoFocus
+              onChange={(e) => setLinks(e.target.value)}
+              placeholder="Paste Pinterest links (pin.it/… or pinterest.com/pin/…), one per line. They join the front of the gallery, whatever the bar says."
+            />
+            <button type="button" className="style-primary" disabled={busy === "add"} onClick={() => void addLinks()}>
+              {busy === "add" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add
+            </button>
+          </div>
+        )}
+        <div className="style-top-row">
+          <div className="style-tabs" role="tablist">
+            {(
+              [
+                ["all", "All"],
+                ["product", "Product shot"],
+                ["people", "With people"],
+              ] as [Tab, string][]
+            ).map(([k, label]) => (
+              <button key={k} type="button" role="tab" aria-selected={tab === k} className={`style-pill ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>
+                {label} <em>{counts[k]}</em>
               </button>
-              <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("refresh")} title="Write these styles again: a fresh take on the same idea">
+            ))}
+          </div>
+          <div className="style-select">
+            <button type="button" className="style-link" onClick={() => setSelected(shown.map((s) => s.id))}>
+              Select all
+            </button>
+            <button
+              type="button"
+              className="style-link"
+              onClick={() => setSelected((sel) => [...new Set([...sel, ...shown.filter((s) => !sel.includes(s.id)).slice(0, 10).map((s) => s.id)])])}
+              title="Select the next ten styles"
+            >
+              Select 10 more
+            </button>
+            <button type="button" className="style-link" onClick={() => setSelected(shown.map((s) => s.id).filter((id) => !selected.includes(id)))}>
+              Invert
+            </button>
+            <button type="button" className="style-link" disabled={!n} onClick={() => setSelected([])}>
+              Select none
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="style-scroll" ref={scroller}>
+        <div className="style-rows">
+          {(ready ? shown : []).map((s) => {
+            const on = selected.includes(s.id);
+            const ar = s.w && s.h ? s.w / s.h : 0.75;
+            return (
+              <div key={s.id} className={`style-tile ${on ? "on" : ""}`} style={{ flexGrow: ar, flexBasis: `calc(var(--row) * ${ar})` }}>
+                <button type="button" className="style-tile-image" style={{ aspectRatio: `${ar}` }} onClick={() => toggle(s.id)} aria-pressed={on} title={s.tags}>
+                  <img src={styleThumb(s)} alt={s.title} loading="lazy" decoding="async" />
+                  <span className="style-tile-label">
+                    <small>{s.kind === "people" ? "With people" : "Product shot"}</small>
+                    <b>{s.title}</b>
+                  </span>
+                </button>
+                <span className="style-tile-check" aria-hidden>
+                  {on && <Check size={13} strokeWidth={3} />}
+                </span>
+                <span className="style-tile-tools">
+                  <button type="button" onClick={() => setPreview(s)} aria-label={`Open ${s.title}`} title="Open">
+                    <Maximize2 size={13} />
+                  </button>
+                  <button type="button" onClick={() => void remove(s.id)} aria-label={`Remove ${s.title}`} title="Remove: a new style takes its place">
+                    <X size={13} />
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+          {Array.from({ length: ready ? Math.max(0, (tab === "all" ? STYLE_TARGET.product + STYLE_TARGET.people : STYLE_TARGET[tab]) - shown.length) : 18 }, (_, i) => (
+            <div key={`s${i}`} className="style-tile skeleton" style={{ flexGrow: 0.75, flexBasis: "calc(var(--row) * 0.75)" }} />
+          ))}
+          <span className="style-rows-end" />
+        </div>
+      </div>
+
+      {(n > 0 || pick) && (
+        <div className="style-dock">
+          <span className="style-dock-count">{n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : "Select one style"}</span>
+          {n > 0 && (
+            <>
+              <button type="button" className="style-pill" disabled={!!busy} onClick={() => void act("refresh")} title="Write the selected styles again: a fresh take on the same idea">
                 {busy === "refresh" ? <LoaderCircle className="spinning" size={14} /> : <RefreshCw size={14} />} Update
               </button>
-              <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("replace")} title="Swap these for new styles">
+              <button type="button" className="style-pill" disabled={!!busy} onClick={() => void act("replace")} title="Swap the selected styles for new ideas">
                 {busy === "replace" ? <LoaderCircle className="spinning" size={14} /> : <Sparkles size={14} />} New ideas
               </button>
             </>
           )}
           {pick && (
-            <button type="button" className="primary" disabled={!selected.length || !!busy} onClick={() => void use()}>
-              {busy === "pick" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} {pick.label(selected.length)}
+            <button type="button" className="style-primary" disabled={!n || !!busy || (pick.mode === "post" && n !== 1)} onClick={() => void use()}>
+              {busy === "pick" ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} {useLabel}
             </button>
           )}
         </div>
-      </div>
-      {!ready ? (
-        <div className="style-grid">
-          {Array.from({ length: 12 }, (_, i) => (
-            <div key={i} className="style-card skeleton" />
-          ))}
-        </div>
-      ) : (
-        <div className="style-grid">
-          {shown.map((s) => {
-            const on = selected.includes(s.id);
-            return (
-              <div key={s.id} className={`style-card ${on ? "on" : ""}`}>
-                <button type="button" className="style-image" onClick={() => (pick ? toggle(s.id) : setOpen(s))} title={s.tags}>
-                  <img src={styleThumb(s)} alt={s.title} loading="lazy" decoding="async" />
+      )}
+
+      {preview && (
+        <div className="style-preview-layer" onClick={() => setPreview(null)}>
+          <div className="style-preview-card" onClick={(e) => e.stopPropagation()}>
+            <img src={styleThumb(preview, true)} alt={preview.title} />
+            <div className="style-preview-text">
+              <small>{preview.kind === "people" ? "With people" : "Product shot"} · {preview.tags}</small>
+              <h2>{preview.title}</h2>
+              {admin && preview.prompt ? (
+                <p>{preview.prompt}</p>
+              ) : (
+                <p>Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
+              )}
+              <div className="style-preview-actions">
+                <button
+                  type="button"
+                  className="style-primary"
+                  onClick={() => {
+                    toggle(preview.id);
+                    setPreview(null);
+                  }}
+                >
+                  <Check size={14} /> {selected.includes(preview.id) ? "Unselect" : "Select"}
                 </button>
-                <label className="style-check" title="Select">
-                  <input type="checkbox" checked={on} onChange={() => toggle(s.id)} aria-label={`Select ${s.title}`} />
-                </label>
-                <button type="button" className="style-x" onClick={() => void remove(s.id)} title="Remove: a new style takes its place" aria-label={`Remove ${s.title}`}>
-                  <X size={12} />
+                <button
+                  type="button"
+                  className="style-pill"
+                  onClick={() => {
+                    void remove(preview.id);
+                    setPreview(null);
+                  }}
+                >
+                  <X size={14} /> Remove
                 </button>
-                <button type="button" className="style-title" onClick={() => setOpen(s)}>
-                  {s.title}
+                <button type="button" className="style-pill" onClick={() => setPreview(null)}>
+                  Close
                 </button>
               </div>
-            );
-          })}
-          {Array.from({ length: Math.max(0, STYLE_TARGET[kind] - shown.length) }, (_, i) => (
-            <div key={`s${i}`} className="style-card skeleton" />
-          ))}
+            </div>
+          </div>
         </div>
       )}
-      <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <DialogContent className="style-preview">
-          {open && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{open.title}</DialogTitle>
-                <DialogDescription>{open.tags}</DialogDescription>
-              </DialogHeader>
-              <div className="style-preview-body">
-                <img src={styleThumb(open, true)} alt={open.title} />
-                <div>
-                  {admin && open.prompt ? (
-                    <>
-                      <strong>The style, for any product</strong>
-                      <p>{open.prompt}</p>
-                    </>
-                  ) : (
-                    <p className="field-hint">Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
-                  )}
-                  <div className="style-preview-actions">
-                    {pick && (
-                      <button
-                        type="button"
-                        className="primary"
-                        onClick={() => {
-                          toggle(open.id);
-                          setOpen(null);
-                        }}
-                      >
-                        <Check size={14} /> {selected.includes(open.id) ? "Unselect" : "Select"}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => {
-                        void remove(open.id);
-                        setOpen(null);
-                      }}
-                    >
-                      <X size={14} /> Remove
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-/** The gallery in a dialog, to pick styles for one post or for the whole grid. */
-export function StylePicker({
-  open,
-  onClose,
-  title,
-  max,
-  label,
-  onPick,
-  admin,
-  kind,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  max: number;
-  label: (n: number) => string;
-  onPick: (ids: string[]) => Promise<void> | void;
-  admin?: boolean;
-  kind?: StyleKind;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="style-dialog">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Pick the look only: each style is written for the post's own product, its ingredients and your brand.</DialogDescription>
-        </DialogHeader>
-        {open && (
-          <StyleGallery
-            admin={admin}
-            pick={{
-              max,
-              label,
-              kind,
-              onPick: async (ids) => {
-                await onPick(ids);
-                onClose();
-              },
-            }}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
+    </div>,
+    document.body,
   );
 }

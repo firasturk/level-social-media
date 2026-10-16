@@ -46,6 +46,9 @@ export interface StyleRow {
   position: number;
   created: number;
   updated: number;
+  score: number;
+  w: number;
+  h: number;
 }
 
 function toItem(r: StyleRow, admin: boolean): StyleItem {
@@ -57,6 +60,9 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
     ...(admin ? { prompt: r.prompt } : {}),
     position: r.position,
     updated: r.updated,
+    score: r.score,
+    w: r.w,
+    h: r.h,
   };
 }
 
@@ -120,6 +126,31 @@ export async function searchPins(query: string): Promise<Pin[]> {
     .filter((p) => p.pin && /^https:\/\/i\.pinimg\.com\//.test(p.url));
 }
 
+/** Pinterest's "more like this" for one pin: the way the pool grows at the bar the gallery holds. */
+export async function relatedPins(pin: string): Promise<Pin[]> {
+  const options = { pin_id: pin, context_pin_ids: [], search_query: "", source: "deep_linking", top_level_source: "deep_linking", top_level_source_depth: 1, is_pdp: false };
+  const url = `https://www.pinterest.com/resource/RelatedModulesResource/get/?${new URLSearchParams({
+    source_url: `/pin/${pin}/`,
+    data: JSON.stringify({ options, context: {} }),
+  })}`;
+  const r = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json", "X-Requested-With": "XMLHttpRequest", "X-Pinterest-PWS-Handler": "www/pin/[id].js" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!r.ok) return [];
+  const d = (await r.json().catch(() => null)) as {
+    resource_response?: { data?: { id?: string; type?: string; title?: string; grid_title?: string; description?: string; images?: Record<string, { url?: string }>; videos?: unknown }[] };
+  } | null;
+  return (Array.isArray(d?.resource_response?.data) ? d!.resource_response!.data! : [])
+    .filter((x) => x.type === "pin" && !x.videos)
+    .map((x) => ({
+      pin: String(x.id ?? ""),
+      url: x.images?.["736x"]?.url ?? "",
+      note: [x.grid_title || x.title, x.description].filter(Boolean).join(" · ").slice(0, 1500),
+    }))
+    .filter((p) => p.pin.length >= 6 && /^https:\/\/i\.pinimg\.com\//.test(p.url));
+}
+
 /** Collected pins join the pool (a pin already known is skipped). */
 async function addToPool(env: Env, pins: Pin[], kind: StyleKind): Promise<number> {
   let added = 0;
@@ -144,6 +175,21 @@ async function addToPool(env: Env, pins: Pin[], kind: StyleKind): Promise<number
 async function refillPool(env: Env, kind: StyleKind): Promise<void> {
   const left = await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool' AND kind = ?", kind);
   if ((left?.n ?? 0) >= 12) return;
+  // Pins like the gallery's best ones first; a search when Pinterest has nothing related.
+  const best = await all<{ pin: string }>(
+    env.DB,
+    "SELECT pin FROM styles WHERE status IN ('active','spare') AND kind = ? AND score >= 8 AND pin GLOB '[0-9]*' ORDER BY RANDOM() LIMIT 2",
+    kind,
+  );
+  let added = 0;
+  for (const b of best) {
+    try {
+      added += await addToPool(env, await relatedPins(b.pin), kind);
+    } catch (e) {
+      console.error("[styles] related failed", b.pin, errorMessage(e));
+    }
+  }
+  if (added) return;
   const queries = STYLE_QUERIES[kind];
   const query = queries[Math.floor(Math.random() * queries.length)];
   try {
@@ -160,7 +206,7 @@ function own(u: Uint8Array): ArrayBuffer {
 }
 
 /** The pin's picture, stored with a small thumbnail so the gallery opens fast. */
-async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thumb: string; bytes: ArrayBuffer; mime: string }> {
+async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thumb: string; bytes: ArrayBuffer; mime: string; w: number; h: number }> {
   const r = await fetch(row.source, { headers: { "User-Agent": UA, Accept: "image/*" }, signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new StudioError(`The pin's image is gone (${r.status}).`, 404);
   const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
@@ -169,9 +215,9 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
   const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
   const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
   let thumbBytes: Uint8Array;
+  const w = img.get_width();
+  const h = img.get_height();
   try {
-    const w = img.get_width();
-    const h = img.get_height();
     const tw = Math.min(360, w);
     const small = resize(img, tw, Math.round((h * tw) / w), SamplingFilter.Triangle);
     thumbBytes = small.get_bytes_jpeg(80);
@@ -183,7 +229,7 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
   const thumb = `styles/${row.id}-thumb.jpg`;
   await env.BUCKET.put(image, bytes, { httpMetadata: { contentType: mime } });
   await env.BUCKET.put(thumb, own(thumbBytes), { httpMetadata: { contentType: "image/jpeg" } });
-  return { image, thumb, bytes, mime };
+  return { image, thumb, bytes, mime, w, h };
 }
 
 /** Reads one pool pin: a usable style becomes a spare (or rejected); its picture is kept. */
@@ -194,13 +240,16 @@ async function readPin(env: Env, row: StyleRow): Promise<"spare" | "rejected"> {
     const s = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
     if (!s.keep) {
       await env.BUCKET.delete([stored.image, stored.thumb]);
-      await run(env.DB, "UPDATE styles SET status = 'rejected', image_key = NULL, thumb_key = NULL, updated = ? WHERE id = ?", now(), row.id);
+      await run(env.DB, "UPDATE styles SET status = 'rejected', score = ?, image_key = NULL, thumb_key = NULL, updated = ? WHERE id = ?", s.score, now(), row.id);
       return "rejected";
     }
     await run(
       env.DB,
-      "UPDATE styles SET status = 'spare', kind = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, updated = ? WHERE id = ? AND status = 'pool'",
+      "UPDATE styles SET status = 'spare', kind = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, updated = ? WHERE id = ? AND status = 'pool'",
       s.kind,
+      s.score,
+      stored.w,
+      stored.h,
       s.title,
       s.tags,
       s.prompt,
@@ -228,7 +277,7 @@ async function promote(env: Env, kind: StyleKind, positions: number[] = []): Pro
   if (missing <= 0) return 0;
   const spares = await all<StyleRow>(
     env.DB,
-    "SELECT * FROM styles WHERE status = 'spare' AND kind = ? ORDER BY created LIMIT ?",
+    "SELECT * FROM styles WHERE status = 'spare' AND kind = ? ORDER BY score DESC, created LIMIT ?",
     kind,
     missing,
   );
@@ -309,9 +358,97 @@ styleRoutes.post("/import", async (c) => {
   return c.json({ ok: true, added: await addToPool(c.env, pins, d.kind) });
 });
 
+/** A pin link (pin.it short link or pinterest.com/pin/…) as a pool pin: its id, picture and text. */
+async function pinFromLink(link: string): Promise<Pin | null> {
+  let id = /pinterest\.[a-z.]+\/pin\/(\d{6,})/i.exec(link)?.[1] ?? null;
+  if (!id) {
+    const r = await fetch(link, { headers: { "User-Agent": UA }, redirect: "follow", signal: AbortSignal.timeout(15_000) });
+    id = /\/pin\/(\d{6,})/.exec(r.url)?.[1] ?? /\/pin\/(\d{6,})/.exec(await r.text())?.[1] ?? null;
+  }
+  if (!id) return null;
+  const r = await fetch(`https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=${id}`, {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!r.ok) return null;
+  const d = (await r.json()) as { data?: { title?: string; description?: string; images?: Record<string, { url?: string }> }[] };
+  const x = d.data?.[0];
+  const url = x?.images?.["736x"]?.url ?? x?.images?.["564x"]?.url ?? "";
+  return url ? { pin: id, url, note: [x?.title, x?.description].filter(Boolean).join(" · ").slice(0, 1500) } : null;
+}
+
+/**
+ * The team's own pins: read and put at the front of the gallery at once, whatever their score
+ * (the team chose them). The gallery's weakest style of that kind steps back to the spares.
+ */
+styleRoutes.post("/add", async (c) => {
+  const d = await body(c, z.object({ links: z.array(z.string().url().max(600)).min(1).max(20) }));
+  const added: string[] = [];
+  const failed: string[] = [];
+  await Promise.all(
+    d.links.map(async (link) => {
+      try {
+        const pin = await pinFromLink(link);
+        if (!pin) return failed.push(link);
+        await run(
+          c.env.DB,
+          "INSERT INTO styles (id, kind, status, pin, source, note, created, updated) VALUES (?, 'product', 'pool', ?, ?, ?, ?, ?) ON CONFLICT(pin) DO UPDATE SET status = 'pool', source = excluded.source, updated = excluded.updated",
+          uuid(),
+          pin.pin,
+          pin.url,
+          pin.note,
+          now(),
+          now(),
+        );
+        const row = await first<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE pin = ?", pin.pin);
+        if (!row) return failed.push(link);
+        const stored = await storeImage(c.env, row);
+        const text = await askText(c.env, describeStyleInstruction(row.note), STYLE_SCHEMA, [{ bytes: stored.bytes, mime: stored.mime }]);
+        const st = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
+        if (!st.prompt) return failed.push(link);
+        await run(
+          c.env.DB,
+          "UPDATE styles SET status = 'active', position = -1, kind = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, updated = ? WHERE id = ?",
+          st.kind,
+          Math.max(st.score, 9),
+          stored.w,
+          stored.h,
+          st.title || "Team pick",
+          st.tags,
+          st.prompt,
+          stored.image,
+          stored.thumb,
+          now(),
+          row.id,
+        );
+        added.push(row.id);
+      } catch (e) {
+        console.error("[styles] add failed", link, errorMessage(e));
+        failed.push(link);
+      }
+    }),
+  );
+  // Team picks lead each gallery; the weakest styles over the count step back to the spares.
+  for (const kind of STYLE_KINDS) {
+    const rows = await all<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE status = 'active' AND kind = ? ORDER BY position, created", kind);
+    const keep = rows.slice();
+    while (keep.length > STYLE_TARGET[kind]) {
+      const weakest = keep.filter((r) => r.position >= 0).sort((a, b) => a.score - b.score)[0];
+      if (!weakest) break;
+      keep.splice(keep.indexOf(weakest), 1);
+      await run(c.env.DB, "UPDATE styles SET status = 'spare', updated = ? WHERE id = ?", now(), weakest.id);
+    }
+    let i = 0;
+    for (const r of keep) await run(c.env.DB, "UPDATE styles SET position = ? WHERE id = ?", i++, r.id);
+  }
+  return c.json({ ...(await list(c.env, c.get("user"))), added: added.length, failed });
+});
+
 /** Reads a few more pins and fills the gallery; the browser calls it until nothing is missing. */
 styleRoutes.post("/fill", async (c) => {
-  await topUp(c.env, READ_AT_ONCE);
+  // Admins may read more at once (filling a new gallery); everyone else a few per call.
+  const asked = Number(c.req.query("budget") ?? READ_AT_ONCE) || READ_AT_ONCE;
+  await topUp(c.env, c.get("user").role === "admin" ? Math.min(12, Math.max(1, asked)) : READ_AT_ONCE);
   return c.json(await list(c.env, c.get("user")));
 });
 
@@ -362,10 +499,35 @@ styleRoutes.post("/recheck", async (c) => {
           { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" },
         ]);
         const s = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
-        if (!s.keep) {
-          await run(c.env.DB, "UPDATE styles SET status = 'rejected', updated = ? WHERE id = ?", now(), r.id);
-          out.push(r.title);
+        let w = r.w;
+        let h = r.h;
+        if (!w || !h) {
+          const thumb = r.thumb_key ? await c.env.BUCKET.get(r.thumb_key) : null;
+          if (thumb) {
+            const { PhotonImage } = await import("@cf-wasm/photon");
+            const img = PhotonImage.new_from_byteslice(new Uint8Array(await thumb.arrayBuffer()));
+            w = img.get_width();
+            h = img.get_height();
+            img.free();
+          }
         }
+        if (!s.keep) {
+          await run(c.env.DB, "UPDATE styles SET status = 'rejected', score = ?, w = ?, h = ?, updated = ? WHERE id = ?", s.score, w, h, now(), r.id);
+          out.push(r.title);
+        } else
+          await run(
+            c.env.DB,
+            "UPDATE styles SET score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, kind = CASE WHEN status = 'spare' THEN ? ELSE kind END, updated = ? WHERE id = ?",
+            s.score,
+            w,
+            h,
+            s.title || r.title,
+            s.tags || r.tags,
+            s.prompt || r.prompt,
+            s.kind,
+            now(),
+            r.id,
+          );
       } catch (e) {
         console.error("[styles] recheck failed", r.id, errorMessage(e));
       }

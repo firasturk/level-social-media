@@ -9,9 +9,13 @@ describe("style gallery", () => {
     expect(ins).toContain("Frambini");
     const fresh = describeStyleInstruction("", { title: "Frozen in ice cubes", prompt: "The product lies among ice cubes." });
     expect(fresh).toContain("FRESH variation");
-    const s = parseStyle({ keep: true, kind: "people", title: '"Held to the sun"', tags: "sun, hands", prompt: "x".repeat(80) });
-    expect(s).toMatchObject({ keep: true, kind: "people", title: "Held to the sun" });
-    expect(parseStyle({ keep: true, kind: "product", title: "Too short", tags: "", prompt: "short" }).keep).toBe(false);
+    const s = parseStyle({ keep: true, score: 9, kind: "people", title: '"Cloud Swing"', tags: "sky, swing", prompt: "x".repeat(80) });
+    expect(s).toMatchObject({ keep: true, score: 9, kind: "people", title: "Cloud Swing" });
+    expect(parseStyle({ keep: true, score: 7, kind: "product", title: "Nice concept", tags: "", prompt: "z".repeat(80) }).keep).toBe(false);
+    expect(parseStyle({ keep: true, score: 9, kind: "product", title: "Too short", tags: "", prompt: "short" }).keep).toBe(false);
+    // Below the team's bar (8): a plain packshot or a merely nice concept stays out of the gallery.
+    expect(parseStyle({ keep: true, score: 5, kind: "product", title: "Plain packshot", tags: "", prompt: "y".repeat(80) }).keep).toBe(false);
+    expect(ins).toContain("THE BAR");
     expect(parseStyle({ keep: false, title: "A", prompt: "y".repeat(80) }).keep).toBe(false);
   });
 

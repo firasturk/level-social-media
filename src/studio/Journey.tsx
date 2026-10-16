@@ -40,7 +40,7 @@ import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasio
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
 import { fixNote, postProblems } from "@shared/qa";
 import type { StyleItem } from "@shared/styles";
-import { StylePicker, styleThumb, useStyles } from "./StyleGallery";
+import StyleScreen, { styleThumb, useStyles } from "./StyleGallery";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -1347,28 +1347,30 @@ function MonthShots({
   }
   return (
     <div className="journey-box">
-      <StylePicker
+      <StyleScreen
         open={picking !== null}
         onClose={() => setPicking(null)}
         admin={admin}
-        title={picking === "grid" ? "Pick your styles for the grid" : `Pick a style for post ${picking}`}
-        max={picking === "grid" ? Math.max(1, gridPosts.length) : 1}
-        label={(n) => (picking === "grid" ? `Use ${n || ""} for the grid` : "Use for this post")}
-        kind={typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : "product"}
-        onPick={(ids) => {
-          if (picking === "grid") {
-            // The styles are spread over the posts in order; people styles go to posts with people first.
-            const people = ids.filter((id) => styles.find((st) => st.id === id)?.kind === "people");
-            const product = ids.filter((id) => !people.includes(id));
-            let a = 0;
-            let b = 0;
-            const assign = gridPosts.map((x, i) => {
-              const pool = x.people?.length && people.length ? people : product.length ? product : people;
-              const k = pool === people ? a++ : b++;
-              return { index: x.index, style: pool[k % pool.length] ?? ids[i % ids.length] };
-            });
-            void apply(assign);
-          } else if (typeof picking === "number") void apply([{ index: picking, style: ids[0] }]);
+        pick={{
+          mode: picking === "grid" ? "grid" : "post",
+          posts: gridPosts.length,
+          label: typeof picking === "number" ? `Post ${String(picking).padStart(2, "0")}` : undefined,
+          kind: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          onPick: (ids: string[]) => {
+            if (picking === "grid") {
+              // The styles are spread over the posts in order; people styles go to posts with people first.
+              const people = ids.filter((id) => styles.find((st) => st.id === id)?.kind === "people");
+              const product = ids.filter((id) => !people.includes(id));
+              let a = 0;
+              let b = 0;
+              const assign = gridPosts.map((x, i) => {
+                const pool = x.people?.length && people.length ? people : product.length ? product : people;
+                const k = pool === people ? a++ : b++;
+                return { index: x.index, style: pool[k % pool.length] ?? ids[i % ids.length] };
+              });
+              void apply(assign);
+            } else if (typeof picking === "number") void apply([{ index: picking, style: ids[0] }]);
+          },
         }}
       />
       <BoxTitle
@@ -1397,6 +1399,11 @@ function MonthShots({
       >
         Shot list{plan.length ? ` · ${written}/${plan.length}` : ""}
       </BoxTitle>
+      {styled > 0 && (
+        <p className="shot-grid-note">
+          <Images size={13} /> {styled === gridPosts.length ? "Style grid" : `${styled} of ${gridPosts.length} posts styled`}: these posts follow their style's own reference; the theme's pins are not used for them.
+        </p>
+      )}
       {busy && !written ? (
         <div className="journey-reading">
           <LoaderCircle className="spinning" size={18} />
@@ -1445,7 +1452,7 @@ function ShotRow({
 }) {
   const [text, setText] = useState(post.scene ?? "");
   return (
-    <li className="shot-row" style={{ "--i": order } as React.CSSProperties}>
+    <li className={`shot-row ${post.style ? "styled" : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="idea-meta">
         <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
         {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
@@ -1453,22 +1460,27 @@ function ShotRow({
         <span className="shot-headline" dir="auto">
           {post.headline}
         </span>
-        {post.style ? (
-          <span className="style-chip" title="This post's style from the gallery: click to change">
-            <button type="button" className="style-chip-main" onClick={onStyle} disabled={busy}>
-              {style && <img src={styleThumb(style)} alt="" />}
-              <span>{style?.title ?? "Style"}</span>
-            </button>
-            <button type="button" className="style-chip-x" onClick={onUnstyle} disabled={busy} aria-label="Take the style off" title="Back to the pins' shot">
-              <X size={11} />
-            </button>
-          </span>
-        ) : (
+        {!post.style && (
           <button type="button" className="text-button shot-style" onClick={onStyle} disabled={busy} title="Pick a style from the gallery for this post">
             <Images size={12} /> Style
           </button>
         )}
       </div>
+      {post.style && (
+        <div className="shot-style-banner">
+          {style ? <img src={styleThumb(style)} alt="" /> : <span className="shot-style-empty" />}
+          <span>
+            <strong>Style applied on this post</strong>
+            <small>{style?.title ?? "A style from the gallery"} · the shot below is that style written for this product</small>
+          </span>
+          <button type="button" className="text-button" onClick={onStyle} disabled={busy}>
+            Change
+          </button>
+          <button type="button" className="icon-button" onClick={onUnstyle} disabled={busy} aria-label="Take the style off" title="Take the style off: back to the pins' shot">
+            <X size={13} />
+          </button>
+        </div>
+      )}
       {post.scene || !busy ? (
         <textarea
           rows={3}
