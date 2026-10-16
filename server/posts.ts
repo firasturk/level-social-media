@@ -177,6 +177,7 @@ interface ThemeRow {
   /** JSON array of {name, hex}. */
   palette: string | null;
   palette_auto: number | null;
+  analysed?: number | null;
   hidden: number;
   created: number;
   updated: number;
@@ -228,9 +229,9 @@ async function themeRows(env: Env, client: string): Promise<ThemeRow[]> {
 
 async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
   if (!rows.length) return [];
-  const counts = await all<{ skill: string; n: number; thumb: string }>(
+  const counts = await all<{ skill: string; n: number; latest: number; thumb: string }>(
     env.DB,
-    `SELECT skill, COUNT(*) AS n, (SELECT id FROM refs r2 WHERE r2.skill = r.skill ORDER BY created LIMIT 1) AS thumb
+    `SELECT skill, COUNT(*) AS n, MAX(created) AS latest, (SELECT id FROM refs r2 WHERE r2.skill = r.skill ORDER BY created LIMIT 1) AS thumb
      FROM refs r WHERE skill IN (${rows.map(() => "?").join(",")}) GROUP BY skill`,
     ...rows.map((r) => r.id),
   );
@@ -251,6 +252,8 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     references: byId.get(r.id)?.n ?? 0,
     thumb: byId.get(r.id)?.thumb,
     updated: r.updated,
+    analysed: r.analysed ?? undefined,
+    latestRef: byId.get(r.id)?.latest ?? undefined,
   }));
 }
 
@@ -386,11 +389,12 @@ async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
     .slice(0, 200);
   await run(
     env.DB,
-    "UPDATE skills SET description = ?, goal = ?, library = ?, shots = ?, auto = 1, updated = ? WHERE id = ?",
+    "UPDATE skills SET description = ?, goal = ?, library = ?, shots = ?, auto = 1, updated = ?, analysed = ? WHERE id = ?",
     (d.description ?? "").trim().slice(0, 300),
     d.direction.trim(),
     d.library.trim(),
     JSON.stringify(shots),
+    now(),
     now(),
     row.id,
   );

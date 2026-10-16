@@ -34,7 +34,8 @@ import {
   type Post,
 } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
-import { briefLines } from "@shared/brief";
+import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
+import { postProblems } from "@shared/qa";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -152,6 +153,8 @@ export interface JourneyProps {
   onRewrite: (index: number, plan: Post[]) => void;
   onGenerate: () => Promise<void>;
   onDone: () => void;
+  /** An image engine is connected (Generate would otherwise fail). */
+  engineReady: boolean;
 }
 
 /**
@@ -193,6 +196,9 @@ export default function Journey(p: JourneyProps) {
 
   /* ── The brief: one analysis per screen, run when the screen's content changes ── */
   const [briefBusy, setBriefBusy] = useState<BriefStep | "">("");
+  const [briefError, setBriefError] = useState<Partial<Record<BriefStep, string>>>({});
+  const [showIssues, setShowIssues] = useState(false);
+  const [fixing, setFixing] = useState("");
   const [adapting, setAdapting] = useState(false);
   const [reading, setReading] = useState(false);
   const brief = p.config?.brief ?? {};
@@ -204,8 +210,9 @@ export default function Journey(p: JourneyProps) {
       try {
         await post("/api/studio/posts/brief", { batch: p.batchId, step: s });
         await p.refresh();
+        setBriefError((m) => ({ ...m, [s]: undefined }));
       } catch (e) {
-        toast.error((e as Error).message);
+        setBriefError((m) => ({ ...m, [s]: (e as Error).message }));
       } finally {
         setBriefBusy("");
       }
@@ -334,9 +341,193 @@ export default function Journey(p: JourneyProps) {
     }
   }
 
+  /* ── The checklist: Next opens only when the screen is complete and current ── */
+  type Issue = { text: string; how?: string; warn?: boolean; fix?: { label: string; run: () => void | Promise<void> } };
+  const go = (k: string) => () => setStep(Math.max(0, STEPS.findIndex((x) => x.key === k)));
+  const castPeople = p.ambassadors.filter((a) => p.cast.includes(a.id));
+  const productNames = p.products.map((x) => displayName(x.name));
+  const sellsDrinks = p.products.some((x) => FOREIGN_ITEMS.test(`${x.note ?? ""} ${x.category ?? ""}`));
+  const analysedAt = theme ? (theme.analysed ?? (theme.shots.length ? theme.updated : 0)) : 0;
+  const briefAt = Math.max(
+    0,
+    ...Object.entries(p.config?.brief ?? {})
+      .filter(([k]) => k !== "shots")
+      .map(([, n]) => n?.at ?? 0),
+  );
+  const plannedAt = p.config?.plannedAt ?? 0;
+
+  async function rewriteShot(index: number) {
+    if (!p.batchId) return;
+    await post("/api/studio/posts/shots", { batch: p.batchId, indexes: [index] });
+    await p.refresh();
+  }
+
+  /** The analysis of a screen must exist, be current and not have failed. */
+  function analysisIssues(k: BriefStep): Issue[] {
+    if (briefError[k])
+      return [{ text: `"What I understood" could not be written: ${briefError[k]}`, fix: { label: "Read again", run: () => runBrief(k) } }];
+    if (briefBusy === k || !brief[k] || (stepBrief === k && seen.current[k] !== signature[k]))
+      return [{ text: "Wait for \"What I understood\": it is reading this screen.", how: "It takes a few seconds; the rest of the month follows it." }];
+    return [];
+  }
+
+  function issuesFor(k: string): Issue[] {
+    const out: Issue[] = [];
+    switch (k) {
+      case "client":
+        if (!client) out.push({ text: "Pick the account you are working on." });
+        break;
+      case "products":
+        if (p.uploading) out.push({ text: "Wait for the photos to finish uploading." });
+        if (!p.products.length && !client?.service?.trim())
+          out.push({
+            text: "No products yet.",
+            how: "Upload product photos, pick them from the gallery, or tick \"sells a service\" and describe what the client offers.",
+          });
+        else out.push(...analysisIssues("products"));
+        break;
+      case "count": {
+        if (p.postCount < 1) out.push({ text: "Pick how many posts this month has." });
+        const sel = p.config?.occasions;
+        for (const o of pickedOccasions(p.month, sel))
+          if (o.portrait && !sel?.photos?.[o.id])
+            out.push({ warn: true, text: `${o.name}: upload the official portrait before Generate.`, how: "Use \"Official portrait\" next to it." });
+        const ticked = new Set(sel?.picked ?? []);
+        for (const o of occasionsOf(p.month))
+          if (o.major && !ticked.has(o.id)) out.push({ warn: true, text: `${o.name} (${shortDate(o.date)}) is a big day without a post.` });
+        out.push(...analysisIssues("count"));
+        break;
+      }
+      case "brand":
+        if (client && !client.logo) out.push({ warn: true, text: "No logo: the posts go out without one.", how: "Upload it in Logos." });
+        if (client && !client.tone?.trim()) out.push({ warn: true, text: "No tone of voice: captions use a neutral tone." });
+        if (client && !client.colors.length) out.push({ warn: true, text: "No brand colours yet." });
+        out.push(...analysisIssues("brand"));
+        break;
+      case "identity":
+        for (const a of castPeople)
+          if (!a.image)
+            out.push({ text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
+        if (!theme) out.push({ warn: true, text: "No theme: the posts follow the brand identity and get no shots from pins." });
+        else if (!theme.references)
+          out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
+        else if (reading) out.push({ text: "Wait: the pins are being read." });
+        else if (!theme.shots.length || !analysedAt || (theme.latestRef ?? 0) > analysedAt)
+          out.push({
+            text: "The pins were not read since the last change: the month would follow the old theme.",
+            fix: { label: "Analyse the pins", run: () => readReferences(true) },
+          });
+        out.push(...analysisIssues("theme"));
+        break;
+      case "colours":
+        if (theme && !theme.palette.length)
+          out.push({
+            text: "No colours for this month.",
+            how: "Add the colours, or let the pins suggest them.",
+            fix: {
+              label: "Suggest from the pins",
+              run: async () => {
+                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`);
+                p.onThemesChanged(r.themes);
+              },
+            },
+          });
+        out.push(...analysisIssues("colours"));
+        break;
+      case "ideas": {
+        if (p.ideasBusy || p.rewriting) {
+          out.push({ text: "Wait: the ideas are being written." });
+          break;
+        }
+        if (!p.plan.length) {
+          out.push({ text: "No ideas yet.", fix: { label: "Write the ideas", run: () => void p.onGenerateIdeas() } });
+          break;
+        }
+        const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
+        if (briefAt > plannedAt || (theme && theme.updated > plannedAt))
+          out.push({ text: "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite });
+        else if (p.plan.length !== p.postCount)
+          out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite });
+        const missing = pickedOccasions(p.month, p.config?.occasions).filter(
+          (o) => !p.plan.some((x) => x.type === "greeting" && x.occasion === o.id),
+        );
+        if (missing.length)
+          out.push({
+            text: `No greeting post yet for ${missing.map((o) => o.name).join(", ")}.`,
+            fix: {
+              label: "Add the greeting post",
+              run: async () => {
+                await post("/api/studio/posts/occasion-posts", { batch: p.batchId });
+                await p.refresh();
+              },
+            },
+          });
+        for (const x of p.plan) {
+          if (x.type === "offer" && !offerReady(x.offer))
+            out.push({ text: `Post ${x.index} is an offer: pick its products, write the price and what it includes, then "Write the offer post".` });
+          if (x.product && !productNames.some((n) => n.toLowerCase() === x.product!.toLowerCase()) && x.type !== "offer")
+            out.push({ warn: true, text: `Post ${x.index} uses ${x.product}, which is not among this month's photos; Generate brings it from the gallery if it is there.` });
+        }
+        break;
+      }
+      case "scene": {
+        if (adapting) {
+          out.push({ text: "Wait: the shots are being written." });
+          break;
+        }
+        const needsScene = !!theme?.shots.length;
+        if (needsScene && (p.plan.some((x) => !x.scene) || p.config?.shotsFor !== shotsSig))
+          out.push({ text: "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) } });
+        else
+          for (const x of p.plan)
+            for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene }))
+              out.push({
+                text: `Post ${pr.index} ${pr.text}.`,
+                fix:
+                  pr.fix === "shot"
+                    ? { label: "Rewrite its shot", run: () => rewriteShot(pr.index) }
+                    : { label: "Write the post again", run: () => p.onRewrite(pr.index, p.plan) },
+              });
+        if (needsScene) out.push(...analysisIssues("shots"));
+        break;
+      }
+      case "magic": {
+        for (const st of STEPS.slice(0, STEPS.length - 1)) {
+          const blocks = issuesFor(st.key).filter((i) => !i.warn);
+          if (blocks.length)
+            out.push({ text: `${st.title}: ${blocks[0].text}${blocks.length > 1 ? ` (+${blocks.length - 1} more)` : ""}`, fix: { label: `Go to ${st.title}`, run: go(st.key) } });
+        }
+        const sel = p.config?.occasions;
+        for (const o of pickedOccasions(p.month, sel))
+          if (o.portrait && !sel?.photos?.[o.id])
+            out.push({ text: `${o.name} needs its official portrait.`, fix: { label: "Go to Posts", run: go("count") } });
+        if (!p.engineReady) out.push({ text: "No image engine is connected.", how: "Open Connection in the studio's left rail and connect Google." });
+        break;
+      }
+    }
+    return out;
+  }
+
+  const issues = issuesFor(key);
+  const blocking = issues.filter((i) => !i.warn);
+  useEffect(() => {
+    if (!blocking.length) setShowIssues(false);
+  }, [blocking.length]);
+
+  async function runFix(id: string, run: () => void | Promise<void>) {
+    setFixing(id);
+    try {
+      await run();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setFixing("");
+    }
+  }
+
   async function next() {
-    if (key === "client" && !client) {
-      toast.error("Pick the account you are working on first.");
+    if (blocking.length) {
+      setShowIssues(true);
       return;
     }
     setMoving(true);
@@ -614,6 +805,8 @@ export default function Journey(p: JourneyProps) {
 
           {key === "magic" && client && (
             <MagicStep
+              blocked={blocking.length > 0}
+              onShowIssues={() => setShowIssues(true)}
               client={client}
               month={p.month}
               plan={p.plan}
@@ -651,7 +844,42 @@ export default function Journey(p: JourneyProps) {
             </button>
           ))}
         </div>
+        {showIssues && issues.length > 0 && (
+          <div className="journey-issues" role="alert">
+            <div className="journey-issues-head">
+              <strong>{blocking.length ? `Fix ${blocking.length === 1 ? "this" : `these ${blocking.length}`} before Next` : "Worth a look"}</strong>
+              <button type="button" className="icon-button" onClick={() => setShowIssues(false)} aria-label="Close">
+                <X size={14} />
+              </button>
+            </div>
+            <ul>
+              {issues.map((i, n) => (
+                <li key={n} className={i.warn ? "warn" : "block"}>
+                  <span>
+                    {i.text}
+                    {i.how && <small>{i.how}</small>}
+                  </span>
+                  {i.fix && (
+                    <button type="button" className="secondary" disabled={!!fixing} onClick={() => void runFix(`${n}`, i.fix!.run)}>
+                      {fixing === `${n}` ? <LoaderCircle className="spinning" size={13} /> : null}
+                      {i.fix.label}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="journey-actions">
+          <button
+            type="button"
+            className={`journey-check ${blocking.length ? "block" : issues.length ? "warn" : "ok"}`}
+            onClick={() => setShowIssues((v) => !v)}
+            disabled={!issues.length}
+            title="What this screen still needs"
+          >
+            {blocking.length ? `${blocking.length} to fix` : issues.length ? `${issues.length} to look at` : "Ready"}
+          </button>
           <span className="journey-left">
             Step{" "}
             <b key={step} className="bump">
@@ -669,8 +897,9 @@ export default function Journey(p: JourneyProps) {
               type="button"
               className="primary"
               onClick={() => void next()}
-              disabled={moving || reading || (key === "ideas" && !p.plan.length)}
-              title={key === "ideas" && !p.plan.length ? "Write the ideas first" : ""}
+              disabled={moving || reading}
+              data-blocked={blocking.length > 0 || undefined}
+              title={blocking.length ? "Fix the list first" : ""}
             >
               {moving || reading ? <LoaderCircle className="spinning" size={15} /> : null}
               Next
@@ -1561,6 +1790,8 @@ function IdeaCard({
 /* ───────────── Let the magic begin ───────────── */
 
 function MagicStep({
+  blocked,
+  onShowIssues,
   client,
   month,
   plan,
@@ -1569,6 +1800,8 @@ function MagicStep({
   config,
   onGenerate,
 }: {
+  blocked: boolean;
+  onShowIssues: () => void;
   client: Client;
   month: string;
   plan: Post[];
@@ -1652,7 +1885,9 @@ function MagicStep({
         type="button"
         className="primary journey-generate"
         disabled={going || !plan.length}
+        data-blocked={blocked || undefined}
         onClick={async () => {
+          if (blocked) return onShowIssues();
           setGoing(true);
           try {
             await onGenerate();

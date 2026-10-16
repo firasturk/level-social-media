@@ -132,6 +132,9 @@ export interface Theme {
   references: number;
   thumb?: string;
   updated: number;
+  /** When the pins were last read (Analyse), and when the newest pin was added. */
+  analysed?: number;
+  latestRef?: number;
 }
 
 /** A prompt the team liked, saved under a skill to reuse as the direction of later batches. */

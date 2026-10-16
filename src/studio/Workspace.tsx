@@ -922,6 +922,7 @@ export default function Workspace({
           rewriting={busy === "reidea"}
           onRewrite={(i, next) => void rewritePost(i, next)}
           onGenerate={generateFromJourney}
+          engineReady={engineConnected}
           onDone={finishJourney}
         />
       )}

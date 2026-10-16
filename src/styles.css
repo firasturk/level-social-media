@@ -7552,3 +7552,108 @@ label.num select {
 .radio-pop {
   right: 0;
 }
+
+/* The journey's checklist */
+.journey-foot {
+  position: relative;
+}
+.journey-issues {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: calc(100% + 10px);
+  max-height: 46vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  padding: 12px 14px;
+  z-index: 5;
+  animation: j-up 260ms var(--ease-out) both;
+}
+.journey-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.journey-issues ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.journey-issues li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+.journey-issues li > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.journey-issues li small {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.journey-issues li.block {
+  background: var(--danger-soft);
+}
+.journey-issues li.warn {
+  background: var(--warning-soft);
+}
+.journey-issues li .secondary {
+  flex: none;
+  font-size: 12.5px;
+  padding: 6px 10px;
+}
+.journey-check {
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.journey-check.block {
+  background: var(--danger-soft);
+  color: var(--danger);
+  animation: j-glow-red 2s ease-in-out infinite;
+}
+.journey-check.warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.journey-check.ok {
+  background: var(--success-soft);
+  color: var(--success);
+  cursor: default;
+}
+@keyframes j-glow-red {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(209 43 43 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(209 43 43 / 0.15);
+  }
+}
+.journey-actions .primary[data-blocked],
+.journey-generate[data-blocked] {
+  opacity: 0.55;
+  filter: grayscale(0.5);
+}
+@media (max-width: 900px) {
+  .journey-issues {
+    left: 12px;
+    right: 12px;
+  }
+}
