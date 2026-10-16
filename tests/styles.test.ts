@@ -34,9 +34,16 @@ describe("style gallery", () => {
 
   it("attaches the style's picture as the style reference", () => {
     const b: PostBrief = {
-      post: true, index: 1, type: "lifestyle", title: "T", brief: "B", palette: [], style: "", theme: "", format: "4:5",
-      ref: null, refIsSource: false, hasProduct: true, styleKey: "styles/x.jpg",
+      post: true, index: 1, type: "lifestyle", title: "T", brief: "B", palette: [], style: "", format: "4:5",
+      ref: null, refIsSource: false, hasProduct: true, styleKey: "styles/x.jpg", shot: "A hand dips a pistachio over the open tin.",
+      theme: "Autumn road trip", props: "autumn leaves", library: "Warm roadside light",
     };
-    expect(buildPostPrompt(b)).toContain("Image 2 is a style reference");
+    const p = buildPostPrompt(b);
+    expect(p).toContain("Image 2 is the style the designer picked");
+    expect(p).toContain("THE PHOTOGRAPH (the picked style");
+    expect(p).toContain("A hand dips a pistachio");
+    expect(p).not.toContain("autumn leaves");
+    expect(p).not.toContain("Warm roadside light");
+    expect(p).not.toContain("REFERENCE SHOT");
   });
 });

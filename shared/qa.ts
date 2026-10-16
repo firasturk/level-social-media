@@ -171,10 +171,10 @@ export function postReviewInstruction(r: ReviewContext): string {
     "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
     r.sellsDrinks || r.coffeeDay
       ? 'foreign: [] (the brand may show drinks here).'
-      : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do.",
+      : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do, and neither do the product's own ingredients (its nuts, syrup, cream, fruit or pieces of the product itself, as its photo and description show).",
     r.people.length
       ? `people: the post may show only ${r.people.map((p) => `${p.name} (${p.description})`).join("; ")}. Describe in one sentence any problem: more people than these, a man in a headscarf, hijab or dress, clothes that break the look (bare shoulders, a low neckline or short skirt when the look says modest; a hijab missing or added against the look), or broken hands, fingers or faces. Else "".`
-      : 'people: this post shows nobody (a hand at most). Describe any person, face or body that appears, or broken hands or fingers. Else "".',
+      : 'people: this post shows nobody, but one or two hands holding, touching or dipping the product or its ingredient are allowed and never a problem. Describe only a face, a body or more than two hands, or hands with broken or extra fingers. Else "".',
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }

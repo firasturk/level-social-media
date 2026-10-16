@@ -447,6 +447,9 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
+  // A style picked from the gallery is the picture to make, not just a mood.
+  const picked =
+    "the style the designer picked: recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people";
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
   let n = 0;
   if (b.hasProduct && extras.length) {
@@ -459,7 +462,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push("Image 1 is the product photo: the product is the source of truth and is reproduced exactly.");
   } else if (b.ref || b.styleKey) {
     n = 1;
-    parts.push(`No product is attached. Image 1 is a style reference: ${styleRef}.`);
+    parts.push(`No product is attached. Image 1 is ${b.styleKey ? picked : `a style reference: ${styleRef}`}.`);
   } else parts.push("No product is attached.");
   if (people.length) {
     const first = n + 1;
@@ -470,7 +473,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   }
   if (b.hasProduct && (b.ref || b.styleKey) && !b.refIsSource) {
     n += 1;
-    parts.push(`Image ${n} is a style reference: ${styleRef}.`);
+    parts.push(`Image ${n} is ${b.styleKey ? picked : `a style reference: ${styleRef}`}.`);
   }
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
   if (b.exact && !images.revision)
@@ -487,10 +490,16 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
     );
-  parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
+  // A picked style replaces the post's own idea of the photograph: the style, written for this product, is the picture.
+  if (b.styleKey && b.shot?.trim())
+    parts.push(
+      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}`,
+    );
+  else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
   const typeRule = postTypeRule(b);
   if (typeRule) parts.push(typeRule);
-  const theme = chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
+  // The month's theme (its pins' world, visual language and props) steps back for a picked style.
+  const theme = b.styleKey ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
@@ -501,13 +510,13 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
     );
-  const library = b.library ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
+  const library = b.library && !b.styleKey ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
-  if (b.shot?.trim())
+  if (b.shot?.trim() && !b.styleKey)
     parts.push(
       `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.`,
     );
-  if (b.props?.trim())
+  if (b.props?.trim() && !b.styleKey)
     parts.push(
       `PROPS: the scene includes ${b.props.trim()}, placed naturally around the subject in the same light; they never cover the product.`,
     );

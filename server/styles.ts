@@ -339,6 +339,42 @@ styleRoutes.post("/replace", async (c) => {
   return c.json(await list(c.env, c.get("user")));
 });
 
+/**
+ * Admins: every style in the gallery and the spares are read again under the current rules; the
+ * ones that no longer pass leave, and ready styles take their places.
+ */
+styleRoutes.post("/recheck", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
+  const d = await body(c, z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(12).default(8) }));
+  const rows = await all<StyleRow>(
+    c.env.DB,
+    "SELECT * FROM styles WHERE status IN ('active','spare') ORDER BY created LIMIT ? OFFSET ?",
+    d.limit,
+    d.offset,
+  );
+  const out: string[] = [];
+  await Promise.all(
+    rows.map(async (r) => {
+      const obj = r.image_key ? await c.env.BUCKET.get(r.image_key) : null;
+      if (!obj) return;
+      try {
+        const text = await askText(c.env, describeStyleInstruction(r.note), STYLE_SCHEMA, [
+          { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" },
+        ]);
+        const s = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
+        if (!s.keep) {
+          await run(c.env.DB, "UPDATE styles SET status = 'rejected', updated = ? WHERE id = ?", now(), r.id);
+          out.push(r.title);
+        }
+      } catch (e) {
+        console.error("[styles] recheck failed", r.id, errorMessage(e));
+      }
+    }),
+  );
+  for (const kind of STYLE_KINDS) await promote(c.env, kind);
+  return c.json({ ok: true, checked: rows.length, rejected: out });
+});
+
 /** "Update": the selected styles are read again into a fresh variation of the same idea. */
 styleRoutes.post("/refresh", async (c) => {
   const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(12) }));
