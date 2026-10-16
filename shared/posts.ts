@@ -1061,6 +1061,7 @@ export function identityBuilderInstruction(name: string, count: number): string 
   return [
     `You are describing the visual identity of the brand "${name}" from ${count} attached images of its past social-media posts, so that new posts can be generated in the same identity.`,
     "Extract ONLY: photography style (real photo, flat lay, studio, lifestyle, illustration mix), light, colour palette and grade, composition habits, typical props and surfaces, how products are shown, whether people appear and how, and the overall mood. Ignore readable text, logos and specific people's identities.",
+    "Leave out anything seasonal or one-off (autumn or falling leaves, snow, Christmas, Ramadan lanterns, Valentine hearts, a campaign's props): the identity is what stays true all year; each month's theme brings its own season.",
     "Write a single text 'style' of 6-10 sentences in English, concrete and usable as instructions for an image engine, plus 'description' (one sentence, max 160 characters).",
     "Return ONLY a JSON object with keys description and style.",
   ].join("\n\n");

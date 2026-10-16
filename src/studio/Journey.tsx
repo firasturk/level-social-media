@@ -293,12 +293,13 @@ export default function Journey(p: JourneyProps) {
   const adaptedFor = useRef("");
   const adaptShots = useCallback(
     async (force = false) => {
-      if (!p.batchId || !theme?.shots.length || !p.plan.length) return;
+      // Styled posts are rewritten from their styles even when the theme has no pin shots.
+      if (!p.batchId || !p.plan.length || (!theme?.shots.length && !p.plan.some((x) => x.style))) return;
       if (!force && adaptedFor.current === shotsSig) return;
       adaptedFor.current = shotsSig;
       setAdapting(true);
       try {
-        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig });
+        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, all: force || undefined });
         await p.refresh();
       } catch (e) {
         toast.error((e as Error).message);
@@ -1399,7 +1400,7 @@ function MonthShots({
                 <RefreshCw size={13} /> Pins
               </button>
             )}
-            <button type="button" className="text-button" onClick={onRewrite} disabled={busy || empty || !plan.length} title="Write every post's shot again">
+            <button type="button" className="text-button" onClick={onRewrite} disabled={busy || styling || (empty && !styled) || !plan.length} title="Write every post's shot again (a styled post from its style)">
               {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Rewrite
             </button>
           </>

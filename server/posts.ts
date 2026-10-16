@@ -2002,6 +2002,8 @@ postRoutes.post("/shots", async (c) => {
       batch: z.string().min(1),
       sig: z.string().max(400).optional(),
       indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+      /** "Rewrite": every shot again, the styled posts' from their styles too. */
+      all: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -2012,7 +2014,8 @@ postRoutes.post("/shots", async (c) => {
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
   const base = theme ? shotsOf(theme) : [];
-  if (!base.length) throw new StudioError("The theme has no shots yet: add pins and read them first.", 409);
+  const allStyled = plan.every((p) => p.style || p.type === "greeting");
+  if (!base.length && !allStyled) throw new StudioError("The theme has no shots yet: add pins and read them first.", 409);
   const client = await clientRow(c.env, config.client);
   const sources = await all<SourceRow & { category: string | null }>(
     c.env.DB,
@@ -2031,7 +2034,7 @@ postRoutes.post("/shots", async (c) => {
   // A post with a gallery style keeps its own shot (that style written for its product).
   const wanted = new Set((d.indexes ?? plan.map((p) => p.index)).filter((i) => !plan.find((p) => p.index === i)?.style));
   const styledMissing = plan
-    .filter((p) => p.style && !p.scene && (!d.indexes || d.indexes.includes(p.index)))
+    .filter((p) => p.style && (d.all || !p.scene) && (!d.indexes || d.indexes.includes(p.index)))
     .map((p) => ({ index: p.index, style: p.style! }));
   const styledScenes = styledMissing.length ? await writeStyleScenes(c.env, b, config, styledMissing) : new Map<number, { style?: string; scene?: string }>();
   if (!wanted.size) {
