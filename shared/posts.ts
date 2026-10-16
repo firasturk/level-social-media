@@ -563,6 +563,13 @@ export interface IdeasRequest {
   occasions?: { date: string; name: string }[];
   /** The creative brief agreed step by step in the journey: one logic line per step. */
   brief?: string[];
+  /** A client with no products: the service it offers. */
+  service?: string;
+}
+
+/** A service brand has nothing to hold: the posts show the moments its service is about. */
+function serviceBlock(r: IdeasRequest): string {
+  return `SERVICE BRAND (no products): ${r.clientName} offers ${r.service?.trim()}. Every post shows a moment this service is about, in the theme's world: what people protect, plan or enjoy because of it (for insurance: a family car on the road, the keys of a new home, a trip starting). Objects in the pictures belong to that moment (car keys, a phone, a folder, a suitcase); never a drink, a glass or food in the hands. Headlines and captions carry the service's promise in the client's tone. Set product to "" and products to [] for every post.`;
 }
 
 /** When the posts go out: dates inside the month, occasions on their own day. */
@@ -642,11 +649,13 @@ export function ideasInstruction(r: IdeasRequest): string {
     datesBlock(r),
     ambassadorsBlock(r),
     peopleRule(r),
-    PRODUCT_ONLY_IDEAS,
+    r.products.length ? PRODUCT_ONLY_IDEAS : "",
     r.products.length
       ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
-      : "No product photos were uploaded: set product to an empty string for every post.",
+      : r.service?.trim()
+        ? serviceBlock(r)
+        : "No product photos were uploaded: set product to an empty string for every post.",
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
     `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,

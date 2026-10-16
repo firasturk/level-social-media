@@ -56,6 +56,7 @@ import {
   NP_BACKGROUNDS,
 } from "@shared/config";
 import { configSchema } from "@shared/config-schema";
+import { deleteBatchFiles } from "./batchfiles";
 import { buildPrompt } from "@shared/prompts";
 import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/naming";
 import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User } from "@shared/types";
@@ -94,7 +95,11 @@ async function ownedBatch(env: Env, user: User, id: string | undefined): Promise
   return b;
 }
 
-async function batchPayload(env: Env, b: BatchRow) {
+/**
+ * A month as the browser sees it. The prompts and briefs (the studio's know-how) go to admins
+ * only; members see the images, the plan and the captions they work with.
+ */
+async function batchPayload(env: Env, b: BatchRow, user?: User) {
   const [sources, tasks] = await Promise.all([
     all<Source>(
       env.DB,
@@ -109,6 +114,11 @@ async function batchPayload(env: Env, b: BatchRow) {
   ]);
   // 'finalizing' is an internal step; the UI treats it as processing.
   for (const t of tasks) if (t.status === ("finalizing" as string)) t.status = "processing";
+  if (user?.role !== "admin")
+    for (const t of tasks) {
+      t.prompt = null as unknown as Task["prompt"];
+      t.brief = null as unknown as Task["brief"];
+    }
   const { owner: _owner, ...batch } = b;
   void _owner;
   return { batch, sources, tasks };
@@ -1042,23 +1052,17 @@ studioRoutes.post("/batch/config", async (c) => {
     }
   }
   await c.env.DB.batch(statements);
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, user, b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, user, b.id), c.get("user")));
 });
 
 studioRoutes.get("/batch", async (c) => {
   const b = await ownedBatch(c.env, c.get("user"), c.req.query("batch"));
-  return c.json(await batchPayload(c.env, b));
+  return c.json(await batchPayload(c.env, b, c.get("user")));
 });
 
 studioRoutes.delete("/batch", async (c) => {
   const b = await ownedBatch(c.env, c.get("user"), c.req.query("batch"));
-  const prefix = `${b.owner}/${b.id}/`;
-  let cursor: string | undefined;
-  do {
-    const page = await c.env.BUCKET.list({ prefix, cursor, limit: 500 });
-    if (page.objects.length) await c.env.BUCKET.delete(page.objects.map((o) => o.key));
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor);
+  await deleteBatchFiles(c.env, b);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(b.id),
     c.env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(b.id),
@@ -1258,7 +1262,7 @@ studioRoutes.post("/start", async (c) => {
       deferSync: true,
     }).catch((e) => console.error("[start] first pass failed", e)),
   );
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
 studioRoutes.post("/pause", async (c) => {
@@ -1270,7 +1274,7 @@ studioRoutes.post("/pause", async (c) => {
     now(),
     b.id,
   );
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
 studioRoutes.post("/tick", async (c) => {
@@ -1287,7 +1291,7 @@ studioRoutes.post("/tick", async (c) => {
     },
   });
   await Promise.allSettled(jobs);
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
 studioRoutes.post("/retry", async (c) => {
@@ -1310,7 +1314,7 @@ studioRoutes.post("/retry", async (c) => {
     background: (p) => c.executionCtx.waitUntil(p),
     deferSync: true,
   });
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
 studioRoutes.post("/revise", async (c) => {
@@ -1338,7 +1342,7 @@ studioRoutes.post("/revise", async (c) => {
     background: (p) => c.executionCtx.waitUntil(p),
     deferSync: true,
   });
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
 /** Zaid creative direction: run some photos of a saved batch with another skill. */
@@ -1364,7 +1368,7 @@ studioRoutes.post("/sources/skill", async (c) => {
       b.id,
     );
   }
-  return c.json(await batchPayload(c.env, b));
+  return c.json(await batchPayload(c.env, b, c.get("user")));
 });
 
 studioRoutes.post("/approve", async (c) => {
@@ -1451,5 +1455,5 @@ studioRoutes.post("/task/retry", async (c) => {
     background: (p) => c.executionCtx.waitUntil(p),
     deferSync: true,
   });
-  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id)));
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });

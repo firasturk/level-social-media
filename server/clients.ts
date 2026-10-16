@@ -26,6 +26,7 @@ interface ClientRow {
   dos: string;
   donts: string;
   style: string;
+  service?: string | null;
   grid_rhythm: string;
   language: string;
   status: string;
@@ -56,6 +57,7 @@ function toClient(r: ClientRow): Client {
     dos: r.dos,
     donts: r.donts,
     style: r.style,
+    service: r.service ?? "",
     gridRhythm: r.grid_rhythm,
     language: (CLIENT_LANGUAGES as readonly string[]).includes(r.language)
       ? (r.language as Client["language"])
@@ -158,6 +160,7 @@ const patch = z.object({
   dos: z.string().trim().max(4000).optional(),
   donts: z.string().trim().max(4000).optional(),
   style: z.string().trim().max(20000).optional(),
+  service: z.string().trim().max(600).optional(),
   gridRhythm: z.string().trim().max(4000).optional(),
   language: z.enum(CLIENT_LANGUAGES).optional(),
   colors: z
@@ -186,6 +189,7 @@ clientRoutes.put("/:id", async (c) => {
   if (d.dos !== undefined) set("dos", d.dos);
   if (d.donts !== undefined) set("donts", d.donts);
   if (d.style !== undefined) set("style", d.style);
+  if (d.service !== undefined) set("service", d.service);
   if (d.gridRhythm !== undefined) set("grid_rhythm", d.gridRhythm);
   if (d.language !== undefined) set("language", d.language);
   if (d.colors !== undefined) set("colors", JSON.stringify(d.colors));

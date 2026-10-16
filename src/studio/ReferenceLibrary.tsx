@@ -103,8 +103,23 @@ export default function ReferenceLibrary({
     }
   }
 
+  const [over, setOver] = useState(false);
   return (
-    <>
+    <div
+      className={`ref-drop ${over ? "over" : ""}`}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setOver(false);
+        void add(e.dataTransfer.files);
+      }}
+    >
       <div className="field-row">
         <label className="field-label">{title}</label>
         <button
@@ -165,7 +180,8 @@ export default function ReferenceLibrary({
             "Each image borrows background, pose and lighting from one of them, rotating so results differ; clothes, hats, bags and accessories are never copied."}
         </div>
       )}
-    </>
+      {over && <div className="ref-drop-hint">Drop the photos to add them</div>}
+    </div>
   );
 }
 

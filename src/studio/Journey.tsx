@@ -14,9 +14,10 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { get, post } from "@/api";
+import { get, post, put } from "@/api";
 import LevelLogo from "@/components/LevelLogo";
 import { applyTheme, currentTheme } from "@/theme";
+import { askInput } from "@/lib/confirm";
 import { confetti } from "@/lib/celebrate";
 import type { Ambassador, Client, GalleryItem, Source, Theme, User } from "@shared/types";
 import type { BriefNote, BriefStep, Config } from "@shared/config";
@@ -204,7 +205,7 @@ export default function Journey(p: JourneyProps) {
   );
   const productIds = p.products.map((s) => s.id).join(",");
   const signature: Partial<Record<BriefStep, string>> = {
-    products: productIds,
+    products: `${productIds}|${client?.service ?? ""}`,
     count: `${p.postCount}:${p.month}`,
     brand: String(client?.updated ?? ""),
     theme: `${p.themeId}:${theme?.updated ?? ""}:${p.cast.join(",")}`,
@@ -224,7 +225,7 @@ export default function Journey(p: JourneyProps) {
       return;
     }
     if (note && before === sig) return;
-    if (stepBrief === "products" && !p.products.length) return;
+    if (stepBrief === "products" && !p.products.length && !client?.service?.trim()) return;
     const t = setTimeout(
       () => {
         seen.current[stepBrief] = sig;
@@ -278,6 +279,22 @@ export default function Journey(p: JourneyProps) {
       toast.error((e as Error).message);
     } finally {
       setReading(false);
+    }
+  }
+
+  /** A new client: named here, its logo and brand kit filled on the next screens. */
+  async function newClient() {
+    const name = await askInput("Account name", "", { ok: "Create", placeholder: "Client or brand name" });
+    if (!name?.trim()) return;
+    try {
+      const before = new Set(p.clients.map((c) => c.id));
+      const r = await post<{ clients: Client[] }>("/api/studio/clients", { name: name.trim() });
+      p.onClientsChanged(r.clients);
+      const made = r.clients.find((c) => !before.has(c.id));
+      if (made) p.onClient(made.id);
+      toast.success(`${name.trim()} created. Next: its products, then its logo and brand kit.`);
+    } catch (e) {
+      toast.error((e as Error).message);
     }
   }
 
@@ -348,6 +365,17 @@ export default function Journey(p: JourneyProps) {
                     {c.id === p.clientId && <Check className="journey-client-tick" size={16} />}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="journey-client add"
+                  style={{ "--i": active.length } as React.CSSProperties}
+                  onClick={() => void newClient()}
+                >
+                  <span className="journey-client-logo">
+                    <Plus size={26} />
+                  </span>
+                  <span>New account</span>
+                </button>
               </div>
               <div className="journey-months" role="radiogroup" aria-label="Month">
                 {[thisMonth(), nextMonth(thisMonth())].map((m) => (
@@ -372,7 +400,7 @@ export default function Journey(p: JourneyProps) {
                 Upload new product photos or pick them from {client.name}'s gallery. I read every photo.
               </StepHead>
               <div className="journey-boxes cols-3">
-                <ProductsBox {...p} />
+                <ProductsBox {...p} client={client} />
                 <GalleryBox client={client} batchId={p.batchId} products={p.products} refresh={p.refresh} />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
@@ -674,9 +702,24 @@ function Analysis({
 
 /* ───────────── Products ───────────── */
 
-function ProductsBox(p: JourneyProps) {
+function ProductsBox(p: JourneyProps & { client: Client }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
+  const [service, setService] = useState(p.client.service ?? "");
+  const [asService, setAsService] = useState(!!p.client.service?.trim());
+  useEffect(() => {
+    setService(p.client.service ?? "");
+    setAsService(!!p.client.service?.trim());
+  }, [p.client.id, p.client.service]);
+  async function saveService(text: string) {
+    if (text.trim() === (p.client.service ?? "").trim()) return;
+    try {
+      const r = await put<{ clients: Client[] }>(`/api/studio/clients/${p.client.id}`, { service: text.trim() });
+      p.onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   const take = (list: FileList | null) => {
     const files = [...(list ?? [])].filter((f) => f.type.startsWith("image/") || /\.(heic|jpe?g|png|webp)$/i.test(f.name));
     if (files.length) void p.onUpload(files);
@@ -726,6 +769,35 @@ function ProductsBox(p: JourneyProps) {
           <span>or click to upload · or pick from the gallery</span>
         </button>
       )}
+      <div className={`journey-service ${asService ? "on" : ""}`}>
+        <label className="journey-service-toggle">
+          <input
+            type="checkbox"
+            checked={asService}
+            onChange={(e) => {
+              setAsService(e.target.checked);
+              if (!e.target.checked) {
+                setService("");
+                void saveService("");
+              }
+            }}
+          />
+          <span>
+            <strong>No products? {p.client.name} sells a service</strong>
+            <small>Insurance, a bank, a clinic, a school: the posts show the moments the service is about.</small>
+          </span>
+        </label>
+        {asService && (
+          <textarea
+            rows={3}
+            dir="auto"
+            value={service}
+            placeholder="What does the client offer, and to whom? e.g. car, home, health and travel insurance for families in Jordan"
+            onChange={(e) => setService(e.target.value)}
+            onBlur={() => void saveService(service)}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -24,7 +24,7 @@ export const BRIEF_SCHEMA = {
 
 const ASK: Record<Exclude<BriefStep, "count">, string> = {
   products:
-    "Read the product list like a creative lead. Group the products into kinds by how they are packed or served (for example Gift box, Tin, Tray, Plated pieces, Single piece, Drink): give every product exactly one short kind (1-2 words, Title Case, the same words for the same kind) in 'categories'. In the points say how many of each kind there are, the packaging colours and finishes that dominate, and how each kind is best photographed (a box opened on a table, a tin carried by its handle, pieces on a plate). The logic line says how the month should use these products.",
+    "If the screen says the brand sells a service and has no products, read the service instead: who it is for, the moments it is about and what the pictures can show without a product (people, places, objects of those moments); 'categories' stays []. Otherwise: read the product list like a creative lead. Group the products into kinds by how they are packed or served (for example Gift box, Tin, Tray, Plated pieces, Single piece, Drink): give every product exactly one short kind (1-2 words, Title Case, the same words for the same kind) in 'categories'. In the points say how many of each kind there are, the packaging colours and finishes that dominate, and how each kind is best photographed (a box opened on a table, a tin carried by its handle, pieces on a plate). The logic line says how the month should use these products.",
   brand:
     "Read the brand kit like a creative lead: what the tone of voice, the language, the rules and the identity mean for this month's photos, headlines and captions. Points are concrete do's for the posts. The logic line sums up the brand's voice and look in one instruction.",
   theme:
@@ -90,6 +90,8 @@ export function adaptShotsInstruction(r: {
   palette: string[];
   props?: string;
   strict?: boolean;
+  /** A client with no products: the service it offers. */
+  service?: string;
 }): string {
   return [
     `You are the photographer planning this month's shoot for a brand. Below are ${r.shots.length} shots read from Pinterest references. The references show other brands' items (drinks, glasses, cups, snacks, sandwiches...). Rewrite every shot for THIS brand's products, in the same order, one shot per entry, 2-4 sentences each.`,
@@ -101,7 +103,11 @@ export function adaptShotsInstruction(r: {
       : "",
     r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : "",
     r.strict ? "Your previous answer still named a drink, glass, cup or other item the brand does not sell. Remove every such item." : "",
-    `THE BRAND'S PRODUCTS:\n${r.products.join("\n") || "(no products: show the brand's world without objects in the hands)"}`,
+    r.products.length
+      ? `THE BRAND'S PRODUCTS:\n${r.products.join("\n")}`
+      : r.service?.trim()
+        ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. Rewrite every shot around a moment this service is about, in the reference's place and light: what the hands hold becomes something of that moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
+        : "THE BRAND HAS NO PRODUCT PHOTOS: show the brand's world; the hands hold nothing or a simple object of the scene, never a drink or food.",
     `THE REFERENCE SHOTS:\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
     `Return ONLY JSON: {"shots": ["...", ...]} with exactly ${r.shots.length} entries.`,
   ]

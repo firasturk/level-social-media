@@ -388,6 +388,7 @@ export function BrandKit({
       subtitle={`${client.name}: colours, fonts, tone`}
       actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
     >
+      <LogosGroup client={client} onClientsChanged={onClientsChanged} />
       <Group
         kit="colours"
         title="Brand colours"
@@ -581,6 +582,94 @@ export function BrandKit({
   );
 }
 
+/* ───────────── Logos ───────────── */
+
+/** The client's main logo and its corner logo (a parent or partner mark), uploaded here. */
+function LogosGroup({ client, onClientsChanged }: { client: Client; onClientsChanged: (clients: Client[]) => void }) {
+  const [busy, setBusy] = useState<"" | "logo" | "badge">("");
+  const inputs = { logo: useRef<HTMLInputElement>(null), badge: useRef<HTMLInputElement>(null) };
+  async function upload(mark: "logo" | "badge", file: File | undefined) {
+    if (!file) return;
+    setBusy(mark);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/${mark}`, form);
+      onClientsChanged(r.clients);
+      toast.success(mark === "logo" ? "Logo saved." : "Corner logo saved.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+      const el = inputs[mark].current;
+      if (el) el.value = "";
+    }
+  }
+  async function remove(mark: "logo" | "badge") {
+    if (!(await askConfirm(mark === "logo" ? "Remove the logo?" : "Remove the corner logo?", { ok: "Remove" }))) return;
+    try {
+      const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/${mark}`);
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  const tile = (mark: "logo" | "badge", label: string, hint: string) => {
+    const has = mark === "logo" ? client.logo : client.badge;
+    return (
+      <div className="logo-tile">
+        <button
+          type="button"
+          className={`logo-drop ${has ? "has" : ""}`}
+          style={{ background: has ? client.colors[0]?.hex || "#1a1a1a" : undefined }}
+          onClick={() => inputs[mark].current?.click()}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            void upload(mark, e.dataTransfer.files[0]);
+          }}
+          disabled={!!busy}
+          aria-label={has ? `Replace the ${label.toLowerCase()}` : `Upload the ${label.toLowerCase()}`}
+        >
+          {busy === mark ? (
+            <LoaderCircle className="spinning" size={18} />
+          ) : has ? (
+            <img src={`/api/studio/clients/${client.id}/${mark}?v=${client.updated}`} alt={label} />
+          ) : (
+            <span>
+              <Plus size={16} /> Upload
+            </span>
+          )}
+        </button>
+        <div className="logo-tile-text">
+          <strong>{label}</strong>
+          <small>{hint}</small>
+          {has && (
+            <button type="button" className="text-button danger" onClick={() => void remove(mark)}>
+              <Trash2 size={12} /> Remove
+            </button>
+          )}
+        </div>
+        <input
+          ref={inputs[mark]}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+          hidden
+          onChange={(e) => void upload(mark, e.target.files?.[0])}
+        />
+      </div>
+    );
+  };
+  return (
+    <Group kit="logo" title="Logos">
+      <div className="logo-tiles">
+        {tile("logo", "Logo", "On every post. PNG or SVG with a transparent background works best.")}
+        {tile("badge", "Corner logo", "Optional: a parent or partner mark, small in a corner.")}
+      </div>
+    </Group>
+  );
+}
+
 /* ───────────── Theme ───────────── */
 
 export type ThemePart = "pick" | "references" | "direction" | "colours" | "props" | "shots";
@@ -622,7 +711,8 @@ export function ThemeSection({
   useEffect(() => setShots(shotsText), [current?.id, shotsText]);
   const [busy, setBusy] = useState<"" | "analyse" | "import" | "create" | "colors">("");
   const [pins, setPins] = useState("");
-  const [showPins, setShowPins] = useState(false);
+  // The journey shows the links box open: pins are its main way in.
+  const [showPins, setShowPins] = useState(!!bare);
   const [libKey, setLibKey] = useState(0);
   useEffect(() => setDirection(current?.direction ?? ""), [current?.id, current?.direction]);
 
@@ -842,7 +932,7 @@ export function ThemeSection({
             skill={current.id}
             onChanged={(count) => (count > 0 ? void analyse(true) : reloadThemes())}
             title="Photos and pins"
-            empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
+            empty="No references yet. Drag several photos here or use Add photos, and paste as many Pinterest pin links as you like. Every post borrows place, light and mood from one of them."
             hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."
             actions={
               <>
@@ -876,7 +966,7 @@ export function ThemeSection({
               <textarea
                 rows={3}
                 value={pins}
-                placeholder={"Paste Pinterest pin links, one per line:\nhttps://www.pinterest.com/pin/…"}
+                placeholder={"Paste one or more Pinterest pin links, one per line (up to 30):\nhttps://www.pinterest.com/pin/…\nhttps://pin.it/…"}
                 onChange={(e) => setPins(e.target.value)}
               />
               <button className="secondary" onClick={() => void importPins()} disabled={busy === "import"}>

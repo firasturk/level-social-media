@@ -1,3 +1,4 @@
+import { askConfirm } from "@/lib/confirm";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -111,6 +112,21 @@ export default function AdminView({ me }: { me: string }) {
   async function toggle(u: AdminUser) {
     try {
       await post("/api/admin/users/disable", { id: u.id, disabled: !u.disabled });
+      // Someone leaving: offer to keep their months in the studio under your name.
+      if (!u.disabled && u.batches > 0 && (await askConfirm(`${u.name} is signed out and can no longer sign in. Move their ${u.batches} month${u.batches > 1 ? "s" : ""} to you so the work stays in the studio?`, { ok: "Move to me", danger: false })))
+        await transfer(u, true);
+      else if (!u.disabled) toast.success(`${u.name} is signed out and can no longer sign in.`);
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function transfer(u: AdminUser, asked = false) {
+    if (!asked && !(await askConfirm(`Move ${u.name}'s ${u.batches} month${u.batches > 1 ? "s" : ""} to you?`, { ok: "Move to me", danger: false }))) return;
+    try {
+      const r = await post<{ moved: number }>("/api/admin/users/transfer", { id: u.id });
+      toast.success(`${r.moved} month${r.moved === 1 ? "" : "s"} moved to you.`);
       await load();
     } catch (e) {
       toast.error((e as Error).message);
@@ -165,6 +181,11 @@ export default function AdminView({ me }: { me: string }) {
               <span className="footer-actions">
                 {u.id !== me && (
                   <>
+                    {u.batches > 0 && (
+                      <button className="secondary" onClick={() => void transfer(u)} title="Move this person's months to you">
+                        Move months to me
+                      </button>
+                    )}
                     <button className="secondary" onClick={() => void role(u)} title="Toggle admin">
                       {u.role === "admin" ? "Make member" : "Make admin"}
                     </button>

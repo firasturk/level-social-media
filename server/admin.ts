@@ -17,6 +17,7 @@ import {
   heroStamp,
 } from "./settings";
 import { notify } from "./notify";
+import { deleteBatchFiles } from "./batchfiles";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -68,6 +69,15 @@ adminRoutes.post("/users/disable", async (c) => {
   await run(c.env.DB, "UPDATE users SET disabled = ? WHERE id = ?", disabled ? 1 : 0, id);
   if (disabled) await run(c.env.DB, "DELETE FROM sessions WHERE user_id = ?", id);
   return c.json({ ok: true });
+});
+
+/** A member who leaves: their months move to the admin, so the work stays in the studio. */
+adminRoutes.post("/users/transfer", async (c) => {
+  const { id } = z.object({ id: z.string() }).parse(await c.req.json());
+  const me = c.get("user").id;
+  if (id === me) throw new StudioError("These months are already yours.");
+  const moved = await run(c.env.DB, "UPDATE batches SET owner = ? WHERE owner = ?", me, id);
+  return c.json({ ok: true, moved });
 });
 
 adminRoutes.post("/users/role", async (c) => {
@@ -162,13 +172,7 @@ export async function cleanupOldBatches(env: Env): Promise<number> {
     cutoff,
   );
   for (const b of old) {
-    const prefix = `${b.owner}/${b.id}/`;
-    let cursor: string | undefined;
-    do {
-      const page = await env.BUCKET.list({ prefix, cursor, limit: 500 });
-      if (page.objects.length) await env.BUCKET.delete(page.objects.map((o) => o.key));
-      cursor = page.truncated ? page.cursor : undefined;
-    } while (cursor);
+    await deleteBatchFiles(env, b);
     await env.DB.batch([
       env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(b.id),
       env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(b.id),

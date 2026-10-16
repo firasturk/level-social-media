@@ -120,6 +120,7 @@ function parseJson<T>(text: string): T {
 /* ───────────── Clients and themes ───────────── */
 
 interface ClientRow {
+  service?: string | null;
   id: string;
   slug: string;
   name: string;
@@ -783,6 +784,7 @@ function ideasContext(
     notes: config.notes,
     occasions: occasionsOf(config.month ?? "").map((o) => ({ date: o.date, name: o.name })),
     brief: briefLines(config.brief),
+    service: products.length ? undefined : client.service || undefined,
   };
 }
 
@@ -1513,7 +1515,7 @@ postRoutes.post("/gallery/add", async (c) => {
 });
 
 /** The "count" screen needs no model: products, posts and the month's occasions. */
-function countNote(config: Config, products: number): Omit<BriefNote, "at"> {
+function countNote(config: Config, products: number, service = ""): Omit<BriefNote, "at"> {
   const count = config.postCount ?? 12;
   const month = config.month ?? "";
   const label = monthLabel(month);
@@ -1523,7 +1525,9 @@ function countNote(config: Config, products: number): Omit<BriefNote, "at"> {
       ? count >= products
         ? `${products} products for ${count} posts: every product appears once before any product repeats.`
         : `${products} products for ${count} posts: the most varied products lead; ${products - count} wait for another month or share a picture.`
-      : "No products yet: the posts are brand and lifestyle pictures.",
+      : service
+        ? `No products: every post shows a moment of the service (${service.slice(0, 80)}).`
+        : "No products yet: the posts are brand and lifestyle pictures.",
     `About one post every ${Math.max(1, Math.round(30 / Math.max(1, count)))} days, from the 1st to the end of ${label}.`,
     ...occasions.slice(0, 3).map((o) => `${o.name} (${o.date.slice(8)}): one post on the day.`),
   ];
@@ -1562,7 +1566,7 @@ postRoutes.post("/brief", async (c) => {
   );
   const step = d.step as BriefStep;
   let note: Omit<BriefNote, "at">;
-  if (step === "count") note = countNote(config, sources.length);
+  if (step === "count") note = countNote(config, sources.length, client.service ?? "");
   else {
     if (step === "products" || step === "colours" || step === "shots") await describeProducts(c.env, sources);
     const productLines = sources.map(
@@ -1576,7 +1580,9 @@ postRoutes.post("/brief", async (c) => {
       step === "products"
         ? productLines.length
           ? `PRODUCTS (${productLines.length}):\n${productLines.join("\n")}`
-          : "No products were added."
+          : client.service?.trim()
+            ? `NO PRODUCTS: ${client.name} sells a service: ${client.service.trim()}.`
+            : "No products were added."
         : step === "brand"
           ? [
               `CLIENT: ${client.name}`,
@@ -1659,6 +1665,7 @@ postRoutes.post("/shots", async (c) => {
           palette,
           props: theme?.props,
           strict,
+          service: sources.length ? undefined : (await clientRow(c.env, config.client)).service || undefined,
         }),
         SHOTS_SCHEMA,
       ),

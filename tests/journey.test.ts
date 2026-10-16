@@ -82,3 +82,30 @@ describe("the month's shots", () => {
     expect(t).toContain("exactly 1 entries");
   });
 });
+
+describe("a client with no products", () => {
+  it("plans the month around its service", () => {
+    const text = ideasInstruction({
+      clientName: "United Insurance",
+      tone: "",
+      dos: "",
+      donts: "",
+      language: "ar",
+      palette: [],
+      style: "",
+      themeTitle: "",
+      themeDirection: "",
+      products: [],
+      month: "2026-11",
+      count: 4,
+      service: "car, home and travel insurance for families in Jordan",
+    });
+    expect(text).toContain("SERVICE BRAND (no products): United Insurance offers car, home and travel insurance");
+    expect(text).not.toContain("PRODUCTS ONLY");
+  });
+
+  it("rewrites the shots around the service", () => {
+    const t = adaptShotsInstruction({ shots: ["A hand holds a glass."], products: [], palette: [], service: "car insurance" });
+    expect(t).toContain("THE BRAND SELLS A SERVICE, NOT PRODUCTS: car insurance");
+  });
+});

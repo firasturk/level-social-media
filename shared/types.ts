@@ -191,6 +191,8 @@ export interface Client {
   donts: string;
   /** "Analyse identity" result, editable. */
   style: string;
+  /** A client with no products: what it offers (insurance, banking...); the posts are built around it. */
+  service?: string;
   gridRhythm: string;
   language: "ar" | "en" | "both";
   status: "active" | "archived";
