@@ -621,6 +621,12 @@ export default function PlanView({
                     {p.type === "greeting" && (
                       <OccasionNote post={p} month={month} sel={monthOccasions} />
                     )}
+                    {p.product && !product && p.type !== "offer" && (
+                      <p className="occasion-note warn">
+                        <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's
+                        gallery; if it is not there, upload it or pick another product.
+                      </p>
+                    )}
                     {cast.length > 0 && (
                       <div className="post-extras post-people">
                         <span>people</span>

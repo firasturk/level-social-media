@@ -1274,6 +1274,31 @@ postRoutes.post("/generate", async (c) => {
     "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ?",
     b.id,
   );
+  // A post may name a product this month does not have (removed, or from another month): it is
+  // brought from the client's gallery; a picture is never made of a product nobody photographed.
+  {
+    const monthNames = sources.filter((x) => x.kind === "product").map(productName);
+    const named = plan
+      .filter((p) => !d.indexes || d.indexes.includes(p.index))
+      .flatMap((p) => (p.type === "offer" && p.offer ? p.offer.products : [p.product, ...(p.products ?? [])]))
+      .filter((n): n is string => !!n && !matchProduct(n, monthNames));
+    if (named.length) {
+      const gallery = await all<SourceRow>(
+        c.env.DB,
+        "SELECT s.id, s.name, s.stem, s.key, s.reference_key, s.kind, s.role, s.note FROM sources s JOIN batches bb ON bb.id = s.batch WHERE bb.client = ? AND s.kind = 'product' AND s.batch != ? ORDER BY s.created DESC LIMIT 400",
+        config.client ?? "",
+        b.id,
+      );
+      const galleryNames = gallery.map(productName);
+      const have = new Set(sources.map((x) => x.stem));
+      for (const n of [...new Set(named)]) {
+        const m = matchProduct(n, galleryNames);
+        if (!m) continue;
+        const row = await copyGalleryProduct(c.env, user.id, b, config.client, gallery[galleryNames.indexOf(m)].id, have);
+        if (row) sources.push(row);
+      }
+    }
+  }
   await describeProducts(c.env, sources);
   const tasks = await all<TaskLite>(
     c.env.DB,
@@ -1294,6 +1319,7 @@ postRoutes.post("/generate", async (c) => {
   const statements: D1PreparedStatement[] = [];
   let planned = 0;
   const skipped: number[] = [];
+  const missingProduct: { index: number; product: string }[] = [];
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
   for (const post of plan) {
     if (!wanted.has(post.index)) continue;
@@ -1319,6 +1345,10 @@ postRoutes.post("/generate", async (c) => {
     const productSources = sources.filter((s) => s.kind === "product");
     const productNames = productSources.map(productName);
     const productMatch = matchProduct(leadName, productNames);
+    if (leadName && !productMatch) {
+      missingProduct.push({ index: post.index, product: leadName });
+      continue;
+    }
     const product = productMatch
       ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
@@ -1407,7 +1437,8 @@ postRoutes.post("/generate", async (c) => {
       hasProduct: !!product,
       // Only what the photo shows: a file name in the prompt ends up printed on the packaging.
       product: product ? product.note?.trim() || undefined : undefined,
-      productNames: product ? productNames : undefined,
+      // Every name the post carries is kept off the picture, found in the month or not.
+      productNames: [...productNames, ...(leadName ? [leadName] : []), ...extraNames.filter((n): n is string => !!n)],
       extraProducts: extraProducts.length ? extraProducts : undefined,
       occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: portraitDay } : undefined,
       offer: post.type === "offer" ? post.offer : undefined,
@@ -1462,7 +1493,7 @@ postRoutes.post("/generate", async (c) => {
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return c.json({ ok: true, planned, skipped });
+  return c.json({ ok: true, planned, skipped, missingProduct });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */
@@ -1621,6 +1652,68 @@ postRoutes.get("/gallery/image", async (c) => {
   });
 });
 
+/**
+ * Copies one product photo of the client's gallery (any month) into this month, as its own files,
+ * so deleting the other month never breaks it. Returns the new row, or null when it is not the
+ * client's, the month already has it, or its file is gone.
+ */
+async function copyGalleryProduct(
+  env: Env,
+  userId: string,
+  b: BatchRow,
+  client: string | undefined,
+  id: string,
+  have: Set<string>,
+): Promise<SourceRow | null> {
+  const src = await first<{
+    name: string;
+    stem: string;
+    key: string;
+    reference_key: string | null;
+    mime: string;
+    size: number;
+    note: string | null;
+    category: string | null;
+    client: string | null;
+  }>(
+    env.DB,
+    "SELECT s.name, s.stem, s.key, s.reference_key, s.mime, s.size, s.note, s.category, b.client FROM sources s JOIN batches b ON b.id = s.batch WHERE s.id = ? AND s.kind = 'product'",
+    id,
+  );
+  if (!src || src.client !== client || have.has(src.stem)) return null;
+  const newId = uuid();
+  const key = `${userId}/${b.id}/source/${newId}`;
+  const original = await env.BUCKET.get(src.key);
+  if (!original) return null;
+  // Bytes, not the stream: R2 needs a known length to store it again.
+  await env.BUCKET.put(key, await original.arrayBuffer(), { httpMetadata: original.httpMetadata });
+  let referenceKey: string | null = null;
+  if (src.reference_key) {
+    const small = await env.BUCKET.get(src.reference_key);
+    if (small) {
+      referenceKey = `${key}.reference`;
+      await env.BUCKET.put(referenceKey, await small.arrayBuffer(), { httpMetadata: small.httpMetadata });
+    }
+  }
+  await run(
+    env.DB,
+    "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, category, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'lead', 'product', ?, ?, ?)",
+    newId,
+    b.id,
+    src.name,
+    src.stem,
+    key,
+    referenceKey,
+    src.mime,
+    src.size,
+    src.note,
+    src.category,
+    now(),
+  );
+  have.add(src.stem);
+  return { id: newId, name: src.name, stem: src.stem, key, kind: "product", role: "lead", reference_key: referenceKey, note: src.note };
+}
+
 /** Gallery photos join this month as its own copies, so deleting another month never breaks them. */
 postRoutes.post("/gallery/add", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), ids: z.array(z.string().max(80)).min(1).max(60) }));
@@ -1631,55 +1724,7 @@ postRoutes.post("/gallery/add", async (c) => {
     (await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem),
   );
   let added = 0;
-  for (const id of d.ids) {
-    const src = await first<{
-      name: string;
-      stem: string;
-      key: string;
-      reference_key: string | null;
-      mime: string;
-      size: number;
-      note: string | null;
-      category: string | null;
-      client: string | null;
-    }>(
-      c.env.DB,
-      "SELECT s.name, s.stem, s.key, s.reference_key, s.mime, s.size, s.note, s.category, b.client FROM sources s JOIN batches b ON b.id = s.batch WHERE s.id = ? AND s.kind = 'product'",
-      id,
-    );
-    if (!src || src.client !== config.client || have.has(src.stem)) continue;
-    const newId = uuid();
-    const key = `${user.id}/${b.id}/source/${newId}`;
-    const original = await c.env.BUCKET.get(src.key);
-    if (!original) continue;
-    // Bytes, not the stream: R2 needs a known length to store it again.
-    await c.env.BUCKET.put(key, await original.arrayBuffer(), { httpMetadata: original.httpMetadata });
-    let referenceKey: string | null = null;
-    if (src.reference_key) {
-      const small = await c.env.BUCKET.get(src.reference_key);
-      if (small) {
-        referenceKey = `${key}.reference`;
-        await c.env.BUCKET.put(referenceKey, await small.arrayBuffer(), { httpMetadata: small.httpMetadata });
-      }
-    }
-    await run(
-      c.env.DB,
-      "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, category, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'lead', 'product', ?, ?, ?)",
-      newId,
-      b.id,
-      src.name,
-      src.stem,
-      key,
-      referenceKey,
-      src.mime,
-      src.size,
-      src.note,
-      src.category,
-      now(),
-    );
-    have.add(src.stem);
-    added++;
-  }
+  for (const id of d.ids) if (await copyGalleryProduct(c.env, user.id, b, config.client, id, have)) added++;
   await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
   return c.json({ ok: true, added });
 });
@@ -1869,7 +1914,7 @@ postRoutes.post("/shots", async (c) => {
               .filter((a): a is AmbassadorRow => !!a)
               .map((a) => `${a.name} (${a.description})`),
         headline: p.headline ?? "",
-        brief: withoutProductNames(p.brief, names).slice(0, 600),
+        brief: withoutProductNames(p.brief, [...names, ...[p.product, ...(p.products ?? []), ...(p.offer?.products ?? [])].filter((n): n is string => !!n)]).slice(0, 600),
       };
     });
   // The client may sell drinks: then cups and glasses are their products, not foreign items.

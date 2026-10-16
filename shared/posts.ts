@@ -493,6 +493,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to the props, fabrics and accents.`,
     );
   if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE);
+  else
+    parts.push(
+      "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
+    );
   if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
     parts.push(

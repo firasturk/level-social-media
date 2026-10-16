@@ -484,13 +484,18 @@ export default function Workspace({
     askNotifications();
     setBusy("generate");
     try {
-      const r = await post<{ planned: number; skipped?: number[] }>("/api/studio/posts/generate", {
+      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[] }>("/api/studio/posts/generate", {
         batch: batch.id,
         indexes,
         regenerate,
       });
       await refresh();
       if (r.planned) toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
+      if (r.missingProduct?.length)
+        toast.warning(
+          `Not generated, the product photo is missing: ${r.missingProduct.map((m) => `post ${m.index} (${m.product})`).join(", ")}. Upload it, or pick another product on the post.`,
+          { duration: 12000 },
+        );
       if (r.skipped?.length)
         toast.warning(`Offer post${r.skipped.length > 1 ? "s" : ""} ${r.skipped.join(", ")} not generated: fill the offer's products, price and contents first.`);
     } catch (e) {

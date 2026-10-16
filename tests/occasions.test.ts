@@ -96,3 +96,25 @@ describe("post types", () => {
     expect(withProduct).toContain("a headscarf or hijab");
   });
 });
+
+describe("a post without a product photo", () => {
+  it("never invents packaging", () => {
+    const p = buildPostPrompt({
+      post: true,
+      index: 5,
+      type: "behind",
+      title: "The craft of gifting",
+      brief: "Hands carry the silver 56 - Assorted Arabic Sweets (Elite) box.",
+      palette: [],
+      style: "",
+      theme: "",
+      format: "4:5",
+      ref: "r1",
+      refIsSource: true,
+      hasProduct: false,
+      productNames: ["56 - Assorted Arabic Sweets (Elite) - Assorted Arabic Sweets (Elite)"],
+    } as PostBrief);
+    expect(p).toContain("NO PRODUCT PHOTO");
+    expect(p).not.toContain("Assorted Arabic Sweets");
+  });
+});
