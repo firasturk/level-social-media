@@ -26,7 +26,7 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView from "./PlanView";
 import Journey from "./Journey";
-import Radio from "./Radio";
+import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass } from "lucide-react";
@@ -711,6 +711,7 @@ export default function Workspace({
   }
 
   async function signOut() {
+    stopRadio();
     await post("/api/auth/logout").catch(() => {});
     onSignedOut();
   }

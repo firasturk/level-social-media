@@ -7447,3 +7447,9 @@ label.num select {
   background: var(--danger-soft);
   color: var(--danger);
 }
+.radio-button.resume {
+  background: linear-gradient(120deg, #7c3aed, #ec4899);
+  color: #fff;
+  border-color: transparent;
+  animation: j-glow 2.2s ease-in-out infinite;
+}
