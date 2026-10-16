@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "level-social-media",
+  "name": "studio",
   "main": "server/index.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -45,6 +45,6 @@
     "HIGGSFIELD_MODEL": "nano-banana-pro",
     "HIGGSFIELD_BASE_URL": "https://api.higgsfield.ai",
     "MAX_CONCURRENT_GENERATIONS": "6",
-    "PUBLIC_BASE_URL": "https://level-social-media.max-fashion-studio.workers.dev",
+    "PUBLIC_BASE_URL": "https://studio.max-fashion-studio.workers.dev",
   },
 }

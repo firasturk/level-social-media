@@ -11,6 +11,7 @@ export default tseslint.config(
       "src/components/ui/**",
       "scripts/**",
       "server/generated/**",
+      "redirect/**",
     ],
   },
   js.configs.recommended,

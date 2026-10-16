@@ -61,7 +61,7 @@ Create the first account from the sign-in screen with the invite code from `.dev
 
 Cloudflare resources (account "Firas@levelmena.com's Account"):
 
-- Worker `level-social-media` at https://level-social-media.max-fashion-studio.workers.dev
+- Worker `studio` at https://studio.max-fashion-studio.workers.dev (the old `level-social-media` Worker only redirects here)
 - D1 `level-social-media`, R2 bucket `level-social-media` (ids in `wrangler.jsonc`)
 
 ```sh
