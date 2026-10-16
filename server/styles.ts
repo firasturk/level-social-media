@@ -1,7 +1,7 @@
 /**
- * The style gallery: Pinterest pins read into reusable product-photo styles. The gallery always
- * shows STYLE_TARGET styles of each kind; a style taken out is replaced at once by a ready spare,
- * and the spares are topped up in the background from the pool of collected pins.
+ * The style library: Pinterest pins read into reusable product-photo styles, in categories, paged
+ * and searchable, with no fixed size. It grows by itself every day (new pins collected and read on
+ * the cron), and the team adds its own pins, removes styles and asks for fresh ones.
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -9,14 +9,20 @@ import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
 import { askText } from "./posts";
+import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
 import {
   describeStyleInstruction,
   parseStyle,
+  seasonWords,
+  STYLE_CATEGORIES,
+  STYLE_CATEGORY_IDS,
   STYLE_KINDS,
+  STYLE_PAGE_SIZE,
   STYLE_QUERIES,
   STYLE_SCHEMA,
-  STYLE_TARGET,
+  TREND_DAYS,
+  type StyleCategory,
   type StyleItem,
   type StyleKind,
 } from "@shared/styles";
@@ -24,10 +30,10 @@ import {
 type Variables = { user: User };
 export const styleRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-/** Read, ready styles kept behind the gallery so a removed one is replaced instantly. */
-const SPARES = 8;
 /** Pins read at once (each is one vision call). */
 const READ_AT_ONCE = 6;
+/** New pins read a day by the cron, a few each minute. */
+const DAILY_READS = 40;
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 
@@ -49,12 +55,15 @@ export interface StyleRow {
   score: number;
   w: number;
   h: number;
+  category: string;
 }
 
 function toItem(r: StyleRow, admin: boolean): StyleItem {
   return {
     id: r.id,
     kind: r.kind,
+    category: (r.category as StyleCategory) || "",
+    created: r.created,
     title: r.title,
     tags: r.tags,
     ...(admin ? { prompt: r.prompt } : {}),
@@ -66,21 +75,47 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
   };
 }
 
-async function list(env: Env, user: User) {
+/** One page of the library: a tab (all, trends or a category), a search and a page number. */
+async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number } = {}) {
+  const where = ["status = 'active'"];
+  const args: unknown[] = [];
+  const trendsFrom = now() - TREND_DAYS * 86_400_000;
+  if (opts.tab === "trends") {
+    where.push("created >= ?");
+    args.push(trendsFrom);
+  } else if (opts.tab && STYLE_CATEGORY_IDS.includes(opts.tab as StyleCategory)) {
+    where.push("category = ?");
+    args.push(opts.tab);
+  }
+  const q = (opts.q ?? "").trim().toLowerCase().slice(0, 60);
+  if (q)
+    for (const word of q.split(/\s+/).slice(0, 4)) {
+      where.push("(LOWER(title) LIKE ? OR LOWER(tags) LIKE ? OR LOWER(prompt) LIKE ? OR category LIKE ?)");
+      const like = `%${word}%`;
+      args.push(like, like, like, like);
+    }
+  const order = opts.tab === "trends" ? "created DESC" : "score DESC, created DESC";
+  const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
+  const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
+  const page = Math.min(pages, Math.max(1, opts.page ?? 1));
   const rows = await all<StyleRow>(
     env.DB,
-    "SELECT * FROM styles WHERE status = 'active' ORDER BY kind, position, created",
+    `SELECT * FROM styles WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
+    ...args,
+    STYLE_PAGE_SIZE,
+    (page - 1) * STYLE_PAGE_SIZE,
   );
-  const counts = await all<{ status: string; kind: string; n: number }>(
-    env.DB,
-    "SELECT status, kind, COUNT(*) AS n FROM styles WHERE status IN ('pool','spare') GROUP BY status, kind",
-  );
-  return {
-    ok: true,
-    styles: rows.map((r) => toItem(r, user.role === "admin")),
-    pool: counts.filter((c) => c.status === "pool").reduce((s, c) => s + c.n, 0),
-    spare: counts.filter((c) => c.status === "spare").reduce((s, c) => s + c.n, 0),
-  };
+  const cats = await all<{ category: string; n: number }>(env.DB, "SELECT category, COUNT(*) AS n FROM styles WHERE status = 'active' GROUP BY category");
+  const trends = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'active' AND created >= ?", trendsFrom))?.n ?? 0;
+  const pool = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
+  const counts: Record<string, number> = { all: cats.reduce((x, c) => x + c.n, 0), trends };
+  for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
+  return { ok: true, styles: rows.map((r) => toItem(r, user.role === "admin")), total, page, pages, counts, pool };
+}
+
+/** The query of a list request. */
+function listQuery(c: { req: { query: (k: string) => string | undefined } }) {
+  return { tab: c.req.query("tab") ?? "all", q: c.req.query("q") ?? "", page: Number(c.req.query("page") ?? 1) || 1 };
 }
 
 export async function styleRow(env: Env, id: string): Promise<StyleRow | null> {
@@ -171,34 +206,6 @@ async function addToPool(env: Env, pins: Pin[], kind: StyleKind): Promise<number
   return added;
 }
 
-/** The pool runs low: one more Pinterest search for that kind. */
-async function refillPool(env: Env, kind: StyleKind): Promise<void> {
-  const left = await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool' AND kind = ?", kind);
-  if ((left?.n ?? 0) >= 12) return;
-  // Pins like the gallery's best ones first; a search when Pinterest has nothing related.
-  const best = await all<{ pin: string }>(
-    env.DB,
-    "SELECT pin FROM styles WHERE status IN ('active','spare') AND kind = ? AND score >= 8 AND pin GLOB '[0-9]*' ORDER BY RANDOM() LIMIT 2",
-    kind,
-  );
-  let added = 0;
-  for (const b of best) {
-    try {
-      added += await addToPool(env, await relatedPins(b.pin), kind);
-    } catch (e) {
-      console.error("[styles] related failed", b.pin, errorMessage(e));
-    }
-  }
-  if (added) return;
-  const queries = STYLE_QUERIES[kind];
-  const query = queries[Math.floor(Math.random() * queries.length)];
-  try {
-    await addToPool(env, await searchPins(query), kind);
-  } catch (e) {
-    console.error("[styles] search failed", query, errorMessage(e));
-  }
-}
-
 /* ───────────── Reading a pin into a style ───────────── */
 
 function own(u: Uint8Array): ArrayBuffer {
@@ -232,8 +239,8 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
   return { image, thumb, bytes, mime, w, h };
 }
 
-/** Reads one pool pin: a usable style becomes a spare (or rejected); its picture is kept. */
-async function readPin(env: Env, row: StyleRow): Promise<"spare" | "rejected"> {
+/** Reads one pool pin: a usable style joins the library (or is rejected); its picture is kept. */
+async function readPin(env: Env, row: StyleRow): Promise<"active" | "rejected"> {
   try {
     const stored = await storeImage(env, row);
     const text = await askText(env, describeStyleInstruction(row.note), STYLE_SCHEMA, [{ bytes: stored.bytes, mime: stored.mime }]);
@@ -245,8 +252,9 @@ async function readPin(env: Env, row: StyleRow): Promise<"spare" | "rejected"> {
     }
     await run(
       env.DB,
-      "UPDATE styles SET status = 'spare', kind = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, updated = ? WHERE id = ? AND status = 'pool'",
+      "UPDATE styles SET status = 'active', kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
       s.kind,
+      s.category,
       s.score,
       stored.w,
       stored.h,
@@ -256,9 +264,10 @@ async function readPin(env: Env, row: StyleRow): Promise<"spare" | "rejected"> {
       stored.image,
       stored.thumb,
       now(),
+      now(),
       row.id,
     );
-    return "spare";
+    return "active";
   } catch (e) {
     console.error("[styles] read failed", row.pin, errorMessage(e));
     await run(env.DB, "UPDATE styles SET status = 'rejected', updated = ? WHERE id = ?", now(), row.id);
@@ -266,56 +275,64 @@ async function readPin(env: Env, row: StyleRow): Promise<"spare" | "rejected"> {
   }
 }
 
-/** Spares fill the gallery's empty places, in the places that were emptied. */
-async function promote(env: Env, kind: StyleKind, positions: number[] = []): Promise<number> {
-  const active = await first<{ n: number; p: number | null }>(
+/** Reads up to `budget` pins from the pool (refilling it from Pinterest when it runs low). */
+export async function readSome(env: Env, budget = READ_AT_ONCE): Promise<number> {
+  const left = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
+  if (left < budget) await collect(env, 2);
+  const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created LIMIT ?", budget);
+  const done = await Promise.all(pool.map((r) => readPin(env, r)));
+  return done.filter((x) => x === "active").length;
+}
+
+/** New pins for the pool: "more like this" of the library's best styles and the day's searches. */
+async function collect(env: Env, searches: number): Promise<number> {
+  let added = 0;
+  const best = await all<{ pin: string; kind: StyleKind }>(
     env.DB,
-    "SELECT COUNT(*) AS n, MAX(position) AS p FROM styles WHERE status = 'active' AND kind = ?",
-    kind,
+    "SELECT pin, kind FROM styles WHERE status = 'active' AND score >= 9 AND pin GLOB '[0-9]*' ORDER BY RANDOM() LIMIT 3",
   );
-  const missing = STYLE_TARGET[kind] - (active?.n ?? 0);
-  if (missing <= 0) return 0;
-  const spares = await all<StyleRow>(
-    env.DB,
-    "SELECT * FROM styles WHERE status = 'spare' AND kind = ? ORDER BY score DESC, created LIMIT ?",
-    kind,
-    missing,
-  );
-  let next = (active?.p ?? -1) + 1;
-  for (const s of spares) {
-    const position = positions.shift() ?? next++;
-    await run(env.DB, "UPDATE styles SET status = 'active', position = ?, updated = ? WHERE id = ? AND status = 'spare'", position, now(), s.id);
+  for (const b of best) {
+    try {
+      added += await addToPool(env, await relatedPins(b.pin), b.kind);
+    } catch (e) {
+      console.error("[styles] related failed", b.pin, errorMessage(e));
+    }
   }
-  return spares.length;
+  const season = seasonWords(new Date());
+  for (let i = 0; i < searches; i++) {
+    const cat = STYLE_CATEGORY_IDS[Math.floor(Math.random() * STYLE_CATEGORY_IDS.length)];
+    const list = STYLE_QUERIES[cat];
+    let query = list[Math.floor(Math.random() * list.length)];
+    if (cat === "seasonal" || Math.random() < 0.25) query = `${season[Math.floor(Math.random() * season.length)]} ${query}`;
+    try {
+      added += await addToPool(env, await searchPins(query), cat === "people" ? "people" : "product");
+    } catch (e) {
+      console.error("[styles] search failed", query, errorMessage(e));
+    }
+  }
+  return added;
 }
 
 /**
- * Keeps the gallery full and the spares stocked: reads up to `budget` pins from the pool, the kind
- * that is short first, then moves spares into the gallery.
+ * The library's daily refresh, on the cron: once a day new pins are collected, and through the day
+ * a few are read each minute until DAILY_READS is reached.
  */
-export async function topUp(env: Env, budget = READ_AT_ONCE): Promise<void> {
-  for (const kind of STYLE_KINDS) await promote(env, kind);
-  for (const kind of STYLE_KINDS) {
-    const have = await first<{ a: number; s: number }>(
-      env.DB,
-      "SELECT SUM(status = 'active') AS a, SUM(status = 'spare') AS s FROM styles WHERE kind = ?",
-      kind,
-    );
-    const need = STYLE_TARGET[kind] - (have?.a ?? 0) + SPARES - (have?.s ?? 0);
-    if (need <= 0 || budget <= 0) continue;
-    await refillPool(env, kind);
-    const pool = await all<StyleRow>(
-      env.DB,
-      "SELECT * FROM styles WHERE status = 'pool' AND kind = ? ORDER BY created LIMIT ?",
-      kind,
-      Math.min(need, budget),
-    );
-    budget -= pool.length;
-    await Promise.all(pool.map((r) => readPin(env, r)));
-    await promote(env, kind);
+export async function dailyStyles(env: Env): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  const mark = await getSetting(env, "styles_daily");
+  const [lastDay, readStr] = (mark ?? "").split("|");
+  let read = lastDay === day ? Number(readStr) || 0 : 0;
+  if (lastDay !== day) {
+    await collect(env, 6);
+    await setSetting(env, "styles_daily", `${day}|0`);
   }
-  // A read pin may turn out to be of the other kind: it fills that gallery instead.
-  for (const kind of STYLE_KINDS) await promote(env, kind);
+  if (read >= DAILY_READS) return;
+  const budget = Math.min(4, DAILY_READS - read);
+  const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created DESC LIMIT ?", budget);
+  if (!pool.length) return;
+  read += pool.length;
+  await setSetting(env, "styles_daily", `${day}|${read}`);
+  await Promise.all(pool.map((r) => readPin(env, r)));
 }
 
 /* ───────────── Routes ───────────── */
@@ -326,7 +343,15 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
   return parsed.data;
 }
 
-styleRoutes.get("/", async (c) => c.json(await list(c.env, c.get("user"))));
+styleRoutes.get("/", async (c) => c.json(await list(c.env, c.get("user"), listQuery(c))));
+
+/** Styles by id (a month's posts show their style's name and picture). */
+styleRoutes.get("/lookup", async (c) => {
+  const ids = (c.req.query("ids") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 60);
+  if (!ids.length) return c.json({ ok: true, styles: [] });
+  const rows = await all<StyleRow>(c.env.DB, `SELECT * FROM styles WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+  return c.json({ ok: true, styles: rows.map((r) => toItem(r, c.get("user").role === "admin")) });
+});
 
 styleRoutes.get("/:id/image", async (c) => {
   const r = await styleRow(c.env, c.req.param("id"));
@@ -408,8 +433,9 @@ styleRoutes.post("/add", async (c) => {
         if (!st.prompt) return failed.push(link);
         await run(
           c.env.DB,
-          "UPDATE styles SET status = 'active', position = -1, kind = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, updated = ? WHERE id = ?",
+          "UPDATE styles SET status = 'active', position = -1, kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
           st.kind,
+          st.category,
           Math.max(st.score, 9),
           stored.w,
           stored.h,
@@ -418,6 +444,7 @@ styleRoutes.post("/add", async (c) => {
           st.prompt,
           stored.image,
           stored.thumb,
+          now(),
           now(),
           row.id,
         );
@@ -428,52 +455,36 @@ styleRoutes.post("/add", async (c) => {
       }
     }),
   );
-  // Team picks lead each gallery; the weakest styles over the count step back to the spares.
-  for (const kind of STYLE_KINDS) {
-    const rows = await all<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE status = 'active' AND kind = ? ORDER BY position, created", kind);
-    const keep = rows.slice();
-    while (keep.length > STYLE_TARGET[kind]) {
-      const weakest = keep.filter((r) => r.position >= 0).sort((a, b) => a.score - b.score)[0];
-      if (!weakest) break;
-      keep.splice(keep.indexOf(weakest), 1);
-      await run(c.env.DB, "UPDATE styles SET status = 'spare', updated = ? WHERE id = ?", now(), weakest.id);
-    }
-    let i = 0;
-    for (const r of keep) await run(c.env.DB, "UPDATE styles SET position = ? WHERE id = ?", i++, r.id);
-  }
-  return c.json({ ...(await list(c.env, c.get("user"))), added: added.length, failed });
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: "trends" })), added: added.length, failed });
 });
 
-/** Reads a few more pins and fills the gallery; the browser calls it until nothing is missing. */
+/** Reads a few more pins into the library now (admins may read more at once). */
 styleRoutes.post("/fill", async (c) => {
-  // Admins may read more at once (filling a new gallery); everyone else a few per call.
   const asked = Number(c.req.query("budget") ?? READ_AT_ONCE) || READ_AT_ONCE;
-  await topUp(c.env, c.get("user").role === "admin" ? Math.min(12, Math.max(1, asked)) : READ_AT_ONCE);
-  return c.json(await list(c.env, c.get("user")));
+  const added = await readSome(c.env, c.get("user").role === "admin" ? Math.min(12, Math.max(1, asked)) : READ_AT_ONCE);
+  return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), added });
 });
 
-/** Takes styles out of the gallery; spares take their places at once, and more are read behind. */
-async function replace(c: { env: Env; executionCtx: { waitUntil(p: Promise<unknown>): void } }, ids: string[]) {
-  const rows = (await Promise.all(ids.map((id) => styleRow(c.env, id)))).filter((r): r is StyleRow => !!r && r.status === "active");
-  const freed: Record<StyleKind, number[]> = { product: [], people: [] };
-  for (const r of rows) {
-    await run(c.env.DB, "UPDATE styles SET status = 'removed', updated = ? WHERE id = ?", now(), r.id);
-    freed[r.kind].push(r.position);
-  }
-  for (const kind of STYLE_KINDS) await promote(c.env, kind, freed[kind]);
-  c.executionCtx.waitUntil(topUp(c.env, READ_AT_ONCE).catch((e) => console.error("[styles] top up failed", errorMessage(e))));
+/** Takes styles out of the library. */
+async function remove(env: Env, ids: string[]) {
+  for (const id of ids) await run(env.DB, "UPDATE styles SET status = 'removed', updated = ? WHERE id = ? AND status = 'active'", now(), id);
 }
 
 styleRoutes.delete("/:id", async (c) => {
-  await replace(c, [c.req.param("id")]);
-  return c.json(await list(c.env, c.get("user")));
+  await remove(c.env, [c.req.param("id")]);
+  // The library keeps growing: one more pin is read behind.
+  c.executionCtx.waitUntil(readSome(c.env, 1).catch((e) => console.error("[styles] read failed", errorMessage(e))));
+  return c.json(await list(c.env, c.get("user"), listQuery(c)));
 });
 
-/** "Bring new fresh ideas": the selected styles leave, new ones take their places. */
+/** "New ideas": the selected styles leave and as many new ones are read now (they open on Trends). */
 styleRoutes.post("/replace", async (c) => {
-  const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(70) }));
-  await replace(c, d.ids);
-  return c.json(await list(c.env, c.get("user")));
+  const d = await body(c, z.object({ ids: z.array(z.string().max(80)).min(1).max(200) }));
+  await remove(c.env, d.ids);
+  const added = await readSome(c.env, Math.min(12, d.ids.length));
+  if (d.ids.length > 12)
+    c.executionCtx.waitUntil(readSome(c.env, Math.min(12, d.ids.length - 12)).catch((e) => console.error("[styles] read failed", errorMessage(e))));
+  return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), added });
 });
 
 /**
@@ -485,7 +496,7 @@ styleRoutes.post("/recheck", async (c) => {
   const d = await body(c, z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(12).default(8) }));
   const rows = await all<StyleRow>(
     c.env.DB,
-    "SELECT * FROM styles WHERE status IN ('active','spare') ORDER BY created LIMIT ? OFFSET ?",
+    "SELECT * FROM styles WHERE status = 'active' ORDER BY created LIMIT ? OFFSET ?",
     d.limit,
     d.offset,
   );
@@ -517,8 +528,9 @@ styleRoutes.post("/recheck", async (c) => {
         } else
           await run(
             c.env.DB,
-            "UPDATE styles SET score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, kind = CASE WHEN status = 'spare' THEN ? ELSE kind END, updated = ? WHERE id = ?",
+            "UPDATE styles SET score = ?, category = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, kind = ?, updated = ? WHERE id = ?",
             s.score,
+            s.category,
             w,
             h,
             s.title || r.title,
@@ -533,7 +545,6 @@ styleRoutes.post("/recheck", async (c) => {
       }
     }),
   );
-  for (const kind of STYLE_KINDS) await promote(c.env, kind);
   return c.json({ ok: true, checked: rows.length, rejected: out });
 });
 
@@ -558,5 +569,5 @@ styleRoutes.post("/refresh", async (c) => {
       }
     }),
   );
-  return c.json(await list(c.env, c.get("user")));
+  return c.json(await list(c.env, c.get("user"), listQuery(c)));
 });

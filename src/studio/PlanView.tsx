@@ -23,7 +23,7 @@ import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
-import StyleScreen, { styleThumb, useStyles } from "./StyleGallery";
+import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -173,8 +173,8 @@ export default function PlanView({
       });
     });
   }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const { styles } = useStyles();
-  const styleOf = (id: string) => styles.find((st) => st.id === id);
+  const styles = useStyleInfo(draft.map((x) => x.style));
+  const styleOf = (id: string) => styles.get(id);
   const [picking, setPicking] = useState<number | null>(null);
   const dirty = JSON.stringify(draft) !== planKey;
   const draftRef = useRef(draft);
@@ -244,7 +244,7 @@ export default function PlanView({
         pick={{
           mode: "post",
           label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,
-          kind: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          tab: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
           onPick: (ids: string[]) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined),
         }}
       />

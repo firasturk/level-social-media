@@ -1,94 +1,76 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, Link2, LoaderCircle, Maximize2, RefreshCw, Sparkles, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Link2, LoaderCircle, Maximize2, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { del, get, post } from "@/api";
-import { STYLE_TARGET, type StyleItem, type StyleKind } from "@shared/styles";
+import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
 
-type Reply = { styles: StyleItem[]; pool: number; spare: number };
+type Page = {
+  styles: StyleItem[];
+  total: number;
+  page: number;
+  pages: number;
+  counts: Record<string, number>;
+  pool: number;
+};
 
 /**
- * One copy of the gallery for the whole app: it opens instantly from any screen once loaded, and
- * every change made anywhere shows everywhere.
+ * Every style the app has seen, by id: post cards and shot rows show a style's name and picture
+ * without loading the library, and a style seen once is never fetched again.
  */
-let store: Reply | null = null;
-let loading: Promise<void> | null = null;
-let filling = false;
+const known = new Map<string, StyleItem>();
 const listeners = new Set<() => void>();
-const emit = () => listeners.forEach((l) => l());
-function setStore(r: Reply) {
-  store = r;
-  emit();
-}
-async function load(force = false) {
-  if (loading && !force) return loading;
-  loading = get<Reply>("/api/studio/styles")
-    .then(setStore)
-    .catch((e) => {
-      toast.error((e as Error).message);
-    })
-    .finally(() => {
-      loading = null;
-    });
-  return loading;
-}
-/** Reads more pins until the gallery is full (each call reads a few). */
-async function fill() {
-  if (filling) return;
-  filling = true;
-  emit();
-  try {
-    for (let i = 0; i < 20; i++) {
-      const short = missing(store);
-      if (!short || (!store?.pool && !store?.spare && i > 0)) break;
-      setStore(await post<Reply>("/api/studio/styles/fill"));
-    }
-  } catch (e) {
-    toast.error((e as Error).message);
-  } finally {
-    filling = false;
-    emit();
-  }
-}
-function missing(r: Reply | null): number {
-  if (!r) return 0;
-  return (["product", "people"] as StyleKind[]).reduce(
-    (s, k) => s + Math.max(0, STYLE_TARGET[k] - r.styles.filter((x) => x.kind === k).length),
-    0,
-  );
+let version = 0;
+function remember(list: StyleItem[]) {
+  for (const s of list) known.set(s.id, s);
+  version++;
+  listeners.forEach((l) => l());
 }
 const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
-
-/** The gallery's styles (loads once, shared by every screen). */
-export function useStyles(): { styles: StyleItem[]; ready: boolean; filling: boolean } {
-  const r = useSyncExternalStore(subscribe, () => store);
-  const busy = useSyncExternalStore(subscribe, () => filling);
-  useEffect(() => {
-    if (!store) void load();
-  }, []);
-  return { styles: r?.styles ?? [], ready: !!r, filling: busy };
+const asking = new Set<string>();
+async function lookup(ids: string[]) {
+  const missing = ids.filter((id) => !known.has(id) && !asking.has(id));
+  if (!missing.length) return;
+  missing.forEach((id) => asking.add(id));
+  try {
+    const r = await get<{ styles: StyleItem[] }>(`/api/studio/styles/lookup?ids=${missing.map(encodeURIComponent).join(",")}`);
+    remember(r.styles);
+  } catch {
+    /* the chip shows without its picture */
+  } finally {
+    missing.forEach((id) => asking.delete(id));
+  }
 }
 
-/** Puts the team's own pins at the front of the gallery. */
-export async function addPins(links: string[]): Promise<{ added: number; failed: string[] }> {
-  const r = await post<Reply & { added: number; failed: string[] }>("/api/studio/styles/add", { links });
-  setStore(r);
-  return r;
+/** The styles of these ids (loaded on demand). */
+export function useStyleInfo(ids: (string | undefined | null)[]): Map<string, StyleItem> {
+  useSyncExternalStore(subscribe, () => version);
+  const key = [...new Set(ids.filter((x): x is string => !!x))].sort().join(",");
+  useEffect(() => {
+    if (key) void lookup(key.split(","));
+  }, [key]);
+  return known;
 }
 
 export const styleThumb = (s: Pick<StyleItem, "id" | "updated">, full = false) =>
   `/api/studio/styles/${s.id}/image?v=${s.updated}${full ? "&size=full" : ""}`;
 
-type Tab = "all" | StyleKind;
+const TABS: { id: string; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "trends", label: "Trends" },
+  ...STYLE_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+];
+
+/** Pages already loaded open instantly when the team comes back to them. */
+const pages = new Map<string, Page>();
 
 /**
- * "Pick your style", full screen: the styles laid out in even rows like a product-shot gallery.
- * Click to select (Select all, Select none); remove one and a new one takes its place; Update writes
- * the selected styles again, New ideas swaps them. When picking, the selection goes to one post or
- * to the whole grid.
+ * "Pick your style", full screen in the studio's colours: the library in even rows, by category
+ * or search, page by page. Click to select; remove a style, write the selected ones again (Update)
+ * or swap them for new ones (New ideas). When picking, the selection goes to one post or the grid.
  */
 export default function StyleScreen({
   open,
@@ -100,40 +82,91 @@ export default function StyleScreen({
   onClose: () => void;
   admin?: boolean;
   /** Picking for one post ("post") or for the grid ("grid", spread over `posts` posts). */
-  pick?: { mode: "post" | "grid"; posts?: number; label?: string; kind?: StyleKind; onPick: (ids: string[]) => Promise<void> | void };
+  pick?: {
+    mode: "post" | "grid";
+    posts?: number;
+    label?: string;
+    tab?: string;
+    onPick: (ids: string[], items: StyleItem[]) => Promise<void> | void;
+  };
 }) {
-  const { styles, ready, filling: busyFill } = useStyles();
-  const [tab, setTab] = useState<Tab>(pick?.kind ?? "all");
-  const [selected, setSelected] = useState<string[]>([]);
+  const [tab, setTab] = useState(pick?.tab ?? "all");
+  const [typed, setTyped] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const key = `${tab}|${q}|${page}`;
+  const [data, setData] = useState<Page | null>(pages.get(key) ?? null);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<StyleItem[]>([]);
   const [preview, setPreview] = useState<StyleItem | null>(null);
   const [busy, setBusy] = useState("");
   const [adding, setAdding] = useState(false);
   const [links, setLinks] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
+  const ids = useMemo(() => selected.map((s) => s.id), [selected]);
 
   useEffect(() => {
-    if (open) {
-      setSelected([]);
-      setTab(pick?.kind ?? "all");
-    }
-  }, [open, pick?.kind]);
-  // An unfilled gallery fills itself while it is open.
+    if (!open) return;
+    setSelected([]);
+    setTab(pick?.tab ?? "all");
+    setPage(1);
+  }, [open, pick?.tab]);
+
+  // Search as the team types (after a short pause), from page one.
   useEffect(() => {
-    if (open && ready && missing(store) > 0) void fill();
-  }, [open, ready, styles.length]);
+    const t = setTimeout(() => {
+      setQ(typed.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [typed]);
 
-  // All: both galleries mixed, the strongest first; a tab keeps its own order.
-  const shown = useMemo(
-    () => (tab === "all" ? [...styles].sort((a, b) => b.score - a.score || a.position - b.position) : styles.filter((s) => s.kind === tab)),
-    [styles, tab],
+  const apply = useCallback(
+    (r: Page, k = key) => {
+      pages.set(k, r);
+      remember(r.styles);
+      if (k === key) setData(r);
+    },
+    [key],
   );
-  const counts = useMemo(
-    () => ({ all: styles.length, product: styles.filter((s) => s.kind === "product").length, people: styles.filter((s) => s.kind === "people").length }),
-    [styles],
-  );
-  const toggle = useCallback((id: string) => setSelected((sel) => (sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id])), []);
 
-  // Esc closes (or the preview first); Ctrl/Cmd+A selects everything shown.
+  const load = useCallback(
+    async (force = false) => {
+      const cached = pages.get(key);
+      if (cached) setData(cached);
+      if (cached && !force) return;
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ tab, q, page: String(page) });
+        apply(await get<Page>(`/api/studio/styles?${params}`), key);
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [key, tab, q, page, apply],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    void load();
+    scroller.current?.scrollTo({ top: 0 });
+  }, [open, key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** A change on the server: every cached page is old now; this one comes back fresh. */
+  function changed(r: Page) {
+    pages.clear();
+    apply(r);
+  }
+
+  const shown = useMemo(() => data?.styles ?? [], [data]);
+  const toggle = useCallback(
+    (s: StyleItem) => setSelected((sel) => (sel.some((x) => x.id === s.id) ? sel.filter((x) => x.id !== s.id) : [...sel, s])),
+    [],
+  );
+
+  // Esc closes (or the preview first); Ctrl/Cmd+A selects the page.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -143,19 +176,21 @@ export default function StyleScreen({
         else onClose();
       } else if (!typing && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
         e.preventDefault();
-        setSelected(shown.map((s) => s.id));
+        setSelected((sel) => [...sel, ...shown.filter((s) => !sel.some((x) => x.id === s.id))]);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, preview, shown, onClose]);
 
-  async function remove(id: string) {
-    // The tile leaves at once; the server puts a ready style in its place.
-    if (store) setStore({ ...store, styles: store.styles.filter((s) => s.id !== id) });
-    setSelected((sel) => sel.filter((x) => x !== id));
+  const query = () => new URLSearchParams({ tab, q, page: String(page) }).toString();
+
+  async function remove(s: StyleItem) {
+    // The tile leaves at once.
+    if (data) setData({ ...data, styles: data.styles.filter((x) => x.id !== s.id), total: data.total - 1 });
+    setSelected((sel) => sel.filter((x) => x.id !== s.id));
     try {
-      setStore(await del<Reply>(`/api/studio/styles/${id}`));
+      changed(await del<Page>(`/api/studio/styles/${s.id}?${query()}`));
     } catch (e) {
       toast.error((e as Error).message);
       void load(true);
@@ -163,15 +198,16 @@ export default function StyleScreen({
   }
 
   async function act(what: "refresh" | "replace") {
-    if (!selected.length) return;
+    if (!ids.length) return;
     setBusy(what);
-    const ids = what === "refresh" ? selected.slice(0, 12) : selected;
+    const list = what === "refresh" ? ids.slice(0, 12) : ids;
     try {
-      setStore(await post<Reply>(`/api/studio/styles/${what}`, { ids }));
+      const r = await post<Page & { added?: number }>(`/api/studio/styles/${what}?${query()}`, { ids: list });
+      changed(r);
       toast.success(
         what === "refresh"
-          ? `${ids.length} style${ids.length > 1 ? "s" : ""} written again.${selected.length > 12 ? " Up to 12 at a time." : ""}`
-          : `${ids.length} new idea${ids.length > 1 ? "s" : ""} in their places.`,
+          ? `${list.length} style${list.length > 1 ? "s" : ""} written again.${ids.length > 12 ? " Up to 12 at a time." : ""}`
+          : `${list.length} removed · ${r.added ?? 0} new idea${r.added === 1 ? "" : "s"} added (see Trends).`,
       );
       setSelected([]);
     } catch (e) {
@@ -186,7 +222,7 @@ export default function StyleScreen({
     if (pick.mode === "post" && selected.length !== 1) return;
     setBusy("pick");
     try {
-      await pick.onPick(selected);
+      await pick.onPick(ids, selected);
       setSelected([]);
       onClose();
     } finally {
@@ -199,11 +235,15 @@ export default function StyleScreen({
     if (!list.length) return toast.error("Paste one or more Pinterest links.");
     setBusy("add");
     try {
-      const r = await addPins(list.slice(0, 20));
-      toast.success(`${r.added} pin${r.added === 1 ? "" : "s"} added at the front.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
+      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20) });
+      pages.clear();
+      remember(r.styles);
+      toast.success(`${r.added} pin${r.added === 1 ? "" : "s"} added (on Trends).${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
       setLinks("");
       setAdding(false);
-      scroller.current?.scrollTo({ top: 0, behavior: "smooth" });
+      setTyped("");
+      setTab("trends");
+      setPage(1);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -213,6 +253,8 @@ export default function StyleScreen({
 
   if (!open) return null;
   const n = selected.length;
+  const counts = data?.counts ?? {};
+  const pageCount = data?.pages ?? 1;
   const useLabel = !pick
     ? ""
     : pick.mode === "post"
@@ -224,6 +266,8 @@ export default function StyleScreen({
       : n
         ? `Use ${n} for the grid${pick.posts ? ` · ${pick.posts} posts` : ""}`
         : "Pick styles for the grid";
+  // Page numbers around the current one, with the first and last always reachable.
+  const nums = [...new Set([1, page - 2, page - 1, page, page + 1, page + 2, pageCount])].filter((x) => x >= 1 && x <= pageCount).sort((a, b) => a - b);
 
   // On the page itself: an animated parent (the journey's boxes) would trap a fixed screen inside it.
   return createPortal(
@@ -231,19 +275,23 @@ export default function StyleScreen({
       <header className="style-top">
         <div className="style-top-row">
           <div className="style-heading">
-            <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Styles"}</span>
-            <strong>Pick your style</strong>
+            <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
+            <h1>Pick your style</h1>
           </div>
-          <div className="style-top-actions">
-            {busyFill && (
-              <span className="style-filling">
-                <LoaderCircle className="spinning" size={13} /> New styles coming in…
-              </span>
+          <label className="style-search">
+            <Search size={15} />
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search: balloons, ice, gift box, ramadan…" aria-label="Search the styles" />
+            {typed && (
+              <button type="button" onClick={() => setTyped("")} aria-label="Clear the search">
+                <X size={13} />
+              </button>
             )}
-            <button type="button" className="style-pill" onClick={() => setAdding((v) => !v)} title="Add your own Pinterest pins at the front of the gallery">
+          </label>
+          <div className="style-top-actions">
+            <button type="button" className="secondary" onClick={() => setAdding((v) => !v)} title="Add your own Pinterest pins to the library">
               <Link2 size={14} /> Add pins
             </button>
-            <button type="button" className="style-close" onClick={onClose} aria-label="Close">
+            <button type="button" className="icon-button style-close" onClick={onClose} aria-label="Close">
               <X size={18} />
             </button>
           </div>
@@ -255,43 +303,52 @@ export default function StyleScreen({
               value={links}
               autoFocus
               onChange={(e) => setLinks(e.target.value)}
-              placeholder="Paste Pinterest links (pin.it/… or pinterest.com/pin/…), one per line. They join the front of the gallery, whatever the bar says."
+              placeholder="Paste Pinterest links (pin.it/… or pinterest.com/pin/…), one per line. They join the library at once."
             />
-            <button type="button" className="style-primary" disabled={busy === "add"} onClick={() => void addLinks()}>
+            <button type="button" className="primary" disabled={busy === "add"} onClick={() => void addLinks()}>
               {busy === "add" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add
             </button>
           </div>
         )}
         <div className="style-top-row">
           <div className="style-tabs" role="tablist">
-            {(
-              [
-                ["all", "All"],
-                ["product", "Product shot"],
-                ["people", "With people"],
-              ] as [Tab, string][]
-            ).map(([k, label]) => (
-              <button key={k} type="button" role="tab" aria-selected={tab === k} className={`style-pill ${tab === k ? "on" : ""}`} onClick={() => setTab(k)}>
-                {label} <em>{counts[k]}</em>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={`journey-chip ${tab === t.id ? "active" : ""}`}
+                onClick={() => {
+                  setTab(t.id);
+                  setPage(1);
+                }}
+              >
+                {t.id === "trends" && <Sparkles size={12} />} {t.label}
+                {counts[t.id] !== undefined && <em>{counts[t.id]}</em>}
               </button>
             ))}
           </div>
           <div className="style-select">
-            <button type="button" className="style-link" onClick={() => setSelected(shown.map((s) => s.id))}>
+            <button type="button" className="text-button" onClick={() => setSelected((sel) => [...sel, ...shown.filter((s) => !sel.some((x) => x.id === s.id))])}>
               Select all
             </button>
             <button
               type="button"
-              className="style-link"
-              onClick={() => setSelected((sel) => [...new Set([...sel, ...shown.filter((s) => !sel.includes(s.id)).slice(0, 10).map((s) => s.id)])])}
-              title="Select the next ten styles"
+              className="text-button"
+              title="Select the next ten styles on this page"
+              onClick={() => setSelected((sel) => [...sel, ...shown.filter((s) => !sel.some((x) => x.id === s.id)).slice(0, 10)])}
             >
               Select 10 more
             </button>
-            <button type="button" className="style-link" onClick={() => setSelected(shown.map((s) => s.id).filter((id) => !selected.includes(id)))}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setSelected((sel) => [...sel.filter((x) => !shown.some((s) => s.id === x.id)), ...shown.filter((s) => !sel.some((x) => x.id === s.id))])}
+            >
               Invert
             </button>
-            <button type="button" className="style-link" disabled={!n} onClick={() => setSelected([])}>
+            <button type="button" className="text-button" disabled={!n} onClick={() => setSelected([])}>
               Select none
             </button>
           </div>
@@ -299,19 +356,37 @@ export default function StyleScreen({
       </header>
 
       <div className="style-scroll" ref={scroller}>
-        <div className="style-rows">
-          {(ready ? shown : []).map((s) => {
-            const on = selected.includes(s.id);
+        <div className="style-meta">
+          {loading && <LoaderCircle className="spinning" size={13} />}
+          {data ? (
+            <span>
+              {data.total} style{data.total === 1 ? "" : "s"}
+              {q ? ` for “${q}”` : ""} · page {data.page} of {pageCount}
+              {tab === "trends" ? " · new in the last two weeks" : ""}
+            </span>
+          ) : (
+            <span>Loading the library…</span>
+          )}
+        </div>
+        <div className="style-rows" key={key}>
+          {(data ? shown : []).map((s, i) => {
+            const on = ids.includes(s.id);
             const ar = s.w && s.h ? s.w / s.h : 0.75;
+            const fresh = Date.now() - s.created < 2 * 86_400_000;
             return (
-              <div key={s.id} className={`style-tile ${on ? "on" : ""}`} style={{ flexGrow: ar, flexBasis: `calc(var(--row) * ${ar})` }}>
-                <button type="button" className="style-tile-image" style={{ aspectRatio: `${ar}` }} onClick={() => toggle(s.id)} aria-pressed={on} title={s.tags}>
+              <div
+                key={s.id}
+                className={`style-tile ${on ? "on" : ""}`}
+                style={{ flexGrow: ar, flexBasis: `calc(var(--row) * ${ar})`, "--i": Math.min(i, 30) } as React.CSSProperties}
+              >
+                <button type="button" className="style-tile-image" style={{ aspectRatio: `${ar}` }} onClick={() => toggle(s)} aria-pressed={on} title={s.tags}>
                   <img src={styleThumb(s)} alt={s.title} loading="lazy" decoding="async" />
                   <span className="style-tile-label">
-                    <small>{s.kind === "people" ? "With people" : "Product shot"}</small>
+                    <small>{STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? (s.kind === "people" ? "With people" : "Product shot")}</small>
                     <b>{s.title}</b>
                   </span>
                 </button>
+                {fresh && <span className="style-tile-new">New</span>}
                 <span className="style-tile-check" aria-hidden>
                   {on && <Check size={13} strokeWidth={3} />}
                 </span>
@@ -319,18 +394,38 @@ export default function StyleScreen({
                   <button type="button" onClick={() => setPreview(s)} aria-label={`Open ${s.title}`} title="Open">
                     <Maximize2 size={13} />
                   </button>
-                  <button type="button" onClick={() => void remove(s.id)} aria-label={`Remove ${s.title}`} title="Remove: a new style takes its place">
+                  <button type="button" onClick={() => void remove(s)} aria-label={`Remove ${s.title}`} title="Remove from the library">
                     <X size={13} />
                   </button>
                 </span>
               </div>
             );
           })}
-          {Array.from({ length: ready ? Math.max(0, (tab === "all" ? STYLE_TARGET.product + STYLE_TARGET.people : STYLE_TARGET[tab]) - shown.length) : 18 }, (_, i) => (
-            <div key={`s${i}`} className="style-tile skeleton" style={{ flexGrow: 0.75, flexBasis: "calc(var(--row) * 0.75)" }} />
-          ))}
+          {!data &&
+            Array.from({ length: 18 }, (_, i) => (
+              <div key={`s${i}`} className="style-tile skeleton" style={{ flexGrow: 0.75, flexBasis: "calc(var(--row) * 0.75)" }} />
+            ))}
+          {data && !shown.length && <p className="style-empty">{q ? `Nothing for “${q}” here. Try another word or another tab.` : "No styles here yet: new ones come in every day."}</p>}
           <span className="style-rows-end" />
         </div>
+        {pageCount > 1 && (
+          <nav className="style-pager" aria-label="Pages">
+            <button type="button" className="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              <ChevronLeft size={15} /> Previous
+            </button>
+            {nums.map((x, i) => (
+              <span key={x} className="style-pager-num">
+                {i > 0 && x - nums[i - 1] > 1 && <i>…</i>}
+                <button type="button" className={`journey-chip ${x === page ? "active" : ""}`} onClick={() => setPage(x)} aria-current={x === page ? "page" : undefined}>
+                  {x}
+                </button>
+              </span>
+            ))}
+            <button type="button" className="secondary" disabled={page >= pageCount} onClick={() => setPage(page + 1)}>
+              Next <ChevronRight size={15} />
+            </button>
+          </nav>
+        )}
       </div>
 
       {(n > 0 || pick) && (
@@ -338,16 +433,16 @@ export default function StyleScreen({
           <span className="style-dock-count">{n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : "Select one style"}</span>
           {n > 0 && (
             <>
-              <button type="button" className="style-pill" disabled={!!busy} onClick={() => void act("refresh")} title="Write the selected styles again: a fresh take on the same idea">
+              <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("refresh")} title="Write the selected styles again: a fresh take on the same idea">
                 {busy === "refresh" ? <LoaderCircle className="spinning" size={14} /> : <RefreshCw size={14} />} Update
               </button>
-              <button type="button" className="style-pill" disabled={!!busy} onClick={() => void act("replace")} title="Swap the selected styles for new ideas">
+              <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("replace")} title="Remove the selected styles and bring new ideas">
                 {busy === "replace" ? <LoaderCircle className="spinning" size={14} /> : <Sparkles size={14} />} New ideas
               </button>
             </>
           )}
           {pick && (
-            <button type="button" className="style-primary" disabled={!n || !!busy || (pick.mode === "post" && n !== 1)} onClick={() => void use()}>
+            <button type="button" className="primary" disabled={!n || !!busy || (pick.mode === "post" && n !== 1)} onClick={() => void use()}>
               {busy === "pick" ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} {useLabel}
             </button>
           )}
@@ -359,7 +454,9 @@ export default function StyleScreen({
           <div className="style-preview-card" onClick={(e) => e.stopPropagation()}>
             <img src={styleThumb(preview, true)} alt={preview.title} />
             <div className="style-preview-text">
-              <small>{preview.kind === "people" ? "With people" : "Product shot"} · {preview.tags}</small>
+              <small>
+                {STYLE_CATEGORIES.find((c) => c.id === preview.category)?.label ?? "Style"} · {preview.tags}
+              </small>
               <h2>{preview.title}</h2>
               {admin && preview.prompt ? (
                 <p>{preview.prompt}</p>
@@ -369,25 +466,25 @@ export default function StyleScreen({
               <div className="style-preview-actions">
                 <button
                   type="button"
-                  className="style-primary"
+                  className="primary"
                   onClick={() => {
-                    toggle(preview.id);
+                    toggle(preview);
                     setPreview(null);
                   }}
                 >
-                  <Check size={14} /> {selected.includes(preview.id) ? "Unselect" : "Select"}
+                  <Check size={14} /> {ids.includes(preview.id) ? "Unselect" : "Select"}
                 </button>
                 <button
                   type="button"
-                  className="style-pill"
+                  className="secondary"
                   onClick={() => {
-                    void remove(preview.id);
+                    void remove(preview);
                     setPreview(null);
                   }}
                 >
                   <X size={14} /> Remove
                 </button>
-                <button type="button" className="style-pill" onClick={() => setPreview(null)}>
+                <button type="button" className="text-button" onClick={() => setPreview(null)}>
                   Close
                 </button>
               </div>

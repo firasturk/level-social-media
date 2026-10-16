@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adaptStyleInstruction, describeStyleInstruction, parseStyle } from "@shared/styles";
+import { adaptStyleInstruction, describeStyleInstruction, parseStyle, seasonWords } from "@shared/styles";
 import { buildPostPrompt, type PostBrief } from "@shared/posts";
 
 describe("style gallery", () => {
@@ -49,5 +49,21 @@ describe("style gallery", () => {
     expect(p).not.toContain("autumn leaves");
     expect(p).not.toContain("Warm roadside light");
     expect(p).not.toContain("REFERENCE SHOT");
+  });
+});
+
+describe("the open style library", () => {
+  it("puts every style on a shelf", () => {
+    const base = { keep: true, score: 9, kind: "product", title: "Fridge Stash", tags: "", prompt: "p".repeat(80) };
+    expect(parseStyle({ ...base, category: "food" }).category).toBe("food");
+    expect(parseStyle({ ...base, category: "nonsense" }).category).toBe("product");
+    expect(parseStyle({ ...base, kind: "people" }).category).toBe("people");
+  });
+
+  it("knows the season's words for the daily search", () => {
+    expect(seasonWords(new Date(Date.UTC(2026, 6, 10)))).toContain("summer");
+    expect(seasonWords(new Date(Date.UTC(2026, 1, 20)))).toContain("valentine");
+    // 1 Ramadan 1448 falls in February 2027.
+    expect(seasonWords(new Date(Date.UTC(2027, 1, 15)))).toContain("ramadan");
   });
 });

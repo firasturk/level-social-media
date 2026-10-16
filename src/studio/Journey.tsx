@@ -40,7 +40,7 @@ import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasio
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
 import { fixNote, postProblems } from "@shared/qa";
 import type { StyleItem } from "@shared/styles";
-import StyleScreen, { styleThumb, useStyles } from "./StyleGallery";
+import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -836,6 +836,8 @@ export default function Journey(p: JourneyProps) {
                     </div>
                     <MonthShots
                       plan={p.plan}
+                      products={p.products}
+                      sourceUrl={p.sourceUrl}
                       admin={p.user.role === "admin"}
                       onStyles={p.onStyles}
                       busy={adapting}
@@ -1315,6 +1317,8 @@ function GalleryBox({
 
 function MonthShots({
   plan,
+  products,
+  sourceUrl,
   admin,
   onStyles,
   busy,
@@ -1324,6 +1328,8 @@ function MonthShots({
   onSave,
 }: {
   plan: Post[];
+  products: Source[];
+  sourceUrl: (id: string) => string;
   admin: boolean;
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   busy: boolean;
@@ -1333,7 +1339,7 @@ function MonthShots({
   onSave: (index: number, scene: string) => void;
 }) {
   const written = plan.filter((x) => x.scene).length;
-  const { styles } = useStyles();
+  const styles = useStyleInfo(plan.map((x) => x.style));
   // null: closed; "grid": styles for the whole grid; a number: the style of that post.
   const [picking, setPicking] = useState<"grid" | number | null>(null);
   const [styling, setStyling] = useState(false);
@@ -1357,12 +1363,12 @@ function MonthShots({
           mode: picking === "grid" ? "grid" : "post",
           posts: gridPosts.length,
           label: typeof picking === "number" ? `Post ${String(picking).padStart(2, "0")}` : undefined,
-          kind: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
-          onPick: (ids: string[]) => {
+          tab: typeof picking === "number" && plan.find((x) => x.index === picking)?.people?.length ? "people" : undefined,
+          onPick: (ids: string[], items: StyleItem[]) => {
             if (picking === "grid") {
               // Every picked style is used, spread over the posts in order; a people style then swaps
               // onto a post that has people when one is free.
-              const isPeople = (id: string) => styles.find((st) => st.id === id)?.kind === "people";
+              const isPeople = (id: string) => items.find((st) => st.id === id)?.kind === "people";
               const order = gridPosts.map((_, i) => ids[i % ids.length]);
               gridPosts.forEach((x, i) => {
                 if (!x.people?.length || isPeople(order[i])) return;
@@ -1423,7 +1429,9 @@ function MonthShots({
               post={x}
               order={i}
               busy={busy || styling}
-              style={x.style ? styles.find((st) => st.id === x.style) : undefined}
+              style={x.style ? styles.get(x.style) : undefined}
+              product={products.find((s) => displayName(s.name).toLowerCase() === (x.product ?? "").toLowerCase())}
+              sourceUrl={sourceUrl}
               onStyle={() => setPicking(x.index)}
               onUnstyle={() => void apply([{ index: x.index, style: null }])}
               onSave={(t) => onSave(x.index, t)}
@@ -1440,6 +1448,8 @@ function ShotRow({
   order,
   busy,
   style,
+  product,
+  sourceUrl,
   onStyle,
   onUnstyle,
   onSave,
@@ -1448,6 +1458,9 @@ function ShotRow({
   order: number;
   busy: boolean;
   style?: StyleItem;
+  /** The post's product photo: shown small, so the team picks a style knowing the product. */
+  product?: Source;
+  sourceUrl: (id: string) => string;
   onStyle: () => void;
   onUnstyle: () => void;
   onSave: (scene: string) => void;
@@ -1462,6 +1475,12 @@ function ShotRow({
         <span className="shot-headline" dir="auto">
           {post.headline}
         </span>
+        {(product || post.product) && (
+          <span className="shot-product" title={post.product}>
+            {product ? <img src={sourceUrl(product.id)} alt="" loading="lazy" /> : <i />}
+            <span dir="auto">{post.product}</span>
+          </span>
+        )}
         {!post.style && (
           <button type="button" className="text-button shot-style" onClick={onStyle} disabled={busy} title="Pick a style from the gallery for this post">
             <Images size={12} /> Style

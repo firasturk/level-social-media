@@ -1,3 +1,4 @@
+import { dailyStyles } from "./styles";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import type { Env } from "./env";
@@ -124,6 +125,8 @@ export default {
     ctx.waitUntil(
       readPendingReferences(env).catch((e) => console.error("[refs]", errorMessage(e))),
     );
+    // The style library grows by itself: new pins collected each day, a few read each minute.
+    ctx.waitUntil(dailyStyles(env).catch((e) => console.error("[styles]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     for (const id of ids)
       ctx.waitUntil(advanceBatch(env, id).catch((e) => console.error("[cron]", id, e)));

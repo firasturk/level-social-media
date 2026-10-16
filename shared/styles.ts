@@ -6,8 +6,23 @@
 export const STYLE_KINDS = ["product", "people"] as const;
 export type StyleKind = (typeof STYLE_KINDS)[number];
 
-/** How many styles of each kind the gallery shows. */
-export const STYLE_TARGET: Record<StyleKind, number> = { product: 50, people: 20 };
+/** The library's categories, as the team browses them. */
+export const STYLE_CATEGORIES = [
+  { id: "product", label: "Product shot" },
+  { id: "lifestyle", label: "Lifestyle" },
+  { id: "people", label: "With people" },
+  { id: "food", label: "Food & dessert" },
+  { id: "beauty", label: "Beauty & care" },
+  { id: "luxury", label: "Luxury & gifts" },
+  { id: "seasonal", label: "Seasonal" },
+] as const;
+export type StyleCategory = (typeof STYLE_CATEGORIES)[number]["id"];
+export const STYLE_CATEGORY_IDS = STYLE_CATEGORIES.map((c) => c.id) as StyleCategory[];
+
+/** Styles per page of the library. */
+export const STYLE_PAGE_SIZE = 48;
+/** "Trends": what joined the library in the last two weeks. */
+export const TREND_DAYS = 14;
 
 /** The lowest score a pin needs to enter the gallery (see STYLE_BAR). */
 export const MIN_SCORE = 8;
@@ -23,6 +38,8 @@ export const STYLE_BAR =
 export interface StyleItem {
   id: string;
   kind: StyleKind;
+  category: StyleCategory | "";
+  created: number;
   title: string;
   tags: string;
   prompt?: string;
@@ -41,11 +58,12 @@ export const STYLE_SCHEMA = {
     keep: { type: "boolean" },
     score: { type: "integer" },
     kind: { type: "string", enum: ["product", "people"] },
+    category: { type: "string", enum: ["product", "lifestyle", "people", "food", "beauty", "luxury", "seasonal"] },
     title: { type: "string" },
     tags: { type: "string" },
     prompt: { type: "string" },
   },
-  required: ["keep", "score", "kind", "title", "tags", "prompt"],
+  required: ["keep", "score", "kind", "category", "title", "tags", "prompt"],
 };
 
 /** The vision model reads one pin into a reusable style (or a fresh variation of one). */
@@ -57,19 +75,20 @@ export function describeStyleInstruction(note: string, previous?: { title: strin
     STYLE_BAR,
     "score: 1-10, how far this pin reaches the bar (9-10: as bold and original as the team's picks; 7-8: a strong concept; 4-6: a nice but ordinary product photo; 1-3: catalogue or stock).",
     'kind: "people" when a person, or hands and arms that are part of the style, hold, use or present the product; otherwise "product".',
+    'category: the shelf it belongs on: "product" (a product-only shot or set piece), "lifestyle" (the product living in a real place or moment), "people" (a person with the product is the idea), "food" (desserts, sweets, food or drink staging), "beauty" (skincare, cosmetics, care), "luxury" (gifts, premium boxes, jewellery-like staging), "seasonal" (an occasion or season: Ramadan, Eid, winter, summer, Valentine).',
     'title: 2-3 words naming the idea, like a product-shot preset ("Claw Machine Grab", "Cloud Swing", "Fridge Stash", "Balloon Lift", "Giant In The City").',
     "tags: 3-5 short words, comma separated (surface, effect, mood).",
     "prompt: a reusable photo prompt in English, 110-190 words, for ANY product, that keeps the pin's IDEA (the surprising scale, object or set piece) as its heart. Write 'the product' for the item. Describe: camera angle and distance; how the product sits, stands, floats or is held; the set and surface; the props and how they are arranged; effects (splash, condensation, frost, smoke, light beams); the light (direction, hardness, colour); the background (write 'the brand's main colour' where the pin uses a strong single colour); depth of field and lens; the mood. Where the pin shows a flavour or ingredient (raspberries, citrus slices, coffee beans), write 'the product's own key ingredients' (for example 'pieces of the product's own key ingredients frozen inside crystal-clear ice cubes'), never a specific fruit, food or brand. For a person write 'the brand ambassador' with pose, hands, framing and modest clothing, never a specific face. No text, logos or brand names in the picture. Use a written prompt on the pin as inspiration only; write your own.",
     previous
       ? `This style already exists as "${previous.title}": ${previous.prompt}\nWrite a FRESH variation of the same idea: keep what makes the style recognisable, change the camera angle, the arrangement or the set so it reads new. Keep the same kind.`
       : "",
-    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "title": "...", "tags": "...", "prompt": "..."}.',
+    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "category": "product", "title": "...", "tags": "...", "prompt": "..."}.',
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: StyleKind; title: string; tags: string; prompt: string } {
+export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: StyleKind; category: StyleCategory; title: string; tags: string; prompt: string } {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const prompt = String(d.prompt ?? "").trim().slice(0, 2000);
   const title = String(d.title ?? "").trim().replace(/^["']|["']$/g, "").slice(0, 60);
@@ -78,6 +97,7 @@ export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: 
     keep: d.keep !== false && prompt.length > 40 && !!title && score >= MIN_SCORE,
     score,
     kind: d.kind === "people" ? "people" : "product",
+    category: STYLE_CATEGORY_IDS.includes(d.category as StyleCategory) ? (d.category as StyleCategory) : d.kind === "people" ? "people" : "product",
     title,
     tags: String(d.tags ?? "").trim().slice(0, 120),
     prompt,
@@ -136,26 +156,38 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
 }
 
 /** Pinterest searches that fill the pool, by the kind they mostly bring. */
-export const STYLE_QUERIES: Record<StyleKind, string[]> = {
+/** What the daily refresh searches for, by category (the season's words are added on the day). */
+export const STYLE_QUERIES: Record<StyleCategory, string[]> = {
   product: [
     "creative product advertising concept surreal",
     "giant product in city ad cgi",
-    "product on swing clouds advertising",
     "claw machine product advertising",
-    "product in fridge creative advertising",
     "product balloons sky advertising",
-    "surreal product photography concept pink",
-    "nano banana pro product concept prompt",
     "oversized product surreal campaign",
-    "product tied rope creative ad",
-    "creative skincare advertising concept 3d",
-    "playful product set design advertising",
+    "nano banana pro product concept prompt",
   ],
+  lifestyle: ["creative lifestyle product photography concept", "product in everyday scene surreal ad", "product picnic advertising creative"],
   people: [
-    "surreal fashion advertising product model",
-    "creative campaign model holding oversized product",
+    "surreal advertising model holding oversized product",
+    "creative campaign person product balloons",
     "model monochrome set product advertising",
-    "playful advertising concept person product balloons",
-    "editorial product campaign surreal person",
   ],
+  food: ["creative dessert advertising concept", "surreal food product photography", "chocolate box creative ad campaign", "sweets packaging creative photography"],
+  beauty: ["creative skincare advertising concept 3d", "surreal cosmetics product ad", "skincare product creative set design"],
+  luxury: ["luxury gift box creative advertising", "premium packaging surreal campaign", "luxury product set design advertising"],
+  seasonal: ["ramadan product advertising creative", "eid gift box advertising concept", "winter product advertising surreal", "summer product advertising creative"],
 };
+
+/** Words of the season for the daily search (a Jordanian brand's calendar). */
+export function seasonWords(date: Date): string[] {
+  const m = date.getUTCMonth() + 1;
+  const out = [m === 12 || m <= 2 ? "winter" : m <= 5 ? "spring" : m <= 8 ? "summer" : "autumn"];
+  const hijri = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", { month: "numeric" }).format(date);
+  const hm = Number(hijri.replace(/\D/g, ""));
+  if (hm === 8 || hm === 9) out.push("ramadan");
+  if (hm === 9 || hm === 10) out.push("eid al fitr");
+  if (hm === 11 || hm === 12) out.push("eid al adha");
+  if (m === 2) out.push("valentine");
+  if (m === 12) out.push("christmas new year");
+  return out;
+}
