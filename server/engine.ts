@@ -1815,6 +1815,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     people: (pb.ambassadors ?? []).map((a) => ({ name: a.name, description: a.description })),
     sellsDrinks: pb.sellsDrinks,
     coffeeDay: pb.occasionId === "coffee-day",
+    style: pb.styleKey ? pb.shot : undefined,
   };
   const instruction = postReviewInstruction(ctx);
   const all = [...images, result];

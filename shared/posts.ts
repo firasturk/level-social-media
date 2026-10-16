@@ -308,7 +308,8 @@ export function withoutProductNames(text: string, names: string[]): string {
       }
     variants.add(name);
   }
-  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s*");
+  // A space in a name needs a space in the text: a product called "milk shake" never eats the word "milkshake".
+  const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
   let out = text;
   for (const v of [...variants].sort((a, b) => b.length - a.length)) {
     out = out.replace(new RegExp(`(?:the\\s+)?["'“”‘’«»]?${esc(v)}["'“”‘’«»]?`, "gi"), "the product");
@@ -403,6 +404,15 @@ export const ONLY_AMBASSADORS_RULE =
 export const HANDLING_RULE =
   "TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it.";
 
+/** A picked style may stage the product big or several times: its size follows the style, its look never changes. */
+export const STYLED_HANDLING_RULE =
+  "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style (a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo.";
+
+/** Every copy of the product in a styled picture is the photographed product, never the style's own. */
+export function styledProductRule(styleImage: number): string {
+  return `PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image ${styleImage}'s product, packaging, logo and print never appear; only its staging is used.`;
+}
+
 export const PRODUCT_TRUTH_RULE =
   "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
 
@@ -490,7 +500,12 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     );
   if (b.hasProduct && productText && productText.toLowerCase() !== "the product")
     parts.push(`THE PRODUCT IN IMAGE 1 (as photographed): ${productText}`);
-  if ((b.take ?? 1) > 1)
+  // A retake of a picked style stays that style: only the details move, never its composition.
+  if ((b.take ?? 1) > 1 && b.styleKey)
+    parts.push(
+      `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a fresh take of the same picked style: keep its composition, set, camera and scale; get the product exactly right and vary only small details (the pose, the exact placement of the copies).`,
+    );
+  else if ((b.take ?? 1) > 1)
     parts.push(
       `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
     );
@@ -505,14 +520,19 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   // The month's theme (its pins' world, visual language and props) steps back for a picked style.
   const theme = b.styleKey ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
-  if (style) parts.push(`CLIENT STYLE:\n${style}`);
+  if (style && b.styleKey)
+    parts.push(`CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):\n${style}`);
+  else if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
-  const always = photoRules(b.always);
+  // The client's ALWAYS scenes (a blue sky, pool water) are a theme of their own: a picked style replaces them.
+  const always = b.styleKey ? "" : photoRules(b.always);
   const never = photoRules(b.never);
   const rules = [always ? `ALWAYS: ${always}` : "", never ? `NEVER: ${never}` : ""].filter(Boolean);
   if (rules.length)
     parts.push(
-      `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
+      b.styleKey
+        ? `CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):\n${rules.join("\n")}`
+        : `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
     );
   const library = b.library && !b.styleKey ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
@@ -546,12 +566,12 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.`,
     );
-  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, HANDLING_RULE);
+  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, b.styleKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
   else
     parts.push(
       "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
     );
-  if (b.hasProduct && !extras.length) parts.push(ONE_PRODUCT_RULE);
+  if (b.hasProduct && !extras.length) parts.push(b.styleKey && !b.refIsSource ? styledProductRule(n) : ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
     parts.push(
       `PRODUCTS: the ${extras.length + 1} attached products are the only products in the picture, each shown once, whole, undistorted and recognisable; no invented extra cups, bottles or packs.`,
@@ -568,7 +588,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
   if (b.exact && !images.revision)
     parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
-  parts.push(AVOID);
+  parts.push(b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID);
   return parts.join("\n\n");
 }
 

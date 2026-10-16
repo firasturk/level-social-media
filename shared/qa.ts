@@ -151,6 +151,8 @@ export interface ReviewContext {
   sellsDrinks?: boolean;
   /** Coffee Day may show coffee. */
   coffeeDay?: boolean;
+  /** The picked style's scene: it may stage the product giant or several times on purpose. */
+  style?: string;
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -163,10 +165,12 @@ export function postReviewInstruction(r: ReviewContext): string {
     k
       ? "productSame: judge only the product itself, never the props or the set around it. productSame: true only if every product in the post looks like its photo: the same shape, proportions, colours, packaging, lid, label artwork and open or closed state (a closed box stays closed; colours never changed to match the scene). productIssue: when false, say in one short sentence what changed (\"the box is navy instead of white\", \"the tin lost its gold lid\"), else \"\"."
       : 'productSame: always true. productIssue: "".',
-    k
+    k && r.style
+      ? `sizeRight: the designer picked a style that stages the product this way: "${r.style.slice(0, 600)}". A giant product or several copies of the same product are then right. sizeRight is false only when a person holds the product in a way no hand could (balanced on fingertips, hanging from a finger).`
+      : k
       ? "sizeRight: true when each product has its real size next to hands and furniture (a gift box about a forearm wide, one sweet between two fingers) and is held naturally (level, from below, or set on a surface); false when it is giant or tiny, balanced on fingertips or hanging from a finger."
       : "sizeRight: always true.",
-    `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "". Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
+    `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "".${r.style ? " Extra copies of the same photographed product are part of the picked style, never invented." : ""} Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
     "text: quote or describe any letters, words, numbers, logos or labels anywhere in the post that are NOT the product's own printed packaging from its photo (signs, invented brand names, gibberish lettering, price tags), else \"\".",
     "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
     r.sellsDrinks || r.coffeeDay
@@ -201,7 +205,7 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
 export function fixNote(flags: PostFlag[]): string {
   const ask: Record<FlagKind, string> = {
     product: "Make the product exactly as in its photo: the same shape, colours, packaging, lid and label",
-    size: "Give the product its real size and hold it naturally, level with both hands or set on a surface",
+    size: "Give the product the size the post describes and hold it naturally, level with both hands or set on a surface",
     invented: "Remove every product, box or package that is not in the product photos",
     text: "Remove all writing, letters, numbers and logos that are not on the product's own packaging",
     bag: "Remove the bag, carrier or basket; the product is held or set on a surface",

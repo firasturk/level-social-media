@@ -1,3 +1,4 @@
+import { postReviewInstruction } from "@shared/qa";
 import { describe, expect, it } from "vitest";
 import { adaptStyleInstruction, describeStyleInstruction, parseStyle, pictureSig, seasonWords } from "@shared/styles";
 import { buildPostPrompt, type PostBrief } from "@shared/posts";
@@ -49,6 +50,38 @@ describe("style gallery", () => {
     expect(p).not.toContain("autumn leaves");
     expect(p).not.toContain("Warm roadside light");
     expect(p).not.toContain("REFERENCE SHOT");
+  });
+
+  it("lets the picked style set the scale and keeps a retake in the style", () => {
+    const b: PostBrief = {
+      post: true, index: 4, type: "lifestyle", title: "Lotus Shake Joy", brief: "Omar lies on the floor.", palette: [], style: "People appear partially.", format: "4:5",
+      ref: null, refIsSource: false, hasProduct: true, styleKey: "styles/giant.jpg", take: 5,
+      shot: "A giant light brown milkshake in a clear cup towers over Omar; two regular-sized copies stand on either side.",
+      product: "A light brown milkshake topped with biscuit crumbles in a clear cup with a turquoise Arabic logo.",
+      productNames: ["Lotus milkshake ", "milk shake"],
+      always: "Blue sky with soft cloud, palm leaves, pool water", never: "No prices on artwork",
+      theme: "", library: "",
+    };
+    const p = buildPostPrompt(b);
+    expect(p).toContain("A light brown milkshake topped");
+    expect(p).toContain("A giant light brown milkshake");
+    expect(p).toContain("keep its composition, set, camera and scale");
+    expect(p).not.toContain("another camera angle and distance");
+    expect(p).not.toContain("never enlarged");
+    expect(p).not.toContain("It appears once");
+    expect(p).toContain("Every copy of it in the picture");
+    expect(p).toContain("Image 2's product, packaging, logo and print never appear");
+    expect(p).not.toContain("palm leaves");
+    expect(p).toContain("No prices on artwork");
+    expect(p).toContain("CLIENT LOOK (colour grade and finish only");
+    expect(p).not.toContain("duplicated products");
+  });
+
+  it("reviews a styled post by the style's scale", () => {
+    const ins = postReviewInstruction({ products: 1, productNotes: ["a milkshake"], type: "lifestyle", people: [], style: "A giant milkshake towers over the man." });
+    expect(ins).toContain("A giant product or several copies of the same product are then right");
+    expect(ins).toContain("Extra copies of the same photographed product");
+    expect(postReviewInstruction({ products: 1, productNotes: ["a milkshake"], type: "lifestyle", people: [] })).toContain("false when it is giant");
   });
 });
 
