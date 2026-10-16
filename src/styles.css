@@ -5154,3 +5154,19 @@ label.num select {
   font-size: 12px;
   border-radius: 999px;
 }
+
+/* Corner logo preview in the Overlay section. */
+.badge-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 72px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+.badge-preview img {
+  max-height: 56px;
+  max-width: 60%;
+  object-fit: contain;
+}

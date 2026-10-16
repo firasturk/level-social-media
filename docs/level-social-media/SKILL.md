@@ -198,3 +198,4 @@ where to click, then commit.
 - Destructive actions confirm with an in-page dialog (`src/lib/confirm.tsx`), never `window.confirm`.
 - The engine moves a month to the connected vendor's model before submitting; a paused month shows its reason and a Resume button.
 - Product names from the ideas writer are matched loosely to uploads (`matchProduct`).
+- **Corner logo** (Overlay section): a second small mark per client (`clients.badge_key`, `/api/studio/clients/:id/badge`), drawn by the overlay in a corner, optionally filled with one colour (`OverlaySpec.badge`). Habibah uses the white AlBandar Group mark bottom-left; its main logo is the Arabic oval; Arabic-only, Jordanian dialect, no gold, Almarai.

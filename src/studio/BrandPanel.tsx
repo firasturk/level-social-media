@@ -814,6 +814,37 @@ function OverlaySection({
     setSpec((o) => ({ ...o, subline: { ...o.subline, ...p } }));
   const patchLogo = (p: Partial<OverlaySpec["logo"]>) =>
     setSpec((o) => ({ ...o, logo: { ...o.logo, ...p } }));
+  const patchBadge = (p: Partial<OverlaySpec["badge"]>) =>
+    setSpec((o) => ({ ...o, badge: { ...o.badge, ...p } }));
+  const [badgeBusy, setBadgeBusy] = useState(false);
+
+  /** The corner logo file (a parent or partner mark); placement and colour live in the spec. */
+  async function uploadBadge(file: File | undefined) {
+    if (!file) return;
+    setBadgeBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/badge`, form);
+      onClientsChanged(r.clients);
+      if (spec.badge.position === "none") patchBadge({ position: "bottom-left" });
+      toast.success("Corner logo added. Save the overlay to keep its placement.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBadgeBusy(false);
+    }
+  }
+
+  async function removeBadge() {
+    if (!(await askConfirm("Remove the corner logo from every post?"))) return;
+    try {
+      const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/badge`);
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -954,6 +985,66 @@ function OverlaySection({
             <label className="num"><span>Width</span><input type="number" value={px(spec.logo.width)} onChange={(e) => patchLogo({ width: frac(Number(e.target.value)) })} /></label>
             <label className="num"><span>From edge</span><input type="number" value={px(spec.logo.top)} onChange={(e) => patchLogo({ top: frac(Number(e.target.value)) })} /></label>
           </div>
+          <div className="field-row">
+            <label className="field-label">Corner logo</label>
+            <label className="text-button">
+              {badgeBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
+              {client.badge ? "Replace" : "Add file"}
+              <input
+                type="file"
+                accept="image/png,image/svg+xml,image/webp,image/jpeg"
+                hidden
+                onChange={(e) => {
+                  void uploadBadge(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {client.badge && (
+              <button type="button" className="text-button danger-text" onClick={() => void removeBadge()}>
+                <Trash2 size={13} /> Remove
+              </button>
+            )}
+          </div>
+          {client.badge ? (
+            <>
+              <div className="badge-preview" style={{ background: client.colors[0]?.hex || "#1a1a1a" }}>
+                <img src={`/api/studio/clients/${client.id}/badge?v=${client.updated}`} alt="Corner logo" />
+              </div>
+              <div className="field-grid">
+                <Select value={spec.badge.position} onValueChange={(v) => patchBadge({ position: v as OverlaySpec["badge"]["position"] })}>
+                  <SelectTrigger aria-label="Corner logo position"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bottom-left">Bottom left</SelectItem>
+                    <SelectItem value="bottom-right">Bottom right</SelectItem>
+                    <SelectItem value="top-left">Top left</SelectItem>
+                    <SelectItem value="top-right">Top right</SelectItem>
+                    <SelectItem value="none">Hidden</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={spec.badge.color || "original"} onValueChange={(v) => patchBadge({ color: v === "original" ? "" : v })}>
+                  <SelectTrigger aria-label="Corner logo colour"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="original">Its own colours</SelectItem>
+                    <SelectItem value="#ffffff">White</SelectItem>
+                    {client.colors
+                      .filter((c) => c.hex.toLowerCase() !== "#ffffff")
+                      .map((c) => (
+                        <SelectItem key={c.hex} value={c.hex}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="field-grid">
+                <label className="num"><span>Width</span><input type="number" value={px(spec.badge.width)} onChange={(e) => patchBadge({ width: frac(Number(e.target.value)) })} /></label>
+                <label className="num"><span>From edge</span><input type="number" value={px(spec.badge.inset)} onChange={(e) => patchBadge({ inset: frac(Number(e.target.value)) })} /></label>
+              </div>
+            </>
+          ) : (
+            <div className="prompt-tip">A small second mark in a corner of every post, such as a parent group or partner logo.</div>
+          )}
           <label className="field-label">Headline</label>
           <div className="field-grid">
             {fontField(spec.headline.font, (font) => patchHeadline({ font }), "Headline font")}

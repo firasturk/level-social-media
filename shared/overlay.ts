@@ -7,10 +7,28 @@ export type OverlayTemplate = "united" | "abusaleh" | "habibah" | "clean" | "non
 export type LogoPosition = "top-center" | "top-left" | "top-right" | "bottom-center" | "none";
 export type TextPosition = "bottom" | "top" | "center";
 export type TextAlign = "center" | "left" | "right";
+export type BadgePosition = "bottom-left" | "bottom-right" | "top-left" | "top-right" | "none";
+
+/** A second, small mark in a corner of every post (a parent or partner logo). */
+export interface BadgeSpec {
+  position: BadgePosition;
+  /** Width as a fraction of the canvas width. */
+  width: number;
+  /** Distance from the two nearest edges, as a fraction of the width. */
+  inset: number;
+  /** Fill the mark with one colour (e.g. "#ffffff"); empty keeps the file's own colours. */
+  color: string;
+  /** Runtime only: where the browser loads the file from. Never stored. */
+  src?: string | null;
+}
+
+export const NO_BADGE: BadgeSpec = { position: "none", width: 0.09, inset: 0.04, color: "" };
 
 export interface OverlaySpec {
   template: OverlayTemplate;
   logo: { position: LogoPosition; width: number; top: number };
+  /** Corner logo; position "none" (the default) draws nothing. */
+  badge: BadgeSpec;
   headline: {
     position: TextPosition;
     /** Font family name (a brand font file, a Google font, or a system fallback). */
@@ -40,6 +58,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
   united: {
     template: "united",
     logo: { position: "top-center", width: 0.185, top: 0.044 },
+    badge: NO_BADGE,
     headline: {
       position: "bottom",
       font: "Tajawal",
@@ -62,6 +81,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
   abusaleh: {
     template: "abusaleh",
     logo: { position: "top-center", width: 0.158, top: 0.04 },
+    badge: NO_BADGE,
     headline: {
       position: "top",
       font: "Graphic School",
@@ -80,24 +100,28 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
     scrim: 0,
     scrimColor: "#000000",
   },
-  /** Habibah: the oval logo centred at the top, Montserrat headline at the bottom, gold sub-line. */
+  /**
+   * Habibah: the Arabic oval logo centred at the top, an Arabic headline at the bottom in white on
+   * a navy fade, the AlBandar Group mark small and white in the bottom-left corner. No gold.
+   */
   habibah: {
     template: "habibah",
     logo: { position: "top-center", width: 0.3, top: 0.05 },
+    badge: { position: "bottom-left", width: 0.085, inset: 0.04, color: "#ffffff" },
     headline: {
       position: "bottom",
-      font: "Montserrat",
-      size: 0.06,
-      weight: 600,
+      font: "Almarai",
+      size: 0.072,
+      weight: 800,
       color: "#ffffff",
-      lineHeight: 1.2,
+      lineHeight: 1.25,
       align: "center",
       shadow: "",
       shadowOffset: 0,
-      letterSpacing: 0.02,
+      letterSpacing: 0,
       inset: 0.09,
     },
-    subline: { font: "Montserrat", size: 0.03, weight: 600, color: "#d9be8e", gap: 0.014 },
+    subline: { font: "Almarai", size: 0.036, weight: 400, color: "#ffffff", gap: 0.014 },
     margin: 0.08,
     scrim: 0.5,
     scrimColor: "#002a5c",
@@ -106,6 +130,7 @@ export const OVERLAY_TEMPLATES: Record<Exclude<OverlayTemplate, "none">, Overlay
   clean: {
     template: "clean",
     logo: { position: "top-left", width: 0.16, top: 0.05 },
+    badge: NO_BADGE,
     headline: {
       position: "bottom",
       font: "Inter",
@@ -163,6 +188,7 @@ export function resolveOverlay(raw: Partial<OverlaySpec> | null | undefined): Ov
     ...base,
     ...raw,
     logo: { ...base.logo, ...(raw.logo ?? {}) },
+    badge: { ...base.badge, ...(raw.badge ?? {}) },
     headline: { ...base.headline, ...(raw.headline ?? {}) },
     subline: { ...base.subline, ...(raw.subline ?? {}) },
   };

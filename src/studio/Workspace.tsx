@@ -147,7 +147,11 @@ export default function Workspace({
   }, [page, loadState]);
 
   const client = clients.find((c) => c.id === clientId) ?? null;
-  const overlaySpec = useMemo(() => resolveOverlay(client?.overlay), [client]);
+  const overlaySpec = useMemo(() => {
+    const spec = resolveOverlay(client?.overlay);
+    const src = client?.badge ? `/api/studio/clients/${client.id}/badge?v=${client.updated}` : null;
+    return { ...spec, badge: { ...spec.badge, src } };
+  }, [client]);
   const logoSrc = client?.logo ? `/api/studio/clients/${client.id}/logo?v=${client.updated}` : null;
   // Brand font files are registered with the browser once per client so the canvas can use them.
   useEffect(() => {

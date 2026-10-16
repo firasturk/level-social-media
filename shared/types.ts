@@ -166,6 +166,8 @@ export interface Client {
   name: string;
   /** true when a primary logo is stored; served at /clients/:id/logo. */
   logo: boolean;
+  /** true when a corner logo (parent or partner mark) is stored; served at /clients/:id/badge. */
+  badge: boolean;
   colors: { name: string; hex: string }[];
   fonts: { headline?: string; body?: string };
   tone: string;

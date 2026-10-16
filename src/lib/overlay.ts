@@ -162,6 +162,32 @@ export async function drawOverlay(
     }
   }
 
+  // Corner logo (parent or partner mark), small, in one colour when the spec asks for it.
+  const badge = spec.badge;
+  if (badge?.src && badge.position !== "none") {
+    try {
+      const img = await loadImage(badge.src);
+      const bw = badge.width * W;
+      const bh = (bw * (img.naturalHeight || 100)) / (img.naturalWidth || 100);
+      const inset = badge.inset * W;
+      const x = badge.position.endsWith("left") ? inset : W - inset - bw;
+      const y = badge.position.startsWith("top") ? inset : H - inset - bh;
+      if (badge.color) {
+        const tint = document.createElement("canvas");
+        tint.width = Math.max(1, Math.round(bw));
+        tint.height = Math.max(1, Math.round(bh));
+        const tctx = tint.getContext("2d")!;
+        tctx.drawImage(img, 0, 0, tint.width, tint.height);
+        tctx.globalCompositeOperation = "source-in";
+        tctx.fillStyle = badge.color;
+        tctx.fillRect(0, 0, tint.width, tint.height);
+        ctx.drawImage(tint, x, y, bw, bh);
+      } else ctx.drawImage(img, x, y, bw, bh);
+    } catch {
+      /* no badge: the rest still draws */
+    }
+  }
+
   if (!headline && !subline) return layout;
   const h = spec.headline;
   const hSize = h.size * W * scale;

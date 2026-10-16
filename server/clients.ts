@@ -18,6 +18,7 @@ interface ClientRow {
   slug: string;
   name: string;
   logo_key: string | null;
+  badge_key: string | null;
   overlay: string | null;
   colors: string;
   fonts: string;
@@ -48,6 +49,7 @@ function toClient(r: ClientRow): Client {
     slug: r.slug,
     name: r.name,
     logo: !!r.logo_key,
+    badge: !!r.badge_key,
     colors: parseJson<Client["colors"]>(r.colors, []),
     fonts: parseJson<Client["fonts"]>(r.fonts, {}),
     tone: r.tone,
@@ -222,7 +224,8 @@ clientRoutes.delete("/:id", async (c) => {
   if (used?.n) {
     await run(c.env.DB, "UPDATE clients SET status = 'archived', updated = ? WHERE id = ?", now(), id);
   } else {
-    if (row.logo_key) await c.env.BUCKET.delete(row.logo_key);
+    const keys = [row.logo_key, row.badge_key].filter((k): k is string => !!k);
+    if (keys.length) await c.env.BUCKET.delete(keys);
     await run(c.env.DB, "DELETE FROM clients WHERE id = ?", id);
   }
   const left = await first<{ n: number }>(
@@ -244,29 +247,42 @@ clientRoutes.post("/:id/restore", async (c) => {
   return c.json(await payload(c.env));
 });
 
-/** Primary logo, shown on the card and (later) by the overlay layer. Never sent to an engine. */
-clientRoutes.post("/:id/logo", async (c) => {
-  const id = c.req.param("id");
-  const row = await clientRow(c.env, id);
-  const form = await c.req.formData();
-  const f = form.get("file");
-  if (!(f instanceof File)) throw new StudioError("Choose a logo file.");
-  if (!LOGO_TYPES.includes(f.type)) throw new StudioError("Logo: use PNG, JPG, WebP or SVG.");
-  if (f.size > MAX_LOGO) throw new StudioError("Logo: file is over 2 MB.");
-  const key = `clients/${id}/logo-${uuid()}`;
-  await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type } });
-  if (row.logo_key) await c.env.BUCKET.delete(row.logo_key);
-  await run(c.env.DB, "UPDATE clients SET logo_key = ?, updated = ? WHERE id = ?", key, now(), id);
-  return c.json(await payload(c.env));
-});
+/**
+ * The primary logo (cards and the overlay's main logo) and the corner badge (a parent or partner
+ * mark drawn small in a corner of every post). Neither is ever sent to an image engine.
+ */
+const MARKS = { logo: "logo_key", badge: "badge_key" } as const;
+type Mark = keyof typeof MARKS;
 
-clientRoutes.delete("/:id/logo", async (c) => {
-  const id = c.req.param("id");
-  const row = await clientRow(c.env, id);
-  if (row.logo_key) await c.env.BUCKET.delete(row.logo_key);
-  await run(c.env.DB, "UPDATE clients SET logo_key = NULL, updated = ? WHERE id = ?", now(), id);
-  return c.json(await payload(c.env));
-});
+for (const mark of Object.keys(MARKS) as Mark[]) {
+  const column = MARKS[mark];
+  const label = mark === "logo" ? "Logo" : "Corner logo";
+
+  clientRoutes.post(`/:id/${mark}`, async (c) => {
+    const id = c.req.param("id");
+    const row = await clientRow(c.env, id);
+    const form = await c.req.formData();
+    const f = form.get("file");
+    if (!(f instanceof File)) throw new StudioError(`Choose a ${label.toLowerCase()} file.`);
+    if (!LOGO_TYPES.includes(f.type)) throw new StudioError(`${label}: use PNG, JPG, WebP or SVG.`);
+    if (f.size > MAX_LOGO) throw new StudioError(`${label}: file is over 2 MB.`);
+    const key = `clients/${id}/${mark}-${uuid()}`;
+    await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type } });
+    const old = row[column];
+    if (old) await c.env.BUCKET.delete(old);
+    await run(c.env.DB, `UPDATE clients SET ${column} = ?, updated = ? WHERE id = ?`, key, now(), id);
+    return c.json(await payload(c.env));
+  });
+
+  clientRoutes.delete(`/:id/${mark}`, async (c) => {
+    const id = c.req.param("id");
+    const row = await clientRow(c.env, id);
+    const old = row[column];
+    if (old) await c.env.BUCKET.delete(old);
+    await run(c.env.DB, `UPDATE clients SET ${column} = NULL, updated = ? WHERE id = ?`, now(), id);
+    return c.json(await payload(c.env));
+  });
+}
 
 /* ───────────── Brand fonts (files the overlay loads) ───────────── */
 
@@ -335,14 +351,17 @@ clientRoutes.get("/:id/fonts/:assetId/file", async (c) => {
   });
 });
 
-clientRoutes.get("/:id/logo", async (c) => {
-  const row = await clientRow(c.env, c.req.param("id"));
-  const obj = row.logo_key ? await c.env.BUCKET.get(row.logo_key) : null;
-  if (!obj) throw new StudioError("No logo.", 404);
-  return new Response(obj.body, {
-    headers: {
-      "Content-Type": obj.httpMetadata?.contentType || "image/png",
-      "Cache-Control": "private, max-age=86400",
-    },
+for (const mark of Object.keys(MARKS) as Mark[]) {
+  clientRoutes.get(`/:id/${mark}`, async (c) => {
+    const row = await clientRow(c.env, c.req.param("id"));
+    const key = row[MARKS[mark]];
+    const obj = key ? await c.env.BUCKET.get(key) : null;
+    if (!obj) throw new StudioError(mark === "logo" ? "No logo." : "No corner logo.", 404);
+    return new Response(obj.body, {
+      headers: {
+        "Content-Type": obj.httpMetadata?.contentType || "image/png",
+        "Cache-Control": "private, max-age=86400",
+      },
+    });
   });
-});
+}
