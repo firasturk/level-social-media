@@ -8613,3 +8613,146 @@ label.num select {
     animation: none;
   }
 }
+
+/* The library's header: black, the Level wordmark moving, a big bold title, room to breathe. */
+.style-screen .style-top {
+  gap: 18px;
+  padding: 26px 34px 22px;
+  background: #0d0d0e;
+  border-bottom: 0;
+  color: #fff;
+  backdrop-filter: none;
+}
+.style-screen .style-top-row:first-child {
+  align-items: center;
+  gap: 28px;
+}
+.style-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.style-screen .style-logo {
+  height: 30px;
+  color: #fff;
+}
+.style-screen .style-eyebrow {
+  color: rgb(255 255 255 / 0.55);
+}
+.style-title {
+  margin: 0;
+  font-size: clamp(30px, 4.2vw, 56px);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+  text-transform: uppercase;
+  color: #fff;
+}
+.style-screen .style-search {
+  height: 46px;
+  max-width: 420px;
+  background: rgb(255 255 255 / 0.07);
+  border-color: rgb(255 255 255 / 0.14);
+  color: rgb(255 255 255 / 0.6);
+}
+.style-screen .style-search:focus-within {
+  border-color: rgb(255 255 255 / 0.5);
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 0.08);
+}
+.style-screen .style-search input {
+  color: #fff;
+}
+.style-screen .style-search input::placeholder {
+  color: rgb(255 255 255 / 0.45);
+}
+.style-screen .style-search button {
+  color: rgb(255 255 255 / 0.6);
+}
+.style-screen .style-top .secondary,
+.style-screen .style-top .icon-button {
+  background: rgb(255 255 255 / 0.07);
+  border-color: rgb(255 255 255 / 0.16);
+  color: #fff;
+}
+.style-screen .style-top .secondary:hover,
+.style-screen .style-top .icon-button:hover {
+  background: rgb(255 255 255 / 0.14);
+}
+.style-screen .style-top .journey-chip {
+  background: transparent;
+  border-color: rgb(255 255 255 / 0.18);
+  color: rgb(255 255 255 / 0.85);
+}
+.style-screen .style-top .journey-chip:hover {
+  border-color: rgb(255 255 255 / 0.45);
+  color: #fff;
+}
+.style-screen .style-top .journey-chip.active {
+  background: #fff;
+  border-color: #fff;
+  color: #0d0d0e;
+}
+.style-screen .style-top .text-button {
+  color: rgb(255 255 255 / 0.7);
+}
+.style-screen .style-top .text-button:hover:not(:disabled) {
+  color: #fff;
+}
+.style-screen .style-top .text-button:disabled {
+  color: rgb(255 255 255 / 0.3);
+}
+.style-screen .style-add textarea {
+  background: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.16);
+  color: #fff;
+}
+.style-screen .style-scroll {
+  padding: 22px 34px 130px;
+}
+.style-screen .style-rows {
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .style-screen .style-top {
+    padding: 18px 16px 16px;
+    gap: 14px;
+  }
+  .style-screen .style-top-row:first-child {
+    gap: 14px;
+  }
+  .style-screen .style-logo {
+    height: 22px;
+  }
+  .style-screen .style-scroll {
+    padding: 14px 12px 120px;
+  }
+  .style-screen .style-rows {
+    gap: 8px;
+  }
+}
+@media (max-width: 760px) {
+  .style-screen .style-top {
+    position: relative;
+  }
+  .style-screen .style-top-actions {
+    position: absolute;
+    top: 16px;
+    right: 14px;
+    gap: 6px;
+  }
+  .style-screen .style-top-actions .secondary {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .style-screen .style-top-actions .icon-button {
+    width: 34px;
+    height: 34px;
+  }
+  .style-screen .style-select {
+    gap: 14px;
+  }
+  .style-screen .style-top .text-button {
+    padding: 2px 0;
+  }
+}

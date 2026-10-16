@@ -275,11 +275,11 @@ export default function StyleScreen({
     <div className="style-screen" role="dialog" aria-modal aria-label="Pick your style">
       <header className="style-top">
         <div className="style-top-row">
-          <AnimatedLevelLogo className="style-logo" />
-          <div className="style-heading">
+          <div className="style-brand">
+            <AnimatedLevelLogo className="style-logo" />
             <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
-            <h1>Pick your style</h1>
           </div>
+          <h1 className="style-title">Pick your style</h1>
           <label className="style-search">
             <Search size={15} />
             <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search: balloons, ice, gift box, ramadan…" aria-label="Search the styles" />
