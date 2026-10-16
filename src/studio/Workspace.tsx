@@ -52,6 +52,15 @@ function journeyDone(): boolean {
     return true;
   }
 }
+/** The journey was open when the page was left: a refresh brings the team back into it. */
+const JOURNEY_OPEN_KEY = "lsm-journey-open";
+function journeyOpen(): boolean {
+  try {
+    return sessionStorage.getItem(JOURNEY_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 const MONTH_KEY = "lsm-month";
 
 function remembered(key: string): string {
@@ -105,7 +114,16 @@ export default function Workspace({
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
-  const [journey, setJourney] = useState(() => !journeyDone());
+  const [journey, setJourney] = useState(() => !journeyDone() || journeyOpen());
+  // Only "Skip to the studio" or Generate leaves the journey: a refresh keeps the team in it.
+  useEffect(() => {
+    try {
+      if (journey) sessionStorage.setItem(JOURNEY_OPEN_KEY, "1");
+      else sessionStorage.removeItem(JOURNEY_OPEN_KEY);
+    } catch {
+      /* private mode */
+    }
+  }, [journey]);
   const finishJourney = useCallback(() => {
     try {
       sessionStorage.setItem(JOURNEY_KEY, "1");
