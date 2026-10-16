@@ -21,7 +21,9 @@ import {
 } from "@/components/ui/select";
 import ReferenceLibrary from "./ReferenceLibrary";
 import FontPicker from "./FontPicker";
-import type { Client, EngineModel, Theme } from "@shared/types";
+import Ambassadors from "./Ambassadors";
+import { Group, KitIcon, type KitKey } from "./kit";
+import type { Ambassador, Client, EngineModel, Theme } from "@shared/types";
 import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
 import { SIZES, type Size } from "@shared/config";
 import {
@@ -54,6 +56,10 @@ export default function BrandPanel({
   models,
   onSettings,
   locked,
+  ambassadors,
+  onAmbassadorsChanged,
+  cast,
+  onCast,
 }: {
   client: Client;
   onClientsChanged: (clients: Client[]) => void;
@@ -67,10 +73,34 @@ export default function BrandPanel({
   onSettings: (patch: Partial<OutputSettings>) => void;
   /** Posts are generating: output settings are frozen. */
   locked: boolean;
+  ambassadors: Ambassador[];
+  onAmbassadorsChanged: (list: Ambassador[]) => void;
+  /** Ambassador ids cast in this month. */
+  cast: string[];
+  onCast: (ids: string[]) => void;
 }) {
   return (
     <aside className="brand-panel">
       <BrandKit client={client} onClientsChanged={onClientsChanged} />
+      <Section
+        kit="ambassadors"
+        title="Brand ambassadors"
+        subtitle={
+          ambassadors.length
+            ? `${ambassadors.length} people · ${cast.length} in this month`
+            : "AI people with the same face in every post"
+        }
+        defaultOpen={false}
+      >
+        <Ambassadors
+          client={client}
+          ambassadors={ambassadors}
+          onChanged={onAmbassadorsChanged}
+          cast={cast}
+          onCast={onCast}
+          locked={locked}
+        />
+      </Section>
       <ThemeSection
         client={client}
         themes={themes}
@@ -79,7 +109,7 @@ export default function BrandPanel({
         onThemesChanged={onThemesChanged}
       />
       <OverlaySection client={client} onClientsChanged={onClientsChanged} />
-      <Section title="Output" subtitle="Engine, size and count" defaultOpen={false}>
+      <Section kit="output" title="Output" subtitle="Engine, size and count" defaultOpen={false}>
         <label className="field-label">Image engine</label>
         <Select
           value={settings.model}
@@ -165,20 +195,25 @@ function Section({
   defaultOpen = true,
   children,
   actions,
+  kit,
 }: {
   title: string;
   subtitle?: string;
   defaultOpen?: boolean;
   children: ReactNode;
   actions?: ReactNode;
+  kit?: KitKey;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className={`bp-section ${open ? "open" : ""}`}>
       <button type="button" className="bp-head" onClick={() => setOpen((v) => !v)}>
         <span>
-          <strong>{title}</strong>
-          {subtitle && <small>{subtitle}</small>}
+          {kit && <KitIcon kit={kit} size={16} />}
+          <span className="bp-head-text">
+            <strong>{title}</strong>
+            {subtitle && <small>{subtitle}</small>}
+          </span>
         </span>
         {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
       </button>
@@ -305,6 +340,7 @@ function BrandKit({
 
   return (
     <Section
+      kit="brand"
       title="Brand kit"
       subtitle={`${client.name}: colours, fonts, tone`}
       actions={
@@ -320,24 +356,27 @@ function BrandKit({
         ) : null
       }
     >
-      <div className="field-row">
-        <label className="field-label">Colours</label>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() =>
-            setDraft((d) => ({
-              ...d,
-              colors: [
-                ...d.colors,
-                DEFAULT_COLORS[d.colors.length] ?? { name: `Colour ${d.colors.length + 1}`, hex: "#888888" },
-              ],
-            }))
-          }
-        >
-          <Plus size={13} /> Add
-        </button>
-      </div>
+      <Group
+        kit="colours"
+        title="Brand colours"
+        actions={
+          <button
+            type="button"
+            className="text-button"
+            onClick={() =>
+              setDraft((d) => ({
+                ...d,
+                colors: [
+                  ...d.colors,
+                  DEFAULT_COLORS[d.colors.length] ?? { name: `Colour ${d.colors.length + 1}`, hex: "#888888" },
+                ],
+              }))
+            }
+          >
+            <Plus size={13} /> Add
+          </button>
+        }
+      >
       {draft.colors.length ? (
         <div className="color-list">
           {draft.colors.map((c, i) => (
@@ -380,6 +419,8 @@ function BrandKit({
           No colours yet. Add the brand palette: every post's scene, props and light stay inside it.
         </div>
       )}
+      </Group>
+      <Group kit="fonts">
       <div className="field-grid">
         <div>
           <label className="field-label">Headline font</label>
@@ -403,9 +444,8 @@ function BrandKit({
         </div>
       </div>
       <p className="field-hint">The headline font draws the text on every post; the body font draws the second line.</p>
-      <label className="field-label" htmlFor="tone">
-        Tone of voice
-      </label>
+      </Group>
+      <Group kit="voice" title="Tone of voice and language">
       <textarea
         id="tone"
         rows={2}
@@ -430,6 +470,8 @@ function BrandKit({
           <SelectItem value="both">Arabic and English</SelectItem>
         </SelectContent>
       </Select>
+      </Group>
+      <Group kit="rules" title="Rules">
       <div className="field-grid">
         <div>
           <label className="field-label" htmlFor="dos">
@@ -458,6 +500,8 @@ function BrandKit({
           />
         </div>
       </div>
+      </Group>
+      <Group kit="identity">
       <ReferenceLibrary
         skill={`idn-${client.id}`.slice(0, 40)}
         title="Past posts (identity)"
@@ -490,6 +534,7 @@ function BrandKit({
         onChange={(e) => setDraft((d) => ({ ...d, style: e.target.value }))}
         onBlur={() => void save(true)}
       />
+      </Group>
     </Section>
   );
 }
@@ -696,7 +741,7 @@ function ThemeSection({
   }
 
   return (
-    <Section title="Theme" subtitle={current ? current.title : "Pick or create a theme"}>
+    <Section kit="theme" title="Theme" subtitle={current ? current.title : "Pick or create a theme"}>
       <div className="field-row">
         <label className="field-label">Theme of the month</label>
         <button type="button" className="text-button" onClick={() => void create()} disabled={!!busy}>
@@ -734,11 +779,12 @@ function ThemeSection({
               <Trash2 size={13} /> Delete
             </button>
           </div>
+          <Group kit="references">
           <ReferenceLibrary
             key={`${current.id}:${libKey}`}
             skill={current.id}
             onChanged={(count) => (count > 0 ? void analyse(true) : reloadThemes())}
-            title="References"
+            title="Photos and pins"
             empty="No references yet. Add images from your files, or paste Pinterest pin links. Every post borrows place, light, palette and mood from one of them."
             hint="Every post borrows place, light, palette and mood from one of them, rotating so posts differ; their objects, people and text are never copied."
             actions={
@@ -782,9 +828,8 @@ function ThemeSection({
               </button>
             </div>
           )}
-          <label className="field-label" htmlFor="direction">
-            Direction
-          </label>
+          </Group>
+          <Group kit="direction">
           <textarea
             id="direction"
             rows={4}
@@ -793,22 +838,30 @@ function ThemeSection({
             onChange={(e) => setDirection(e.target.value)}
             onBlur={() => void saveDirection()}
           />
-          <div className="field-row">
-            <label className="field-label">Colours</label>
-            <span className="field-note">
-              {colors.length ? (current.paletteAuto ? "suggested from the references" : "your colours") : ""}
-            </span>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => void suggestColors()}
-              disabled={busy === "colors" || !current.references}
-              title="Read the references again and suggest their colours (replaces the list)"
-            >
-              {busy === "colors" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
-              Suggest
-            </button>
-          </div>
+          {current.library && (
+            <details className="theme-library">
+              <summary>Visual language (from the references)</summary>
+              <pre>{current.library}</pre>
+            </details>
+          )}
+          </Group>
+          <Group
+            kit="colours"
+            title="Colours this month"
+            note={colors.length ? (current.paletteAuto ? "suggested" : "yours") : undefined}
+            actions={
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => void suggestColors()}
+                disabled={busy === "colors" || !current.references}
+                title="Read the references again and suggest their colours (replaces the list)"
+              >
+                {busy === "colors" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
+                Suggest
+              </button>
+            }
+          >
           <div className="theme-palette">
             {colors.map((c, i) => (
               <div className="swatch-edit" key={i}>
@@ -852,9 +905,8 @@ function ThemeSection({
               ? "The posts are built in these colours, whatever colours the references have. Change any of them to steer the month."
               : "Press Analyse or Suggest to read the references' colours, or add your own. Without colours the brand palette is used."}
           </p>
-          <label className="field-label" htmlFor="theme-props">
-            Props
-          </label>
+          </Group>
+          <Group kit="props">
           <textarea
             id="theme-props"
             rows={2}
@@ -864,9 +916,8 @@ function ThemeSection({
             onBlur={() => void saveProps()}
           />
           <p className="field-hint">The ideas and every image prompt ask for these props, placed naturally around the product.</p>
-          <label className="field-label" htmlFor="theme-shots">
-            Shots from the references{current.shots?.length ? ` · ${current.shots.length}` : ""}
-          </label>
+          </Group>
+          <Group kit="shots" title="Shots from the references" note={current.shots?.length ? `${current.shots.length}` : undefined}>
           <textarea
             id="theme-shots"
             rows={current.shots?.length ? 8 : 2}
@@ -878,12 +929,7 @@ function ThemeSection({
           <p className="field-hint">
             The month is planned over these shots: fewer posts than shots picks the most varied ones, more posts reuses shots with other products. Each post follows its shot in the image prompt.
           </p>
-          {current.library && (
-            <details className="theme-library">
-              <summary>Visual language (from the references)</summary>
-              <pre>{current.library}</pre>
-            </details>
-          )}
+          </Group>
         </>
       )}
     </Section>
@@ -1007,6 +1053,7 @@ function OverlaySection({
 
   return (
     <Section
+      kit="overlay"
       title="Overlay"
       subtitle="Headline, sub-line and logo drawn over each post"
       defaultOpen={false}
@@ -1023,7 +1070,7 @@ function OverlaySection({
         ) : null
       }
     >
-      <label className="field-label">Layout</label>
+      <Group kit="overlay" title="Layout">
       <Select
         value={spec.template}
         onValueChange={(t) =>
@@ -1041,10 +1088,11 @@ function OverlaySection({
           ))}
         </SelectContent>
       </Select>
+      </Group>
       {spec.template !== "none" && (
         <>
+          <Group kit="fonts" title="Brand font files">
           <div className="field-row">
-            <label className="field-label">Brand fonts</label>
             <label className="text-button">
               {fontBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Add font file
               <input type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => void uploadFont(e.target.files?.[0])} />
@@ -1066,7 +1114,8 @@ function OverlaySection({
               No font files yet. The 10 headline and 10 body fonts in the pickers work without a file. Upload a .ttf or .woff2 for any other family; it appears first in the pickers.
             </div>
           )}
-          <label className="field-label">Logo</label>
+          </Group>
+          <Group kit="logo">
           <div className="field-grid three">
             <Select value={spec.logo.position} onValueChange={(v) => patchLogo({ position: v as OverlaySpec["logo"]["position"] })}>
               <SelectTrigger aria-label="Logo position"><SelectValue /></SelectTrigger>
@@ -1081,8 +1130,9 @@ function OverlaySection({
             <label className="num"><span>Width</span><input type="number" value={px(spec.logo.width)} onChange={(e) => patchLogo({ width: frac(Number(e.target.value)) })} /></label>
             <label className="num"><span>From edge</span><input type="number" value={px(spec.logo.top)} onChange={(e) => patchLogo({ top: frac(Number(e.target.value)) })} /></label>
           </div>
+          </Group>
+          <Group kit="corner">
           <div className="field-row">
-            <label className="field-label">Corner logo</label>
             <label className="text-button">
               {badgeBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
               {client.badge ? "Replace" : "Add file"}
@@ -1141,7 +1191,8 @@ function OverlaySection({
           ) : (
             <div className="prompt-tip">A small second mark in a corner of every post, such as a parent group or partner logo.</div>
           )}
-          <label className="field-label">Headline</label>
+          </Group>
+          <Group kit="headline">
           <div className="field-grid">
             <FontPicker
               kind="headline"
@@ -1177,7 +1228,8 @@ function OverlaySection({
               <SelectItem value="right">Right</SelectItem>
             </SelectContent>
           </Select>
-          <label className="field-label">Second line</label>
+          </Group>
+          <Group kit="secondline">
           <label className="check-row">
             <input
               type="checkbox"
@@ -1197,13 +1249,15 @@ function OverlaySection({
             <label className="num"><span>Size</span><input type="number" value={px(spec.subline.size)} onChange={(e) => patchSubline({ size: frac(Number(e.target.value)) })} /></label>
             <label className="num"><span>Colour</span><input type="color" value={spec.subline.color} onChange={(e) => patchSubline({ color: e.target.value })} /></label>
           </div>
-          <label className="field-label">Margins and fade</label>
+          </Group>
+          <Group kit="spacing">
           <div className="field-grid three">
             <label className="num"><span>Side margin</span><input type="number" value={px(spec.margin)} onChange={(e) => setSpec((o) => ({ ...o, margin: frac(Number(e.target.value)) }))} /></label>
             <label className="num"><span>Fade %</span><input type="number" min={0} max={100} value={Math.round(spec.scrim * 100)} onChange={(e) => setSpec((o) => ({ ...o, scrim: Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100 }))} /></label>
             <label className="num"><span>Fade colour</span><input type="color" value={spec.scrimColor} onChange={(e) => setSpec((o) => ({ ...o, scrimColor: e.target.value }))} /></label>
           </div>
           <div className="prompt-tip">Sizes are in pixels on a 1080-wide post and scale with the export resolution.</div>
+          </Group>
         </>
       )}
     </Section>

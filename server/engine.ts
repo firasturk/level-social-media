@@ -1826,7 +1826,8 @@ async function submitOpenAITask(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    for (const extra of pb.extraProducts ?? []) {
+    // Order matters: the prompt numbers products, then ambassador portraits, then the reference.
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? [])]) {
       const obj = await env.BUCKET.get(extra.key);
       if (obj)
         images.push({
@@ -2241,7 +2242,7 @@ async function collectReferenceKeys(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    for (const extra of pb.extraProducts ?? []) keys.push(extra.key);
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? [])]) keys.push(extra.key);
     if (pb.ref && !pb.refIsSource) {
       const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
       if (ref) {

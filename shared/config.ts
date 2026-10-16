@@ -57,6 +57,8 @@ export interface Config {
   notes?: string;
   /** When the plan was last written by the ideas writer; posts generated before it are stale. */
   plannedAt?: number;
+  /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */
+  ambassadors?: string[];
   /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
   gridRef?: string;
   gridNotes?: string;

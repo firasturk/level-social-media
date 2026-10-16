@@ -11,6 +11,7 @@ import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch } from "./engine";
+import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
 import type { Config } from "@shared/config";
@@ -708,6 +709,17 @@ async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> 
 }
 
 /** "Generate ideas": the text model plans the month from the brand kit, the theme and the products. */
+/** The month's chosen ambassadors, in the order picked (at most 3). */
+async function monthAmbassadors(env: Env, config: Config): Promise<AmbassadorRow[]> {
+  const ids = config.ambassadors ?? [];
+  if (!ids.length || !config.client) return [];
+  const rows = await ambassadorRows(env, config.client);
+  return ids
+    .map((id) => rows.find((r) => r.id === id))
+    .filter((r): r is AmbassadorRow => !!r)
+    .slice(0, 3);
+}
+
 /** The fixed part of an ideas request: the client, its theme and its products. */
 function ideasContext(
   client: ClientRow,
@@ -715,6 +727,7 @@ function ideasContext(
   config: Config,
   products: string[],
   productNotes: Record<string, string>,
+  ambassadors: AmbassadorRow[] = [],
 ): Omit<IdeasRequest, "count"> {
   return {
     clientName: client.name,
@@ -733,6 +746,7 @@ function ideasContext(
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
     monthPalette: monthPaletteOf(theme),
+    ambassadors: ambassadors.map((a) => ({ name: a.name, description: a.description })),
     shots: theme ? shotsOf(theme) : [],
     products,
     productNotes,
@@ -771,13 +785,19 @@ postRoutes.post("/reidea", async (c) => {
     sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
   );
   const others = plan.filter((p) => p.index !== d.index).map((p) => p.title);
+  const cast = await monthAmbassadors(c.env, config);
   const instruction = singleIdeaInstruction(
-    { ...ideasContext(client, theme, config, products, productNotes), count: 1 },
+    { ...ideasContext(client, theme, config, products, productNotes, cast), count: 1 },
     current,
     others,
     d.wish ?? "",
   );
-  const [fresh] = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), 1, products);
+  const [fresh] = parseIdeas(
+    await askText(c.env, instruction, IDEAS_SCHEMA),
+    1,
+    products,
+    cast.map((a) => a.name),
+  );
   if (!fresh) throw new StudioError("The model returned no usable idea. Try again.", 502);
   const next: Post = {
     ...current,
@@ -791,6 +811,7 @@ postRoutes.post("/reidea", async (c) => {
     subline: hidesSubline(client) ? undefined : fresh.subline,
     shot: fresh.shot ?? current.shot,
     products: fresh.products ?? current.products,
+    people: fresh.people,
   };
   config.plan = plan.map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, b, config);
@@ -824,13 +845,19 @@ postRoutes.post("/ideas", async (c) => {
     sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
   );
   const count = d.count ?? config.postCount ?? 12;
+  const cast = await monthAmbassadors(c.env, config);
   const instruction = ideasInstruction({
-    ...ideasContext(client, theme, config, products, productNotes),
+    ...ideasContext(client, theme, config, products, productNotes, cast),
     count,
     notes: d.notes ?? config.notes,
     types: d.types,
   });
-  const plan = parseIdeas(await askText(c.env, instruction, IDEAS_SCHEMA), count, products).map(
+  const plan = parseIdeas(
+    await askText(c.env, instruction, IDEAS_SCHEMA),
+    count,
+    products,
+    cast.map((a) => a.name),
+  ).map(
     (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
   );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
@@ -884,6 +911,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
   );
   const count = d.count ?? config.postCount ?? 12;
+  const gridCast = await monthAmbassadors(c.env, config);
   const instruction = gridIdeasInstruction({
     clientName: client.name,
     tone: client.tone,
@@ -900,6 +928,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
     monthPalette: monthPaletteOf(theme),
+    ambassadors: gridCast.map((a) => ({ name: a.name, description: a.description })),
     products,
     productNotes,
     month: config.month ?? "",
@@ -908,7 +937,12 @@ postRoutes.post("/grid-ideas", async (c) => {
   });
   const text = await askText(c.env, instruction, GRID_SCHEMA, [image]);
   const read = parseJson<Partial<GridRead> & { posts?: unknown }>(text);
-  const plan = parseIdeas(JSON.stringify({ posts: read.posts ?? [] }), count, products).map(
+  const plan = parseIdeas(
+    JSON.stringify({ posts: read.posts ?? [] }),
+    count,
+    products,
+    gridCast.map((a) => a.name),
+  ).map(
     (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
   );
   if (!plan.length) throw new StudioError("The model returned no usable posts. Try again.", 502);
@@ -964,6 +998,7 @@ postRoutes.put("/settings", async (c) => {
       postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
       notes: z.string().max(2000).optional(),
       gridRef: z.null().optional(),
+      ambassadors: z.array(z.string().max(80)).max(3).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -980,6 +1015,7 @@ postRoutes.put("/settings", async (c) => {
   if (d.size) config.size = d.size;
   if (d.postCount) config.postCount = d.postCount;
   if (d.notes !== undefined) config.notes = d.notes;
+  if (d.ambassadors) config.ambassadors = [...new Set(d.ambassadors)].slice(0, 3);
   if (d.gridRef === null) {
     delete config.gridRef;
     delete config.gridNotes;
@@ -1027,6 +1063,8 @@ postRoutes.post("/generate", async (c) => {
   const theme = config.theme
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
+  // Ambassadors chosen for the month with a portrait: posts that cast them attach the portrait.
+  const cast = (await monthAmbassadors(c.env, config)).filter((a) => !!a.image_key);
   const refs = theme
     ? await all<{ id: string; key: string }>(
         c.env.DB,
@@ -1159,6 +1197,14 @@ postRoutes.post("/generate", async (c) => {
         ? [productName(product).trim(), product.note?.trim()].filter(Boolean).join(" — ")
         : undefined,
       extraProducts: extraProducts.length ? extraProducts : undefined,
+      ambassadors: (() => {
+        const list = (post.people ?? [])
+          .map((n) => cast.find((a) => a.name.trim().toLowerCase() === n.trim().toLowerCase()))
+          .filter((a): a is AmbassadorRow => !!a)
+          .slice(0, 3)
+          .map((a) => ({ name: a.name, description: a.description, key: a.image_key! }));
+        return list.length ? list : undefined;
+      })(),
     };
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });

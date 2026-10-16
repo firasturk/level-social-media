@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
-import type { Client, Source, Task } from "@shared/types";
+import type { Ambassador, Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
 import {
@@ -63,6 +63,7 @@ export default function PlanView({
   onGenerateIdeas,
   onNewIdea,
   onPostCount,
+  cast,
   onSavePlan,
   onGeneratePosts,
   onOpen,
@@ -109,6 +110,8 @@ export default function PlanView({
   onGenerateIdeas: (notes: string) => void;
   /** A fresh idea for one post, then that post is generated again. */
   onNewIdea: (index: number) => void;
+  /** The month's brand ambassadors, which a post can show. */
+  cast: Ambassador[];
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
   onSavePlan: (plan: Post[]) => void;
@@ -527,6 +530,52 @@ export default function PlanView({
                         ))}
                       </select>
                     </div>
+                    {cast.length > 0 && (
+                      <div className="post-extras post-people">
+                        <span>people</span>
+                        {(p.people ?? []).map((n) => {
+                          const a = cast.find((x) => x.name === n);
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              className="chip"
+                              title="Take this ambassador out of the picture"
+                              onClick={() =>
+                                patch(p.index, {
+                                  people: (p.people ?? []).filter((x) => x !== n),
+                                })
+                              }
+                            >
+                              {a?.image && (
+                                <img src={`/api/studio/ambassadors/${a.id}/image?v=${a.updated}`} alt="" />
+                              )}
+                              {n} ×
+                            </button>
+                          );
+                        })}
+                        {(p.people ?? []).length < 3 && (
+                          <select
+                            value=""
+                            aria-label="Add an ambassador to the picture"
+                            onChange={(e) => {
+                              const n = e.target.value;
+                              if (!n) return;
+                              patch(p.index, { people: [...new Set([...(p.people ?? []), n])] });
+                            }}
+                          >
+                            <option value="">+ ambassador</option>
+                            {cast
+                              .filter((a) => !(p.people ?? []).includes(a.name))
+                              .map((a) => (
+                                <option key={a.id} value={a.name}>
+                                  {a.name}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
                     {p.product && (
                       <div className="post-extras">
                         <span>with</span>

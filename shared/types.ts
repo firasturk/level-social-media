@@ -242,3 +242,16 @@ export interface BatchSummary {
 }
 
 export type { Config };
+
+/** A recurring AI person of a client's posts; the portrait keeps the face the same everywhere. */
+export interface Ambassador {
+  id: string;
+  client: string;
+  name: string;
+  /** Look: gender, age, features, hair, styling. Written by the designer. */
+  description: string;
+  /** true when a portrait is stored; served at /ambassadors/:id/image. */
+  image: boolean;
+  position: number;
+  updated: number;
+}

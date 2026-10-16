@@ -12,6 +12,7 @@ import { resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, postFileName, type Format, type Post } from "@shared/posts";
 import type {
+  Ambassador,
   Batch,
   Client,
   EngineModel,
@@ -136,6 +137,17 @@ export default function Workspace({
   useEffect(() => {
     void loadThemes(clientId);
   }, [clientId, loadThemes]);
+  const [ambassadors, setAmbassadors] = useState<Ambassador[]>([]);
+  useEffect(() => {
+    if (!clientId) return setAmbassadors([]);
+    let live = true;
+    get<{ ambassadors: Ambassador[] }>(`/api/studio/ambassadors?client=${encodeURIComponent(clientId)}`)
+      .then((r) => live && setAmbassadors(r.ambassadors))
+      .catch(() => live && setAmbassadors([]));
+    return () => {
+      live = false;
+    };
+  }, [clientId]);
   // The batches page keeps fresh counts while months generate in the background.
   useEffect(() => {
     if (page !== "batches") return;
@@ -192,6 +204,10 @@ export default function Workspace({
   useEffect(() => setDraftSettings({}), [batch?.id]);
   const shownSettings = { ...settings, ...draftSettings };
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
+  // The month's cast: ambassadors that still exist, in the order picked.
+  const castIds = (
+    config?.ambassadors ?? (draftSettings as { ambassadors?: string[] }).ambassadors ?? []
+  ).filter((id) => ambassadors.some((a) => a.id === id));
   const loadThemeRefs = useCallback(async (id: string) => {
     if (!id) return setThemeRefs([]);
     try {
@@ -232,6 +248,7 @@ export default function Workspace({
       ratio: shownSettings.format,
       size: shownSettings.size,
       postCount: shownSettings.postCount,
+      ambassadors: castIds.length ? castIds : undefined,
     });
     const { id } = await post<{ id: string }>("/api/studio/batch", { config: cfg });
     await loadState();
@@ -239,7 +256,9 @@ export default function Workspace({
     return id;
   }
 
-  async function updateSettings(patch: Partial<OutputSettings> & { theme?: string }) {
+  async function updateSettings(
+    patch: Partial<OutputSettings> & { theme?: string; ambassadors?: string[] },
+  ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
     if (!batch) return;
     try {
@@ -688,6 +707,10 @@ export default function Workspace({
                 models={models}
                 onSettings={(patch) => void updateSettings(patch)}
                 locked={running}
+                ambassadors={ambassadors}
+                onAmbassadorsChanged={setAmbassadors}
+                cast={castIds}
+                onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
               <PlanView
                 client={client}
@@ -717,6 +740,7 @@ export default function Workspace({
                 onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}
                 onNewIdea={(i) => void newIdea(i)}
+                cast={ambassadors.filter((a) => castIds.includes(a.id))}
                 onPostCount={(n) => void updateSettings({ postCount: n })}
                 onSavePlan={(p) => void savePlan(p)}
                 onGeneratePosts={(i, r) => void generatePosts(i, r)}

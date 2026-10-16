@@ -5234,6 +5234,8 @@ label.num select {
   justify-content: space-between;
   gap: 14px;
   width: 100%;
+}
+.font-picker-list .font-option {
   min-width: 220px;
 }
 .font-option-name {
@@ -5248,4 +5250,193 @@ label.num select {
 }
 .font-picker-list {
   max-height: 420px;
+}
+
+/* ───────── Icon kit: one colour and icon per kind of setting ───────── */
+.kit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  color: var(--kit);
+  background: color-mix(in srgb, var(--kit) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--kit) 35%, transparent);
+}
+.kit-group {
+  position: relative;
+  margin: 10px 0 12px;
+  padding: 12px 12px 12px 14px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--kit) 22%, var(--line));
+  background: color-mix(in srgb, var(--kit) 5%, var(--surface));
+}
+.kit-group::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--kit);
+}
+.kit-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.kit-group-head strong {
+  font-weight: 650;
+}
+.kit-group-note {
+  font-size: 12px;
+  color: var(--ink-400);
+}
+.kit-group-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kit-group-actions .text-button {
+  flex-direction: row;
+}
+.kit-group-body > .field-label:first-child,
+.kit-group-body > .field-row:first-child {
+  margin-top: 0;
+}
+.bp-head .kit-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  margin-right: 10px;
+}
+.bp-head > span {
+  display: flex;
+  align-items: center;
+}
+.bp-head-text {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Brand ambassadors */
+.amb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.amb-card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.amb-card.in-month {
+  border-color: var(--kit);
+  box-shadow: 0 0 0 1px var(--kit) inset;
+}
+.amb-portrait {
+  position: relative;
+  width: 88px;
+  height: 110px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-400);
+  background: color-mix(in srgb, var(--kit) 10%, var(--surface));
+}
+.amb-portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.amb-busy {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 0.45);
+  color: #fff;
+}
+.amb-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.amb-name {
+  font-weight: 600;
+}
+.amb-fields textarea {
+  font-size: 12px;
+}
+.amb-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.amb-actions .text-button {
+  flex-direction: row;
+}
+.amb-actions .icon-button {
+  margin-left: auto;
+}
+.amb-toggle {
+  margin: 0;
+  font-weight: 600;
+}
+.post-people .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.post-people .chip img {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Panel buttons: icon beside the label, never stacked; pickers shrink to the column. */
+.brand-panel .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.brand-panel .field-row .text-button {
+  margin-top: 0;
+}
+.check-row input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  margin: 0;
+}
+.kit-group .field-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.kit-group .field-grid.three {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+.font-picker {
+  min-width: 0;
+}
+.font-picker .font-option {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

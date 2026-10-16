@@ -64,11 +64,13 @@ import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
+import { ambassadorRoutes } from "./ambassadors";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
+studioRoutes.route("/ambassadors", ambassadorRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;
