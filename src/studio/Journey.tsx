@@ -273,7 +273,8 @@ export default function Journey(p: JourneyProps) {
     );
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting]);
+    // briefBusy too: a change made while a reading ran is read once that reading ends.
+  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting, briefBusy]);
 
   /* ── The pins' shots rewritten for this month's products and colours ── */
   // One shot per post: written again when the posts, the pins, the colours or the props change.
@@ -387,8 +388,22 @@ export default function Journey(p: JourneyProps) {
   function analysisIssues(k: BriefStep): Issue[] {
     if (briefError[k])
       return [{ text: `"What I understood" could not be written: ${briefError[k]}`, fix: { label: "Read again", run: () => runBrief(k) } }];
-    if (briefBusy === k || !brief[k] || (stepBrief === k && seen.current[k] !== signature[k]))
+    if (briefBusy === k)
       return [{ text: "Wait for \"What I understood\": it is reading this screen.", how: "It takes a few seconds; the rest of the month follows it." }];
+    if (!brief[k] || (stepBrief === k && seen.current[k] !== signature[k]))
+      return [
+        {
+          text: "\"What I understood\" is older than this screen.",
+          how: "It reads the screen again by itself in a moment, or press Read again.",
+          fix: {
+            label: "Read again",
+            run: () => {
+              seen.current[k] = signature[k];
+              return runBrief(k);
+            },
+          },
+        },
+      ];
     return [];
   }
 
