@@ -118,3 +118,39 @@ describe("a post without a product photo", () => {
     expect(p).not.toContain("Assorted Arabic Sweets");
   });
 });
+
+describe("size, grip and colours of the product", () => {
+  it("keeps real size, a real grip, its own colours and no bags", () => {
+    const p = buildPostPrompt({
+      post: true,
+      index: 6,
+      type: "lifestyle",
+      title: "Carrying Habibah home",
+      brief: "A person carries the tray. The tray sits inside a white paper bag. Warm light.",
+      palette: ["deep blue #0042aa"],
+      paletteChosen: true,
+      style: "",
+      theme: "",
+      format: "4:5",
+      ref: null,
+      refIsSource: false,
+      hasProduct: true,
+    } as PostBrief);
+    expect(p).toContain("TRUE SIZE AND GRIP");
+    expect(p).toContain("never put into a bag");
+    expect(p).toContain("a silver tin stays silver on a blue wall");
+    expect(p).not.toContain("white paper bag");
+    expect(p).toContain("Warm light.");
+  });
+});
+
+describe("captions", () => {
+  it("are at most 15 words", async () => {
+    const { shortCaption } = await import("@shared/posts");
+    expect(shortCaption("حلاوة الصبح بلمسة حبيبه. جربوها مع القهوة واحكولنا رأيكم. متوفرة بكل فروعنا ومستنيينكم بأحلى عروض الموسم مع أهلكم وحبايبكم.")).toBe(
+      "حلاوة الصبح بلمسة حبيبه. جربوها مع القهوة واحكولنا رأيكم.",
+    );
+    expect(shortCaption("one two three")).toBe("one two three");
+    expect(shortCaption(Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")).split(" ").length).toBe(15);
+  });
+});

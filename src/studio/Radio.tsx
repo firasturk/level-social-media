@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { LoaderCircle, Music2, Pause, Play } from "lucide-react";
+import { LoaderCircle, Music2, Pause, Play, Square, X } from "lucide-react";
 
 /** Jordanian stations with direct HTTPS streams (checked in October 2026). */
 const STATIONS = [
@@ -160,15 +160,20 @@ export default function Radio({ className = "" }: { className?: string }) {
   return (
     <div className={`radio ${className}`} ref={box}>
       {s.resume !== null && s.station === null ? (
-        <button
-          type="button"
-          className="radio-button resume"
-          onClick={() => play(s.resume!)}
-          title="The page reloaded: one click brings the music back"
-        >
-          <Play size={14} />
-          <span className="radio-label">Resume {STATIONS[s.resume]?.name ?? "radio"}</span>
-        </button>
+        <span className="radio-pill">
+          <button
+            type="button"
+            className="radio-button resume"
+            onClick={() => play(s.resume!)}
+            title="The page reloaded: one click brings the music back"
+          >
+            <Play size={14} />
+            <span className="radio-label">Resume {STATIONS[s.resume]?.name ?? "radio"}</span>
+          </button>
+          <button type="button" className="radio-stop" onClick={() => stop()} title="No music" aria-label="Dismiss the radio">
+            <X size={13} />
+          </button>
+        </span>
       ) : (
         <button
           type="button"
@@ -193,6 +198,11 @@ export default function Radio({ className = "" }: { className?: string }) {
               ? `${STATIONS[s.station!].name}${s.status === "reconnecting" ? " · reconnecting" : ""}`
               : "Listen to your favourite music"}
           </span>
+        </button>
+      )}
+      {live && s.resume === null && (
+        <button type="button" className="radio-stop" onClick={() => stop()} title="Stop the music" aria-label="Stop the music">
+          <Square size={11} fill="currentColor" />
         </button>
       )}
       {open && (

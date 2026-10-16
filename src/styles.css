@@ -7522,3 +7522,33 @@ label.num select {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.radio-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.radio-stop {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-900);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.radio-stop:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.radio-pop {
+  right: 0;
+}

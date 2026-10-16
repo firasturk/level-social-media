@@ -458,7 +458,7 @@ export default function Journey(p: JourneyProps) {
               </StepHead>
               <div className="journey-boxes cols-3">
                 <ProductsBox {...p} client={client} />
-                <GalleryBox client={client} batchId={p.batchId} products={p.products} refresh={p.refresh} />
+                <GalleryBox client={client} batchId={p.batchId} products={p.products} refresh={p.refresh} onUpload={p.onUpload} uploading={p.uploading} />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
             </>
@@ -877,12 +877,17 @@ function GalleryBox({
   batchId,
   products,
   refresh,
+  onUpload,
+  uploading,
 }: {
   client: Client;
   batchId: string | null;
   products: Source[];
   refresh: () => Promise<void>;
+  onUpload: (files: File[]) => Promise<void>;
+  uploading: boolean;
 }) {
+  const uploadInput = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<GalleryItem[] | null>(null);
   const [cat, setCat] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
@@ -922,16 +927,39 @@ function GalleryBox({
       <BoxTitle
         kit="identity"
         actions={
-          offered.length > 0 && (
-            <button type="button" className="text-button" onClick={() => void add(picked.length ? picked : shown.map((g) => g.id))} disabled={adding}>
-              {adding ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
-              {picked.length ? `Add ${picked.length}` : `Add all${cat ? ` ${cat}` : ""}`}
+          <>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => uploadInput.current?.click()}
+              disabled={uploading}
+              title="Upload new product photos: they join this month and stay in the gallery for every month after"
+            >
+              {uploading ? <LoaderCircle className="spinning" size={13} /> : <Upload size={13} />} Upload
             </button>
-          )
+            {offered.length > 0 && (
+              <button type="button" className="text-button" onClick={() => void add(picked.length ? picked : shown.map((g) => g.id))} disabled={adding}>
+                {adding ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
+                {picked.length ? `Add ${picked.length}` : `Add all${cat ? ` ${cat}` : ""}`}
+              </button>
+            )}
+          </>
         }
       >
         {client.name} gallery
       </BoxTitle>
+      <input
+        ref={uploadInput}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = "";
+          if (files.length) void onUpload(files).then(loadGallery);
+        }}
+      />
       {cats.length > 0 && (
         <div className="journey-filter">
           <button type="button" className={`journey-chip small ${!cat ? "active" : ""}`} onClick={() => setCat("")}>

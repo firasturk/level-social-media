@@ -348,8 +348,8 @@ export function withoutColourWords(text: string): string {
 export function paletteRule(palette: string[], chosen = false): string {
   if (!palette.length) return "";
   if (chosen)
-    return `COLOURS (chosen by the designer for this month; they win over everything else): the backgrounds, surfaces, props, fabrics and light sit inside this palette: ${palette.join(", ")}. They replace the colours of the style reference and any colour named in the shot or the visual language above: a pink reference still gives a scene in these colours. The product keeps its own exact colours.`;
-  return `PALETTE: the scene, props, surfaces and light sit inside this palette: ${palette.join(", ")}. The product keeps its own exact colours.`;
+    return `COLOURS (chosen by the designer for this month; they win over everything else): the backgrounds, surfaces, props, fabrics and light sit inside this palette: ${palette.join(", ")}. They replace the colours of the style reference and any colour named in the shot or the visual language above: a pink reference still gives a scene in these colours. These colours are for the scene only: the product, its box, tin, lid and print keep the exact colours of its photo even when they are close to or clash with the background (a silver tin stays silver on a blue wall, never turns blue); packaging is never recoloured to match the palette.`;
+  return `PALETTE: the scene, props, surfaces and light sit inside this palette: ${palette.join(", ")}. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.`;
 }
 
 export function socialFrameRule(format: Format): string {
@@ -380,6 +380,10 @@ export const ONLY_AMBASSADORS_RULE =
   "PEOPLE: only the ambassadors from the attached portraits, each exactly once, each with one head, two arms, two hands with five fingers, natural face and expression. No other people: no friends, crowds, staff or passers-by, whatever the style reference shows. Each ambassador keeps their own gender, face, hair and build from the portrait: the reference's person is replaced, never copied onto them, so clothing that belongs to another gender (a headscarf or hijab, a dress or a skirt on a man; a beard on a woman) is never put on an ambassador; they wear clothes that fit them, in the month's colours.";
 
 /** The product is photographed, never invented: nothing is added to it, nothing else is food. */
+/** Real size, real colours, a real grip: the three ways a product still looked wrong. */
+export const HANDLING_RULE =
+  "TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it.";
+
 export const PRODUCT_TRUTH_RULE =
   "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
 
@@ -415,7 +419,16 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     const note = raw.includes(" — ") ? raw.slice(raw.indexOf(" — ") + 3) : raw;
     return withoutProductNames(note, names).trim();
   })();
-  const clean = (t: string) => withoutProductNames(t, names);
+  // Sentences that put a product into a bag or a carrier (older briefs and shots) never reach the
+  // engine: the product is held or set down, never packed into something.
+  const unbagged = (t: string) =>
+    b.hasProduct
+      ? t
+          .split(/(?<=[.!?])\s+/)
+          .filter((x) => !/\b(bags?|carriers?|baskets?|totes?|shopping)\b/i.test(x))
+          .join(" ")
+      : t;
+  const clean = (t: string) => unbagged(withoutProductNames(t, names));
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
@@ -473,7 +486,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim())
     parts.push(
-      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really carried, held or served (a box or tin by its own handle or in a gift bag, a tray on a table, a piece lifted by hand); it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate made for a different item, and it is never cut out and pasted onto the scene.`,
+      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.`,
     );
   if (b.props?.trim())
     parts.push(
@@ -492,7 +505,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to the props, fabrics and accents.`,
     );
-  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE);
+  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, HANDLING_RULE);
   else
     parts.push(
       "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
@@ -657,7 +670,7 @@ function peopleRule(r: IdeasRequest): string {
 
 /** The products are the only food: nothing is invented around them or added onto them. */
 const PRODUCT_ONLY_IDEAS =
-  "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. In briefs, refer to a product as \"the product\" (or by what it looks like), never by its file name or number. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
+  "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. In briefs, refer to a product as \"the product\" (or by what it looks like), never by its file name or number. Show each product at its real size, held level with both hands or set on a surface; never put a product into a bag, a basket or another container. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
 
 /** The month's ambassadors as an instruction block for the ideas writer (empty when none). */
 function ambassadorsBlock(r: IdeasRequest): string {
@@ -699,7 +712,7 @@ export function ideasInstruction(r: IdeasRequest): string {
       ? `VISUAL LANGUAGE OF THE THEME'S REFERENCES (the posts live in this world):\n${r.themeLibrary.trim()}`
       : "",
     r.shots?.length
-      ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot". A shot shows the place, camera and gesture, not what to hold: where the reference holds a drink, a cup carrier, a sandwich or anything this client does not sell, rewrite the moment around how THIS product is really carried, held or served (a tin or box by its handle or in a gift bag, a tray on a table, one piece lifted by hand). Never put the product into a cup, carrier, glass or wrapper made for the reference's item.\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+      ? `SHOTS FROM THE REFERENCES (one per reference picture, numbered): the month is planned over these shots. With ${r.count} posts and ${r.shots.length} shots: when there are more shots than posts, pick the ${r.count} most varied shots and leave the rest out; when there are more posts than shots, reuse shots with a different product and a changed arrangement so no two posts look the same. Each post's brief recreates its shot with the client's product and names the shot number in the field "shot". A shot shows the place, camera and gesture, not what to hold: where the reference holds a drink, a cup carrier, a sandwich or anything this client does not sell, rewrite the moment around how THIS product is really held or served (a box or tin held level with both hands or set on a table, a tray on a table, one piece lifted by hand); never put a product in a bag, a basket or another container. Never put the product into a cup, carrier, glass or wrapper made for the reference's item.\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "",
     briefBlock(r),
     datesBlock(r),
@@ -717,7 +730,7 @@ ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` 
     r.types?.length
       ? `POST TYPES (field "type", only these, mixed across the month):\n${types}`
       : `POST TYPES (field "type"): every post is "lifestyle": ${r.products.length ? "the client's product living in a real moment of the theme's world (held, served, carried, on a table), the product clearly visible" : "a real moment of the theme's world that the client's offer is about"}. The only exceptions are the picked occasions (type "greeting"). Never write "offer" posts: offers are set by the designer with their products and price. Never write a "quote" or "tip" post unless the designer's notes ask for one.`,
-    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []), date (the posting day, YYYY-MM-DD), occasion (the picked occasion's id for a greeting post, otherwise "").`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} SHORT: at most 15 words in all, one or two short lines, warm and to the point, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []), date (the posting day, YYYY-MM-DD), occasion (the picked occasion's id for a greeting post, otherwise "").`,
     `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
   ]
     .filter(Boolean)
@@ -774,6 +787,21 @@ export function matchProduct(name: string | undefined | null, products: string[]
   return scored[0]?.p;
 }
 
+/** Captions are short: at most 15 words, cut at a sentence end when one fits. */
+export const CAPTION_WORDS = 15;
+export function shortCaption(text: string, max = CAPTION_WORDS): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  const words = t.split(" ").filter(Boolean);
+  if (words.length <= max) return t;
+  let out = "";
+  for (const sentence of t.split(/(?<=[.!?؟。])\s+/)) {
+    const next = out ? `${out} ${sentence}` : sentence;
+    if (next.split(" ").length > max) break;
+    out = next;
+  }
+  return out || `${words.slice(0, max).join(" ")}…`;
+}
+
 export function parseIdeas(
   text: string,
   count: number,
@@ -820,7 +848,7 @@ export function parseIdeas(
       type,
       title: title.slice(0, 80) || `Post ${out.length + 1}`,
       brief: brief.slice(0, 2000),
-      caption: String(raw.caption ?? "").trim().slice(0, 2200),
+      caption: shortCaption(String(raw.caption ?? "")),
       hashtags: String(raw.hashtags ?? "").trim().slice(0, 400),
       product: product || undefined,
       products: extra.length ? extra : undefined,
@@ -889,7 +917,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
-    `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} Hook first, value, call to action; 40-90 words; no hashtags inside), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
+    `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} SHORT: at most 15 words in all; no hashtags inside), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,
   ]
     .filter(Boolean)
@@ -1008,7 +1036,7 @@ export const PRODUCT_NOTE_SCHEMA = {
 
 /** Reads one product photo: what the item is, in one line, for the ideas writer and the prompt. */
 export function productNoteInstruction(name: string): string {
-  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, and any readable brand or flavour text on it. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
+  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, its approximate real-world size (for example "about 25 cm wide"), and any readable brand or flavour text on it. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
 }
 
 /** One fresh idea for a single post of a month that is already planned. */
@@ -1016,14 +1044,14 @@ export function productNoteInstruction(name: string): string {
 function typeBrief(post: Post): string {
   switch (post.type) {
     case "tip":
-      return 'A TIP POST: the headline is a short, useful tip about the product or its moment (how to serve, keep, gift or pair it); the caption explains it in 2-4 sentences. The picture is calm and simple, with a large clean area for the text; the product, when there is one, is small and to the side.';
+      return 'A TIP POST: the headline is a short, useful tip about the product or its moment (how to serve, keep, gift or pair it); the caption gives it in at most 15 words. The picture is calm and simple, with a large clean area for the text; the product, when there is one, is small and to the side.';
     case "quote":
       return "A QUOTE POST: the headline is a short line people would share (warm, in the client's tone, never a famous person's quote); the picture is a calm mood image with a large clean area for the words.";
     case "announcement":
       return "AN ANNOUNCEMENT: news (a launch, a branch, an event) written from the designer's notes; never invent prices or dates that were not given.";
     case "offer":
       return post.offer
-        ? `AN OFFER POST, exactly as the designer set it: products ${post.offer.products.join(", ")}; price ${post.offer.price}; what it is: ${post.offer.details}. The picture shows exactly these products together as a clear commercial offer shot; field "product" is the first of them and "products" lists them all. The headline carries the offer hook and the subline the price as written (${post.offer.price}); the caption gives the details and the conditions, never anything the designer did not give.`
+        ? `AN OFFER POST, exactly as the designer set it: products ${post.offer.products.join(", ")}; price ${post.offer.price}; what it is: ${post.offer.details}. The picture shows exactly these products together as a clear commercial offer shot; field "product" is the first of them and "products" lists them all. The headline carries the offer hook and the subline the price as written (${post.offer.price}); the caption states the offer in at most 15 words, never anything the designer did not give.`
         : "";
     case "greeting":
       return 'A GREETING POST for its occasion: the headline is the greeting in the client\'s tone, the picture carries the occasion\'s elements in the theme\'s colours and light; keep the "occasion" field.';
