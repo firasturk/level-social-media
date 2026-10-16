@@ -5490,6 +5490,7 @@ label.num select {
   position: fixed;
   inset: 0;
   z-index: 60;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--canvas);
@@ -5717,13 +5718,15 @@ label.num select {
 .journey-hello {
   margin: 0;
   font-size: clamp(38px, 6.4vw, 80px);
-  line-height: 1.05;
+  line-height: 1.2;
   font-weight: 800;
   letter-spacing: -0.03em;
   text-align: center;
 }
 .journey-hello-text {
   display: inline-block;
+  /* Room for the descenders (g, p): background-clip text cuts whatever sits outside the box. */
+  padding: 0 0.06em 0.16em;
   background: linear-gradient(100deg, #111 0%, #7c3aed 35%, #ec4899 60%, #111 100%);
   background-size: 220% 100%;
   -webkit-background-clip: text;
@@ -6754,4 +6757,378 @@ label.num select {
   display: block;
   margin-top: 12px;
   font-size: 12.5px;
+}
+
+/* ───────────── Journey motion: every screen arrives, the bar is alive ───────────── */
+@keyframes j-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes j-left {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes j-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes j-bump {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: none;
+  }
+}
+.journey-head {
+  animation: j-left 520ms var(--ease-out) both;
+}
+.journey-boxes > * {
+  animation: j-up 560ms var(--ease-out) both;
+}
+.journey-boxes > :nth-child(2) {
+  animation-delay: 90ms;
+}
+.journey-boxes > :nth-child(3) {
+  animation-delay: 180ms;
+}
+.journey-boxes > :nth-child(4) {
+  animation-delay: 270ms;
+}
+.journey-boxes.idea-grid > * {
+  animation-delay: calc(var(--i, 0) * 55ms);
+}
+.journey-thumb {
+  animation: j-pop 420ms var(--ease-out) both;
+  animation-delay: calc(200ms + var(--i, 0) * 35ms);
+  transition:
+    transform var(--dur) var(--ease-out),
+    box-shadow var(--dur);
+}
+.journey-thumb:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+.cal-day {
+  animation: j-pop 360ms var(--ease-out) both;
+  animation-delay: calc(150ms + var(--i, 0) * 12ms);
+}
+.journey-client {
+  animation: j-up 520ms var(--ease-out) both;
+  animation-delay: calc(450ms + var(--i, 0) * 60ms);
+}
+.journey-clients {
+  animation: none;
+}
+.bump {
+  display: inline-block;
+  animation: j-bump 360ms var(--ease-spring) both;
+}
+.analysis-points li,
+.analysis-summary,
+.analysis-logic {
+  animation: j-up 480ms var(--ease-out) both;
+}
+.analysis-points li:nth-child(1) {
+  animation-delay: 80ms;
+}
+.analysis-points li:nth-child(2) {
+  animation-delay: 160ms;
+}
+.analysis-points li:nth-child(3) {
+  animation-delay: 240ms;
+}
+.analysis-points li:nth-child(4) {
+  animation-delay: 320ms;
+}
+.analysis-points li:nth-child(5) {
+  animation-delay: 400ms;
+}
+.analysis-logic {
+  animation-delay: 480ms;
+}
+/* While a screen is being read, its box breathes. */
+.journey-analysis.busy {
+  border-color: transparent;
+  background:
+    linear-gradient(180deg, #faf7ff, var(--surface)) padding-box,
+    linear-gradient(120deg, #8b5cf6, #ec4899, #06b6d4, #8b5cf6) border-box;
+  background-size:
+    100% 100%,
+    300% 300%;
+  animation: j-border 2.4s linear infinite;
+}
+@keyframes j-border {
+  to {
+    background-position:
+      0 0,
+      300% 0;
+  }
+}
+.analysis-icon {
+  animation: j-float 3s ease-in-out infinite;
+}
+.journey-analysis.busy .analysis-icon {
+  animation: spin 1.6s linear infinite;
+}
+@keyframes j-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  50% {
+    transform: translateY(-2px) rotate(8deg);
+  }
+}
+.colour-stage {
+  transition: background-color 600ms var(--ease-out);
+}
+.colour-products img {
+  animation: j-float-y 4s ease-in-out infinite;
+}
+.colour-products img:nth-child(2) {
+  animation-delay: -1.3s;
+}
+.colour-products img:nth-child(3) {
+  animation-delay: -2.6s;
+}
+@keyframes j-float-y {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+/* The step bar: the done part flows, the current step shimmers and grows in. */
+.journey-seg.done i::after {
+  background: linear-gradient(90deg, #7c3aed, #ec4899, #7c3aed);
+  background-size: 200% 100%;
+  animation: j-flow 3s linear infinite;
+}
+@keyframes j-flow {
+  to {
+    background-position: -200% 0;
+  }
+}
+.journey-seg.now i::after {
+  animation: j-grow 700ms var(--ease-out) both;
+}
+@keyframes j-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.5);
+  }
+}
+.journey-seg.now i::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(90deg, transparent 0%, rgb(255 255 255 / 0.85) 50%, transparent 100%);
+  width: 40%;
+  animation: j-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes j-shimmer {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(280%);
+  }
+}
+.journey-seg.now i {
+  box-shadow: 0 0 0 3px rgb(124 58 237 / 0.12);
+}
+.journey-seg.now small {
+  color: #7c3aed;
+}
+.journey-actions .primary:not(:disabled) {
+  transition: transform var(--dur) var(--ease-out);
+}
+.journey-actions .primary:not(:disabled):hover {
+  transform: translateX(2px);
+}
+
+/* Captions: every post on one screen. */
+.idea-grid {
+  grid-template-columns: none;
+}
+.idea-grid.scrolls {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.idea-card.compact {
+  padding: 12px;
+  gap: 6px;
+}
+.idea-card.compact .idea-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.idea-card.compact .idea-headline {
+  font-size: 14px;
+  padding: 6px 8px;
+}
+.idea-card.compact .idea-caption {
+  min-height: 60px;
+  font-size: 12.5px;
+  padding: 6px 8px;
+}
+.idea-tags {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: none;
+}
+
+/* Let the magic begin */
+.journey-magic {
+  position: relative;
+}
+.journey-magic > :not(.magic-sparkles) {
+  position: relative;
+  z-index: 1;
+}
+.magic-sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.magic-sparkles i {
+  position: absolute;
+  font-style: normal;
+  color: #c4b5fd;
+  opacity: 0;
+  animation: j-twinkle 3.2s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.37s);
+}
+.magic-sparkles i:nth-child(3n) {
+  color: #f9a8d4;
+}
+.magic-sparkles i:nth-child(4n) {
+  color: #67e8f9;
+}
+@keyframes j-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.6) rotate(0);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-8px) scale(1) rotate(45deg);
+  }
+}
+.journey-hello.magic .journey-emoji {
+  animation:
+    journey-pop 700ms var(--ease-spring) 250ms both,
+    j-spin-twinkle 2.4s ease-in-out 1s infinite;
+}
+@keyframes j-spin-twinkle {
+  0%,
+  100% {
+    transform: rotate(0) scale(1);
+  }
+  50% {
+    transform: rotate(18deg) scale(1.15);
+  }
+}
+.magic-big {
+  background: linear-gradient(120deg, #111, #7c3aed);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding-bottom: 0.08em;
+}
+.magic-swatches span {
+  animation: j-pop 420ms var(--ease-spring) both;
+  animation-delay: calc(500ms + var(--i, 0) * 90ms);
+}
+.magic-logic li {
+  animation: j-left 460ms var(--ease-out) both;
+  animation-delay: calc(400ms + var(--i, 0) * 120ms);
+}
+.journey-generate {
+  background: linear-gradient(120deg, #111 0%, #7c3aed 40%, #ec4899 70%, #111 100%);
+  background-size: 250% 100%;
+  animation:
+    j-up 600ms var(--ease-out) 700ms both,
+    j-flow-btn 4s linear infinite,
+    j-glow 2.2s ease-in-out infinite;
+}
+@keyframes j-flow-btn {
+  to {
+    background-position: -250% 0;
+  }
+}
+@keyframes j-glow {
+  0%,
+  100% {
+    box-shadow: 0 16px 34px -14px rgb(124 58 237 / 0.7);
+  }
+  50% {
+    box-shadow: 0 18px 44px -10px rgb(236 72 153 / 0.75);
+  }
+}
+.journey-generate:hover:enabled {
+  transform: translateY(-1px) scale(1.02);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journey-head,
+  .journey-boxes > *,
+  .journey-thumb,
+  .cal-day,
+  .journey-client,
+  .bump,
+  .analysis-points li,
+  .analysis-summary,
+  .analysis-logic,
+  .analysis-icon,
+  .colour-products img,
+  .journey-seg.done i::after,
+  .journey-seg.now i::after,
+  .journey-seg.now i::before,
+  .magic-sparkles i,
+  .magic-swatches span,
+  .magic-logic li,
+  .journey-generate,
+  .journey-analysis.busy {
+    animation: none;
+  }
 }

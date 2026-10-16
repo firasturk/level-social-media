@@ -4,8 +4,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  ChevronLeft,
-  ChevronRight,
   ImagePlus,
   LoaderCircle,
   Minus,
@@ -22,7 +20,16 @@ import { applyTheme, currentTheme } from "@/theme";
 import { confetti } from "@/lib/celebrate";
 import type { Ambassador, Client, GalleryItem, Source, Theme, User } from "@shared/types";
 import type { BriefNote, BriefStep, Config } from "@shared/config";
-import { FORMATS, FORMAT_INFO, MAX_POST_COUNT, monthLabel, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
+import {
+  FORMATS,
+  FORMAT_INFO,
+  MAX_POST_COUNT,
+  monthLabel,
+  POST_TYPE_INFO,
+  withoutPaletteText,
+  type Format,
+  type Post,
+} from "@shared/posts";
 import { occasionsOf, shortDate, spreadDates } from "@shared/occasions";
 import { briefLines } from "@shared/brief";
 import { BrandKit, ThemeSection } from "./BrandPanel";
@@ -54,6 +61,24 @@ function greeting(d = new Date()): string {
 function firstName(user: User): string {
   const n = (user.name || user.email.split("@")[0] || "").trim().split(/\s+/)[0] ?? "";
   return n ? n[0].toUpperCase() + n.slice(1) : "";
+}
+
+/** A number that counts up to its value (the magic screen's post count). */
+function useCountUp(target: number, ms = 900): number {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return setN(target);
+    const start = performance.now();
+    let raf = 0;
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - start) / ms);
+      setN(Math.round(target * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return n;
 }
 
 /** A short stable fingerprint of a text (what the month's shots were written from). */
@@ -304,10 +329,11 @@ export default function Journey(p: JourneyProps) {
               </h1>
               <p className="journey-lead">Which account would you like to work on today?</p>
               <div className="journey-clients">
-                {active.map((c) => (
+                {active.map((c, i) => (
                   <button
                     key={c.id}
                     type="button"
+                    style={{ "--i": i } as React.CSSProperties}
                     className={`journey-client ${c.id === p.clientId ? "active" : ""}`}
                     onClick={() => p.onClient(c.id)}
                   >
@@ -529,7 +555,11 @@ export default function Journey(p: JourneyProps) {
         </div>
         <div className="journey-actions">
           <span className="journey-left">
-            Step {step + 1} of {STEPS.length} · {last ? "last step" : `${stepsLeft} left`}
+            Step{" "}
+            <b key={step} className="bump">
+              {step + 1}
+            </b>{" "}
+            of {STEPS.length} · {last ? "last step" : `${stepsLeft} left`}
           </span>
           {step > 0 && (
             <button type="button" className="secondary" onClick={() => setStep((s) => s - 1)} disabled={moving}>
@@ -678,8 +708,8 @@ function ProductsBox(p: JourneyProps) {
       <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => (take(e.target.files), (e.target.value = ""))} />
       {p.products.length ? (
         <div className="journey-thumbs">
-          {p.products.map((s) => (
-            <figure key={s.id} className="journey-thumb">
+          {p.products.map((s, i) => (
+            <figure key={s.id} className="journey-thumb" style={{ "--i": i } as React.CSSProperties}>
               <img src={p.sourceUrl(s.id)} alt="" loading="lazy" />
               <figcaption title={displayName(s.name)}>{displayName(s.name)}</figcaption>
               {s.category && <span className="journey-tag">{s.category}</span>}
@@ -778,13 +808,14 @@ function GalleryBox({
         </div>
       ) : shown.length ? (
         <div className="journey-thumbs">
-          {shown.map((g) => {
+          {shown.map((g, i) => {
             const on = picked.includes(g.id);
             return (
               <button
                 key={g.id}
                 type="button"
                 className={`journey-thumb pick ${on ? "on" : ""}`}
+                style={{ "--i": i } as React.CSSProperties}
                 onClick={() => setPicked((l) => (on ? l.filter((x) => x !== g.id) : [...l, g.id]))}
                 title={g.note || g.name}
               >
@@ -887,7 +918,9 @@ function CountBox(p: JourneyProps) {
         <button type="button" className="icon-button" onClick={() => set(p.postCount - 1)} aria-label="One post fewer">
           <Minus size={18} />
         </button>
-        <strong>{p.postCount}</strong>
+        <strong key={p.postCount} className="bump">
+          {p.postCount}
+        </strong>
         <button type="button" className="icon-button" onClick={() => set(p.postCount + 1)} aria-label="One post more">
           <Plus size={18} />
         </button>
@@ -940,7 +973,7 @@ function CalendarBox({ month, plan, count }: { month: string; plan: Post[]; coun
           const occ = occasions.filter((o) => o.date === date);
           const n = postsOn(date);
           return (
-            <span key={date} className={`cal-day ${n ? "post" : ""} ${occ.length ? "occasion" : ""}`} title={occ.map((o) => `${o.name} · ${o.ar}`).join("\n")}>
+            <span key={date} style={{ "--i": i } as React.CSSProperties} className={`cal-day ${n ? "post" : ""} ${occ.length ? "occasion" : ""}`} title={occ.map((o) => `${o.name} · ${o.ar}`).join("\n")}>
               {i + 1}
               {n > 0 && <i />}
             </span>
@@ -1015,21 +1048,26 @@ function IdeasStep({
   onGenerate: () => void;
   onSavePlan: (plan: Post[]) => void;
 }) {
-  const perPage = 4;
-  const [page, setPage] = useState(0);
-  const pages = Math.max(1, Math.ceil(plan.length / perPage));
-  useEffect(() => setPage((x) => Math.min(x, pages - 1)), [pages]);
+  // Every post on one screen: up to six across, the rows share the height.
+  const n = Math.max(1, plan.length || 4);
+  const cols = n <= 4 ? n : n <= 8 ? Math.ceil(n / 2) : 6;
+  const rows = Math.ceil(n / cols);
+  const grid = {
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gridTemplateRows: rows <= 3 ? `repeat(${rows}, minmax(0, 1fr))` : undefined,
+    gridAutoRows: rows > 3 ? "minmax(240px, 1fr)" : undefined,
+  };
   const briefAt = Math.max(0, ...Object.values(config?.brief ?? {}).map((n) => n?.at ?? 0));
   const stale = plan.length > 0 && briefAt > (config?.plannedAt ?? 0);
   const started = useRef(false);
+  // Ideas are written by themselves only for a month that has none, once it has loaded (a reload
+  // that lands here must never overwrite ideas that are still on their way).
   useEffect(() => {
-    if (!plan.length && !busy && !started.current) {
-      started.current = true;
-      onGenerate();
-    }
+    if (!config || config.plan?.length || plan.length || busy || started.current) return;
+    started.current = true;
+    onGenerate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const shown = plan.slice(page * perPage, page * perPage + perPage);
+  }, [config, plan.length]);
   return (
     <>
       <div className="journey-head">
@@ -1050,9 +1088,9 @@ function IdeasStep({
         </button>
       </div>
       {busy && !plan.length ? (
-        <div className="journey-boxes cols-4">
-          {Array.from({ length: perPage }, (_, i) => (
-            <div key={i} className="journey-box idea-card skeleton">
+        <div className="journey-boxes idea-grid" style={grid}>
+          {Array.from({ length: n }, (_, i) => (
+            <div key={i} className="journey-box idea-card skeleton" style={{ "--i": i } as React.CSSProperties}>
               <div className="analysis-skeleton">
                 <i />
                 <i />
@@ -1063,39 +1101,30 @@ function IdeasStep({
           ))}
         </div>
       ) : (
-        <>
-          <div className="journey-boxes cols-4">
-            {shown.map((post) => (
-              <IdeaCard key={`${post.index}:${config?.plannedAt ?? 0}`} post={post} onSave={(next) => onSavePlan(plan.map((x) => (x.index === next.index ? next : x)))} />
-            ))}
-          </div>
-          {pages > 1 && (
-            <div className="journey-pager">
-              <button type="button" className="icon-button" onClick={() => setPage((x) => Math.max(0, x - 1))} disabled={page === 0} aria-label="Previous posts">
-                <ChevronLeft size={16} />
-              </button>
-              <span>
-                Posts {page * perPage + 1}-{Math.min(plan.length, page * perPage + perPage)} of {plan.length}
-              </span>
-              <button type="button" className="icon-button" onClick={() => setPage((x) => Math.min(pages - 1, x + 1))} disabled={page >= pages - 1} aria-label="Next posts">
-                <ChevronRight size={16} />
-              </button>
-            </div>
-          )}
-        </>
+        <div className={`journey-boxes idea-grid ${rows > 3 ? "scrolls" : ""}`} style={grid}>
+          {plan.map((post, i) => (
+            <IdeaCard
+              key={`${post.index}:${config?.plannedAt ?? 0}`}
+              post={post}
+              order={i}
+              compact={rows > 1}
+              onSave={(next) => onSavePlan(plan.map((x) => (x.index === next.index ? next : x)))}
+            />
+          ))}
+        </div>
       )}
     </>
   );
 }
 
-function IdeaCard({ post, onSave }: { post: Post; onSave: (p: Post) => void }) {
+function IdeaCard({ post, order, compact, onSave }: { post: Post; order: number; compact: boolean; onSave: (p: Post) => void }) {
   const [caption, setCaption] = useState(post.caption);
   const [headline, setHeadline] = useState(post.headline ?? "");
   const save = () => {
     if (caption !== post.caption || headline !== (post.headline ?? "")) onSave({ ...post, caption, headline: headline || undefined });
   };
   return (
-    <article className="journey-box idea-card">
+    <article className={`journey-box idea-card ${compact ? "compact" : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="idea-meta">
         <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
         {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
@@ -1132,11 +1161,34 @@ function MagicStep({
 }) {
   const [going, setGoing] = useState(false);
   const lines = briefLines(config?.brief);
+  const shown = useCountUp(plan.length);
+  const chosen = !!theme?.palette.length;
+  const about = theme
+    ? (chosen ? withoutPaletteText(theme.description || "") : theme.description) ||
+      (chosen ? "The pins' places, light and mood, in the month's colours below." : theme.direction?.slice(0, 180))
+    : "The posts follow the brand kit.";
   const palette = theme?.palette.length ? theme.palette : client.colors;
   const dates = plan.map((x) => x.date).filter(Boolean) as string[];
   const occasions = useMemo(() => occasionsOf(month), [month]);
   return (
     <div className="journey-magic">
+      <div className="magic-sparkles" aria-hidden>
+        {Array.from({ length: 14 }, (_, i) => (
+          <i
+            key={i}
+            style={
+              {
+                "--i": i,
+                left: `${(i * 37 + 7) % 100}%`,
+                top: `${(i * 53 + 11) % 92}%`,
+                fontSize: `${10 + ((i * 7) % 14)}px`,
+              } as React.CSSProperties
+            }
+          >
+            ✦
+          </i>
+        ))}
+      </div>
       <h1 className="journey-hello magic">
         <span className="journey-hello-text">Let the magic begin</span>{" "}
         <span className="journey-emoji" aria-hidden>
@@ -1146,7 +1198,7 @@ function MagicStep({
       <div className="journey-boxes cols-3">
         <div className="journey-box magic-box">
           <BoxTitle kit="output">The posts</BoxTitle>
-          <p className="magic-big">{plan.length}</p>
+          <p className="magic-big">{shown}</p>
           <p className="field-hint">
             {FORMAT_INFO[format].label} ({FORMAT_INFO[format].pixels}) · {client.name} · {monthLabel(month)}
             {dates.length ? `, from ${shortDate(dates[0])} to ${shortDate(dates[dates.length - 1])}` : ""}.
@@ -1156,10 +1208,10 @@ function MagicStep({
         <div className="journey-box magic-box">
           <BoxTitle kit="theme">The theme</BoxTitle>
           <p className="magic-theme">{theme?.title ?? "Brand identity"}</p>
-          <p className="field-hint">{theme?.description || theme?.direction?.slice(0, 180) || "The posts follow the brand kit."}</p>
+          <p className="field-hint">{about}</p>
           <div className="magic-swatches">
             {palette.map((c, i) => (
-              <span key={c.hex + i} style={{ background: c.hex }} title={`${i === 0 ? "Background · " : ""}${c.name || c.hex}`} />
+              <span key={c.hex + i} style={{ background: c.hex, "--i": i } as React.CSSProperties} title={`${i === 0 ? "Background · " : ""}${c.name || c.hex}`} />
             ))}
           </div>
         </div>
@@ -1168,7 +1220,9 @@ function MagicStep({
           {lines.length ? (
             <ol className="magic-logic">
               {lines.map((l, i) => (
-                <li key={i}>{l}</li>
+                <li key={i} style={{ "--i": i } as React.CSSProperties}>
+                  {l}
+                </li>
               ))}
             </ol>
           ) : (

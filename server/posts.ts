@@ -895,6 +895,7 @@ postRoutes.post("/ideas", async (c) => {
   config.plan = withDates(plan, config.month ?? "");
   config.plannedAt = now();
   config.postCount = count;
+  await refreshCountNote(c.env, b.id, config);
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan });
@@ -1012,6 +1013,7 @@ postRoutes.put("/plan", async (c) => {
   config.plan = d.plan.map((p, i) => ({ ...p, index: i + 1 }));
   // Adding or removing posts by hand sets the month's count, so Regenerate ideas keeps that number.
   if (config.plan.length) config.postCount = config.plan.length;
+  await refreshCountNote(c.env, b.id, config);
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan, postCount: config.postCount });
 });
@@ -1051,7 +1053,10 @@ postRoutes.put("/settings", async (c) => {
     config.model = d.model || undefined;
   }
   if (d.size) config.size = d.size;
-  if (d.postCount) config.postCount = d.postCount;
+  if (d.postCount) {
+    config.postCount = d.postCount;
+    await refreshCountNote(c.env, b.id, config);
+  }
   if (d.notes !== undefined) config.notes = d.notes;
   if (d.ambassadors) config.ambassadors = [...new Set(d.ambassadors)].slice(0, 3);
   if (d.gridRef === null) {
@@ -1527,6 +1532,18 @@ function countNote(config: Config, products: number): Omit<BriefNote, "at"> {
     points,
     logic: `Plan exactly ${count} posts across ${label}, spread over the month${occasions.length ? `, with a post on ${occasions.map((o) => `${o.name} (${o.date})`).join(", ")}` : ""}.`,
   };
+}
+
+/** The count rule follows the month's count wherever it changes (ideas, plan edits, settings). */
+async function refreshCountNote(env: Env, batchId: string, config: Config): Promise<void> {
+  if (!config.brief?.count) return;
+  const n = await first<{ n: number }>(
+    env.DB,
+    "SELECT COUNT(*) AS n FROM sources WHERE batch = ? AND kind = 'product'",
+    batchId,
+  );
+  // Same time stamp: a count that follows the ideas does not make the ideas look stale.
+  config.brief.count = { ...countNote(config, n?.n ?? 0), at: config.brief.count.at };
 }
 
 /** One journey screen read like a brief; the rule it writes steers the month's ideas. */
