@@ -117,8 +117,15 @@ function AmbassadorCard({
   useEffect(() => setLook(a.description), [a.description]);
   const src = a.image ? `/api/studio/ambassadors/${a.id}/image?v=${a.updated}` : null;
 
-  async function save(patch: { name?: string; description?: string }) {
-    if ((patch.name ?? a.name) === a.name && (patch.description ?? a.description) === a.description) return;
+  async function save(patch: { name?: string; description?: string; gender?: Ambassador["gender"]; modest?: boolean; hijab?: boolean }) {
+    if (
+      (patch.name ?? a.name) === a.name &&
+      (patch.description ?? a.description) === a.description &&
+      (patch.gender ?? a.gender) === a.gender &&
+      (patch.modest ?? a.modest) === a.modest &&
+      (patch.hijab ?? a.hijab) === a.hijab
+    )
+      return;
     try {
       onChanged((await put<Reply>(`/api/studio/ambassadors/${a.id}`, patch)).ambassadors);
     } catch (e) {
@@ -127,8 +134,12 @@ function AmbassadorCard({
   }
 
   async function generate() {
+    if (!a.gender) {
+      toast.error(`Choose whether ${a.name} is a man or a woman first.`);
+      return;
+    }
     if (!look.trim()) {
-      toast.error("Describe the look first: gender, age, features, hair, styling.");
+      toast.error("Describe the look first: age, features, hair, styling.");
       return;
     }
     await save({ description: look });
@@ -185,11 +196,35 @@ function AmbassadorCard({
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name.trim() && void save({ name: name.trim() })}
         />
+        <div className="amb-profile" role="radiogroup" aria-label={`${a.name} is`}>
+          {(["man", "woman"] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              role="radio"
+              aria-checked={a.gender === g}
+              className={`journey-chip small ${a.gender === g ? "active" : ""}`}
+              onClick={() => void save({ gender: g, hijab: g === "man" ? false : a.hijab })}
+            >
+              {g === "man" ? "Man" : "Woman"}
+            </button>
+          ))}
+          <label className="check-row" title="Shoulders, arms, chest and knees covered">
+            <input type="checkbox" checked={a.modest} onChange={(e) => void save({ modest: e.target.checked })} />
+            Modest clothing
+          </label>
+          {a.gender === "woman" && (
+            <label className="check-row">
+              <input type="checkbox" checked={a.hijab} onChange={(e) => void save({ hijab: e.target.checked })} />
+              Wears a hijab
+            </label>
+          )}
+        </div>
         <textarea
           rows={3}
           value={look}
           aria-label={`${a.name}'s look`}
-          placeholder="Man in his thirties, short black beard, warm smile, white shirt, Jordanian"
+          placeholder={a.gender === "woman" ? "In her late twenties, long dark hair, warm smile, Jordanian" : "In his thirties, short black beard, warm smile, white shirt, Jordanian"}
           onChange={(e) => setLook(e.target.value)}
           onBlur={() => void save({ description: look })}
         />

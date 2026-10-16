@@ -39,6 +39,8 @@ export interface OutputSettings {
   format: Format;
   size: Size;
   postCount: number;
+  /** Exact product mode: the real product photo is placed into each scene, never redrawn. */
+  exact?: boolean;
 }
 
 type ClientsReply = { clients: Client[] };
@@ -185,6 +187,15 @@ export default function BrandPanel({
             />
           </div>
         </div>
+        <label className="check-row" title="The engine paints the scene with an empty place, then the real product photo is set into it with its shadow. Posts with one product; nobody holds it.">
+          <input
+            type="checkbox"
+            checked={!!settings.exact}
+            disabled={locked}
+            onChange={(e) => onSettings({ exact: e.target.checked })}
+          />
+          Exact product: place the real photo, never redraw it
+        </label>
       </Section>
     </aside>
   );

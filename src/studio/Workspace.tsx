@@ -10,13 +10,15 @@ import { canvasBlob, loadFont, loadImage, renderOverlay } from "@/lib/overlay";
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
-import { currentMonth, postFileName, type Format, type Post } from "@shared/posts";
+import { currentMonth, monthLabel, postFileName, type Format, type Post } from "@shared/posts";
+import { testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
   Client,
   EngineModel,
   StateResponse,
+  QA,
   Task,
   Theme,
   User,
@@ -224,6 +226,7 @@ export default function Workspace({
     format: (config?.format ?? "4:5") as Format,
     size: (config?.size ?? "2K") as Size,
     postCount: config?.postCount ?? 12,
+    exact: !!config?.exact,
   };
   const [draftSettings, setDraftSettings] = useState<Partial<OutputSettings>>({});
   useEffect(() => setDraftSettings({}), [batch?.id]);
@@ -281,10 +284,42 @@ export default function Workspace({
     return id;
   }
 
+  /** The client's latest month before this one, when this month has no plan yet. */
+  const previousMonth = useMemo(() => {
+    if (!clientId || planOf(clientId, month)) return null;
+    const earlier = batches
+      .filter((b) => b.client === clientId && b.month && b.month < month)
+      .map((b) => b.month!)
+      .sort();
+    return earlier.at(-1) ?? null;
+  }, [batches, clientId, month, planOf]);
+
+  /** "Continue with the same direction": the new month starts from the last one. */
+  async function continueMonth() {
+    if (!clientId) return;
+    setBusy("continue");
+    try {
+      const r = await post<{ id: string; from: string; products: number }>("/api/studio/posts/continue", {
+        client: clientId,
+        month,
+      });
+      await loadState();
+      await open(r.id);
+      toast.success(
+        `${monthLabel(month)} continues ${monthLabel(r.from)}: same theme, colours, props and ambassadors${r.products ? `, ${r.products} products` : ""}.`,
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function updateSettings(
     patch: Partial<OutputSettings> & {
       theme?: string;
       ambassadors?: string[];
+      exact?: boolean;
       shots?: string[];
       occasions?: { picked: string[]; custom: { id: string; date: string; name: string; elements?: string }[] };
     },
@@ -468,7 +503,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true) {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false) {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -484,13 +519,16 @@ export default function Workspace({
     askNotifications();
     setBusy("generate");
     try {
-      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[] }>("/api/studio/posts/generate", {
+      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[]; draft?: boolean }>("/api/studio/posts/generate", {
         batch: batch.id,
         indexes,
         regenerate,
+        test: test || undefined,
       });
       await refresh();
-      if (r.planned) toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
+      if (test && r.planned)
+        toast.success(`Test post ${indexes![0]} generating${r.draft ? " at 1K" : ""}. It is checked automatically when it arrives.`);
+      else if (r.planned) toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
       if (r.missingProduct?.length)
         toast.warning(
           `Not generated, the product photo is missing: ${r.missingProduct.map((m) => `post ${m.index} (${m.product})`).join(", ")}. Upload it, or pick another product on the post.`,
@@ -505,12 +543,47 @@ export default function Workspace({
     }
   }
 
+  /** The test post of the journey's last screen: its image and what the automatic review found. */
+  const testPost = useMemo(() => {
+    const i = config?.testPost;
+    if (!i || !plan.some((p) => p.index === i)) return null;
+    const t = tasks.find((x) => x.post === i);
+    let qa: QA | null = null;
+    try {
+      qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
+    } catch {
+      qa = null;
+    }
+    return {
+      index: i,
+      status: t?.status ?? "queued",
+      url: t?.output ? outputUrl(t) : null,
+      error: t?.error ?? null,
+      qa,
+      draft: !!config && testSize(config.model, config.size) === "1K" && config.size !== "1K",
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, tasks, plan]);
+
+  async function testOnePost(index: number) {
+    const has = tasks.some((t) => t.post === index && t.output);
+    await generatePosts([index], has, false, true);
+  }
+
   /** The journey's last screen: every post that has no image yet, or whose idea is newer. */
   async function generateFromJourney() {
     askNotifications();
     const plannedAt = config?.plannedAt ?? 0;
     const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && t.updated < plannedAt);
-    await generatePosts(undefined, stale, false);
+    if (!stale) return generatePosts(undefined, false, false);
+    // Only what is older than the ideas, missing or failed is made again: a fresh test post stays.
+    const due = plan
+      .filter((p) => {
+        const t = tasks.find((x) => x.post === p.index);
+        return !t || t.status === "failed" || t.updated < plannedAt || (testPost?.draft && testPost.index === p.index);
+      })
+      .map((p) => p.index);
+    await generatePosts(due.length ? due : undefined, true, false);
   }
 
   // When the month's posts finish while the team works elsewhere: a chime and a notification.
@@ -895,6 +968,9 @@ export default function Workspace({
           onMonth={setMonth}
           batchId={batch?.id ?? null}
           config={config}
+          previousMonth={previousMonth}
+          onContinue={continueMonth}
+          continuing={busy === "continue"}
           ensurePlan={ensurePlan}
           refresh={async () => {
             await refresh();
@@ -922,6 +998,18 @@ export default function Workspace({
           rewriting={busy === "reidea"}
           onRewrite={(i, next) => void rewritePost(i, next)}
           onGenerate={generateFromJourney}
+          testPost={testPost}
+          onTest={testOnePost}
+          onFixTest={async (edit) => {
+            const t = tasks.find((x) => x.post === testPost?.index);
+            if (!t || !batch) return;
+            try {
+              await action("revise", { id: t.id, edit });
+              toast.success("Fixing the test post.");
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          }}
           engineReady={engineConnected}
           onDone={finishJourney}
         />
@@ -946,6 +1034,15 @@ export default function Workspace({
           position={selectedIndex >= 0 ? { index: selectedIndex, total: reviewable.length } : undefined}
           onClose={() => setSelected(null)}
           onRevise={revise}
+          onRemake={
+            selected?.post
+              ? () => {
+                  const i = selected.post!;
+                  setSelected(null);
+                  void generatePosts([i], true, false);
+                }
+              : undefined
+          }
           onPrev={selectedIndex > 0 ? () => setSelected(reviewable[selectedIndex - 1]) : undefined}
           onNext={
             selectedIndex >= 0 && selectedIndex < reviewable.length - 1

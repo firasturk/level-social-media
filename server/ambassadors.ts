@@ -10,6 +10,7 @@ import { StudioError } from "./errors";
 import { all, first, run, now, uuid } from "./db";
 import { makeGoogleClient } from "./engine";
 import type { Ambassador, User } from "@shared/types";
+import { castLook } from "@shared/cast";
 
 type Variables = { user: User };
 export const ambassadorRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -24,6 +25,9 @@ export interface AmbassadorRow {
   name: string;
   description: string;
   image_key: string | null;
+  gender: string;
+  modest: number;
+  hijab: number;
   position: number;
   created: number;
   updated: number;
@@ -35,6 +39,9 @@ function toAmbassador(r: AmbassadorRow): Ambassador {
     client: r.client,
     name: r.name,
     description: r.description,
+    gender: r.gender === "man" || r.gender === "woman" ? r.gender : "",
+    modest: !!r.modest,
+    hijab: !!r.hijab,
     image: !!r.image_key,
     position: r.position,
     updated: r.updated,
@@ -69,9 +76,9 @@ async function body<T extends z.ZodTypeAny>(
 }
 
 /** The portrait prompt: one person, neutral studio, the face clearly visible, no text. */
-export function portraitPrompt(name: string, description: string, wish = ""): string {
+export function portraitPrompt(name: string, look: string, wish = ""): string {
   return [
-    `A photorealistic studio portrait of one person, the brand ambassador "${name}": ${description.trim() || "a friendly, natural-looking adult"}.`,
+    `A photorealistic studio portrait of one person, the brand ambassador "${name}": ${look.trim() || "a friendly, natural-looking adult"}.`,
     wish.trim() ? `Designer's note: ${wish.trim()}.` : "",
     "Head and shoulders, facing the camera with a natural, warm expression, the whole face clearly visible and evenly lit by soft daylight-balanced studio light, sharp focus on the eyes.",
     "Plain light-grey seamless backdrop. Real skin texture, natural proportions, one head, two eyes, no accessories covering the face.",
@@ -94,6 +101,7 @@ ambassadorRoutes.post("/", async (c) => {
       client: z.string().min(1).max(80),
       name: z.string().trim().min(1).max(40),
       description: z.string().trim().max(1200).default(""),
+      gender: z.enum(["man", "woman", ""]).default(""),
     }),
   );
   const exists = await first(c.env.DB, "SELECT id FROM clients WHERE id = ?", d.client);
@@ -107,11 +115,12 @@ ambassadorRoutes.post("/", async (c) => {
     throw new StudioError(`A client has at most ${MAX_AMBASSADORS} ambassadors.`, 409);
   await run(
     c.env.DB,
-    "INSERT INTO ambassadors (id, client, name, description, image_key, position, created, updated) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)",
+    "INSERT INTO ambassadors (id, client, name, description, gender, image_key, position, created, updated) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)",
     uuid(),
     d.client,
     d.name,
     d.description,
+    d.gender,
     (count?.p ?? -1) + 1,
     now(),
     now(),
@@ -126,13 +135,19 @@ ambassadorRoutes.put("/:id", async (c) => {
     z.object({
       name: z.string().trim().min(1).max(40).optional(),
       description: z.string().trim().max(1200).optional(),
+      gender: z.enum(["man", "woman", ""]).optional(),
+      modest: z.boolean().optional(),
+      hijab: z.boolean().optional(),
     }),
   );
   await run(
     c.env.DB,
-    "UPDATE ambassadors SET name = ?, description = ?, updated = ? WHERE id = ?",
+    "UPDATE ambassadors SET name = ?, description = ?, gender = ?, modest = ?, hijab = ?, updated = ? WHERE id = ?",
     d.name ?? r.name,
     d.description ?? r.description,
+    d.gender ?? r.gender,
+    d.modest === undefined ? r.modest : d.modest ? 1 : 0,
+    d.hijab === undefined ? r.hijab : d.hijab ? 1 : 0,
     now(),
     r.id,
   );
@@ -157,10 +172,11 @@ async function storePortrait(env: Env, r: AmbassadorRow, bytes: ArrayBuffer, mim
 ambassadorRoutes.post("/:id/portrait", async (c) => {
   const r = await row(c.env, c.req.param("id"));
   const d = await body(c, z.object({ wish: z.string().max(600).optional() }));
+  if (!r.gender) throw new StudioError(`Choose whether ${r.name} is a man or a woman first.`);
   const engine = await makeGoogleClient(c.env);
   const img = await engine.edit({
     model: "gemini-3-pro-image",
-    prompt: portraitPrompt(r.name, r.description, d.wish ?? ""),
+    prompt: portraitPrompt(r.name, castLook({ ...r, modest: !!r.modest, hijab: !!r.hijab }), d.wish ?? ""),
     images: [],
     aspectRatio: "4:5",
     size: "1K",

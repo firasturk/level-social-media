@@ -10,6 +10,7 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
+import { parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import {
@@ -419,6 +420,27 @@ async function storeResultBytes(
   result: ImageBytes,
   url: string | null,
 ): Promise<void> {
+  // Exact product mode: the engine painted the place; the real product photo is set into it here.
+  // A revision of an exact post edits the finished picture, which already holds the real product.
+  let exactNote = "";
+  if (config.mode === "post" && !task.edit?.trim() && !task.recenter) {
+    const pb = postBrief(task);
+    if (pb.exact) {
+      // A paid scene is never lost: when the placing fails, the scene is kept and flagged.
+      try {
+        const product = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact.source);
+        if (!product) throw new StudioError("the product photo of this post was removed");
+        const { placeProduct } = await import("./exact");
+        const placed = await placeProduct(env, product, result, pb.product ?? "");
+        result = placed.image;
+        url = null;
+        if (!placed.empty) exactNote = "The empty place was not clear: check that nothing stands behind the product.";
+      } catch (e) {
+        console.error("[exact] placing failed", e);
+        exactNote = `The real product could not be placed (${errorMessage(e)}): make it again.`;
+      }
+    }
+  }
   const ext = /jpe?g/i.test(result.mime) ? "jpg" : /webp/i.test(result.mime) ? "webp" : "png";
   const key = `${batch.owner}/${batch.id}/output/${task.id}/${uuid()}.${ext}`;
   await env.BUCKET.put(key, result.bytes, {
@@ -437,8 +459,27 @@ async function storeResultBytes(
   );
 
   let qa: QA;
-  const googleKey = config.mode === "post" ? null : (await resolveGoogleAuth(env)).auth;
-  const openaiKey = googleKey || config.mode === "post" ? null : (await resolveOpenAIKey(env)).key;
+  if (config.mode === "post") {
+    // A post is checked against the real product photo: what changed, writing, bags, drinks, people.
+    try {
+      qa = await reviewPostImage(env, task, result);
+      if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
+    } catch (e) {
+      qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
+    }
+    await run(
+      env.DB,
+      "UPDATE tasks SET status = ?, qa = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+      qa.automated && !qa.flags?.length ? "ready" : "review",
+      JSON.stringify(qa),
+      now(),
+      task.id,
+      key,
+    );
+    return;
+  }
+  const googleKey = (await resolveGoogleAuth(env)).auth;
+  const openaiKey = googleKey ? null : (await resolveOpenAIKey(env)).key;
   if (googleKey || openaiKey) {
     try {
       const source = await first<SourceRow>(
@@ -480,14 +521,11 @@ async function storeResultBytes(
   // An off-centre result is flagged for review, never regenerated on its own: each image is
   // generated once, and a second pass only happens when the team asks for a revision.
 
-  const status =
-    config.mode === "post"
-      ? "ready"
-      : qa.automated
-        ? qa.productConcern || qa.sameFace === false || (wantsCenter && !qa.centered)
-          ? "review"
-          : "ready"
-        : "review";
+  const status = qa.automated
+    ? qa.productConcern || qa.sameFace === false || (wantsCenter && !qa.centered)
+      ? "review"
+      : "ready"
+    : "review";
   // Only while nobody approved or re-queued it in the meantime.
   await run(
     env.DB,
@@ -1535,6 +1573,16 @@ async function referenceEngineUrl(env: Env, client: HiggsfieldClient, id: string
 const SKILL_MODES = new Set(["5", "7", "8"]);
 
 /** The stored brief of a social-media post (written when the post was planned). */
+/** A test post is made at its draft size; everything else at the month's size. */
+function sizeOf(config: Config, task: TaskRow): Config["size"] {
+  if (config.mode !== "post" || !task.brief) return config.size;
+  try {
+    return (JSON.parse(task.brief) as Partial<PostBrief>).draft ?? config.size;
+  } catch {
+    return config.size;
+  }
+}
+
 function postBrief(task: TaskRow): PostBrief {
   if (!task.brief) throw new StudioError("This post has no brief. Generate the posts again.", 500);
   const b = JSON.parse(task.brief) as Partial<PostBrief>;
@@ -1725,7 +1773,7 @@ async function submitTask(
     prompt,
     imageUrls,
     aspectRatio: config.ratio,
-    size: config.size,
+    size: sizeOf(config, task),
     webhookUrl: webhookUrl(env, batch.id),
   };
   return client.submit(job);
@@ -1738,6 +1786,60 @@ async function sourceBytes(env: Env, source: SourceRow): Promise<ImageBytes> {
     (await env.BUCKET.get(source.key));
   if (!obj) throw new StudioError("Original unavailable.", 404);
   return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || source.mime };
+}
+
+/** The automatic review of a post image: the vision model compares it with the product photos. */
+async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Promise<QA> {
+  const pb = postBrief(task);
+  const images: ImageBytes[] = [];
+  const notes: string[] = [];
+  if (pb.hasProduct || pb.exact) {
+    const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact?.source ?? task.source);
+    if (!source) throw new StudioError("Product photo unavailable for review.");
+    images.push(await sourceBytes(env, source));
+    notes.push(pb.product ?? "");
+    for (const x of pb.extraProducts ?? []) {
+      const obj = await env.BUCKET.get(x.key);
+      if (!obj) continue;
+      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      notes.push(x.note ?? "");
+    }
+  }
+  const ctx = {
+    products: images.length,
+    productNotes: notes,
+    type: pb.type,
+    people: (pb.ambassadors ?? []).map((a) => ({ name: a.name, description: a.description })),
+    sellsDrinks: pb.sellsDrinks,
+    coffeeDay: pb.occasionId === "coffee-day",
+  };
+  const instruction = postReviewInstruction(ctx);
+  const all = [...images, result];
+  const google = (await resolveGoogleAuth(env)).auth;
+  const openai = (await resolveOpenAIKey(env)).key;
+  let text: string;
+  if (google) {
+    try {
+      text = await askVisionGoogle(google, instruction, all, POST_REVIEW_SCHEMA);
+    } catch (e) {
+      if (!openai) throw e;
+      text = await askVisionOpenAI(openai, instruction, all);
+    }
+  } else if (openai) text = await askVisionOpenAI(openai, instruction, all);
+  else return manualQA();
+  const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const flags = parsePostReview(JSON.parse(cleaned), ctx);
+  return {
+    found: false,
+    count: 0,
+    box: [],
+    productConcern: flags.some((f) => f.kind === "product" || f.kind === "size" || f.kind === "invented"),
+    notes: flags.length
+      ? `${flags.length} thing${flags.length > 1 ? "s" : ""} to check before publishing.`
+      : "Checked: the product matches its photo; no writing, bags, foreign items or extra people.",
+    automated: true,
+    flags,
+  };
 }
 
 async function outputBytes(env: Env, task: Pick<TaskRow, "output">): Promise<ImageBytes> {
@@ -1869,7 +1971,7 @@ async function submitOpenAITask(
         prompt,
         images,
         aspectRatio: config.ratio,
-        size: config.size,
+        size: sizeOf(config, task),
       });
       const claimed = await run(
         env.DB,
@@ -1918,7 +2020,7 @@ async function submitGoogleBackgroundTask(
     prompt,
     images,
     aspectRatio: config.ratio,
-    size: config.size,
+    size: sizeOf(config, task),
   });
   return `google:${id}`;
 }
@@ -2012,7 +2114,7 @@ async function submitFalTask(
     prompt,
     imageUrls,
     aspectRatio: config.ratio,
-    size: config.size,
+    size: sizeOf(config, task),
   });
   return encodeFalHandle(handle);
 }

@@ -79,6 +79,15 @@ export interface Config {
   plannedAt?: number;
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */
   ambassadors?: string[];
+  /**
+   * Exact product mode: the engine paints the scene with an empty place for the product and the
+   * real product photo is set into it, so the product's pixels never change.
+   */
+  exact?: boolean;
+  /** The post tested before the month is generated (its image is shown on the last screen). */
+  testPost?: number;
+  /** The month this one was continued from ("Continue with the same direction"). */
+  continuedFrom?: string;
   /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
   gridRef?: string;
   gridNotes?: string;

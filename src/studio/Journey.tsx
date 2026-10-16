@@ -4,11 +4,13 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  FlaskConical,
   ImagePlus,
   LoaderCircle,
   Minus,
   Plus,
   RefreshCw,
+  Repeat,
   Sparkles,
   Upload,
   Wand2,
@@ -19,7 +21,7 @@ import LevelLogo from "@/components/LevelLogo";
 import { applyTheme, currentTheme } from "@/theme";
 import { askConfirm, askInput } from "@/lib/confirm";
 import { confetti } from "@/lib/celebrate";
-import type { Ambassador, Client, GalleryItem, Source, Theme, User } from "@shared/types";
+import type { Ambassador, Client, GalleryItem, QA, Source, Theme, User } from "@shared/types";
 import type { BriefNote, BriefStep, Config } from "@shared/config";
 import {
   FORMATS,
@@ -35,7 +37,7 @@ import {
 } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
-import { postProblems } from "@shared/qa";
+import { fixNote, postProblems } from "@shared/qa";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -111,6 +113,16 @@ function readResume(): { client: string; month: string; step: number } | null {
   }
 }
 
+export interface TestPost {
+  index: number;
+  status: string;
+  url: string | null;
+  error: string | null;
+  qa: QA | null;
+  /** Made at 1K: the approved test is made again at the month's size with the rest. */
+  draft: boolean;
+}
+
 export interface JourneyProps {
   user: User;
   clients: Client[];
@@ -121,6 +133,10 @@ export interface JourneyProps {
   onMonth: (m: string) => void;
   batchId: string | null;
   config: Config | null;
+  /** The client's last month before this one, when this month has no plan yet. */
+  previousMonth: string | null;
+  onContinue: () => Promise<void>;
+  continuing: boolean;
   ensurePlan: () => Promise<string>;
   refresh: () => Promise<void>;
   products: Source[];
@@ -132,6 +148,7 @@ export interface JourneyProps {
   format: Format;
   onSettings: (patch: {
     postCount?: number;
+    exact?: boolean;
     format?: Format;
     shots?: string[];
     occasions?: { picked: string[]; custom: NonNullable<MonthOccasions["custom"]> };
@@ -152,6 +169,10 @@ export interface JourneyProps {
   rewriting: boolean;
   onRewrite: (index: number, plan: Post[]) => void;
   onGenerate: () => Promise<void>;
+  /** The post tested before the month is generated, with its image and its review. */
+  testPost: TestPost | null;
+  onTest: (index: number) => Promise<void>;
+  onFixTest: (edit: string) => Promise<void>;
   onDone: () => void;
   /** An image engine is connected (Generate would otherwise fail). */
   engineReady: boolean;
@@ -405,9 +426,12 @@ export default function Journey(p: JourneyProps) {
         out.push(...analysisIssues("brand"));
         break;
       case "identity":
-        for (const a of castPeople)
+        for (const a of castPeople) {
+          if (!a.gender)
+            out.push({ text: `Choose whether ${a.name} is a man or a woman.`, how: "Tick Man or Woman on the ambassador's card." });
           if (!a.image)
             out.push({ text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
+        }
         if (!theme) out.push({ warn: true, text: "No theme: the posts follow the brand identity and get no shots from pins." });
         else if (!theme.references)
           out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
@@ -639,6 +663,25 @@ export default function Journey(p: JourneyProps) {
                   </button>
                 ))}
               </div>
+              {client && p.previousMonth && !p.batchId && (
+                <div className="journey-continue">
+                  <span>
+                    <strong>Continue with the same direction</strong>
+                    <small>
+                      Start {monthLabel(p.month)} from {monthLabel(p.previousMonth)}: the same theme, pins, colours, props,
+                      ambassadors, size and products. The posts and occasions are new.
+                    </small>
+                  </span>
+                  <button type="button" className="primary" disabled={p.continuing} onClick={() => void p.onContinue().then(() => setStep(1))}>
+                    {p.continuing ? <LoaderCircle className="spinning" size={14} /> : <Repeat size={14} />} Continue from {monthLabel(p.previousMonth)}
+                  </button>
+                </div>
+              )}
+              {p.config?.continuedFrom && (
+                <p className="journey-continued">
+                  <Repeat size={13} /> Continued from {monthLabel(p.config.continuedFrom)}: check each screen and press Next.
+                </p>
+              )}
             </div>
           )}
 
@@ -813,6 +856,11 @@ export default function Journey(p: JourneyProps) {
               format={p.format}
               theme={theme}
               config={p.config}
+              testPost={p.testPost}
+              exact={!!p.config?.exact}
+              onExact={(on) => p.onSettings({ exact: on })}
+              onTest={p.onTest}
+              onFixTest={p.onFixTest}
               onGenerate={async () => {
                 confetti();
                 await p.onGenerate();
@@ -1798,6 +1846,11 @@ function MagicStep({
   format,
   theme,
   config,
+  testPost,
+  exact,
+  onExact,
+  onTest,
+  onFixTest,
   onGenerate,
 }: {
   blocked: boolean;
@@ -1808,9 +1861,36 @@ function MagicStep({
   format: Format;
   theme: Theme | null;
   config: Config | null;
+  testPost: TestPost | null;
+  exact: boolean;
+  onExact: (on: boolean) => void;
+  onTest: (index: number) => Promise<void>;
+  onFixTest: (edit: string) => Promise<void>;
   onGenerate: () => Promise<void>;
 }) {
   const [going, setGoing] = useState(false);
+  const [testing, setTesting] = useState(false);
+  // The test post: the most telling one (a product with people, then a product), unless picked.
+  const telling =
+    plan.find((x) => x.type === "lifestyle" && x.product && x.people?.length) ??
+    plan.find((x) => x.product && x.type !== "greeting") ??
+    plan[0];
+  const [pick, setPick] = useState<number>(testPost?.index ?? telling?.index ?? 1);
+  useEffect(() => {
+    if (testPost) setPick(testPost.index);
+  }, [testPost?.index]); // eslint-disable-line react-hooks/exhaustive-deps
+  const testBusy = !!testPost && ["queued", "processing", "finalizing"].includes(testPost.status);
+  const reviewing = !!testPost?.url && !testBusy && !testPost.qa?.automated && /still running/i.test(testPost.qa?.notes ?? "");
+  const flags = testPost?.qa?.automated ? (testPost.qa.flags ?? []) : null;
+  async function runTest() {
+    if (blocked) return onShowIssues();
+    setTesting(true);
+    try {
+      await onTest(pick);
+    } finally {
+      setTesting(false);
+    }
+  }
   const lines = briefLines(config?.brief);
   const shown = useCountUp(plan.length);
   const chosen = !!theme?.palette.length;
@@ -1866,6 +1946,62 @@ function MagicStep({
             ))}
           </div>
         </div>
+        {testPost ? (
+          <div className="journey-box magic-box magic-test">
+            <BoxTitle kit="output">Test post {String(testPost.index).padStart(2, "0")}</BoxTitle>
+            <div className="magic-test-body">
+              <div className="magic-test-image">
+                {testPost.url && !testBusy ? (
+                  <a href={testPost.url} target="_blank" rel="noreferrer" title="Open full size">
+                    <img src={testPost.url} alt={`Test post ${testPost.index}`} />
+                  </a>
+                ) : testPost.status === "failed" ? (
+                  <span className="magic-test-wait">Failed: {testPost.error ?? "try again"}</span>
+                ) : (
+                  <span className="magic-test-wait">
+                    <LoaderCircle className="spinning" size={18} /> Generating…
+                  </span>
+                )}
+              </div>
+              <div className="magic-test-review">
+                {testBusy ? (
+                  <p className="field-hint">The image arrives in about a minute, then I check it against the product photo.</p>
+                ) : reviewing ? (
+                  <p className="field-hint">
+                    <LoaderCircle className="spinning" size={13} /> Checking the product, writing, bags, drinks and people…
+                  </p>
+                ) : flags ? (
+                  flags.length ? (
+                    <>
+                      <strong className="magic-test-warn">Check these</strong>
+                      <ul>
+                        {flags.map((f, i) => (
+                          <li key={i}>{f.text}</li>
+                        ))}
+                      </ul>
+                      <button type="button" className="text-button" onClick={() => void onFixTest(fixNote(flags))}>
+                        <Wand2 size={13} /> Fix these on the test
+                      </button>
+                    </>
+                  ) : (
+                    <strong className="magic-test-ok">
+                      <Check size={14} /> Passed the automatic review
+                    </strong>
+                  )
+                ) : testPost.url ? (
+                  <p className="field-hint">{testPost.qa?.notes || "Look at it before you go on."}</p>
+                ) : null}
+                {testPost.url && !testBusy && (
+                  <p className="field-hint">
+                    {testPost.draft
+                      ? "Made at 1K to check the look; it is made again at full size with the rest."
+                      : "Made at full size: if it looks right it stays as the final image."}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="journey-box magic-box">
           <BoxTitle kit="direction">The logic</BoxTitle>
           {lines.length ? (
@@ -1880,6 +2016,7 @@ function MagicStep({
             <p className="field-hint">The brand kit, the theme and the products steer every post.</p>
           )}
         </div>
+        )}
       </div>
       <button
         type="button"
@@ -1897,8 +2034,30 @@ function MagicStep({
         }}
       >
         {going ? <LoaderCircle className="spinning" size={18} /> : <Sparkles size={18} />}
-        Generate {plan.length} posts
+        {testPost?.url && !testBusy ? `Looks right · generate the other ${Math.max(0, plan.length - (testPost.draft ? 0 : 1))}` : `Generate ${plan.length} posts`}
       </button>
+      <div className="magic-test-row">
+        <label
+          className="check-row magic-exact"
+          title="The engine paints the scene with an empty place, then the real product photo is set into it with its shadow. The product can never change; nobody holds it. Posts with one product."
+        >
+          <input type="checkbox" checked={exact} onChange={(e) => onExact(e.target.checked)} />
+          <strong>Exact product</strong>
+        </label>
+        <i className="magic-test-sep" aria-hidden />
+        <span>{testPost ? "Not right? Test again:" : "Not sure yet? Test one post first:"}</span>
+        <select value={pick} onChange={(e) => setPick(Number(e.target.value))} aria-label="Post to test">
+          {plan.map((x) => (
+            <option key={x.index} value={x.index}>
+              Post {x.index} · {x.title.slice(0, 32)}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="secondary" disabled={testing || testBusy || !plan.length} onClick={() => void runTest()}>
+          {testing || testBusy ? <LoaderCircle className="spinning" size={14} /> : <FlaskConical size={14} />}
+          {testPost ? "Test again" : "Test one post"}
+        </button>
+      </div>
     </div>
   );
 }

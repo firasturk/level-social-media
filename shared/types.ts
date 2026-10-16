@@ -1,3 +1,4 @@
+import type { PostFlag } from "./qa";
 import type { Config } from "./config";
 import type { OverlaySpec } from "./overlay";
 
@@ -85,6 +86,8 @@ export interface QA {
   offset?: number;
   centered?: boolean;
   automated: boolean;
+  /** Post review: what was found wrong (empty when the post passed). */
+  flags?: PostFlag[];
 }
 
 export interface Task {
@@ -267,6 +270,12 @@ export interface Ambassador {
   name: string;
   /** Look: gender, age, features, hair, styling. Written by the designer. */
   description: string;
+  /** Picked from a list, never guessed from the description. */
+  gender: "man" | "woman" | "";
+  /** Shoulders, arms, chest and knees covered (on by default for a family brand). */
+  modest: boolean;
+  /** A woman who wears a hijab. */
+  hijab: boolean;
   /** true when a portrait is stored; served at /ambassadors/:id/image. */
   image: boolean;
   position: number;

@@ -12,9 +12,12 @@ import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch } from "./engine";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
+import { castLook } from "@shared/cast";
+import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
-import { BRIEF_STEPS, type BriefNote, type BriefStep, type Config } from "@shared/config";
+import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
+import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
@@ -667,6 +670,7 @@ interface SourceRow {
   reference_key?: string | null;
   /** What the product photo shows, read by vision (null until read). */
   note?: string | null;
+  category?: string | null;
 }
 
 const MAX_NOTE_BYTES = 6 * 1024 * 1024;
@@ -746,10 +750,12 @@ async function monthAmbassadors(env: Env, config: Config): Promise<AmbassadorRow
   const ids = config.ambassadors ?? [];
   if (!ids.length || !config.client) return [];
   const rows = await ambassadorRows(env, config.client);
+  // Every writer and the image engine read the full look: gender and dress included.
   return ids
     .map((id) => rows.find((r) => r.id === id))
     .filter((r): r is AmbassadorRow => !!r)
-    .slice(0, 3);
+    .slice(0, 3)
+    .map((r) => ({ ...r, description: castLook({ ...r, modest: !!r.modest, hijab: !!r.hijab }) }));
 }
 
 /** A greeting post sits on its occasion's day. */
@@ -1169,6 +1175,7 @@ postRoutes.put("/settings", async (c) => {
       notes: z.string().max(2000).optional(),
       gridRef: z.null().optional(),
       ambassadors: z.array(z.string().max(80)).max(3).optional(),
+      exact: z.boolean().optional(),
       shots: z.array(z.string().trim().max(1200)).max(200).optional(),
       occasions: z
         .object({
@@ -1217,6 +1224,7 @@ postRoutes.put("/settings", async (c) => {
   }
   if (d.notes !== undefined) config.notes = d.notes;
   if (d.ambassadors) config.ambassadors = [...new Set(d.ambassadors)].slice(0, 3);
+  if (d.exact !== undefined) config.exact = d.exact || undefined;
   if (d.gridRef === null) {
     delete config.gridRef;
     delete config.gridNotes;
@@ -1253,6 +1261,8 @@ postRoutes.post("/generate", async (c) => {
       batch: z.string().min(1),
       indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).optional(),
       regenerate: z.boolean().optional(),
+      /** One post first, to check the month's look before the rest is paid for. */
+      test: z.boolean().optional(),
     }),
   );
   const user = c.get("user");
@@ -1260,6 +1270,8 @@ postRoutes.post("/generate", async (c) => {
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
   if (!plan.length) throw new StudioError("Generate ideas first, then the posts.");
+  if (d.test && d.indexes?.length !== 1) throw new StudioError("A test is one post.");
+  const draft = d.test && testSize(config.model, config.size) === "1K" && config.size !== "1K" ? ("1K" as const) : undefined;
   const client = await clientRow(c.env, config.client);
   const theme = config.theme
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
@@ -1275,7 +1287,7 @@ postRoutes.post("/generate", async (c) => {
     : [];
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ?",
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ?",
     b.id,
   );
   // A post may name a product this month does not have (removed, or from another month): it is
@@ -1304,12 +1316,20 @@ postRoutes.post("/generate", async (c) => {
     }
   }
   await describeProducts(c.env, sources);
+  const sellsDrinks = sources.some((s) => s.kind === "product" && FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const tasks = await all<TaskLite>(
     c.env.DB,
     "SELECT id, post, status, output, brief FROM tasks WHERE batch = ?",
     b.id,
   );
   const byPost = new Map(tasks.filter((t) => t.post).map((t) => [t.post!, t]));
+  const isDraft = (t: TaskLite) => {
+    try {
+      return !!(t.brief && (JSON.parse(t.brief) as Partial<PostBrief>).draft);
+    } catch {
+      return false;
+    }
+  };
   const used = new Map<string, number>();
   for (const t of tasks) {
     try {
@@ -1344,7 +1364,8 @@ postRoutes.post("/generate", async (c) => {
     if (existing) {
       const busy = existing.status === "processing" || existing.status === "finalizing";
       if (busy) continue;
-      if (!d.regenerate && existing.status !== "failed") continue;
+      // A smaller test image is made again at the month's size with the rest.
+      if (!d.regenerate && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
     }
     const productSources = sources.filter((s) => s.kind === "product");
     const productNames = productSources.map(productName);
@@ -1376,7 +1397,10 @@ postRoutes.post("/generate", async (c) => {
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
     const refId = gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
-    let sourceId = product?.id;
+    // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
+    const exactProduct =
+      config.exact && product && !extraProducts.length && post.type !== "offer" && refId ? product : undefined;
+    let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId) {
       if (!refId)
         throw new StudioError(
@@ -1419,6 +1443,7 @@ postRoutes.post("/generate", async (c) => {
     }
     const brief: PostBrief = {
       post: true,
+      draft,
       take,
       index: post.index,
       type: post.type,
@@ -1437,8 +1462,9 @@ postRoutes.post("/generate", async (c) => {
       tile: config.gridRef ? post.tile : undefined,
       format: config.format ?? "4:5",
       ref: refId,
-      refIsSource: !product && !!refId,
-      hasProduct: !!product,
+      refIsSource: (!product || !!exactProduct) && !!refId,
+      hasProduct: !!product && !exactProduct,
+      exact: exactProduct ? { source: exactProduct.id } : undefined,
       // Only what the photo shows: a file name in the prompt ends up printed on the packaging.
       product: product ? product.note?.trim() || undefined : undefined,
       // Every name the post carries is kept off the picture, found in the month or not.
@@ -1446,6 +1472,8 @@ postRoutes.post("/generate", async (c) => {
       extraProducts: extraProducts.length ? extraProducts : undefined,
       occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: portraitDay } : undefined,
       offer: post.type === "offer" ? post.offer : undefined,
+      sellsDrinks: sellsDrinks || undefined,
+      occasionId: post.occasion || undefined,
       ambassadors: (() => {
         if (portraitDay) return undefined;
         const list = (post.people ?? [])
@@ -1483,6 +1511,12 @@ postRoutes.post("/generate", async (c) => {
     planned++;
   }
   if (!planned) throw new StudioError("Nothing to generate: every post already has an image.");
+  if (d.test) {
+    config.testPost = d.indexes![0];
+    statements.push(
+      c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
+    );
+  }
   statements.push(
     c.env.DB
       .prepare(
@@ -1497,7 +1531,7 @@ postRoutes.post("/generate", async (c) => {
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return c.json({ ok: true, planned, skipped, missingProduct });
+  return c.json({ ok: true, planned, skipped, missingProduct, draft: !!draft });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */
@@ -1731,6 +1765,70 @@ postRoutes.post("/gallery/add", async (c) => {
   for (const id of d.ids) if (await copyGalleryProduct(c.env, user.id, b, config.client, id, have)) added++;
   await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
   return c.json({ ok: true, added });
+});
+
+/**
+ * "Continue with the same direction": a new month that starts from the client's last month: the
+ * theme (pins, colours, props, shots), the cast, the size and count, last month's products and the
+ * brand, theme and colour notes. The posts, occasions and shots are written fresh for the new month.
+ */
+postRoutes.post("/continue", async (c) => {
+  const d = await body(c, z.object({ client: z.string().min(1).max(80), month: z.string().regex(/^\d{4}-\d{2}$/) }));
+  const user = c.get("user");
+  await requireActiveClient(c.env, d.client);
+  const taken = await first(c.env.DB, "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ?", user.id, d.client, d.month);
+  if (taken) throw new StudioError("This month already has a plan.", 409);
+  const prev = await first<BatchRow>(
+    c.env.DB,
+    "SELECT * FROM batches WHERE owner = ? AND client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
+    user.id,
+    d.client,
+    d.month,
+  );
+  if (!prev) throw new StudioError("There is no earlier month for this account yet.", 404);
+  const old = JSON.parse(prev.config) as Config;
+  const keep = (["products", "brand", "theme", "colours"] as const).filter((k) => old.brief?.[k]);
+  const config = postConfig(d.client, d.month, {
+    theme: old.theme,
+    model: old.model,
+    format: old.format,
+    ratio: old.ratio,
+    size: old.size,
+    economy: old.economy,
+    output: old.output,
+    outputQuality: old.outputQuality,
+    outputSize: old.outputSize,
+    postCount: old.postCount,
+    ambassadors: old.ambassadors,
+    exact: old.exact,
+    brief: keep.length ? Object.fromEntries(keep.map((k) => [k, old.brief![k]!])) : undefined,
+    continuedFrom: old.month,
+  });
+  const id = uuid();
+  const client = await first<{ name: string }>(c.env.DB, "SELECT name FROM clients WHERE id = ?", d.client);
+  await run(
+    c.env.DB,
+    "INSERT INTO batches (id, owner, name, config, client, month, theme, state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)",
+    id,
+    user.id,
+    `${client?.name ?? "Client"} · ${d.month}`.slice(0, 100),
+    JSON.stringify(config),
+    d.client,
+    d.month,
+    config.theme ?? null,
+    now(),
+    now(),
+  );
+  const b = (await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", id))!;
+  const products = await all<{ id: string }>(
+    c.env.DB,
+    "SELECT id FROM sources WHERE batch = ? AND kind = 'product' ORDER BY created",
+    prev.id,
+  );
+  const have = new Set<string>();
+  let copied = 0;
+  for (const p of products) if (await copyGalleryProduct(c.env, user.id, b, d.client, p.id, have)) copied++;
+  return c.json({ ok: true, id, from: old.month, products: copied });
 });
 
 /** The "count" screen needs no model: products, posts and the month's occasions. */

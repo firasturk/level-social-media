@@ -22,6 +22,7 @@
     "check": "node scripts/stub-assets.mjs && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
+    "@cf-wasm/photon": "0.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fflate": "^0.8.2",

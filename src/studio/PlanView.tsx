@@ -3,6 +3,7 @@ import {
   Clapperboard,
   Download,
   AlertTriangle,
+  Check,
   Eye,
   FileText,
   Grid3x3,
@@ -19,7 +20,8 @@ import {
 } from "lucide-react";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
-import type { Ambassador, Client, Source, Task } from "@shared/types";
+import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
+import type { PostFlag } from "@shared/qa";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -538,6 +540,18 @@ export default function PlanView({
                       </span>
                     )}
                     {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
+                    {t?.output && !inFlight && (() => {
+                      const flags = reviewFlags(t);
+                      if (!flags) return null;
+                      return (
+                        <span
+                          className={`post-review-chip ${flags.length ? "warn" : "pass"}`}
+                          title={flags.length ? flags.map((f) => f.text).join("\n") : "Automatic review passed"}
+                        >
+                          {flags.length ? <><AlertTriangle size={12} /> {flags.length} to check</> : <><Check size={12} /> Checked</>}
+                        </span>
+                      );
+                    })()}
                     {product && !img && (
                       <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />
                     )}
@@ -962,4 +976,15 @@ function OccasionNote({ post, month, sel }: { post: Post; month: string; sel?: M
       {missing ? " · upload the official portrait (Start journey → Posts)" : o.portrait ? " · official portrait framed on the design" : ""}
     </p>
   );
+}
+
+/** The automatic review's findings on a post image, or null when it was not reviewed. */
+function reviewFlags(t: Task): PostFlag[] | null {
+  if (!t.qa) return null;
+  try {
+    const qa = JSON.parse(t.qa) as QA;
+    return qa.automated && qa.flags ? qa.flags : null;
+  } catch {
+    return null;
+  }
 }

@@ -5382,6 +5382,16 @@ label.num select {
 .amb-fields textarea {
   font-size: 12px;
 }
+.amb-profile {
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.amb-profile .check-row {
+  gap: 4px;
+}
 .amb-actions {
   display: flex;
   align-items: center;
@@ -5850,6 +5860,46 @@ label.num select {
 }
 .journey-client-logo strong {
   font-size: 26px;
+}
+.journey-continue {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 640px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent, #2f6bff);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent, #2f6bff) 7%, transparent);
+  text-align: left;
+  animation: journey-rise 700ms var(--ease-out) 700ms both;
+}
+.journey-continue > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.journey-continue small {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.journey-continue button {
+  white-space: nowrap;
+}
+.journey-continued {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+@media (max-width: 640px) {
+  .journey-continue {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 .journey-months {
   display: flex;
@@ -7656,4 +7706,130 @@ label.num select {
     left: 12px;
     right: 12px;
   }
+}
+
+/* Automatic review of a post image */
+.post-review-chip {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.18);
+}
+.post-review-chip.pass {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.post-review-chip.warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.post-review {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+.post-review.pass {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.post-review.warn {
+  background: var(--warning-soft);
+  color: var(--ink-900);
+}
+.post-review ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.post-review-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The test post on the last journey screen */
+.magic-test-body {
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+}
+.magic-test-image {
+  flex: 0 0 42%;
+  aspect-ratio: 4 / 5;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2, #f1f1f1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.magic-test-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.magic-test-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+  padding: 8px;
+  text-align: center;
+}
+.magic-test-review {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.magic-test-review ul {
+  margin: 0;
+  padding-left: 16px;
+}
+.magic-test-warn {
+  color: var(--warning);
+}
+.magic-test-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+}
+.magic-test-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: -4px;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.magic-test-row select {
+  max-width: 260px;
+}
+.magic-exact {
+  margin: 0;
+  gap: 6px;
+  color: var(--ink-700);
+  cursor: pointer;
+}
+.magic-test-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 6px;
 }

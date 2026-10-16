@@ -99,3 +99,13 @@ export function formatUsd(n: number): string {
   if (n >= 10) return `$${n.toFixed(1)}`;
   return `$${n.toFixed(2)}`;
 }
+
+/**
+ * The size of the test post: 1K when it costs less than the month's size (it is then made again
+ * with the rest), otherwise the month's own size, so the approved test is kept as the final image.
+ */
+export function testSize(model: string | undefined, size: "1K" | "2K" | "4K"): "1K" | "2K" | "4K" {
+  const r = rateFor(model);
+  if (!r) return "1K";
+  return r["1K"] < r[size] ? "1K" : size;
+}

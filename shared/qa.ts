@@ -19,6 +19,7 @@ const BAGS = /\b(bags?|carriers?|baskets?|totes?|shopping)\b/i;
 const MALE = /\b(man|male|boy|gentleman|husband|father|son)\b|رجل|شاب|ولد/i;
 const FEMALE = /\b(woman|female|girl|lady|wife|mother|daughter)\b|امرأة|بنت|سيدة|فتاة/i;
 const WOMENS_WEAR = /\b(headscarf|head scarf|hijab|veil|dress|skirt|abaya)\b|حجاب|فستان|تنورة/i;
+const IMMODEST = /\b(bare[- ]shoulders?|bare arms|sleeveless|strapless|off[- ]the[- ]shoulder|off[- ]shoulder|tank top|crop top|mini ?skirt|shorts|low[- ]cut|plunging|swimsuit|bikini)\b/i;
 
 function norm(t: string): string {
   return decodeEntities(t)
@@ -62,7 +63,7 @@ export function postProblems(
     /** Display names of the month's product photos. */
     products: string[];
     /** The month's cast with their look, to know each one's gender. */
-    cast: { name: string; description: string }[];
+    cast: { name: string; description: string; gender?: string; modest?: boolean }[];
     /** The client sells drinks: cups and glasses are then its own products. */
     sellsDrinks?: boolean;
     /** The theme has shots, so every post should have its own. */
@@ -101,8 +102,111 @@ export function postProblems(
     out.push({ index: n, text: `shows ${extraScene.join(", ")} in its picture, which is not one of its products`, fix: scene ? "shot" : "post" });
   for (const name of post.people ?? []) {
     const a = ctx.cast.find((x) => x.name.toLowerCase() === name.toLowerCase());
-    if (a && MALE.test(a.description) && !FEMALE.test(a.description) && WOMENS_WEAR.test(`${scene} ${post.brief}`))
+    if (!a) continue;
+    const man = a.gender ? a.gender === "man" : MALE.test(a.description) && !FEMALE.test(a.description);
+    if (man && WOMENS_WEAR.test(`${scene} ${post.brief}`))
       out.push({ index: n, text: `dresses ${a.name} (a man) in a headscarf or a dress`, fix: scene ? "shot" : "post" });
+    const bare = IMMODEST.exec(`${scene} ${post.brief}`);
+    if (a.modest !== false && bare)
+      out.push({ index: n, text: `shows "${bare[0]}" although ${a.name} dresses modestly`, fix: scene ? "shot" : "post" });
   }
   return out;
+}
+
+/* ───────────── The automatic review of a finished post image ───────────── */
+
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people";
+
+/** One thing the review found wrong in a generated post. */
+export interface PostFlag {
+  kind: FlagKind;
+  text: string;
+}
+
+export const POST_REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    productSame: { type: "boolean" },
+    productIssue: { type: "string" },
+    sizeRight: { type: "boolean" },
+    invented: { type: "string" },
+    text: { type: "string" },
+    bag: { type: "boolean" },
+    foreign: { type: "array", items: { type: "string" } },
+    people: { type: "string" },
+  },
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people"],
+};
+
+/** What the reviewer is told about the post it checks. */
+export interface ReviewContext {
+  /** Number of product photos attached before the result (0 for a post without a product). */
+  products: number;
+  /** What each product photo shows, in order. */
+  productNotes: string[];
+  type: string;
+  /** The people the post may show, with their look; empty means nobody (a hand at most). */
+  people: { name: string; description: string }[];
+  /** The client sells drinks: cups and glasses are then allowed. */
+  sellsDrinks?: boolean;
+  /** Coffee Day may show coffee. */
+  coffeeDay?: boolean;
+}
+
+export function postReviewInstruction(r: ReviewContext): string {
+  const k = r.products;
+  return [
+    "You are the art director checking one generated social-media post image before the designer sees it. Be strict and concrete: the brand's real product must never change.",
+    k
+      ? `${k > 1 ? `Images 1 to ${k} are the real product photos` : "Image 1 is the real product photo"} (the truth${r.productNotes.some(Boolean) ? `: ${r.productNotes.map((n, i) => `image ${i + 1}: ${n || "the product"}`).join("; ")}` : ""}). Image ${k + 1} is the generated post.`
+      : "The only image is the generated post. This post has no product photo: no product, box or package of the brand should be in it.",
+    k
+      ? "productSame: judge only the product itself, never the props or the set around it. productSame: true only if every product in the post looks like its photo: the same shape, proportions, colours, packaging, lid, label artwork and open or closed state (a closed box stays closed; colours never changed to match the scene). productIssue: when false, say in one short sentence what changed (\"the box is navy instead of white\", \"the tin lost its gold lid\"), else \"\"."
+      : 'productSame: always true. productIssue: "".',
+    k
+      ? "sizeRight: true when each product has its real size next to hands and furniture (a gift box about a forearm wide, one sweet between two fingers) and is held naturally (level, from below, or set on a surface); false when it is giant or tiny, balanced on fingertips or hanging from a finger."
+      : "sizeRight: always true.",
+    `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "". Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
+    "text: quote or describe any letters, words, numbers, logos or labels anywhere in the post that are NOT the product's own printed packaging from its photo (signs, invented brand names, gibberish lettering, price tags), else \"\".",
+    "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
+    r.sellsDrinks || r.coffeeDay
+      ? 'foreign: [] (the brand may show drinks here).'
+      : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do.",
+    r.people.length
+      ? `people: the post may show only ${r.people.map((p) => `${p.name} (${p.description})`).join("; ")}. Describe in one sentence any problem: more people than these, a man in a headscarf, hijab or dress, clothes that break the look (bare shoulders, a low neckline or short skirt when the look says modest; a hijab missing or added against the look), or broken hands, fingers or faces. Else "".`
+      : 'people: this post shows nobody (a hand at most). Describe any person, face or body that appears, or broken hands or fingers. Else "".',
+    `Post type: ${r.type}. Return ONLY the JSON.`,
+  ].join("\n");
+}
+
+export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay">): PostFlag[] {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const none = (t: string) => !t || /^(none|no|n\/a|nothing|-)\.?$/i.test(t);
+  const out: PostFlag[] = [];
+  if (r.products && d.productSame === false)
+    out.push({ kind: "product", text: str(d.productIssue) || "The product does not look like its photo." });
+  if (r.products && d.sizeRight === false) out.push({ kind: "size", text: "The product's size or the way it is held is not real." });
+  if (!none(str(d.invented))) out.push({ kind: "invented", text: `Invented product: ${str(d.invented)}` });
+  if (!none(str(d.text))) out.push({ kind: "text", text: `Writing in the picture: ${str(d.text)}` });
+  if (d.bag === true) out.push({ kind: "bag", text: "The product is in or next to a bag." });
+  const foreign = Array.isArray(d.foreign) ? (d.foreign as unknown[]).map(str).filter((x) => !none(x)) : [];
+  if (foreign.length && !r.sellsDrinks && !r.coffeeDay)
+    out.push({ kind: "foreign", text: `Shows what the brand does not sell: ${foreign.join(", ")}` });
+  if (!none(str(d.people))) out.push({ kind: "people", text: str(d.people) });
+  return out;
+}
+
+/** The revision note that asks the engine to fix exactly what the review found. */
+export function fixNote(flags: PostFlag[]): string {
+  const ask: Record<FlagKind, string> = {
+    product: "Make the product exactly as in its photo: the same shape, colours, packaging, lid and label",
+    size: "Give the product its real size and hold it naturally, level with both hands or set on a surface",
+    invented: "Remove every product, box or package that is not in the product photos",
+    text: "Remove all writing, letters, numbers and logos that are not on the product's own packaging",
+    bag: "Remove the bag, carrier or basket; the product is held or set on a surface",
+    foreign: "Remove every drink, cup, glass, bottle and food that is not the brand's product",
+    people: "Fix the people as described",
+  };
+  return flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }

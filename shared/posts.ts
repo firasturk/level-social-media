@@ -147,6 +147,13 @@ export interface Post {
 export interface PostBrief {
   post: true;
   index: number;
+  /** A test post made smaller than the month's size: it is made again with the rest. */
+  draft?: "1K";
+  /**
+   * Exact product mode: the engine paints the scene with an empty place, and the real photo of this
+   * product (sources.id) is set into it afterwards, so the product is never redrawn.
+   */
+  exact?: { source: string };
   type: PostType;
   title: string;
   brief: string;
@@ -182,6 +189,10 @@ export interface PostBrief {
   occasion?: { name: string; elements: string; portrait?: boolean };
   /** An offer post's contents, as the designer set them. */
   offer?: PostOffer;
+  /** The client sells drinks (the review then allows cups and glasses). */
+  sellsDrinks?: boolean;
+  /** The post's occasion id (Coffee Day may show coffee). */
+  occasionId?: string;
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
   extraProducts?: { name: string; note?: string; key: string }[];
   /** Brand ambassadors in this post, attached after the products: name, look and portrait key. */
@@ -422,7 +433,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   // Sentences that put a product into a bag or a carrier (older briefs and shots) never reach the
   // engine: the product is held or set down, never packed into something.
   const unbagged = (t: string) =>
-    b.hasProduct
+    b.hasProduct || b.exact
       ? t
           .split(/(?<=[.!?])\s+/)
           .filter((x) => !/\b(bags?|carriers?|baskets?|totes?|shopping)\b/i.test(x))
@@ -458,6 +469,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(`Image ${n} is a style reference: ${styleRef}.`);
   }
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
+  if (b.exact && !images.revision)
+    parts.push(
+      "THE PRODUCT IS NOT IN THIS PICTURE: the brand's real product photo is set in afterwards. Wherever the post or the shot below describes the product (a box, tin, tray, package or its sweets, open or closed, with its lid), that describes the photo added later: draw none of it, not even a similar or empty one; leave its place as plain empty surface.",
+    );
   if (images.revision)
     parts.push(
       "The last image is the previous result of this post: apply the revision below to it and keep everything else.",
@@ -505,6 +520,14 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to the props, fabrics and accents.`,
     );
+  if (b.exact && images.revision)
+    parts.push(
+      "THE PRODUCT in the previous result is the real product photo, set in exactly: keep it untouched, pixel for pixel (shape, colours, packaging, size and position); change only what the revision asks around it.",
+    );
+  else if (b.exact)
+    parts.push(
+      `EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.`,
+    );
   if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, HANDLING_RULE);
   else
     parts.push(
@@ -525,6 +548,8 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (people.length) parts.push(SAFE_WORDING_RULE);
   parts.push(NO_DESIGN_RULE);
   if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
+  if (b.exact && !images.revision)
+    parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
   parts.push(AVOID);
   return parts.join("\n\n");
 }

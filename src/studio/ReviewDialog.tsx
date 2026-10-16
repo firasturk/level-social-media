@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { QA, Source, Task } from "@shared/types";
+import { fixNote } from "@shared/qa";
 import Zoomable from "./Zoomable";
 import CompareSlider from "./CompareSlider";
 
@@ -97,6 +98,7 @@ export default function ReviewDialog({
   onDownload,
   onDownloadSet,
   onSaveLook,
+  onRemake,
   onPrev,
   onNext,
 }: {
@@ -114,6 +116,8 @@ export default function ReviewDialog({
   onDownloadSet?: () => void;
   /** Save this image's skill prompt as a reusable look; absent outside skill campaigns. */
   onSaveLook?: () => void;
+  /** A post made again from its brief (a new picture, not an edit of this one). */
+  onRemake?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
 }) {
@@ -228,7 +232,39 @@ export default function ReviewDialog({
               <ScanLine size={18} />
               <strong>Image review</strong>
             </div>
-            {qa && (
+            {qa?.flags && (
+              <div className={`post-review ${qa.flags.length ? "warn" : "pass"}`}>
+                <strong>{qa.flags.length ? "Automatic review: check these" : "Automatic review passed"}</strong>
+                {qa.flags.length ? (
+                  <ul>
+                    {qa.flags.map((f, i) => (
+                      <li key={i}>{f.text}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span>{qa.notes}</span>
+                )}
+                {qa.flags.length > 0 && (
+                  <div className="post-review-actions">
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={busy || inFlight}
+                      onClick={() => void onRevise(fixNote(qa.flags!))}
+                      title="Edit this image to fix exactly what the review found"
+                    >
+                      <RefreshCw size={15} /> Fix these
+                    </button>
+                    {onRemake && (
+                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={onRemake} title="A new picture from the same post">
+                        Make it again
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {qa && !qa.flags && (
               <div className="qa-strip">
                 <span className={`qa-chip ${fabric ? "" : qa.centered ? "pass" : "warn"}`}>
                   Alignment:{" "}
