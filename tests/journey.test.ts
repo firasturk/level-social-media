@@ -58,12 +58,12 @@ describe("the brief", () => {
       products: [],
       month: "2026-05",
       count: 4,
-      occasions: [{ date: "2026-05-25", name: "Independence Day" }],
+      occasions: [{ id: "independence", date: "2026-05-25", name: "Independence Day", elements: "flag colours" }],
       brief: ["Show tins by their handle."],
     });
     expect(text).toContain("CREATIVE BRIEF");
     expect(text).toContain("Show tins by their handle.");
-    expect(text).toContain("2026-05-25 Independence Day");
+    expect(text).toContain('2026-05-25 Independence Day (occasion "independence")');
     expect(text).toContain('date (the posting day');
   });
 });

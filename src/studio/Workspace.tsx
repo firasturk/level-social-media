@@ -282,7 +282,12 @@ export default function Workspace({
   }
 
   async function updateSettings(
-    patch: Partial<OutputSettings> & { theme?: string; ambassadors?: string[]; shots?: string[] },
+    patch: Partial<OutputSettings> & {
+      theme?: string;
+      ambassadors?: string[];
+      shots?: string[];
+      occasions?: { picked: string[]; custom: { id: string; date: string; name: string; elements?: string }[] };
+    },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
     if (!batch) return;
@@ -377,6 +382,23 @@ export default function Workspace({
     }
   }
 
+  /** A post whose type changed (or whose offer was filled) is written again for it; no image yet. */
+  async function rewritePost(index: number, next: Post[]) {
+    if (!batch) return;
+    setBusy("reidea");
+    try {
+      await put("/api/studio/posts/plan", { batch: batch.id, plan: next });
+      const r = await post<{ post: Post }>("/api/studio/posts/reidea", { batch: batch.id, index });
+      await refresh();
+      toast.success(`Post ${index} rewritten as ${r.post.type === "offer" ? "an offer" : r.post.type}. Generate it when ready.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+      await refresh();
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function generateIdeas(notes: string): Promise<boolean> {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
@@ -460,13 +482,15 @@ export default function Workspace({
     askNotifications();
     setBusy("generate");
     try {
-      const r = await post<{ planned: number }>("/api/studio/posts/generate", {
+      const r = await post<{ planned: number; skipped?: number[] }>("/api/studio/posts/generate", {
         batch: batch.id,
         indexes,
         regenerate,
       });
       await refresh();
-      toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
+      if (r.planned) toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
+      if (r.skipped?.length)
+        toast.warning(`Offer post${r.skipped.length > 1 ? "s" : ""} ${r.skipped.join(", ")} not generated: fill the offer's products, price and contents first.`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -839,6 +863,8 @@ export default function Workspace({
                 })()}
                 onResume={() => void resumeMonth()}
                 approvals={config?.approvals}
+                monthOccasions={config?.occasions}
+                onRewrite={(i, next) => void rewritePost(i, next)}
               />
             </div>
           </>

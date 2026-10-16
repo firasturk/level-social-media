@@ -1,3 +1,4 @@
+import type { MonthOccasions } from "./occasions";
 import type { Post, Format } from "./posts";
 
 /** "post" is Level Social Media's month of posts; the numbered approaches are the fashion studio's. */
@@ -83,6 +84,8 @@ export interface Config {
   gridNotes?: string;
   /** The creative brief of the journey: what each step's analysis understood. */
   brief?: Partial<Record<BriefStep, BriefNote>>;
+  /** The occasions this month posts (picked from the calendar or added by the team). */
+  occasions?: MonthOccasions;
   /** The theme's shots rewritten for this month's products and colours (the month uses these). */
   shots?: string[];
   /** What the month's shots were written from (theme shots, products, colours), to know when they are stale. */

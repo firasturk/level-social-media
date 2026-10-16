@@ -17,6 +17,7 @@ export const POST_TYPES = [
   "announcement",
   "behind",
   "testimonial",
+  "greeting",
 ] as const;
 export type PostType = (typeof POST_TYPES)[number];
 
@@ -72,7 +73,27 @@ export const POST_TYPE_INFO: Record<
     description: "A customer moment; the image leaves room for the quote.",
     needsProduct: false,
   },
+  greeting: {
+    label: "Occasion greeting",
+    labelAr: "تهنئة مناسبة",
+    description: "A greeting for an occasion the designer picked, designed in the theme with the occasion's elements.",
+    needsProduct: false,
+  },
 };
+
+/** What an offer post must carry before it can be generated: the designer fills all of it. */
+export interface PostOffer {
+  /** Products in the offer, by upload name (one or more). */
+  products: string[];
+  /** The price as it is written on the post ("15 JD", "٢ علب بـ ١٥ دينار"). */
+  price: string;
+  /** What the offer is: contents, conditions, dates. */
+  details: string;
+}
+
+export function offerReady(o: PostOffer | undefined): boolean {
+  return !!o && o.products.length > 0 && !!o.price.trim() && !!o.details.trim();
+}
 
 export const FORMATS = ["1:1", "4:5", "9:16"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -114,6 +135,10 @@ export interface Post {
   shot?: number;
   /** Posting day, YYYY-MM-DD, inside the month. */
   date?: string;
+  /** The occasion a greeting post is for (occasion id). */
+  occasion?: string;
+  /** An offer post's contents, filled by the designer. */
+  offer?: PostOffer;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -151,6 +176,10 @@ export interface PostBrief {
   shot?: string;
   /** Every product name of the month, so the prompt can keep file names away from the model. */
   productNames?: string[];
+  /** A greeting post's occasion: what it is built from; royal days leave room for the portrait. */
+  occasion?: { name: string; elements: string; portrait?: boolean };
+  /** An offer post's contents, as the designer set them. */
+  offer?: PostOffer;
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
   extraProducts?: { name: string; note?: string; key: string }[];
   /** Brand ambassadors in this post, attached after the products: name, look and portrait key. */
@@ -346,11 +375,11 @@ export const NO_PEOPLE_RULE =
 
 /** Ambassadors in the post: only them, from their portraits. */
 export const ONLY_AMBASSADORS_RULE =
-  "PEOPLE: only the ambassadors from the attached portraits, each exactly once, each with one head, two arms, two hands with five fingers, natural face and expression. No other people: no friends, crowds, staff or passers-by, whatever the style reference shows.";
+  "PEOPLE: only the ambassadors from the attached portraits, each exactly once, each with one head, two arms, two hands with five fingers, natural face and expression. No other people: no friends, crowds, staff or passers-by, whatever the style reference shows. Each ambassador keeps their own gender, face, hair and build from the portrait: the reference's person is replaced, never copied onto them, so clothing that belongs to another gender (a headscarf or hijab, a dress or a skirt on a man; a beard on a woman) is never put on an ambassador; they wear clothes that fit them, in the month's colours.";
 
 /** The product is photographed, never invented: nothing is added to it, nothing else is food. */
 export const PRODUCT_TRUTH_RULE =
-  "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
+  "PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.";
 
 /** The photo is only the photograph: the logo, the corner mark and any band or frame come later. */
 export const NO_DESIGN_RULE =
@@ -358,6 +387,19 @@ export const NO_DESIGN_RULE =
 
 const AVOID =
   "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
+
+/** What the picture must be for the post's type: a greeting, a text-led tip or quote, an offer. */
+function postTypeRule(b: PostBrief): string {
+  if (b.type === "greeting" && b.occasion)
+    return b.occasion.portrait
+      ? `OCCASION (${b.occasion.name}): a dignified greeting design in the month's colours and the theme's light, built from ${b.occasion.elements}. The upper middle of the frame stays an empty, calm, softly lit space framed by the design: an official portrait is placed there later. No person, face, silhouette, portrait, photo frame with a person, crown, coat of arms or text is drawn anywhere.`
+      : `OCCASION (${b.occasion.name}): a greeting picture for this occasion in the theme's world, built from ${b.occasion.elements}, in the month's colours and the theme's light. No text.`;
+  if (b.type === "tip" || b.type === "quote")
+    return "TEXT-LED POST: a calm, minimal picture with one large clean area (about half the frame, a plain wall or surface) for the words added later; the product, when attached, is small and to one side, never crowded.";
+  if (b.type === "offer" && b.offer)
+    return "OFFER: the offer's products together, clearly visible and whole, as a crisp commercial offer shot; a calm area is left for the price added later.";
+  return "";
+}
 
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
@@ -412,6 +454,8 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
     );
   parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
+  const typeRule = postTypeRule(b);
+  if (typeRule) parts.push(typeRule);
   const theme = chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
   if (style) parts.push(`CLIENT STYLE:\n${style}`);
@@ -520,8 +564,9 @@ export const IDEAS_SCHEMA = {
           shot: { type: "integer" },
           people: { type: "array", items: { type: "string" } },
           date: { type: "string" },
+          occasion: { type: "string" },
         },
-        required: ["type", "title", "brief", "caption", "hashtags", "product", "products", "headline", "subline", "shot", "people", "date"],
+        required: ["type", "title", "brief", "caption", "hashtags", "product", "products", "headline", "subline", "shot", "people", "date", "occasion"],
       },
     },
   },
@@ -559,8 +604,8 @@ export interface IdeasRequest {
   notes?: string;
   /** Post types to prefer, when the designer limited them. */
   types?: PostType[];
-  /** The month's occasions in the client's country, with their dates. */
-  occasions?: { date: string; name: string }[];
+  /** The occasions the designer picked for this month: each gets one greeting post. */
+  occasions?: { id: string; date: string; name: string; elements: string; portrait?: boolean }[];
   /** The creative brief agreed step by step in the journey: one logic line per step. */
   brief?: string[];
   /** A client with no products: the service it offers. */
@@ -578,7 +623,12 @@ function datesBlock(r: IdeasRequest): string {
   return [
     `POSTING DATES: give every post a date (field "date", YYYY-MM-DD) inside ${monthLabel(r.month)}, in posting order, spread across the month (no two posts on the same day unless there are more posts than days).`,
     r.occasions?.length
-      ? `OCCASIONS THIS MONTH IN JORDAN: ${r.occasions.map((o) => `${o.date} ${o.name}`).join("; ")}. Give each relevant occasion one post dated on its day (or the day before), whose headline and caption speak to it in the client's tone; the rest of the month stays on the theme.`
+      ? `OCCASIONS THE DESIGNER PICKED (each gets exactly ONE post of type "greeting", dated on its day, with the occasion's id in the field "occasion"; no other occasion is posted):\n${r.occasions
+          .map(
+            (o) =>
+              `- ${o.date} ${o.name} (occasion "${o.id}"): build it from ${o.elements}.${o.portrait ? " ROYAL DAY: no product and no person in the picture; an empty, dignified framed space in the upper middle is left for the official portrait added later; the headline and caption are a respectful greeting." : " The client's product may sit in the scene when it fits the moment; the headline is the greeting in the client's tone."}`,
+          )
+          .join("\n")}`
       : "",
   ]
     .filter(Boolean)
@@ -606,7 +656,7 @@ const PRODUCT_ONLY_IDEAS =
 /** The month's ambassadors as an instruction block for the ideas writer (empty when none). */
 function ambassadorsBlock(r: IdeasRequest): string {
   if (!r.ambassadors?.length) return "";
-  return `BRAND AMBASSADORS THIS MONTH (the brand's recurring people; their portraits keep the same faces in every post): ${r.ambassadors.map((a) => `${a.name}${a.description ? ` (${a.description})` : ""}`).join("; ")}. Whenever a post shows a person, cast one or more of these ambassadors by name in the field "people" (1-3 names, exact spelling) and name them in the brief with what they do; they are the only people who appear. Spread them across the month so each appears, and leave "people" empty for product-only posts. The client's ALWAYS and NEVER rules still apply.`;
+  return `BRAND AMBASSADORS THIS MONTH (the brand's recurring people; their portraits keep the same faces in every post): ${r.ambassadors.map((a) => `${a.name}${a.description ? ` (${a.description})` : ""}`).join("; ")}. Whenever a post shows a person, cast one or more of these ambassadors by name in the field "people" (1-3 names, exact spelling) and name them in the brief with what they do; they are the only people who appear. Cast by fit: a shot whose person is a woman gets a woman ambassador and a man's gets a man; when no cast ambassador fits, rewrite the person and their clothes to fit the ambassador (a man never wears a headscarf, a hijab or a dress) or show hands only. Spread them across the month so each appears, and leave "people" empty for product-only posts. The client's ALWAYS and NEVER rules still apply.`;
 }
 
 /** What language the caption, headline and subline are written in. */
@@ -658,8 +708,10 @@ ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` 
         : "No product photos were uploaded: set product to an empty string for every post.",
     r.props?.trim() ? `PROPS TO USE: ${r.props.trim()}. Work them into the scenes naturally (not every post needs all of them) and mention them in the briefs.` : "",
     r.notes ? `DESIGNER NOTES FOR THIS MONTH: ${r.notes}` : "",
-    `POST TYPES (field "type", use a varied mix across the month, never the same type twice in a row, and respect the month's occasions in the region when relevant):\n${types}`,
-    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []), date (the posting day, YYYY-MM-DD).`,
+    r.types?.length
+      ? `POST TYPES (field "type", only these, mixed across the month):\n${types}`
+      : `POST TYPES (field "type"): every post is "lifestyle": ${r.products.length ? "the client's product living in a real moment of the theme's world (held, served, carried, on a table), the product clearly visible" : "a real moment of the theme's world that the client's offer is about"}. The only exceptions are the picked occasions (type "greeting"). Never write "offer" posts: offers are set by the designer with their products and price. Never write a "quote" or "tip" post unless the designer's notes ask for one.`,
+    `For each post write: title (3-6 words, internal), brief (3-5 sentences describing ONE photograph for the image engine: the place, the subject, what happens, where the product is and what it does, the light and the mood; concrete and visual, no slogans, no text in the picture, catalogue-safe wording), headline (the words drawn over the image later: a 2-4 word hook in the caption language, in the client's tone), ${r.noSubline ? 'subline (always "": this client\'s posts carry the headline alone, so the headline must say everything on its own)' : 'subline (the second line under the headline: the promise, offer or product name, at most 8 words, or "")'}, caption (${lang} Hook first, value in the middle, call to action last, 40-90 words, no hashtags inside), hashtags (8-12, space separated, starting with #), product (the lead product: one of the product names exactly, or ""), products (every product shown in the picture, lead first, exact names: a shot of several drinks in a row or two cups side by side lists 2-4 products; a single-product picture lists just the lead; [] when none), shot (the number of the reference shot the post follows, or 0 when the theme has no shots), people (names of the brand ambassadors in the picture, or []), date (the posting day, YYYY-MM-DD), occasion (the picked occasion's id for a greeting post, otherwise "").`,
     `Return ONLY JSON: {"posts": [...]} with exactly ${r.count} posts in posting order.`,
   ]
     .filter(Boolean)
@@ -738,9 +790,11 @@ export function parseIdeas(
   const out: Post[] = [];
   for (const raw of list as Record<string, unknown>[]) {
     if (!raw || typeof raw !== "object") continue;
-    const type = (POST_TYPES as readonly string[]).includes(String(raw.type))
+    // Offers come from the designer (products and price), never from the writer.
+    const written = (POST_TYPES as readonly string[]).includes(String(raw.type))
       ? (String(raw.type) as PostType)
       : "lifestyle";
+    const type: PostType = written === "offer" ? "lifestyle" : written;
     const brief = String(raw.brief ?? "").trim();
     if (!brief) continue;
     const title = String(raw.title ?? "").trim();
@@ -775,6 +829,7 @@ export function parseIdeas(
         return named.length ? named : undefined;
       })(),
       date: /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date ?? "").trim()) ? String(raw.date).trim() : undefined,
+      occasion: type === "greeting" && String(raw.occasion ?? "").trim() ? String(raw.occasion).trim().slice(0, 80) : undefined,
     });
     if (out.length >= count) break;
   }
@@ -951,6 +1006,26 @@ export function productNoteInstruction(name: string): string {
 }
 
 /** One fresh idea for a single post of a month that is already planned. */
+/** What a post of each type must be, so changing the type really changes the post. */
+function typeBrief(post: Post): string {
+  switch (post.type) {
+    case "tip":
+      return 'A TIP POST: the headline is a short, useful tip about the product or its moment (how to serve, keep, gift or pair it); the caption explains it in 2-4 sentences. The picture is calm and simple, with a large clean area for the text; the product, when there is one, is small and to the side.';
+    case "quote":
+      return "A QUOTE POST: the headline is a short line people would share (warm, in the client's tone, never a famous person's quote); the picture is a calm mood image with a large clean area for the words.";
+    case "announcement":
+      return "AN ANNOUNCEMENT: news (a launch, a branch, an event) written from the designer's notes; never invent prices or dates that were not given.";
+    case "offer":
+      return post.offer
+        ? `AN OFFER POST, exactly as the designer set it: products ${post.offer.products.join(", ")}; price ${post.offer.price}; what it is: ${post.offer.details}. The picture shows exactly these products together as a clear commercial offer shot; field "product" is the first of them and "products" lists them all. The headline carries the offer hook and the subline the price as written (${post.offer.price}); the caption gives the details and the conditions, never anything the designer did not give.`
+        : "";
+    case "greeting":
+      return 'A GREETING POST for its occasion: the headline is the greeting in the client\'s tone, the picture carries the occasion\'s elements in the theme\'s colours and light; keep the "occasion" field.';
+    default:
+      return "";
+  }
+}
+
 export function singleIdeaInstruction(
   r: IdeasRequest,
   post: Post,
@@ -960,7 +1035,8 @@ export function singleIdeaInstruction(
   const base = ideasInstruction({ ...r, count: 1 });
   return [
     base,
-    `THIS IS A REPLACEMENT for post ${post.index} of a month already planned. Keep its type (${post.type})${post.product ? ` and its product (${post.product}, exact name in the product field)` : ""}, and write a NEW idea for it: a different scene, angle, action and headline from the one it replaces ("${post.title}": ${post.brief.slice(0, 300)}).`,
+    `THIS IS A REPLACEMENT for post ${post.index} of a month already planned. Its type is "${post.type}" (${POST_TYPE_INFO[post.type]?.description ?? ""}) and it stays that type even if the rules above say otherwise${post.product && post.type !== "offer" ? `; keep its product (${post.product}, exact name in the product field)` : ""}. Write a NEW idea for it: a different scene, angle, action and headline from the one it replaces ("${post.title}": ${post.brief.slice(0, 300)}).`,
+    typeBrief(post),
     others.length ? `It must not repeat these other posts of the month: ${others.join(" · ")}.` : "",
     wish.trim() ? `THE DESIGNER ASKS FOR: ${wish.trim()}` : "",
     'Return ONLY JSON: {"posts": [one post]}.',

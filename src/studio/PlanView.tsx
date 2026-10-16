@@ -22,11 +22,13 @@ import AnimateDialog from "./AnimateDialog";
 import type { Ambassador, Client, Source, Task } from "@shared/types";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
-import { occasionsOf } from "@shared/occasions";
+import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
 import OverlayPreview from "./OverlayPreview";
 import {
   decodeEntities,
   MAX_POST_COUNT,
+  offerReady,
+  type PostOffer,
   POST_TYPE_INFO,
   POST_TYPES,
   monthLabel,
@@ -77,6 +79,8 @@ export default function PlanView({
   onResume,
   themeChanged,
   approvals = {},
+  onRewrite,
+  monthOccasions,
 }: {
   client: Client;
   month: string;
@@ -111,6 +115,10 @@ export default function PlanView({
   themeChanged: boolean;
   /** The client's answers on the approval link, by post index. */
   approvals?: Record<string, Approval>;
+  /** Saves the plan, then writes this post's idea again for its (new) type; no image is made. */
+  onRewrite: (index: number, plan: Post[]) => void;
+  /** The occasions the month posts (names, custom ones, uploaded portraits). */
+  monthOccasions?: MonthOccasions;
   /** Why generation stopped (the engine's message), when the month is paused. */
   paused: string | null;
   onResume: () => void;
@@ -144,7 +152,20 @@ export default function PlanView({
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
-  useEffect(() => setDraft(plan), [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A saved plan coming back never wipes what is still being typed: a post the designer changed
+  // since the last copy from the server keeps their edits; every other post follows the server.
+  const serverPlan = useRef(plan);
+  useEffect(() => {
+    const prev = serverPlan.current;
+    serverPlan.current = plan;
+    setDraft((d) => {
+      if (d.length !== prev.length || plan.length !== prev.length) return plan;
+      return plan.map((sp, i) => {
+        const mine = JSON.stringify(d[i]);
+        return mine !== JSON.stringify(prev[i]) && mine !== JSON.stringify(sp) && d[i]?.index === sp.index ? d[i] : sp;
+      });
+    });
+  }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = JSON.stringify(draft) !== planKey;
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -555,8 +576,19 @@ export default function PlanView({
                     <div className="post-row">
                       <select
                         value={p.type}
-                        onChange={(e) => patch(p.index, { type: e.target.value as PostType })}
+                        onChange={(e) => {
+                          const type = e.target.value as PostType;
+                          if (type === "offer") {
+                            // An offer waits for its products, price and contents before anything is written.
+                            patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
+                            return;
+                          }
+                          const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
+                          setDraft(next);
+                          onRewrite(p.index, next);
+                        }}
                         aria-label="Post type"
+                        title="Changing the type writes this post again for that type"
                       >
                         {POST_TYPES.map((k) => (
                           <option key={k} value={k}>
@@ -577,6 +609,18 @@ export default function PlanView({
                         ))}
                       </select>
                     </div>
+                    {p.type === "offer" && (
+                      <OfferForm
+                        post={p}
+                        products={products.map((x) => displayName(x.name))}
+                        onChange={(offer) => patch(p.index, { offer })}
+                        onWrite={() => onRewrite(p.index, draft)}
+                        busy={busy === "reidea"}
+                      />
+                    )}
+                    {p.type === "greeting" && (
+                      <OccasionNote post={p} month={month} sel={monthOccasions} />
+                    )}
                     {cast.length > 0 && (
                       <div className="post-extras post-people">
                         <span>people</span>
@@ -762,7 +806,7 @@ export default function PlanView({
                           type="button"
                           className="text-button"
                           onClick={() => onGeneratePosts([p.index], true)}
-                          disabled={inFlight || running || dirty}
+                          disabled={inFlight || running || dirty || (p.type === "offer" && !offerReady(p.offer))}
                           title={dirty ? "Save changes first" : "A clearly different take on the same brief: new angle, set and placement"}
                         >
                           <RefreshCw size={13} /> Regenerate
@@ -772,8 +816,8 @@ export default function PlanView({
                           type="button"
                           className="text-button"
                           onClick={() => onGeneratePosts([p.index], t?.status === "failed")}
-                          disabled={inFlight || running || dirty || !p.brief.trim()}
-                          title={dirty ? "Save changes first" : "Generate only this post"}
+                          disabled={inFlight || running || dirty || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
+                          title={dirty ? "Save changes first" : p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
                         >
                           <Sparkles size={13} /> Generate
                         </button>
@@ -851,4 +895,65 @@ export default function PlanView({
 /** Upload name without folder and extension: "Denim/cream-mug_01.jpg" -> "cream-mug_01". */
 export function displayName(name: string): string {
   return decodeEntities((name.split("/").pop() ?? name).replace(/\.[^./]+$/, ""));
+}
+
+/** An offer is the designer's: its products, its price and what it includes, all required. */
+function OfferForm({
+  post,
+  products,
+  onChange,
+  onWrite,
+  busy,
+}: {
+  post: Post;
+  products: string[];
+  onChange: (o: PostOffer) => void;
+  onWrite: () => void;
+  busy: boolean;
+}) {
+  const o = post.offer ?? { products: [], price: "", details: "" };
+  const ready = offerReady(o);
+  return (
+    <div className={`offer-form ${ready ? "ready" : ""}`}>
+      <strong>The offer</strong>
+      <div className="offer-products">
+        {products.map((n) => {
+          const on = o.products.includes(n);
+          return (
+            <button
+              key={n}
+              type="button"
+              className={`chip ${on ? "on" : ""}`}
+              onClick={() => onChange({ ...o, products: on ? o.products.filter((x) => x !== n) : [...o.products, n] })}
+            >
+              {n}
+            </button>
+          );
+        })}
+        {!products.length && <small>Upload the offer's products first.</small>}
+      </div>
+      <input dir="auto" value={o.price} placeholder="Price as it appears: 15 JD, ٢ علب بـ ١٥ دينار" onChange={(e) => onChange({ ...o, price: e.target.value })} />
+      <textarea dir="auto" rows={2} value={o.details} placeholder="What is in the offer, conditions and dates" onChange={(e) => onChange({ ...o, details: e.target.value })} />
+      {ready ? (
+        <button type="button" className="secondary" onClick={onWrite} disabled={busy}>
+          {busy ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} Write the offer post
+        </button>
+      ) : (
+        <small className="offer-warning">Pick the products, write the price and what the offer includes. The post is not generated until then.</small>
+      )}
+    </div>
+  );
+}
+
+/** A greeting post names its occasion; a royal day asks for the official portrait. */
+function OccasionNote({ post, month, sel }: { post: Post; month: string; sel?: MonthOccasions }) {
+  const o = pickedOccasions(month, sel).find((x) => x.id === post.occasion) ?? occasionsOf(month).find((x) => x.id === post.occasion);
+  if (!o) return null;
+  const missing = o.portrait && !sel?.photos?.[o.id];
+  return (
+    <p className={`occasion-note ${missing ? "warn" : ""}`}>
+      <strong>{o.name}</strong>
+      {missing ? " · upload the official portrait (Start journey → Posts)" : o.portrait ? " · official portrait framed on the design" : ""}
+    </p>
+  );
 }

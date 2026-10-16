@@ -149,6 +149,41 @@ export async function drawOverlay(
     ctx.fillRect(0, 0, W, H);
   }
 
+  // An official portrait (royal days): drawn exactly as uploaded, framed in the upper middle.
+  if (patch.photo) {
+    try {
+      const img = await loadImage(patch.photo);
+      const nw = img.naturalWidth || 400;
+      const nh = img.naturalHeight || 500;
+      let pw = W * 0.44;
+      let ph = (pw * nh) / nw;
+      if (ph > H * 0.46) {
+        ph = H * 0.46;
+        pw = (ph * nw) / nh;
+      }
+      const px = (W - pw) / 2;
+      const py = H * 0.17;
+      const border = W * 0.012;
+      const r = W * 0.02;
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = W * 0.04;
+      ctx.shadowOffsetY = W * 0.012;
+      ctx.fillStyle = "#ffffff";
+      roundRect(ctx, px - border, py - border, pw + border * 2, ph + border * 2, r + border);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      roundRect(ctx, px, py, pw, ph, r);
+      ctx.clip();
+      ctx.globalAlpha = anim ? ease : 1;
+      ctx.drawImage(img, px, py, pw, ph);
+      ctx.restore();
+    } catch {
+      /* the post shows without it */
+    }
+  }
+
   // Logo.
   if (logoSrc && spec.logo.position !== "none") {
     try {
@@ -394,4 +429,15 @@ export function canvasBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Bl
   return new Promise((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not encode the image."))), "image/jpeg", quality),
   );
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }

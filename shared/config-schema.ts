@@ -37,12 +37,21 @@ export const postSchema = z.object({
       logoDx: z.number().min(-1).max(1).optional(),
       logoDy: z.number().min(-2).max(2).optional(),
       logoWidth: z.number().min(0.02).max(1).optional(),
+      photo: z.string().max(400).optional(),
     })
     .optional(),
   tile: z.string().max(400).optional(),
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  occasion: z.string().max(80).optional(),
+  offer: z
+    .object({
+      products: z.array(z.string().max(300)).max(6),
+      price: z.string().max(120),
+      details: z.string().max(1000),
+    })
     .optional(),
 });
 

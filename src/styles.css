@@ -7273,3 +7273,177 @@ label.num select {
   flex: none;
   width: auto;
 }
+
+/* Occasions of the month */
+.journey-cal.compact .cal-day {
+  padding: 4px 0;
+  font-size: 12px;
+}
+.occ-add {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+}
+.occ-add input {
+  font-size: 13px;
+  padding: 6px 8px;
+}
+.occ-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+.occ {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  animation: j-up 380ms var(--ease-out) both;
+}
+.occ.on {
+  background: #faf7ff;
+  border-color: #e5dcff;
+}
+.occ.warn {
+  background: var(--warning-soft);
+}
+.occ label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: 13px;
+}
+.occ label input {
+  flex: none;
+  width: auto;
+}
+.occ-date {
+  flex: none;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--ink-500);
+  min-width: 78px;
+}
+.occ-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.occ-name small {
+  color: var(--ink-500);
+  font-size: 11.5px;
+}
+.occ-warning {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--warning-text);
+  margin-left: 26px;
+}
+.occ-photo {
+  flex-direction: row;
+  margin-left: 26px;
+  font-size: 12px;
+}
+.occ-photo.done {
+  color: var(--success);
+}
+.journey-tag.occ-national,
+.journey-tag.occ-royal {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.journey-tag.occ-religious {
+  background: #dcfce7;
+  color: #15803d;
+}
+.journey-tag.occ-international {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+/* Offer form and occasion note on a post card */
+.offer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--warning);
+  background: var(--warning-soft);
+}
+.offer-form.ready {
+  border-style: solid;
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+.offer-form > strong {
+  font-size: 12.5px;
+  color: var(--ink-900);
+}
+.offer-products {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.offer-products .chip.on {
+  background: var(--ink-900);
+  color: var(--on-fill);
+  border-color: var(--ink-900);
+}
+.offer-form input,
+.offer-form textarea {
+  font-size: 12.5px;
+}
+.offer-warning {
+  color: var(--warning-text);
+  font-size: 11.5px;
+}
+.occasion-note {
+  margin: 0;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #faf7ff;
+  color: #6d28d9;
+}
+.occasion-note.warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+:root[data-theme="dark"] .occasion-note {
+  background: rgb(124 58 237 / 0.15);
+  color: #c4b5fd;
+}
+.journey-client-x {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-400);
+  opacity: 0;
+  transition: opacity var(--dur);
+}
+.journey-client:hover .journey-client-x,
+.journey-client:focus-within .journey-client-x {
+  opacity: 1;
+}
+.journey-client-x:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}

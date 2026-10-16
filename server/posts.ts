@@ -16,7 +16,7 @@ import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
 import { BRIEF_STEPS, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA } from "@shared/brief";
-import { occasionsOf, withDates } from "@shared/occasions";
+import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
 import {
   buildPostPrompt,
@@ -37,6 +37,7 @@ import {
   MAX_POST_COUNT,
   matchProduct,
   monthLabel,
+  offerReady,
   parseIdeas,
   PRODUCT_NOTE_SCHEMA,
   productNoteInstruction,
@@ -746,6 +747,30 @@ async function monthAmbassadors(env: Env, config: Config): Promise<AmbassadorRow
     .slice(0, 3);
 }
 
+/** A greeting post sits on its occasion's day. */
+function greetingDates(plan: Post[], config: Config): Post[] {
+  const picked = pickedOccasions(config.month ?? "", config.occasions);
+  return plan.map((p) => {
+    if (p.type !== "greeting") return p;
+    const o = picked.find((x) => x.id === p.occasion) ?? picked.find((x) => x.date === p.date);
+    return o ? { ...p, occasion: o.id, date: o.date, product: o.portrait ? undefined : p.product, people: o.portrait ? undefined : p.people } : p;
+  });
+}
+
+/** Royal greeting posts carry the official portrait the team uploaded, framed on the design. */
+function withPortraits(plan: Post[], config: Config, batchId: string): Post[] {
+  const photos = config.occasions?.photos ?? {};
+  return plan.map((p) => {
+    if (p.type !== "greeting" || !p.occasion) return p;
+    const key = photos[p.occasion];
+    const ov = { ...(p.ov ?? {}) };
+    if (key)
+      ov.photo = `/api/studio/posts/occasion-photo?batch=${encodeURIComponent(batchId)}&occasion=${encodeURIComponent(p.occasion)}&v=${encodeURIComponent(key.slice(-8))}`;
+    else delete ov.photo;
+    return { ...p, ov };
+  });
+}
+
 /** The fixed part of an ideas request: the client, its theme and its products. */
 function ideasContext(
   client: ClientRow,
@@ -782,7 +807,13 @@ function ideasContext(
     productNotes,
     month: config.month ?? "",
     notes: config.notes,
-    occasions: occasionsOf(config.month ?? "").map((o) => ({ date: o.date, name: o.name })),
+    occasions: pickedOccasions(config.month ?? "", config.occasions).map((o) => ({
+      id: o.id,
+      date: o.date,
+      name: o.name,
+      elements: o.elements,
+      portrait: o.portrait,
+    })),
     brief: briefLines(config.brief),
     service: products.length ? undefined : client.service || undefined,
   };
@@ -845,8 +876,14 @@ postRoutes.post("/reidea", async (c) => {
     shot: fresh.shot ?? current.shot,
     products: fresh.products ?? current.products,
     people: fresh.people,
+    occasion: current.occasion ?? fresh.occasion,
   };
-  config.plan = plan.map((p) => (p.index === d.index ? next : p));
+  // An offer shows exactly the designer's products.
+  if (next.type === "offer" && next.offer?.products.length) {
+    next.product = next.offer.products[0];
+    next.products = next.offer.products.slice(1);
+  }
+  config.plan = withPortraits(plan.map((p) => (p.index === d.index ? next : p)), config, b.id);
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, post: next });
 });
@@ -894,7 +931,7 @@ postRoutes.post("/ideas", async (c) => {
     (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
   );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
-  config.plan = withDates(plan, config.month ?? "");
+  config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
   config.plannedAt = now();
   config.postCount = count;
   await refreshCountNote(c.env, b.id, config);
@@ -1035,11 +1072,33 @@ postRoutes.put("/settings", async (c) => {
       gridRef: z.null().optional(),
       ambassadors: z.array(z.string().max(80)).max(3).optional(),
       shots: z.array(z.string().trim().max(1200)).max(200).optional(),
+      occasions: z
+        .object({
+          picked: z.array(z.string().max(80)).max(60).optional(),
+          custom: z
+            .array(
+              z.object({
+                id: z.string().regex(/^c-[a-z0-9-]{1,40}$/),
+                date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                name: z.string().trim().min(1).max(80),
+                elements: z.string().trim().max(300).optional(),
+              }),
+            )
+            .max(30)
+            .optional(),
+        })
+        .optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   if (d.shots) config.shots = d.shots.filter(Boolean);
+  if (d.occasions)
+    config.occasions = {
+      ...(config.occasions ?? {}),
+      ...(d.occasions.picked ? { picked: [...new Set(d.occasions.picked)] } : {}),
+      ...(d.occasions.custom ? { custom: d.occasions.custom } : {}),
+    };
   // A new theme brings its own shots: the month's rewrite of the old ones is dropped.
   if (d.theme !== undefined && (d.theme ?? undefined) !== config.theme) {
     delete config.shots;
@@ -1141,8 +1200,23 @@ postRoutes.post("/generate", async (c) => {
   const wanted = new Set(d.indexes ?? plan.map((p) => p.index));
   const statements: D1PreparedStatement[] = [];
   let planned = 0;
+  const skipped: number[] = [];
+  const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
   for (const post of plan) {
     if (!wanted.has(post.index)) continue;
+    // An offer is generated only once the designer filled it: products, price and contents.
+    if (post.type === "offer" && !offerReady(post.offer)) {
+      skipped.push(post.index);
+      continue;
+    }
+    const occasion =
+      post.type === "greeting"
+        ? (monthOccasions.find((o) => o.id === post.occasion) ?? monthOccasions.find((o) => o.date === post.date))
+        : undefined;
+    // A royal day shows the official portrait (added on the design), never a product or a person.
+    const portraitDay = !!occasion?.portrait;
+    const leadName = post.type === "offer" ? post.offer!.products[0] : portraitDay ? undefined : post.product;
+    const extraNames = post.type === "offer" ? post.offer!.products.slice(1) : portraitDay ? [] : (post.products ?? []);
     const existing = byPost.get(post.index);
     if (existing) {
       const busy = existing.status === "processing" || existing.status === "finalizing";
@@ -1151,13 +1225,13 @@ postRoutes.post("/generate", async (c) => {
     }
     const productSources = sources.filter((s) => s.kind === "product");
     const productNames = productSources.map(productName);
-    const productMatch = matchProduct(post.product, productNames);
+    const productMatch = matchProduct(leadName, productNames);
     const product = productMatch
       ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
     // Further products shown in the same picture, attached after image 1.
     const extraProducts = product
-      ? [...new Set((post.products ?? []).map((n) => matchProduct(n, productNames)))]
+      ? [...new Set(extraNames.map((n) => matchProduct(n, productNames)))]
           .filter((n): n is string => !!n && n !== productMatch)
           .slice(0, 3)
           .map((n) => productSources.find((s) => productName(s) === n)!)
@@ -1242,7 +1316,10 @@ postRoutes.post("/generate", async (c) => {
       product: product ? product.note?.trim() || undefined : undefined,
       productNames: product ? productNames : undefined,
       extraProducts: extraProducts.length ? extraProducts : undefined,
+      occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: portraitDay } : undefined,
+      offer: post.type === "offer" ? post.offer : undefined,
       ambassadors: (() => {
+        if (portraitDay) return undefined;
         const list = (post.people ?? [])
           .map((n) => cast.find((a) => a.name.trim().toLowerCase() === n.trim().toLowerCase()))
           .filter((a): a is AmbassadorRow => !!a)
@@ -1292,7 +1369,7 @@ postRoutes.post("/generate", async (c) => {
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return c.json({ ok: true, planned });
+  return c.json({ ok: true, planned, skipped });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */
@@ -1519,7 +1596,9 @@ function countNote(config: Config, products: number, service = ""): Omit<BriefNo
   const count = config.postCount ?? 12;
   const month = config.month ?? "";
   const label = monthLabel(month);
-  const occasions = occasionsOf(month);
+  const occasions = pickedOccasions(month, config.occasions);
+  const picked = new Set(occasions.map((o) => o.id));
+  const missed = occasionsOf(month).filter((o) => o.major && !picked.has(o.id));
   const points = [
     products
       ? count >= products
@@ -1529,12 +1608,13 @@ function countNote(config: Config, products: number, service = ""): Omit<BriefNo
         ? `No products: every post shows a moment of the service (${service.slice(0, 80)}).`
         : "No products yet: the posts are brand and lifestyle pictures.",
     `About one post every ${Math.max(1, Math.round(30 / Math.max(1, count)))} days, from the 1st to the end of ${label}.`,
-    ...occasions.slice(0, 3).map((o) => `${o.name} (${o.date.slice(8)}): one post on the day.`),
+    ...occasions.slice(0, 4).map((o) => `${o.name} (${o.date.slice(8)}): one greeting post on the day.`),
+    ...missed.map((o) => `Warning: ${o.name} (${o.date.slice(8)}) is a big day and has no post. Add it if the brand should greet.`),
   ];
   return {
-    summary: `${count} posts in ${label}${occasions.length ? `, ${occasions.length} occasion${occasions.length > 1 ? "s" : ""} on the calendar` : ""}.`,
+    summary: `${count} posts in ${label}${occasions.length ? `, ${occasions.length} occasion${occasions.length > 1 ? "s" : ""} greeted` : ""}.`,
     points,
-    logic: `Plan exactly ${count} posts across ${label}, spread over the month${occasions.length ? `, with a post on ${occasions.map((o) => `${o.name} (${o.date})`).join(", ")}` : ""}.`,
+    logic: `Plan exactly ${count} posts across ${label}, spread over the month${occasions.length ? `, with one greeting post on ${occasions.map((o) => `${o.name} (${o.date})`).join(", ")}` : ", with no occasion posts"}.`,
   };
 }
 
@@ -1685,6 +1765,40 @@ postRoutes.post("/shots", async (c) => {
   cfg.shotsFor = d.sig;
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, shots: full });
+});
+
+/** The official portrait of a royal day: uploaded by the team, framed on the post exactly as it is. */
+postRoutes.post("/occasion-photo", async (c) => {
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, c.req.query("batch"));
+  const occasion = c.req.query("occasion") ?? "";
+  const config = JSON.parse(b.config) as Config;
+  const day = occasionsOf(config.month ?? "").find((o) => o.id === occasion);
+  if (!day?.portrait) throw new StudioError("This occasion takes no portrait.");
+  const form = await c.req.formData();
+  const f = form.get("file");
+  if (!(f instanceof File) || !/^image\/(jpeg|png|webp)$/.test(f.type))
+    throw new StudioError("Use a JPG, PNG or WebP photo.");
+  if (f.size > 12 * 1024 * 1024) throw new StudioError("The photo is over 12 MB.");
+  const key = `${user.id}/${b.id}/occasion/${occasion}-${uuid()}`;
+  await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type } });
+  const old = config.occasions?.photos?.[occasion];
+  config.occasions = { ...(config.occasions ?? {}), photos: { ...(config.occasions?.photos ?? {}), [occasion]: key } };
+  config.plan = withPortraits(config.plan ?? [], config, b.id);
+  await saveConfig(c.env, b, config);
+  if (old) await c.env.BUCKET.delete(old);
+  return c.json({ ok: true });
+});
+
+postRoutes.get("/occasion-photo", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const config = JSON.parse(b.config) as Config;
+  const key = config.occasions?.photos?.[c.req.query("occasion") ?? ""];
+  const obj = key ? await c.env.BUCKET.get(key) : null;
+  if (!obj) throw new StudioError("No portrait yet.", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=86400" },
+  });
 });
 
 /** The client's approval link for this month (made once, then reused). */

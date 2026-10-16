@@ -171,6 +171,8 @@ export interface PostOverlayPatch {
   logoDx?: number;
   logoDy?: number;
   logoWidth?: number;
+  /** An official portrait framed on the post (royal occasions), drawn exactly as uploaded. */
+  photo?: string;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */

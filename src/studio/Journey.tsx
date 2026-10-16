@@ -14,10 +14,10 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { get, post, put } from "@/api";
+import { del, get, post, postForm, put } from "@/api";
 import LevelLogo from "@/components/LevelLogo";
 import { applyTheme, currentTheme } from "@/theme";
-import { askInput } from "@/lib/confirm";
+import { askConfirm, askInput } from "@/lib/confirm";
 import { confetti } from "@/lib/celebrate";
 import type { Ambassador, Client, GalleryItem, Source, Theme, User } from "@shared/types";
 import type { BriefNote, BriefStep, Config } from "@shared/config";
@@ -31,7 +31,7 @@ import {
   type Format,
   type Post,
 } from "@shared/posts";
-import { occasionsOf, shortDate, spreadDates } from "@shared/occasions";
+import { occasionsOf, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines } from "@shared/brief";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
@@ -127,7 +127,12 @@ export interface JourneyProps {
   uploading: boolean;
   postCount: number;
   format: Format;
-  onSettings: (patch: { postCount?: number; format?: Format; shots?: string[] }) => void;
+  onSettings: (patch: {
+    postCount?: number;
+    format?: Format;
+    shots?: string[];
+    occasions?: { picked: string[]; custom: NonNullable<MonthOccasions["custom"]> };
+  }) => void;
   themes: Theme[];
   themeId: string;
   onTheme: (id: string) => void;
@@ -206,7 +211,7 @@ export default function Journey(p: JourneyProps) {
   const productIds = p.products.map((s) => s.id).join(",");
   const signature: Partial<Record<BriefStep, string>> = {
     products: `${productIds}|${client?.service ?? ""}`,
-    count: `${p.postCount}:${p.month}`,
+    count: `${p.postCount}:${p.month}:${JSON.stringify(p.config?.occasions?.picked ?? [])}:${(p.config?.occasions?.custom ?? []).length}`,
     brand: String(client?.updated ?? ""),
     theme: `${p.themeId}:${theme?.updated ?? ""}:${p.cast.join(",")}`,
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
@@ -238,8 +243,9 @@ export default function Journey(p: JourneyProps) {
   }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting]);
 
   /* ── The pins' shots rewritten for this month's products and colours ── */
+  // "v2": shots written before people were kept neutral are written again once.
   const shotsSig = hash(
-    `${p.themeId}|${(theme?.shots ?? []).join("|")}|${productIds}|${JSON.stringify(theme?.palette ?? [])}`,
+    `v2|${p.themeId}|${(theme?.shots ?? []).join("|")}|${productIds}|${JSON.stringify(theme?.palette ?? [])}`,
   );
   const adaptedFor = useRef("");
   const adaptShots = useCallback(
@@ -293,6 +299,28 @@ export default function Journey(p: JourneyProps) {
       const made = r.clients.find((c) => !before.has(c.id));
       if (made) p.onClient(made.id);
       toast.success(`${name.trim()} created. Next: its products, then its logo and brand kit.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  /** An admin removes an account: archived when it has months (an admin can restore it), deleted otherwise. */
+  async function removeClient(c: Client) {
+    const ok = await askConfirm(
+      c.batches
+        ? `Remove ${c.name} from the accounts? Its ${c.batches} month${c.batches > 1 ? "s stay" : " stays"} saved and an admin can restore it from the sidebar.`
+        : `Delete ${c.name}? It has no months yet.`,
+      { ok: "Remove" },
+    );
+    if (!ok) return;
+    try {
+      const r = await del<{ clients: Client[] }>(`/api/studio/clients/${encodeURIComponent(c.id)}`);
+      p.onClientsChanged(r.clients);
+      if (c.id === p.clientId) {
+        const nextClient = r.clients.find((x) => x.status === "active" && x.id !== c.id);
+        if (nextClient) p.onClient(nextClient.id);
+      }
+      toast.success(`${c.name} removed.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -363,6 +391,27 @@ export default function Journey(p: JourneyProps) {
                     </span>
                     <span>{c.name}</span>
                     {c.id === p.clientId && <Check className="journey-client-tick" size={16} />}
+                    {p.user.role === "admin" && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="journey-client-x"
+                        title={`Remove ${c.name}`}
+                        aria-label={`Remove ${c.name}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void removeClient(c);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.stopPropagation();
+                            void removeClient(c);
+                          }
+                        }}
+                      >
+                        <X size={13} />
+                      </span>
+                    )}
                   </button>
                 ))}
                 <button
@@ -414,7 +463,15 @@ export default function Journey(p: JourneyProps) {
               </StepHead>
               <div className="journey-boxes cols-3">
                 <CountBox {...p} />
-                <CalendarBox month={p.month} plan={p.plan} count={p.postCount} />
+                <CalendarBox
+                  month={p.month}
+                  plan={p.plan}
+                  count={p.postCount}
+                  config={p.config}
+                  batchId={p.batchId}
+                  onOccasions={(o) => p.onSettings({ occasions: { picked: o.picked ?? [], custom: o.custom ?? [] } })}
+                  refresh={p.refresh}
+                />
                 <Analysis step="count" note={brief.count} busy={briefBusy === "count"} onRun={() => void runBrief("count")} />
               </div>
             </>
@@ -1023,17 +1080,91 @@ function CountBox(p: JourneyProps) {
   );
 }
 
-function CalendarBox({ month, plan, count }: { month: string; plan: Post[]; count: number }) {
+function CalendarBox({
+  month,
+  plan,
+  count,
+  config,
+  batchId,
+  onOccasions,
+  refresh,
+}: {
+  month: string;
+  plan: Post[];
+  count: number;
+  config: Config | null;
+  batchId: string | null;
+  onOccasions: (o: { picked: string[]; custom: MonthOccasions["custom"] }) => void;
+  refresh: () => Promise<void>;
+}) {
   const [y, m] = month.split("-").map(Number);
   const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const offset = (new Date(Date.UTC(y, m - 1, 1)).getUTCDay() + 1) % 7; // weeks start on Saturday
-  const occasions = occasionsOf(month);
+  // Ticks show at once; the saved month catches up a moment later.
+  const saved = config?.occasions;
+  const savedKey = JSON.stringify([saved?.picked ?? [], saved?.custom ?? [], saved?.photos ?? {}]);
+  const [sel, setSel] = useState<MonthOccasions | undefined>(saved);
+  useEffect(() => setSel(saved), [savedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const picked = new Set(sel?.picked ?? []);
+  const custom = (sel?.custom ?? []).filter((c) => c.date.startsWith(`${month}-`));
+  const calendar = occasionsOf(month);
+  const all = [
+    ...calendar,
+    ...custom.map((c) => ({ id: c.id, date: c.date, name: c.name, ar: "", category: "commercial" as const, elements: c.elements ?? "", portrait: false, major: false })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  const chosen = all.filter((o) => picked.has(o.id) || o.id.startsWith("c-"));
   const planned = plan.length && plan.every((x) => x.date) ? plan.map((x) => x.date!) : spreadDates(month, count);
   const postsOn = (d: string) => planned.filter((x) => x === d).length;
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ date: `${month}-01`, name: "" });
+  const [uploading, setUploading] = useState("");
+  const photoInput = useRef<HTMLInputElement>(null);
+  const photoFor = useRef("");
+
+  const change = (next: { picked?: string[]; custom?: MonthOccasions["custom"] }) => {
+    setSel((s0) => ({ ...(s0 ?? {}), ...next }));
+    onOccasions({ picked: next.picked ?? sel?.picked ?? [], custom: next.custom ?? sel?.custom ?? [] });
+  };
+  const toggle = (id: string) => change({ picked: picked.has(id) ? [...picked].filter((x) => x !== id) : [...picked, id] });
+  const addCustom = () => {
+    if (!draft.name.trim() || !draft.date.startsWith(`${month}-`)) return;
+    const id = `c-${Date.now().toString(36)}`;
+    change({ custom: [...(sel?.custom ?? []), { id, date: draft.date, name: draft.name.trim() }] });
+    setDraft({ date: draft.date, name: "" });
+    setAdding(false);
+  };
+  const removeCustom = (id: string) => change({ custom: (sel?.custom ?? []).filter((c) => c.id !== id) });
+  async function uploadPortrait(file: File | undefined) {
+    const id = photoFor.current;
+    if (!file || !id || !batchId) return;
+    setUploading(id);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      await postForm(`/api/studio/posts/occasion-photo?batch=${encodeURIComponent(batchId)}&occasion=${encodeURIComponent(id)}`, form);
+      await refresh();
+      toast.success("Official portrait added. It is framed on the greeting post exactly as uploaded.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUploading("");
+      if (photoInput.current) photoInput.current.value = "";
+    }
+  }
+
   return (
     <div className="journey-box">
-      <BoxTitle kit="direction">{monthLabel(month)}</BoxTitle>
-      <div className="journey-cal">
+      <BoxTitle
+        kit="direction"
+        actions={
+          <button type="button" className="text-button" onClick={() => setAdding((v) => !v)}>
+            <Plus size={13} /> Add occasion
+          </button>
+        }
+      >
+        {monthLabel(month)}
+      </BoxTitle>
+      <div className="journey-cal compact">
         {["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"].map((d) => (
           <small key={d}>{d}</small>
         ))}
@@ -1042,33 +1173,63 @@ function CalendarBox({ month, plan, count }: { month: string; plan: Post[]; coun
         ))}
         {Array.from({ length: days }, (_, i) => {
           const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-          const occ = occasions.filter((o) => o.date === date);
+          const occ = chosen.filter((o) => o.date === date);
           const n = postsOn(date);
           return (
-            <span key={date} style={{ "--i": i } as React.CSSProperties} className={`cal-day ${n ? "post" : ""} ${occ.length ? "occasion" : ""}`} title={occ.map((o) => `${o.name} · ${o.ar}`).join("\n")}>
+            <span key={date} style={{ "--i": i } as React.CSSProperties} className={`cal-day ${n ? "post" : ""} ${occ.length ? "occasion" : ""}`} title={occ.map((o) => o.name).join("\n")}>
               {i + 1}
               {n > 0 && <i />}
             </span>
           );
         })}
       </div>
-      <div className="journey-legend">
-        <span>
-          <i className="dot post" /> post day
-        </span>
-        <span>
-          <i className="dot occasion" /> occasion
-        </span>
-      </div>
-      {occasions.length > 0 && (
-        <ul className="journey-occasions">
-          {occasions.map((o) => (
-            <li key={o.date + o.name}>
-              <strong>{shortDate(o.date)}</strong> {o.name} <span dir="rtl">{o.ar}</span>
-            </li>
-          ))}
-        </ul>
+      {adding && (
+        <div className="occ-add">
+          <input type="date" value={draft.date} min={`${month}-01`} max={`${month}-${String(days).padStart(2, "0")}`} onChange={(e) => setDraft((d) => ({ ...d, date: e.target.value }))} />
+          <input dir="auto" value={draft.name} placeholder="Occasion (a branch opening, the brand's anniversary…)" onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && addCustom()} />
+          <button type="button" className="secondary" onClick={addCustom} disabled={!draft.name.trim()}>
+            Add
+          </button>
+        </div>
       )}
+      <p className="field-hint">Occasions are optional: tick the ones the brand greets this month. Each one becomes a greeting post on its day.</p>
+      <ul className="occ-list">
+        {all.map((o) => {
+          const on = picked.has(o.id) || o.id.startsWith("c-");
+          const hasPhoto = !!sel?.photos?.[o.id];
+          return (
+            <li key={o.id} className={`occ ${on ? "on" : ""} ${o.major && !on ? "warn" : ""}`}>
+              <label>
+                <input type="checkbox" checked={on} onChange={() => (o.id.startsWith("c-") ? removeCustom(o.id) : toggle(o.id))} />
+                <span className="occ-date">{shortDate(o.date)}</span>
+                <span className="occ-name">
+                  {o.name}
+                  {o.ar && <small dir="rtl">{o.ar}</small>}
+                </span>
+                <span className={`journey-tag occ-${o.category}`}>{o.id.startsWith("c-") ? "yours" : o.category}</span>
+              </label>
+              {o.major && !on && <em className="occ-warning">Big day without a post</em>}
+              {on && o.portrait && (
+                <button
+                  type="button"
+                  className={`text-button occ-photo ${hasPhoto ? "done" : ""}`}
+                  disabled={!!uploading}
+                  onClick={() => {
+                    photoFor.current = o.id;
+                    photoInput.current?.click();
+                  }}
+                  title="Upload the official portrait: it is framed on the post exactly as it is, never redrawn"
+                >
+                  {uploading === o.id ? <LoaderCircle className="spinning" size={12} /> : hasPhoto ? <Check size={12} /> : <ImagePlus size={12} />}
+                  {hasPhoto ? "Portrait added" : "Official portrait"}
+                </button>
+              )}
+            </li>
+          );
+        })}
+        {!all.length && <li className="field-hint">No occasions this month. Add your own with "Add occasion".</li>}
+      </ul>
+      <input ref={photoInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => void uploadPortrait(e.target.files?.[0])} />
     </div>
   );
 }

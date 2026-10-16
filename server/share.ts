@@ -72,7 +72,13 @@ shareRoutes.get("/:token", async (c) => {
       headline: p.headline ?? "",
       subline: p.subline ?? "",
       overlay: p.overlay !== false,
-      ov: p.ov ?? null,
+      // The portrait of a royal day is served through this link, not the studio's.
+      ov: p.ov
+        ? {
+            ...p.ov,
+            photo: p.ov.photo && p.occasion ? `/api/share/${c.req.param("token")}/occasion/${encodeURIComponent(p.occasion)}` : undefined,
+          }
+        : null,
       caption: caption.text,
       hashtags: caption.hashtags,
       image: t ? t.updated : null,
@@ -150,6 +156,14 @@ shareRoutes.get("/:token/font/:id", async (c) => {
   return new Response(obj.body, {
     headers: { "Content-Type": obj.httpMetadata?.contentType || "font/ttf", "Cache-Control": "private, max-age=604800" },
   });
+});
+
+shareRoutes.get("/:token/occasion/:id", async (c) => {
+  const { config } = await sharedBatch(c.env, c.req.param("token"));
+  const key = config.occasions?.photos?.[c.req.param("id")];
+  const obj = key ? await c.env.BUCKET.get(key) : null;
+  if (!obj) throw new StudioError("Not found.", 404);
+  return imageResponse(obj);
 });
 
 /** The client approves a post or asks for a change. */
