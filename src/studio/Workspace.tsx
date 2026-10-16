@@ -369,6 +369,8 @@ export default function Workspace({
     setBusy("reidea");
     try {
       const r = await post<{ post: Post }>("/api/studio/posts/reidea", { batch: batch.id, index });
+      // Its shot is written again for the new idea (when the theme has pins to borrow from).
+      await post("/api/studio/posts/shots", { batch: batch.id, indexes: [index] }).catch(() => {});
       await refresh();
       toast.success(`New idea for post ${index}: "${r.post.title}". Generating it.`);
       if (engineConnected) {
@@ -912,6 +914,8 @@ export default function Workspace({
           onGenerateIdeas={() => generateIdeas(config?.notes ?? "")}
           onSavePlan={(next) => void savePlan(next)}
           ideasBusy={busy === "ideas"}
+          rewriting={busy === "reidea"}
+          onRewrite={(i, next) => void rewritePost(i, next)}
           onGenerate={generateFromJourney}
           onDone={finishJourney}
         />

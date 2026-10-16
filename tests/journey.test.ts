@@ -76,10 +76,15 @@ describe("the month's shots", () => {
   });
 
   it("asks for the client's products and colours only", () => {
-    const t = adaptShotsInstruction({ shots: ["A hand holds a glass."], products: ["- Tin: a round silver tin"], palette: ["deep blue #0042aa", "cream #f5e6d3"] });
+    const t = adaptShotsInstruction({
+      shots: ["A hand holds a glass."],
+      posts: [{ index: 1, type: "Lifestyle", typeRule: "", products: ["Tin: a round silver tin"], people: ["Khalif (a man in his thirties)"], headline: "h", brief: "b" }],
+      palette: ["deep blue #0042aa", "cream #f5e6d3"],
+    });
     expect(t).toContain("The background (wall, backdrop, main surface) is deep blue #0042aa");
-    expect(t).toContain("- Tin: a round silver tin");
-    expect(t).toContain("exactly 1 entries");
+    expect(t).toContain("product: Tin: a round silver tin");
+    expect(t).toContain("people: Khalif (a man in his thirties)");
+    expect(t).toContain("exactly one entry per post");
   });
 });
 
@@ -105,7 +110,7 @@ describe("a client with no products", () => {
   });
 
   it("rewrites the shots around the service", () => {
-    const t = adaptShotsInstruction({ shots: ["A hand holds a glass."], products: [], palette: [], service: "car insurance" });
+    const t = adaptShotsInstruction({ shots: ["A hand holds a glass."], posts: [], palette: [], service: "car insurance" });
     expect(t).toContain("THE BRAND SELLS A SERVICE, NOT PRODUCTS: car insurance");
   });
 });

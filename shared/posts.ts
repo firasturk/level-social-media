@@ -139,6 +139,8 @@ export interface Post {
   occasion?: string;
   /** An offer post's contents, filled by the designer. */
   offer?: PostOffer;
+  /** This post's own shot: the pins' look written for its product, type, occasion and people. */
+  scene?: string;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */

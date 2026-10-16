@@ -26,12 +26,14 @@ import {
   FORMAT_INFO,
   MAX_POST_COUNT,
   monthLabel,
+  offerReady,
   POST_TYPE_INFO,
+  POST_TYPES,
   withoutPaletteText,
   type Format,
   type Post,
 } from "@shared/posts";
-import { occasionsOf, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
+import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines } from "@shared/brief";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
@@ -47,8 +49,8 @@ const STEPS: { key: string; kit?: KitKey; title: string; brief?: BriefStep }[] =
   { key: "brand", kit: "brand", title: "Brand kit", brief: "brand" },
   { key: "identity", kit: "identity", title: "Visual identity", brief: "theme" },
   { key: "colours", kit: "colours", title: "Colours", brief: "colours" },
+  { key: "ideas", kit: "voice", title: "Post types and captions" },
   { key: "scene", kit: "shots", title: "Props and shots", brief: "shots" },
-  { key: "ideas", kit: "voice", title: "Ideas and captions" },
   { key: "magic", kit: "theme", title: "Generate" },
 ];
 
@@ -145,6 +147,9 @@ export interface JourneyProps {
   onGenerateIdeas: () => Promise<boolean>;
   onSavePlan: (plan: Post[]) => void;
   ideasBusy: boolean;
+  /** A single post is being written again (its type changed or its offer was filled). */
+  rewriting: boolean;
+  onRewrite: (index: number, plan: Post[]) => void;
   onGenerate: () => Promise<void>;
   onDone: () => void;
 }
@@ -215,14 +220,14 @@ export default function Journey(p: JourneyProps) {
     brand: String(client?.updated ?? ""),
     theme: `${p.themeId}:${theme?.updated ?? ""}:${p.cast.join(",")}`,
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
-    shots: `${(p.config?.shots ?? []).join("|")}:${theme?.props ?? ""}`,
+    shots: `${p.plan.map((x) => x.scene ?? "").join("|")}:${theme?.props ?? ""}`,
   };
   const stepBrief = STEPS[step].brief;
   const sig = stepBrief ? signature[stepBrief] : undefined;
   useEffect(() => {
     if (!stepBrief || !p.batchId || briefBusy) return;
     // The shots are read once they are written for this month's products.
-    if (stepBrief === "shots" && (adapting || !p.config?.shots?.length) && theme?.shots.length) return;
+    if (stepBrief === "shots" && (adapting || !p.plan.some((x) => x.scene)) && theme?.shots.length) return;
     const note = brief[stepBrief];
     const before = seen.current[stepBrief];
     if (note && before === undefined) {
@@ -243,14 +248,17 @@ export default function Journey(p: JourneyProps) {
   }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting]);
 
   /* ── The pins' shots rewritten for this month's products and colours ── */
-  // "v2": shots written before people were kept neutral are written again once.
+  // One shot per post: written again when the posts, the pins, the colours or the props change.
+  const planSig = JSON.stringify(
+    p.plan.map((x) => [x.index, x.type, x.product, x.products, x.occasion, x.people, x.brief, x.offer?.products]),
+  );
   const shotsSig = hash(
-    `v2|${p.themeId}|${(theme?.shots ?? []).join("|")}|${productIds}|${JSON.stringify(theme?.palette ?? [])}`,
+    `v3|${p.themeId}|${(theme?.shots ?? []).join("|")}|${planSig}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`,
   );
   const adaptedFor = useRef("");
   const adaptShots = useCallback(
     async (force = false) => {
-      if (!p.batchId || !theme?.shots.length) return;
+      if (!p.batchId || !theme?.shots.length || !p.plan.length) return;
       if (!force && adaptedFor.current === shotsSig) return;
       adaptedFor.current = shotsSig;
       setAdapting(true);
@@ -268,9 +276,9 @@ export default function Journey(p: JourneyProps) {
   );
   useEffect(() => {
     if (key !== "scene" || !p.config || reading) return;
-    if (p.config.shots?.length && p.config.shotsFor === shotsSig) return;
+    if (p.plan.every((x) => x.scene) && p.config.shotsFor === shotsSig) return;
     void adaptShots();
-  }, [key, shotsSig, p.config?.shotsFor, !!p.config?.shots?.length, reading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [key, shotsSig, p.config?.shotsFor, reading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Reading the pins (theme analysis) before colours and shots ── */
   async function readReferences(force = false) {
@@ -558,9 +566,9 @@ export default function Journey(p: JourneyProps) {
           {key === "scene" && client && (
             <>
               <StepHead kit="shots" title="Props and shots">
-                Written from your pins, your products and your colours. Edit anything; the ideas and the images follow these.
+                One shot for every post, in the look of your pins: its product, its type, its occasion and its people, in your colours. Edit any of them; the images follow these.
               </StepHead>
-              <div className="journey-boxes cols-3">
+              <div className="journey-boxes cols-scene">
                 {reading ? (
                   <div className="journey-box">
                     <Reading />
@@ -571,12 +579,12 @@ export default function Journey(p: JourneyProps) {
                       <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
                     </div>
                     <MonthShots
-                      shots={p.config?.shots ?? []}
+                      plan={p.plan}
                       busy={adapting}
                       empty={!theme.shots.length}
                       onRewrite={() => void adaptShots(true)}
                       onReadPins={theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
-                      onSave={(shots) => p.onSettings({ shots })}
+                      onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene } : x)))}
                     />
                   </>
                 ) : (
@@ -594,8 +602,13 @@ export default function Journey(p: JourneyProps) {
               plan={p.plan}
               config={p.config}
               busy={p.ideasBusy}
+              rewriting={p.rewriting}
+              batchId={p.batchId}
+              refresh={p.refresh}
+              productNames={p.products.map((x) => displayName(x.name))}
               onGenerate={() => void p.onGenerateIdeas()}
               onSavePlan={p.onSavePlan}
+              onRewrite={p.onRewrite}
             />
           )}
 
@@ -972,32 +985,21 @@ function GalleryBox({
 /* ───────────── This month's shots ───────────── */
 
 function MonthShots({
-  shots,
+  plan,
   busy,
   empty,
   onRewrite,
   onReadPins,
   onSave,
 }: {
-  shots: string[];
+  plan: Post[];
   busy: boolean;
   empty: boolean;
   onRewrite: () => void;
   onReadPins?: () => void;
-  onSave: (shots: string[]) => void;
+  onSave: (index: number, scene: string) => void;
 }) {
-  const text = shots.join("\n\n");
-  const [draft, setDraft] = useState(text);
-  useEffect(() => setDraft(text), [text]);
-  const save = () => {
-    if (draft === text) return;
-    onSave(
-      draft
-        .split(/\n\s*\n/)
-        .map((x) => x.replace(/^\s*\d+[.)]\s*/, "").trim())
-        .filter(Boolean),
-    );
-  };
+  const written = plan.filter((x) => x.scene).length;
   return (
     <div className="journey-box">
       <BoxTitle
@@ -1005,34 +1007,66 @@ function MonthShots({
         actions={
           <>
             {onReadPins && (
-              <button type="button" className="text-button" onClick={onReadPins} disabled={busy} title="Read the pins again, then rewrite the shots">
+              <button type="button" className="text-button" onClick={onReadPins} disabled={busy} title="Read the pins again, then write the shots again">
                 <RefreshCw size={13} /> Pins
               </button>
             )}
-            <button type="button" className="text-button" onClick={onRewrite} disabled={busy || empty} title="Write the shots again for this month's products and colours">
+            <button type="button" className="text-button" onClick={onRewrite} disabled={busy || empty || !plan.length} title="Write every post's shot again">
               {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Rewrite
             </button>
           </>
         }
       >
-        This month's shots{shots.length ? ` · ${shots.length}` : ""}
+        Shot list{plan.length ? ` · ${written}/${plan.length}` : ""}
       </BoxTitle>
-      {busy ? (
+      {busy && !written ? (
         <div className="journey-reading">
           <LoaderCircle className="spinning" size={18} />
-          Rewriting the pins' shots for your products and colours…
+          Writing one shot per post from your pins, products and colours…
         </div>
       ) : empty ? (
         <p className="field-hint">Add pins to the theme (Visual identity) and they are read into shots.</p>
+      ) : !plan.length ? (
+        <p className="field-hint">Write the post types and captions first: every post gets its own shot.</p>
       ) : (
-        <>
-          <textarea className="journey-shots" value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={save} aria-label="This month's shots" />
-          <p className="field-hint">
-            Each pin's place, camera, light and gesture, with your products in the hands and on the tables, in your colours. Separate shots with an empty line.
-          </p>
-        </>
+        <ol className="shot-list">
+          {plan.map((x, i) => (
+            <ShotRow key={`${x.index}:${x.scene ?? ""}`} post={x} order={i} busy={busy} onSave={(t) => onSave(x.index, t)} />
+          ))}
+        </ol>
       )}
     </div>
+  );
+}
+
+function ShotRow({ post, order, busy, onSave }: { post: Post; order: number; busy: boolean; onSave: (scene: string) => void }) {
+  const [text, setText] = useState(post.scene ?? "");
+  return (
+    <li className="shot-row" style={{ "--i": order } as React.CSSProperties}>
+      <div className="idea-meta">
+        <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
+        {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
+        <span className="journey-tag muted">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>
+        <span className="shot-headline" dir="auto">
+          {post.headline}
+        </span>
+      </div>
+      {post.scene || !busy ? (
+        <textarea
+          rows={3}
+          value={text}
+          placeholder="Writing this post's shot…"
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => text.trim() !== (post.scene ?? "").trim() && onSave(text.trim())}
+          aria-label={`Shot of post ${post.index}`}
+        />
+      ) : (
+        <div className="analysis-skeleton">
+          <i />
+          <i />
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -1272,15 +1306,47 @@ function IdeasStep({
   plan,
   config,
   busy,
+  rewriting,
+  batchId,
+  refresh,
+  productNames,
   onGenerate,
   onSavePlan,
+  onRewrite,
 }: {
   plan: Post[];
   config: Config | null;
   busy: boolean;
+  rewriting: boolean;
+  batchId: string | null;
+  refresh: () => Promise<void>;
+  productNames: string[];
   onGenerate: () => void;
   onSavePlan: (plan: Post[]) => void;
+  onRewrite: (index: number, plan: Post[]) => void;
 }) {
+  // An occasion ticked after the ideas were written gets its greeting post here (only that post
+  // is written again, the rest of the month stays).
+  const month = config?.month ?? "";
+  const missing = pickedOccasions(month, config?.occasions).filter(
+    (o) => !plan.some((x) => x.type === "greeting" && x.occasion === o.id),
+  );
+  const [adding, setAdding] = useState(false);
+  const tried = useRef("");
+  useEffect(() => {
+    const key = missing.map((o) => o.id).join(",");
+    if (!batchId || !plan.length || busy || adding || !key || tried.current === key) return;
+    tried.current = key;
+    setAdding(true);
+    void post<{ added: string[] }>("/api/studio/posts/occasion-posts", { batch: batchId })
+      .then(async (r) => {
+        await refresh();
+        if (r.added.length) toast.success(`Greeting post added for ${r.added.join(", ")}.`);
+      })
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setAdding(false));
+  }, [batchId, plan.length, busy, missing.map((o) => o.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const occasionName = (id?: string) => pickedOccasions(month, config?.occasions).find((o) => o.id === id)?.name;
   // Every post on one screen: up to six across, the rows share the height.
   const n = Math.max(1, plan.length || 4);
   const cols = n <= 4 ? n : n <= 8 ? Math.ceil(n / 2) : 6;
@@ -1290,7 +1356,13 @@ function IdeasStep({
     gridTemplateRows: rows <= 3 ? `repeat(${rows}, minmax(0, 1fr))` : undefined,
     gridAutoRows: rows > 3 ? "minmax(240px, 1fr)" : undefined,
   };
-  const briefAt = Math.max(0, ...Object.values(config?.brief ?? {}).map((n) => n?.at ?? 0));
+  // The shots are read after the ideas now: only the screens before this one make them stale.
+  const briefAt = Math.max(
+    0,
+    ...Object.entries(config?.brief ?? {})
+      .filter(([k]) => k !== "shots")
+      .map(([, n]) => n?.at ?? 0),
+  );
   const stale = plan.length > 0 && briefAt > (config?.plannedAt ?? 0);
   const started = useRef(false);
   // Ideas are written by themselves only for a month that has none, once it has loaded (a reload
@@ -1306,13 +1378,15 @@ function IdeasStep({
       <div className="journey-head">
         <KitIcon kit="voice" size={18} />
         <div>
-          <h2>Ideas and recommended captions</h2>
+          <h2>Types of posts and caption ideas</h2>
           <p>
             {busy
-              ? "Writing the month from the whole brief: products, colours, pins, shots and the occasions…"
-              : stale
-                ? "The brief changed after these ideas were written. Write them again to follow it."
-                : "Every post with its day, headline and caption. Edit any caption; it saves when you click out."}
+              ? "Writing the month from the whole brief: products, colours, pins and the occasions…"
+              : adding
+                ? `Adding the greeting post${missing.length > 1 ? "s" : ""} for ${missing.map((o) => o.name).join(", ")}…`
+                : stale
+                  ? "The brief changed after these ideas were written. Write them again to follow it."
+                  : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type."}
           </p>
         </div>
         <button type="button" className="secondary journey-head-action" onClick={onGenerate} disabled={busy}>
@@ -1337,11 +1411,15 @@ function IdeasStep({
         <div className={`journey-boxes idea-grid ${rows > 3 ? "scrolls" : ""}`} style={grid}>
           {plan.map((post, i) => (
             <IdeaCard
-              key={`${post.index}:${config?.plannedAt ?? 0}`}
+              key={`${post.index}:${config?.plannedAt ?? 0}:${post.type}:${post.title}`}
               post={post}
               order={i}
               compact={rows > 1}
+              occasion={occasionName(post.occasion)}
+              productNames={productNames}
+              rewriting={rewriting}
               onSave={(next) => onSavePlan(plan.map((x) => (x.index === next.index ? next : x)))}
+              onRewrite={(next) => onRewrite(next.index, plan.map((x) => (x.index === next.index ? next : x)))}
             />
           ))}
         </div>
@@ -1350,20 +1428,99 @@ function IdeasStep({
   );
 }
 
-function IdeaCard({ post, order, compact, onSave }: { post: Post; order: number; compact: boolean; onSave: (p: Post) => void }) {
+function IdeaCard({
+  post,
+  order,
+  compact,
+  occasion,
+  productNames,
+  rewriting,
+  onSave,
+  onRewrite,
+}: {
+  post: Post;
+  order: number;
+  compact: boolean;
+  occasion?: string;
+  productNames: string[];
+  rewriting: boolean;
+  onSave: (p: Post) => void;
+  onRewrite: (p: Post) => void;
+}) {
   const [caption, setCaption] = useState(post.caption);
   const [headline, setHeadline] = useState(post.headline ?? "");
+  const [offer, setOffer] = useState<Post["offer"]>(post.offer);
   const save = () => {
     if (caption !== post.caption || headline !== (post.headline ?? "")) onSave({ ...post, caption, headline: headline || undefined });
   };
+  const isOffer = post.type === "offer";
   return (
     <article className={`journey-box idea-card ${compact ? "compact" : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="idea-meta">
         <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
         {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
-        <span className="journey-tag muted">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>
+        <select
+          className="idea-type"
+          value={post.type}
+          disabled={rewriting}
+          aria-label="Post type"
+          title="Changing the type writes this post again for that type"
+          onChange={(e) => {
+            const type = e.target.value as Post["type"];
+            if (type === "offer") {
+              // An offer waits for its products, price and contents before it is written.
+              const o = post.offer ?? { products: post.product ? [post.product] : [], price: "", details: "" };
+              setOffer(o);
+              onSave({ ...post, type, offer: o });
+              return;
+            }
+            onRewrite({ ...post, type, offer: undefined, caption, headline: headline || undefined });
+          }}
+        >
+          {POST_TYPES.filter((t) => t !== "greeting" || post.type === "greeting").map((t) => (
+            <option key={t} value={t}>
+              {POST_TYPE_INFO[t].label}
+            </option>
+          ))}
+        </select>
+        {occasion && <span className="journey-tag occ-religious">{occasion}</span>}
       </div>
       <strong className="idea-title">{post.title}</strong>
+      {isOffer ? (
+        <div className="idea-offer">
+          <div className="offer-products">
+            {productNames.map((n) => {
+              const on = !!offer?.products.includes(n);
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  className={`chip ${on ? "on" : ""}`}
+                  onClick={() =>
+                    setOffer((o) => {
+                      const cur = o ?? { products: [], price: "", details: "" };
+                      return { ...cur, products: on ? cur.products.filter((x) => x !== n) : [...cur.products, n] };
+                    })
+                  }
+                >
+                  {n}
+                </button>
+              );
+            })}
+          </div>
+          <input dir="auto" value={offer?.price ?? ""} placeholder="Price: 15 JD, ٢ علب بـ ١٥ دينار" onChange={(e) => setOffer((o) => ({ products: o?.products ?? [], details: o?.details ?? "", price: e.target.value }))} />
+          <textarea dir="auto" rows={2} value={offer?.details ?? ""} placeholder="What is in the offer, conditions and dates" onChange={(e) => setOffer((o) => ({ products: o?.products ?? [], price: o?.price ?? "", details: e.target.value }))} />
+          <button
+            type="button"
+            className="secondary"
+            disabled={rewriting || !offerReady(offer)}
+            onClick={() => onRewrite({ ...post, offer })}
+            title={offerReady(offer) ? "" : "Pick the products, write the price and what the offer includes"}
+          >
+            {rewriting ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Write the offer post
+          </button>
+        </div>
+      ) : null}
       <input className="idea-headline" dir="auto" value={headline} onChange={(e) => setHeadline(e.target.value)} onBlur={save} aria-label="Headline on the image" />
       <textarea className="idea-caption" dir="auto" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} aria-label="Recommended caption" />
       <small className="idea-tags" dir="auto">

@@ -72,21 +72,46 @@ export function briefLines(brief: Partial<Record<BriefStep, BriefNote>> | undefi
 
 export const SHOTS_SCHEMA = {
   type: "object",
-  properties: { shots: { type: "array", items: { type: "string" } } },
+  properties: {
+    shots: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { post: { type: "integer" }, ref: { type: "integer" }, shot: { type: "string" } },
+        required: ["post", "ref", "shot"],
+      },
+    },
+  },
   required: ["shots"],
 };
+
+/** One planned post as the photographer reads it. */
+export interface ShotPost {
+  index: number;
+  type: string;
+  /** What the type asks of the picture. */
+  typeRule: string;
+  /** The product(s) in the picture, by kind and look. */
+  products: string[];
+  occasion?: { name: string; elements: string; portrait?: boolean };
+  /** Cast ambassadors in the picture, with their look (gender included). */
+  people: string[];
+  headline: string;
+  brief: string;
+}
 
 /** What a reference held that this client does not sell: it never reaches a month's shot. */
 export const FOREIGN_ITEMS =
   /\b(glass(es)?|cups?|mugs?|beverages?|drinks?|juices?|coffee|tea|latte|smoothies?|milkshakes?|liquids?|straws?|sandwich(es)?|snack bars?|burgers?|pizzas?|fries|bottles?|cup carriers?|wine|cocktails?)\b/i;
 
 /**
- * The pins' shots rewritten as this month's shoot: same place, camera, light and gesture, with the
- * client's own products in the hands and on the tables, and only the month's colours.
+ * The month's shoot list: one shot per planned post, in the look of the pins. Each post takes the
+ * pin whose place, camera and gesture fit it best and becomes a shot of its own product, type,
+ * occasion and people, in the month's colours.
  */
 export function adaptShotsInstruction(r: {
   shots: string[];
-  products: string[];
+  posts: ShotPost[];
   palette: string[];
   props?: string;
   strict?: boolean;
@@ -94,23 +119,28 @@ export function adaptShotsInstruction(r: {
   service?: string;
 }): string {
   return [
-    `You are the photographer planning this month's shoot for a brand. Below are ${r.shots.length} shots read from Pinterest references. The references show other brands' items (drinks, glasses, cups, snacks, sandwiches...). Rewrite every shot for THIS brand's products, in the same order, one shot per entry, 2-4 sentences each.`,
-    "Keep from each reference shot: the place and surfaces, the camera angle and distance, the light, the framing, the gesture of the hands or the person, the composition and the calm space left for a headline.",
-    "Replace whatever the reference shows or holds with one of the brand's products, choosing the product whose kind fits the gesture naturally: a gift box held in both hands or set on a table, a tin carried by its handle or held against the body, one piece lifted between the fingers, a tray on a surface. Each product appears exactly as its photo shows it: a closed box stays closed with its lid, an open one stays open; never open, unwrap or re-pack it. Describe the product by its kind and look (for example 'the blue and silver gift box of mini tarts'), never by a file name or number.",
-    "PEOPLE: describe a person by role and gesture only ('a person', 'two hands'), with neutral clothing in the month's colours: no headscarf, hijab, dress, skirt or beard and no man or woman named, because who appears is decided later by the brand's cast.",
-    "NEVER write any of these unless the brand's products listed below are one: glass, cup, mug, beverage, drink, juice, coffee, tea, liquid, straw, bottle, can, carrier, sandwich, snack bar, burger or any food that is not the brand's product. A hand that held a glass now holds the product.",
+    `You are the photographer planning this month's shoot. The month has ${r.posts.length} posts (below, with their type, product, occasion and people). The look comes from ${r.shots.length} reference shots read from Pinterest, which show other brands' items. Write ONE shot per post: 2-4 sentences that a camera crew can shoot.`,
+    "For each post pick the reference shot whose place, camera angle and distance, light and gesture fit the post best (vary the references across the month; give its number in \"ref\"), and write the post's own shot in that look: its product, its type, its occasion, its people and its message.",
+    "PRODUCTS: each product appears exactly as described: a closed box stays closed with its lid, an open one stays open; never opened, unwrapped or re-packed. Describe it by its kind and look ('the blue and silver gift box of mini tarts'), never by a file name. What a reference's hands held becomes the post's product.",
+    "TYPES: a lifestyle post shows the product living in a real moment; a tip or quote post is a calm minimal frame with one large empty area for the words and the product small to one side; a greeting post is built from its occasion's elements (a royal day: no person, no product, an empty dignified frame of space in the upper middle for the official portrait added later); an offer shows exactly its products together; an announcement is bold and simple.",
+    "PEOPLE: only the people listed for a post appear, each as described (their own gender and look; a man never wears a headscarf, hijab or dress); a post with no people shows at most a hand.",
+    "NEVER write any of these unless a post's own product is one: glass, cup, mug, beverage, drink, juice, coffee, tea, liquid, straw, bottle, carrier, sandwich, snack bar, burger or any food that is not the brand's product.",
     r.palette.length
-      ? `COLOURS: name only these colours: ${r.palette.join(", ")}. The background (wall, backdrop, main surface) is ${r.palette[0]}; clothing, fabrics, car paint and props take the other colours. Never name any other colour (no red sleeve, no crimson velvet).`
+      ? `COLOURS: name only these colours: ${r.palette.join(", ")}. The background (wall, backdrop, main surface) is ${r.palette[0]}; clothing, fabrics, car paint and props take the other colours. Never name any other colour.`
       : "",
     r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : "",
+    r.service?.trim()
+      ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. The hands hold something of the service's moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
+      : "",
     r.strict ? "Your previous answer still named a drink, glass, cup or other item the brand does not sell. Remove every such item." : "",
-    r.products.length
-      ? `THE BRAND'S PRODUCTS:\n${r.products.join("\n")}`
-      : r.service?.trim()
-        ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. Rewrite every shot around a moment this service is about, in the reference's place and light: what the hands hold becomes something of that moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
-        : "THE BRAND HAS NO PRODUCT PHOTOS: show the brand's world; the hands hold nothing or a simple object of the scene, never a drink or food.",
+    `THE POSTS:\n${r.posts
+      .map(
+        (p) =>
+          `Post ${p.index} (${p.type}: ${p.typeRule})${p.products.length ? `; product: ${p.products.join(" + ")}` : "; no product"}${p.occasion ? `; occasion: ${p.occasion.name}, built from ${p.occasion.elements}${p.occasion.portrait ? " (royal day: no person, no product, empty frame for the official portrait)" : ""}` : ""}${p.people.length ? `; people: ${p.people.join("; ")}` : "; no people"}; headline "${p.headline}"; idea: ${p.brief}`,
+      )
+      .join("\n")}`,
     `THE REFERENCE SHOTS:\n${r.shots.map((t, i) => `${i + 1}. ${t}`).join("\n")}`,
-    `Return ONLY JSON: {"shots": ["...", ...]} with exactly ${r.shots.length} entries.`,
+    `Return ONLY JSON: {"shots": [{"post": 1, "ref": 3, "shot": "..."}, ...]} with exactly one entry per post.`,
   ]
     .filter(Boolean)
     .join("\n\n");

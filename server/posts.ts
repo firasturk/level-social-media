@@ -15,7 +15,7 @@ import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
 import { BRIEF_STEPS, type BriefNote, type BriefStep, type Config } from "@shared/config";
-import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA } from "@shared/brief";
+import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
 import {
@@ -25,6 +25,7 @@ import {
   photoRules,
   withoutColourWords,
   withoutPaletteText,
+  withoutProductNames,
   captionsCsv,
   GRID_SCHEMA,
   gridIdeasInstruction,
@@ -47,6 +48,7 @@ import {
   singleIdeaInstruction,
   type IdeasRequest,
   POST_TYPES,
+  POST_TYPE_INFO,
   postFileName,
   THEME_SCHEMA,
   themeBuilderInstruction,
@@ -202,9 +204,8 @@ async function dropMonthShots(env: Env, themeId: string): Promise<void> {
   );
 }
 
-/** The month's shots: the theme's, rewritten for the month's products when that was done. */
-function monthShots(config: Config, theme: ThemeRow | null): string[] {
-  if (config.shots?.length) return config.shots;
+/** The pins' shots the ideas are planned over (each post gets its own scene later). */
+function monthShots(_config: Config, theme: ThemeRow | null): string[] {
   return theme ? shotsOf(theme) : [];
 }
 
@@ -877,6 +878,8 @@ postRoutes.post("/reidea", async (c) => {
     products: fresh.products ?? current.products,
     people: fresh.people,
     occasion: current.occasion ?? fresh.occasion,
+    // The post changed: its shot is written again on the shots screen.
+    scene: undefined,
   };
   // An offer shows exactly the designer's products.
   if (next.type === "offer" && next.offer?.products.length) {
@@ -932,12 +935,103 @@ postRoutes.post("/ideas", async (c) => {
   );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
+  // The writer may skip a picked occasion: it gets its greeting post all the same.
+  config.plan = (await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast)).plan;
   config.plannedAt = now();
   config.postCount = count;
   await refreshCountNote(c.env, b.id, config);
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan });
+});
+
+/**
+ * Every picked occasion has its greeting post. One that is missing (picked after the ideas were
+ * written, or skipped by the writer) takes the post closest to its day that is not already an
+ * occasion or an offer; only that post is written again, with its caption.
+ */
+async function ensureOccasionPosts(
+  env: Env,
+  batchId: string,
+  config: Config,
+  client: ClientRow,
+  theme: ThemeRow | null,
+  products: string[],
+  productNotes: Record<string, string>,
+  cast: AmbassadorRow[],
+): Promise<{ plan: Post[]; added: string[] }> {
+  const month = config.month ?? "";
+  let plan = config.plan ?? [];
+  const added: string[] = [];
+  const day = (d?: string) => (d ? Number(d.slice(8, 10)) : 15);
+  for (const o of pickedOccasions(month, config.occasions)) {
+    if (plan.some((p) => p.type === "greeting" && p.occasion === o.id)) continue;
+    const target = plan
+      .filter((p) => p.type !== "greeting" && p.type !== "offer")
+      .sort((a, b) => Math.abs(day(a.date) - day(o.date)) - Math.abs(day(b.date) - day(o.date)))[0];
+    if (!target) break;
+    const draft: Post = {
+      ...target,
+      type: "greeting",
+      occasion: o.id,
+      date: o.date,
+      product: o.portrait ? undefined : target.product,
+      products: o.portrait ? undefined : target.products,
+      people: o.portrait ? undefined : target.people,
+      scene: undefined,
+    };
+    const instruction = singleIdeaInstruction(
+      { ...ideasContext(client, theme, config, products, productNotes, cast), count: 1 },
+      draft,
+      plan.filter((p) => p.index !== target.index).map((p) => p.title),
+      `This post is now the greeting for ${o.name} on ${o.date}: a greeting headline and a caption for the day, in the client's tone.`,
+    );
+    const [fresh] = parseIdeas(await askText(env, instruction, IDEAS_SCHEMA), 1, products, cast.map((a) => a.name));
+    if (!fresh) continue;
+    const next: Post = {
+      ...draft,
+      title: fresh.title,
+      brief: fresh.brief,
+      caption: fresh.caption,
+      hashtags: fresh.hashtags,
+      headline: fresh.headline,
+      subline: hidesSubline(client) ? undefined : fresh.subline,
+      product: o.portrait ? undefined : (fresh.product ?? draft.product),
+      products: o.portrait ? undefined : (fresh.products ?? draft.products),
+      people: o.portrait ? undefined : fresh.people,
+    };
+    plan = plan.map((p) => (p.index === target.index ? next : p));
+    added.push(o.name);
+  }
+  return { plan: withPortraits(withDates(plan, month), config, batchId), added };
+}
+
+/** Occasions picked after the ideas were written get their greeting posts (the rest stays). */
+postRoutes.post("/occasion-posts", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  if (!config.plan?.length) return c.json({ ok: true, added: [], plan: [] });
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme
+    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    : null;
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  const products = [...new Set(sources.map(productName))];
+  const productNotes = Object.fromEntries(sources.filter((s) => s.note).map((s) => [productName(s), s.note!]));
+  const cast = await monthAmbassadors(c.env, config);
+  const r = await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast);
+  if (r.added.length) {
+    const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+    const cfg = JSON.parse(fresh.config) as Config;
+    cfg.plan = r.plan;
+    await saveConfig(c.env, fresh, cfg);
+  }
+  return c.json({ ok: true, added: r.added, plan: r.plan });
 });
 
 /**
@@ -1092,7 +1186,6 @@ postRoutes.put("/settings", async (c) => {
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
-  if (d.shots) config.shots = d.shots.filter(Boolean);
   if (d.occasions)
     config.occasions = {
       ...(config.occasions ?? {}),
@@ -1303,7 +1396,7 @@ postRoutes.post("/generate", async (c) => {
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
-      shot: post.shot ? monthShots(config, theme)[post.shot - 1] : undefined,
+      shot: post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       grid: config.gridRef ? config.gridNotes || undefined : undefined,
@@ -1690,7 +1783,11 @@ postRoutes.post("/brief", async (c) => {
                   `PRODUCTS AND THEIR PACKAGING:\n${productLines.join("\n") || "none"}`,
                 ].join("\n")
               : [
-                  `THIS MONTH'S SHOTS:\n${monthShots(config, theme).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") || "none"}`,
+                  `THIS MONTH'S SHOTS (one per post):\n${
+                    (config.plan ?? []).filter((x) => x.scene).map((x) => `Post ${x.index} (${x.type}): ${x.scene}`).join("\n") ||
+                    monthShots(config, theme).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") ||
+                    "none"
+                  }`,
                   chosen ? `THE MONTH'S COLOURS (first = background; they replace every colour of the pins): ${monthPaletteOf(theme).join(", ")}` : "",
                   `PROPS: ${theme?.props || "none"}`,
                   `PRODUCTS:\n${productLines.join("\n") || "none"}`,
@@ -1715,23 +1812,66 @@ postRoutes.post("/brief", async (c) => {
   return c.json({ ok: true, note: cfg.brief[step], brief: cfg.brief });
 });
 
-/** The theme's shots rewritten for this month's products and colours (nothing the client does not sell). */
+/**
+ * The month's shoot list: one shot per post (or the posts given), in the pins' look, written for
+ * each post's product, type, occasion and people. Stored on the posts; the image prompt uses it.
+ */
 postRoutes.post("/shots", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), sig: z.string().max(400).optional() }));
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      sig: z.string().max(400).optional(),
+      indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+    }),
+  );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  if (!plan.length) throw new StudioError("Write the month's ideas first: each post gets its own shot.", 409);
   const theme = config.theme
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
   const base = theme ? shotsOf(theme) : [];
   if (!base.length) throw new StudioError("The theme has no shots yet: add pins and read them first.", 409);
+  const client = await clientRow(c.env, config.client);
   const sources = await all<SourceRow & { category: string | null }>(
     c.env.DB,
     "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
   await describeProducts(c.env, sources);
-  const products = sources.map((s) => `- ${s.category || "Product"}: ${s.note || "(photo not read)"}`);
+  const names = sources.map(productName);
+  const describe = (n: string | undefined) => {
+    const m = matchProduct(n, names);
+    const src = m ? sources.find((x) => productName(x) === m) : undefined;
+    return src ? `${src.category || "product"}: ${src.note || "as in its photo"}` : "";
+  };
+  const cast = await monthAmbassadors(c.env, config);
+  const occasions = pickedOccasions(config.month ?? "", config.occasions);
+  const wanted = new Set(d.indexes ?? plan.map((p) => p.index));
+  const posts: ShotPost[] = plan
+    .filter((p) => wanted.has(p.index))
+    .map((p) => {
+      const occasion = p.type === "greeting" ? occasions.find((o) => o.id === p.occasion) : undefined;
+      const productNamesOf =
+        p.type === "offer" && p.offer ? p.offer.products : occasion?.portrait ? [] : [p.product, ...(p.products ?? [])];
+      return {
+        index: p.index,
+        type: POST_TYPE_INFO[p.type]?.label ?? p.type,
+        typeRule: POST_TYPE_INFO[p.type]?.description ?? "",
+        products: productNamesOf.map((n) => describe(n ?? undefined)).filter(Boolean),
+        occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: occasion.portrait } : undefined,
+        people: occasion?.portrait
+          ? []
+          : (p.people ?? [])
+              .map((n) => cast.find((a) => a.name.toLowerCase() === n.toLowerCase()))
+              .filter((a): a is AmbassadorRow => !!a)
+              .map((a) => `${a.name} (${a.description})`),
+        headline: p.headline ?? "",
+        brief: withoutProductNames(p.brief, names).slice(0, 600),
+      };
+    });
   // The client may sell drinks: then cups and glasses are their products, not foreign items.
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const palette = monthPaletteOf(theme);
@@ -1741,30 +1881,33 @@ postRoutes.post("/shots", async (c) => {
         c.env,
         adaptShotsInstruction({
           shots: palette.length ? base.map(withoutColourWords) : base,
-          products,
+          posts,
           palette,
           props: theme?.props,
           strict,
-          service: sources.length ? undefined : (await clientRow(c.env, config.client)).service || undefined,
+          service: sources.length ? undefined : client.service || undefined,
         }),
         SHOTS_SCHEMA,
       ),
     );
-    return (Array.isArray(raw.shots) ? raw.shots : [])
-      .map((x) => String(x ?? "").trim().slice(0, 1200))
-      .filter(Boolean);
+    const out = new Map<number, string>();
+    for (const x of Array.isArray(raw.shots) ? (raw.shots as { post?: unknown; shot?: unknown }[]) : []) {
+      const i = Number(x?.post);
+      const t = String(x?.shot ?? "").trim().slice(0, 1500);
+      if (wanted.has(i) && t) out.set(i, t);
+    }
+    return out;
   };
   let shots = await ask(false);
-  if (!sellsDrinks && shots.some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
-  if (!shots.length) throw new StudioError("The model returned no shots. Try again.", 502);
-  // Never fewer shots than the theme: a missing one falls back to the theme's (recoloured).
-  const full = base.map((t, i) => shots[i] ?? (palette.length ? withoutColourWords(t) : t));
+  if (!sellsDrinks && [...shots.values()].some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
+  if (!shots.size) throw new StudioError("The model returned no shots. Try again.", 502);
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
-  cfg.shots = full;
-  cfg.shotsFor = d.sig;
+  cfg.plan = (cfg.plan ?? []).map((p) => (shots.has(p.index) ? { ...p, scene: shots.get(p.index) } : p));
+  if (!d.indexes) cfg.shotsFor = d.sig;
+  delete cfg.shots;
   await saveConfig(c.env, fresh, cfg);
-  return c.json({ ok: true, shots: full });
+  return c.json({ ok: true, plan: cfg.plan });
 });
 
 /** The official portrait of a royal day: uploaded by the team, framed on the post exactly as it is. */

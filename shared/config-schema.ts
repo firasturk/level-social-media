@@ -46,6 +46,7 @@ export const postSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
   occasion: z.string().max(80).optional(),
+  scene: z.string().max(1500).optional(),
   offer: z
     .object({
       products: z.array(z.string().max(300)).max(6),

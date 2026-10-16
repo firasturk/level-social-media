@@ -7453,3 +7453,72 @@ label.num select {
   border-color: transparent;
   animation: j-glow 2.2s ease-in-out infinite;
 }
+
+/* Post types and the shot list */
+.idea-type {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--ink-700);
+  width: auto;
+  cursor: pointer;
+}
+.idea-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px dashed var(--warning);
+  background: var(--warning-soft);
+}
+.idea-offer input,
+.idea-offer textarea {
+  font-size: 12.5px;
+}
+.idea-offer .chip.on,
+.offer-products .chip.on {
+  background: var(--ink-900);
+  color: var(--on-fill);
+  border-color: var(--ink-900);
+}
+.shot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shot-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  animation: j-up 420ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+.shot-row textarea {
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.shot-headline {
+  margin-left: auto;
+  font-weight: 700;
+  font-size: 13px;
+}
+.journey-boxes.cols-scene {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.7fr) minmax(0, 0.9fr);
+}
+@media (max-width: 900px) {
+  .journey-boxes.cols-scene {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
