@@ -104,7 +104,17 @@ app.onError((e, c) => {
 });
 
 export default {
-  fetch: app.fetch,
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    // Page visits on the long workers.dev address move to the short one, so everyone signs in
+    // and bookmarks a single address. API calls are served where they arrive.
+    const canonical = env.CANONICAL_ORIGIN;
+    if (canonical && (request.method === "GET" || request.method === "HEAD")) {
+      const url = new URL(request.url);
+      if (url.hostname.endsWith(".workers.dev") && !url.pathname.startsWith("/api/"))
+        return Response.redirect(`${canonical}${url.pathname}${url.search}`, 301);
+    }
+    return app.fetch(request, env, ctx);
+  },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(cleanupOldBatches(env).catch((e) => console.error("[cleanup]", e)));
     ctx.waitUntil(

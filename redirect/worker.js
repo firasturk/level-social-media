@@ -1,9 +1,8 @@
-// The studio moved from the "level-social-media" worker to "studio" (a shorter address).
-// This worker only sends every old link to the same path on the new address.
+// The studio moved from the "level-social-media" Worker to the short address below.
+// This Worker only sends every old link to the same path there.
 export default {
   fetch(request) {
     const url = new URL(request.url);
-    const rest = url.hostname.split(".").slice(1).join(".");
-    return Response.redirect(`https://studio.${rest}${url.pathname}${url.search}`, 301);
+    return Response.redirect(`https://levelstudio.pages.dev${url.pathname}${url.search}`, 301);
   },
 };

@@ -11,6 +11,8 @@ export interface Env {
   SESSION_SECRET?: string;
   WEBHOOK_TOKEN?: string;
   PUBLIC_BASE_URL?: string;
+  /** The short public address (levelstudio.pages.dev); page visits on workers.dev go there. */
+  CANONICAL_ORIGIN?: string;
   MAX_CONCURRENT_GENERATIONS?: string;
 }
 
