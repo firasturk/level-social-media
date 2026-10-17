@@ -2104,13 +2104,15 @@ const matchPost = (p: Post): MatchPost => ({
   tile: p.tileSpec ? { kind: p.tileSpec.kind, items: p.tileSpec.items } : undefined,
 });
 
-async function matchProducts(env: Env, b: BatchRow, config: Config, posts: Post[]): Promise<ProductMatch[]> {
+/** The best products for each post, and how many Drive photos the client's folder offered. */
+async function matchProducts(env: Env, b: BatchRow, config: Config, posts: Post[]): Promise<{ matches: ProductMatch[]; drive: number }> {
   const client = await clientRow(env, config.client);
   const options = await productOptions(env, b, client.id);
-  if (!options.length || !posts.length) return posts.map((p) => ({ index: p.index, picks: [] }));
+  const drive = options.filter((o) => o.source === "drive").length;
+  if (!options.length || !posts.length) return { matches: posts.map((p) => ({ index: p.index, picks: [] })), drive };
   const list = posts.map(matchPost);
   const raw = await askText(env, productMatchInstruction({ client: client.name, posts: list, options }), PRODUCT_MATCH_SCHEMA);
-  return parseMatches(parseJson<unknown>(raw), list, options);
+  return { matches: parseMatches(parseJson<unknown>(raw), list, options), drive };
 }
 
 /**
@@ -2157,7 +2159,7 @@ postRoutes.post("/products/match", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const posts = (config.plan ?? []).filter((p) => !d.indexes || d.indexes.includes(p.index));
-  return c.json({ ok: true, matches: await matchProducts(c.env, b, config, posts) });
+  return c.json({ ok: true, ...(await matchProducts(c.env, b, config, posts)) });
 });
 
 /** Every product photo the posts can use, for "Choose a product". */
@@ -2222,7 +2224,7 @@ postRoutes.post("/products/fill", async (c) => {
     (p) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "") && !matchProduct(p.product, monthNames),
   );
   if (!missing.length) return c.json({ ok: true, filled: [] });
-  const matches = await matchProducts(c.env, b, config, missing);
+  const { matches } = await matchProducts(c.env, b, config, missing);
   const filled: { index: number; product: string; source: string }[] = [];
   for (const m of matches) {
     const pick = m.picks[0];

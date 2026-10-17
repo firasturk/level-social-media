@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { LoaderCircle, Search, Sparkles } from "lucide-react";
+import { Check, HardDrive, LoaderCircle, RefreshCw, Repeat, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post } from "@/api";
 import type { Post } from "@shared/posts";
-import type { ProductMatch, ProductOption, ProductSource } from "@shared/drive";
+import { NO_PRODUCT_TILES, type ProductMatch, type ProductOption, type ProductSource } from "@shared/drive";
 
 const SOURCES: { id: ProductSource; label: string }[] = [
   { id: "month", label: "This month" },
@@ -17,6 +17,135 @@ export function optionThumb(o: Pick<ProductOption, "source" | "id">, sourceUrl: 
   if (o.source === "month") return sourceUrl(o.id);
   if (o.source === "gallery") return `/api/studio/posts/gallery/image?id=${encodeURIComponent(o.id)}`;
   return `/api/studio/drive/photo/${encodeURIComponent(o.id)}?size=320`;
+}
+
+/** Puts the product on the post, then writes the post's shot again for it. */
+export async function putProduct(batchId: string, index: number, o: ProductOption): Promise<Post> {
+  const r = await post<{ post: Post }>("/api/studio/posts/products/use", { batch: batchId, index, source: o.source, id: o.id, name: o.name });
+  await post("/api/studio/posts/shots", { batch: batchId, indexes: [index] });
+  return r.post;
+}
+
+/** Posts that show a product (not greetings, offers, or text, place and people tiles). */
+export const needsProduct = (x: Post) => x.type !== "greeting" && x.type !== "offer" && !NO_PRODUCT_TILES.has(x.tileSpec?.kind ?? "");
+
+const sameName = (a?: string, b?: string) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Under the props on the shots screen: the products that fit each post best (the client's Drive,
+ * earlier months, this month), each with Use or Replace.
+ */
+export function RecommendedProducts({
+  batchId,
+  plan,
+  monthProducts,
+  sourceUrl,
+  onChanged,
+}: {
+  batchId: string | null;
+  plan: Post[];
+  /** Display names of this month's product photos. */
+  monthProducts: string[];
+  sourceUrl: (id: string) => string;
+  onChanged: () => Promise<void>;
+}) {
+  const posts = plan.filter(needsProduct);
+  const sig = posts.map((x) => `${x.index}:${x.headline ?? ""}`).join("|");
+  const [data, setData] = useState<{ matches: ProductMatch[]; drive: number } | null>(null);
+  const [error, setError] = useState("");
+  const [tick, setTick] = useState(0);
+  const [using, setUsing] = useState("");
+  useEffect(() => {
+    if (!batchId || !sig) return;
+    setData(null);
+    setError("");
+    post<{ matches: ProductMatch[]; drive: number }>("/api/studio/posts/products/match", { batch: batchId, indexes: sig.split("|").map((x) => Number(x.split(":")[0])) })
+      .then(setData)
+      .catch((e) => setError((e as Error).message));
+  }, [batchId, sig, tick]);
+
+  async function use(index: number, o: ProductOption) {
+    if (!batchId) return;
+    setUsing(`${index}:${o.source}:${o.id}`);
+    try {
+      const p = await putProduct(batchId, index, o);
+      await onChanged();
+      toast.success(`Post ${index} now shows ${p.product}; its shot is written for it.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUsing("");
+    }
+  }
+
+  if (!posts.length) return null;
+  return (
+    <div className="journey-box recommended-box">
+      <div className="journey-box-title">
+        <Sparkles size={15} />
+        <strong>Recommended products</strong>
+        <span className="journey-box-actions">
+          <button type="button" className="text-button" onClick={() => setTick((t) => t + 1)} disabled={!data && !error} title="Look again">
+            <RefreshCw size={13} />
+          </button>
+        </span>
+      </div>
+      {data && !data.drive && (
+        <p className="field-hint drive-hint">
+          <HardDrive size={13} /> No Drive photos yet: connect the client's folder from the gallery's Drive button on the Products screen.
+        </p>
+      )}
+      {error ? (
+        <p className="field-hint">{error}</p>
+      ) : !data ? (
+        <div className="journey-reading">
+          <LoaderCircle className="spinning" size={16} /> Finding the products that fit each post…
+        </div>
+      ) : (
+        <ol className="recommended-list">
+          {posts.map((x) => {
+            const picks = data.matches.find((m) => m.index === x.index)?.picks ?? [];
+            const hasPhoto = monthProducts.some((n) => sameName(n, x.product));
+            return (
+              <li key={x.index}>
+                <span className="recommended-post">
+                  <b>{String(x.index).padStart(2, "0")}</b>
+                  <span dir="auto">{x.headline || x.title}</span>
+                </span>
+                {picks.length ? (
+                  <div className="recommended-picks">
+                    {picks.slice(0, 2).map((o) => {
+                      const key = `${x.index}:${o.source}:${o.id}`;
+                      const current = hasPhoto && sameName(o.name, x.product);
+                      return (
+                        <figure key={key} className="recommended-pick" title={o.reason || o.note}>
+                          <img src={optionThumb(o, sourceUrl)} alt="" loading="lazy" />
+                          <figcaption dir="auto">{o.name}</figcaption>
+                          {o.source !== "month" && <span className="journey-tag">{o.source === "drive" ? "Drive" : "Earlier"}</span>}
+                          {current ? (
+                            <span className="recommended-in">
+                              <Check size={12} /> In use
+                            </span>
+                          ) : (
+                            <button type="button" className="secondary" disabled={!!using} onClick={() => void use(x.index, o)}>
+                              {using === key ? <LoaderCircle className="spinning" size={12} /> : hasPhoto ? <Repeat size={12} /> : <Check size={12} />}
+                              {hasPhoto ? "Replace" : "Use"}
+                            </button>
+                          )}
+                        </figure>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <small className="field-hint">Nothing fits this post yet.</small>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -52,7 +181,7 @@ export default function ProductSwap({
     setMatchError("");
     setOptions(null);
     setQ("");
-    post<{ matches: ProductMatch[] }>("/api/studio/posts/products/match", { batch: batchId, indexes: [target.index] })
+    post<{ matches: ProductMatch[]; drive: number }>("/api/studio/posts/products/match", { batch: batchId, indexes: [target.index] })
       .then((r) => setMatch(r.matches[0] ?? { index: target.index, picks: [] }))
       .catch((e) => setMatchError((e as Error).message));
     get<{ options: ProductOption[] }>(`/api/studio/posts/products/options?batch=${encodeURIComponent(batchId)}`)
@@ -73,11 +202,9 @@ export default function ProductSwap({
     const key = `${o.source}:${o.id}`;
     setUsing(key);
     try {
-      const r = await post<{ post: Post }>("/api/studio/posts/products/use", { batch: batchId, index: target.index, source: o.source, id: o.id, name: o.name });
-      // The shot is written again for the new product.
-      await post("/api/studio/posts/shots", { batch: batchId, indexes: [target.index] });
+      const p = await putProduct(batchId, target.index, o);
       await onChanged();
-      toast.success(`Post ${target.index} now shows ${r.post.product}; its shot is written for it.`);
+      toast.success(`Post ${target.index} now shows ${p.product}; its shot is written for it.`);
       onClose();
     } catch (e) {
       toast.error((e as Error).message);

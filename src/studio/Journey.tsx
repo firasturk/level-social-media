@@ -46,7 +46,7 @@ import { fixNote, postProblems, type PostProblem } from "@shared/qa";
 import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import DrivePicker from "./DrivePicker";
-import ProductSwap from "./ProductSwap";
+import ProductSwap, { RecommendedProducts } from "./ProductSwap";
 import { NO_PRODUCT_TILES } from "@shared/drive";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
@@ -1049,11 +1049,20 @@ export default function Journey(p: JourneyProps) {
                   </div>
                 ) : theme || gridMonth ? (
                   <>
-                    {theme && (
-                      <div className="journey-box">
-                        <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
-                      </div>
-                    )}
+                    <div className="scene-side">
+                      {theme && (
+                        <div className="journey-box">
+                          <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
+                        </div>
+                      )}
+                      <RecommendedProducts
+                        batchId={p.batchId}
+                        plan={p.plan}
+                        monthProducts={p.products.map((x) => displayName(x.name))}
+                        sourceUrl={p.sourceUrl}
+                        onChanged={p.refresh}
+                      />
+                    </div>
                     <MonthShots
                       forClient={{ id: client.id, name: client.name }}
                       plan={p.plan}
