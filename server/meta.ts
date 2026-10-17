@@ -84,7 +84,9 @@ async function findAccount(userToken: string): Promise<{ account: MetaAccount; t
     "me/accounts?fields=name,access_token,instagram_business_account{id,username}&limit=50",
     userToken,
   );
-  const page = (pages.data ?? []).find((p) => p.instagram_business_account?.id);
+  // The agency's own account reads the others when the token sees it; any linked account works otherwise.
+  const linked = (pages.data ?? []).filter((p) => p.instagram_business_account?.id);
+  const page = linked.find((p) => /\blevel\b/i.test(`${p.name} ${p.instagram_business_account?.username ?? ""}`)) ?? linked[0];
   if (!page?.instagram_business_account)
     throw new StudioError(
       "This token sees no Facebook page with an Instagram business account linked. Link Level MENA's Instagram to its Facebook page, tick that page when Facebook asks, then try again.",
