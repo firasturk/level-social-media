@@ -9873,3 +9873,81 @@ button.shot-product:hover {
   flex: none;
   overflow: visible;
 }
+
+/* ───────────── Test grid: the month's feed in one picture ───────────── */
+.journey-boxes.cols-magic {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.5fr) minmax(0, 0.9fr);
+}
+@media (max-width: 900px) {
+  .journey-boxes.cols-magic {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.magic-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+}
+.magic-col > .journey-box {
+  flex: 1;
+}
+.test-grid .journey-box-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.test-grid-empty,
+.test-grid-wait {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  align-content: center;
+  text-align: center;
+  min-height: 220px;
+}
+.test-grid-wait span {
+  color: var(--ink-500);
+  font-size: 13px;
+}
+.test-grid-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 12px;
+  min-height: 0;
+}
+.test-grid-picture {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+.test-grid-picture img {
+  max-width: 100%;
+  max-height: 46dvh;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+}
+.test-grid-side {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+.test-grid-side figure {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.test-grid-side img {
+  width: 100%;
+  border-radius: 8px;
+}
+.test-grid-side figcaption {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-500);
+}
+@media (max-width: 900px) {
+  .test-grid-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

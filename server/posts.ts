@@ -10,7 +10,9 @@ import { all, first, run, now, uuid } from "./db";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
-import { advanceBatch } from "./engine";
+import { advanceBatch, makeGoogleClient } from "./engine";
+import { GOOGLE_MODELS, isGoogleModel } from "./google";
+import { testGridLayout, testGridPrompt, type TestGridInfo } from "@shared/testgrid";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { styleRow, type StyleRow } from "./styles";
@@ -2060,6 +2062,74 @@ postRoutes.post("/gallery/add", async (c) => {
   for (const id of d.ids) if (await copyGalleryProduct(c.env, user.id, b, config.client, id, have)) added++;
   await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
   return c.json({ ok: true, added });
+});
+
+/* ───────────── Test grid: the month's feed in one picture ───────────── */
+
+const testGridKey = (b: BatchRow) => `${b.owner}/${b.id}/testgrid`;
+
+/**
+ * Paints the month's whole feed as one picture (the cells in feed order, no words), from the shots,
+ * the products and the grid the month follows. The studio draws the words on each cell.
+ */
+postRoutes.post("/test-grid", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  if (!plan.length) throw new StudioError("Write the month's posts first.");
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
+  const layout = testGridLayout(plan);
+  const shown = plan.filter((p) => layout.order.includes(p.index));
+  // The products the cells show, a small copy of each (six at most).
+  const sources = await all<SourceRow & { size: number }>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, size FROM sources WHERE batch = ? AND kind = 'product'",
+    b.id,
+  );
+  const names = sources.map(productName);
+  const wanted = [...new Set(shown.flatMap((p) => [p.product, ...(p.products ?? [])]).map((n) => matchProduct(n, names)).filter((n): n is string => !!n))].slice(0, 6);
+  const images: ImageBytes[] = [];
+  const products: string[] = [];
+  for (const n of wanted) {
+    const s = sources[names.indexOf(n)];
+    const obj = await c.env.BUCKET.get(s.reference_key || s.key);
+    if (!obj || (obj.size ?? 0) > MAX_NOTE_BYTES) continue;
+    images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+    products.push(n);
+  }
+  const ref = await gridImage(c.env, config.gridRef);
+  const refObj = ref ? await c.env.BUCKET.get(ref.key) : null;
+  if (refObj && (refObj.size ?? 0) <= MAX_NOTE_BYTES) images.push({ bytes: await refObj.arrayBuffer(), mime: refObj.httpMetadata?.contentType || "image/jpeg" });
+  const palette = theme && monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const prompt = testGridPrompt({ client: client.name, layout, plan, palette, products, reference: !!refObj && images.length > products.length });
+  const engine = await makeGoogleClient(c.env);
+  const model = isGoogleModel(config.model) ? config.model! : GOOGLE_MODELS[0].slug;
+  const out = await engine.edit({ model, prompt, images, aspectRatio: layout.aspectRatio, size: "2K" });
+  const info: TestGridInfo = { ...layout, at: now() };
+  await c.env.BUCKET.put(testGridKey(b), out.bytes, { httpMetadata: { contentType: out.mime }, customMetadata: { info: JSON.stringify(info) } });
+  return c.json({ ok: true, grid: info });
+});
+
+/** The month's test grid, if one was made: its layout (the picture is served below). */
+postRoutes.get("/test-grid", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const head = await c.env.BUCKET.head(testGridKey(b));
+  let grid: TestGridInfo | null = null;
+  try {
+    grid = head?.customMetadata?.info ? (JSON.parse(head.customMetadata.info) as TestGridInfo) : null;
+  } catch {
+    grid = null;
+  }
+  return c.json({ ok: true, grid });
+});
+
+postRoutes.get("/test-grid/image", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const obj = await c.env.BUCKET.get(testGridKey(b));
+  if (!obj) throw new StudioError("No test grid yet.", 404);
+  return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=3600" } });
 });
 
 /* ───────────── Products per post: recommended, chosen, replaced ───────────── */

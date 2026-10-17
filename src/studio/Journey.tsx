@@ -47,6 +47,7 @@ import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import DrivePicker from "./DrivePicker";
 import ProductSwap, { RecommendedProducts } from "./ProductSwap";
+import TestGrid from "./TestGrid";
 import { NO_PRODUCT_TILES } from "@shared/drive";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
@@ -67,7 +68,7 @@ const STEPS: { key: string; kit?: KitKey; title: string; brief?: BriefStep }[] =
   { key: "colours", kit: "colours", title: "Colours", brief: "colours" },
   { key: "ideas", kit: "voice", title: "Ideas and dates" },
   { key: "scene", kit: "shots", title: "Props and shots", brief: "shots" },
-  { key: "magic", kit: "theme", title: "Test post" },
+  { key: "magic", kit: "theme", title: "Test grid" },
   // After Generate the journey stays: the images arrive, then their captions, then the feed.
   { key: "make", kit: "output", title: "Generate" },
   { key: "captions", kit: "voice", title: "Captions" },
@@ -1128,6 +1129,9 @@ export default function Journey(p: JourneyProps) {
               onExact={(on) => p.onSettings({ exact: on })}
               onTest={p.onTest}
               onFixTest={p.onFixTest}
+              batchId={p.batchId}
+              overlay={p.overlay}
+              logoSrc={p.logoSrc}
               onGenerate={async () => {
                 confetti();
                 await p.onGenerate();
@@ -2424,7 +2428,13 @@ function MagicStep({
   onTest,
   onFixTest,
   onGenerate,
+  batchId,
+  overlay,
+  logoSrc,
 }: {
+  batchId: string | null;
+  overlay: OverlaySpec;
+  logoSrc: string | null;
   blocked: boolean;
   onShowIssues: () => void;
   client: Client;
@@ -2442,6 +2452,10 @@ function MagicStep({
 }) {
   const [going, setGoing] = useState(false);
   const [testing, setTesting] = useState(false);
+  // The grid the month follows, shown next to the test grid.
+  const refId = config?.gridRef?.startsWith("style:") ? config.gridRef.slice(6) : null;
+  const refItem = useStyleInfo([refId]).get(refId ?? "");
+  const reference = refItem ? styleThumb(refItem, true) : null;
   // The test post: the most telling one (a product with people, then a product), unless picked.
   const telling =
     plan.find((x) => x.type === "lifestyle" && x.product && x.people?.length) ??
@@ -2498,7 +2512,8 @@ function MagicStep({
           ✨
         </span>
       </h1>
-      <div className="journey-boxes cols-3">
+      <div className="journey-boxes cols-magic">
+        <div className="magic-col">
         <div className="journey-box magic-box">
           <BoxTitle kit="output">The posts</BoxTitle>
           <p className="magic-big">{shown}</p>
@@ -2518,6 +2533,8 @@ function MagicStep({
             ))}
           </div>
         </div>
+        </div>
+        <TestGrid batchId={batchId} plan={plan} overlay={overlay} logoSrc={logoSrc} reference={reference} blocked={blocked} onShowIssues={onShowIssues} />
         {testPost ? (
           <div className="journey-box magic-box magic-test">
             <BoxTitle kit="output">Test post {String(testPost.index).padStart(2, "0")}</BoxTitle>
