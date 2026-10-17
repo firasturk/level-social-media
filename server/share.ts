@@ -2,6 +2,7 @@
  * The client's approval link: a month's feed behind a secret token, no sign-in. The client sees
  * each post as it will be published, approves it or asks for a change with a note.
  */
+import { feedOrder } from "@shared/testgrid";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -103,6 +104,8 @@ shareRoutes.get("/:token", async (c) => {
     month: config.month ?? b.month ?? "",
     // A grid month: its own fonts, and its words without a dark fade (as in the studio).
     grid: !!config.gridRef,
+    // The feed as the profile will show it at the end of the month: the first page of the link.
+    order: feedOrder(config.plan ?? []),
     monthFonts: config.monthFonts ?? null,
     posts,
   });

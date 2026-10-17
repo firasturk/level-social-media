@@ -1201,6 +1201,8 @@ export default function Journey(p: JourneyProps) {
               onShare={p.onShare}
               onExport={p.onExport}
               onRetake={p.onRetake}
+              approvals={p.config?.approvals}
+              onFix={p.onFix}
               reference={
                 p.config?.gridRef
                   ? p.config.gridRef.startsWith("style:")

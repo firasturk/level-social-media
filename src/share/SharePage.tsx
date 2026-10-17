@@ -27,6 +27,8 @@ interface Shared {
   month: string;
   /** A grid month: no dark fade behind the words. */
   grid?: boolean;
+  /** The posts in feed order (the newest first, or by grid tile). */
+  order?: number[];
   monthFonts?: { headline: string; body: string } | null;
   posts: SharedPost[];
 }
@@ -90,6 +92,31 @@ export default function SharePage({ token }: { token: string }) {
           </p>
         </div>
       </header>
+      <section className="share-feed" aria-label="The month's feed">
+        <h2>The feed</h2>
+        <p>How the profile will look at the end of the month. Tap a post to approve it or ask for a change.</p>
+        <div className="share-feed-grid">
+          {(data.order ?? data.posts.map((p) => p.index)).map((i) => {
+            const p = data.posts.find((x) => x.index === i);
+            if (!p) return null;
+            const src = p.image ? `${base}/image/${p.index}?v=${p.image}` : null;
+            return (
+              <a key={i} href={`#post-${i}`} className={`share-feed-cell ${p.approval?.status ?? ""}`} title={`Post ${i}`}>
+                {src ? (
+                  p.overlay && spec.template !== "none" ? (
+                    <OverlayPreview src={src} spec={spec} text={{ headline: p.headline, subline: p.subline }} logoSrc={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null} patch={p.ov ?? undefined} width={420} />
+                  ) : (
+                    <img src={src} alt="" loading="lazy" />
+                  )
+                ) : (
+                  <span className="share-pending">Being prepared</span>
+                )}
+                {p.approval && <span className={`share-feed-mark ${p.approval.status}`}>{p.approval.status === "approved" ? <Check size={13} /> : <MessageSquare size={13} />}</span>}
+              </a>
+            );
+          })}
+        </div>
+      </section>
       <main className="share-grid">
         {data.posts.map((p) => (
           <SharedCard
@@ -149,7 +176,7 @@ function SharedCard({
   }
 
   return (
-    <article className={`share-card ${post.approval?.status ?? ""}`}>
+    <article id={`post-${post.index}`} className={`share-card ${post.approval?.status ?? ""}`}>
       <div className="share-media">
         {src ? (
           post.overlay && spec.template !== "none" ? (

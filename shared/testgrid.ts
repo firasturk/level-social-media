@@ -25,11 +25,16 @@ export interface TestGridInfo extends TestGridLayout {
  * The cells in feed order: by grid tile when the month follows a grid, else the newest post first
  * (the top-left cell is the latest post on a profile). At most twelve, the newest ones.
  */
-export function testGridLayout(plan: Post[]): TestGridLayout {
-  const tileOf = (p: Post) => Number(/^Tile (\d+)/.exec(p.tile ?? "")?.[1] ?? NaN);
+/** The posts in feed order: by grid tile when the month follows a grid, else the newest post first. */
+export function feedOrder(plan: Pick<Post, "index" | "tile">[]): number[] {
+  const tileOf = (p: Pick<Post, "tile">) => Number(/^Tile (\d+)/.exec(p.tile ?? "")?.[1] ?? NaN);
   const tiled = plan.length > 0 && plan.every((p) => !Number.isNaN(tileOf(p)));
   const sorted = tiled ? [...plan].sort((a, b) => tileOf(a) - tileOf(b)) : [...plan].sort((a, b) => b.index - a.index);
-  const order = sorted.slice(0, TEST_GRID_MAX).map((p) => p.index);
+  return sorted.map((p) => p.index);
+}
+
+export function testGridLayout(plan: Post[]): TestGridLayout {
+  const order = feedOrder(plan).slice(0, TEST_GRID_MAX);
   const cols = TEST_GRID_COLUMNS;
   const rows = Math.max(1, Math.ceil(order.length / cols));
   // Cells are 4:5 posts: three across and `rows` down, to the nearest ratio the engine makes.

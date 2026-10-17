@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
 import type { Client } from "@shared/types";
+import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
 import { FORMAT_INFO, monthLabel, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
@@ -330,6 +331,8 @@ export function FeedStep({
   onExport,
   reference,
   onRetake,
+  approvals = {},
+  onFix,
 }: {
   client: Client;
   month: string;
@@ -343,8 +346,15 @@ export function FeedStep({
   /** The reference grid the month follows (its picture), shown beside the feed. */
   reference?: string;
   onRetake: (index: number) => Promise<void>;
+  /** What the client said on the approval link, by post. */
+  approvals?: Record<string, Approval>;
+  /** Changes one post's picture as a note asks. */
+  onFix: (index: number, edit: string) => Promise<void>;
 }) {
   const [sharing, setSharing] = useState(false);
+  const [fixing, setFixing] = useState<number | null>(null);
+  const comments = plan.filter((p) => approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note);
+  const approvedCount = plan.filter((p) => approvals[String(p.index)]?.status === "approved").length;
   const [exporting, setExporting] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   // The newest post sits top left, as in the feed at the end of the month.
@@ -386,8 +396,9 @@ export function FeedStep({
                   style={{ "--i": i } as React.CSSProperties}
                   onClick={() => setOpen(p.index)}
                   disabled={!j?.url}
-                  title={drift?.text}
+                  title={approvals[String(p.index)]?.note || drift?.text}
                 >
+                  {approvals[String(p.index)] && <span className={`feed-mark ${approvals[String(p.index)].status}`}>{approvals[String(p.index)].status === "approved" ? "✓" : "!"}</span>}
                   {j?.url ? (
                     p.overlay !== false && (p.headline || logoSrc) ? (
                       <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} width={420} alt={p.title} />
@@ -422,6 +433,30 @@ export function FeedStep({
           <button type="button" className="secondary" disabled={exporting} onClick={() => void run(setExporting, onExport)}>
             {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />} Download the month
           </button>
+          {(comments.length > 0 || approvedCount > 0) && (
+            <div className="feed-comments">
+              <strong>
+                The client's answers: {approvedCount} approved{comments.length ? `, ${comments.length} asking a change` : ""}
+              </strong>
+              {comments.map((p) => (
+                <div key={p.index} className="feed-comment">
+                  <span>Post {p.index}</span>
+                  <p dir="auto">“{approvals[String(p.index)].note}”</p>
+                  <button
+                    type="button"
+                    className="text-button"
+                    disabled={fixing !== null || !posts.find((x) => x.index === p.index)?.url}
+                    onClick={() => {
+                      setFixing(p.index);
+                      void onFix(p.index, approvals[String(p.index)].note!).finally(() => setFixing(null));
+                    }}
+                  >
+                    {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make the change
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <p className="field-hint">
             The client opens the link, approves each post or asks for a change. The studio holds the month for edits, the text on the images and the
             exports.

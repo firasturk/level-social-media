@@ -9951,3 +9951,107 @@ button.shot-product:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ───────────── The approval link opens on the whole feed ───────────── */
+.share-feed {
+  max-width: 720px;
+  margin: 0 auto 28px;
+  padding: 0 16px;
+}
+.share-feed h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+.share-feed > p {
+  margin: 0 0 12px;
+  color: var(--ink-500);
+  font-size: 14px;
+}
+.share-feed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+.share-feed-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: var(--ink-50, #f1f1f1);
+}
+.share-feed-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.share-feed-cell .share-pending {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-size: 12px;
+}
+.share-feed-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: #16a34a;
+}
+.share-feed-mark.changes {
+  background: #f59e0b;
+}
+.share-card {
+  scroll-margin-top: 16px;
+}
+
+/* The client's answers from the approval link, on the feed step. */
+.feed-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: #1f8a4c;
+}
+.feed-mark.changes {
+  background: #d9822b;
+}
+.feed-comments {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  text-align: start;
+}
+.feed-comment {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  align-items: start;
+}
+.feed-comment > span {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.feed-comment p {
+  margin: 0;
+}
+.feed-comment button {
+  grid-column: 2;
+  justify-self: start;
+}
