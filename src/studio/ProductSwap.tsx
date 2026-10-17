@@ -78,6 +78,27 @@ export function RecommendedProducts({
     }
   }
 
+  /** Every post gets the Drive photo that fits it and its grid tile best, then its shot again. */
+  async function fillFromDrive() {
+    if (!batchId) return;
+    setUsing("drive");
+    try {
+      const r = await post<{ filled: { index: number; product: string }[] }>("/api/studio/posts/products/fill", { batch: batchId, drive: true });
+      if (r.filled.length) await post("/api/studio/posts/shots", { batch: batchId, indexes: r.filled.map((f) => f.index) });
+      await onChanged();
+      setTick((t) => t + 1);
+      toast.success(
+        r.filled.length
+          ? `${r.filled.length} post${r.filled.length > 1 ? "s" : ""} now use Drive photos (${r.filled.map((f) => `${f.index}: ${f.product}`).join(", ")}); their shots are written again.`
+          : "No Drive photo fits these posts better than what they have.",
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUsing("");
+    }
+  }
+
   if (!posts.length) return null;
   return (
     <div className="journey-box recommended-box">
@@ -85,6 +106,15 @@ export function RecommendedProducts({
         <Sparkles size={15} />
         <strong>Recommended products</strong>
         <span className="journey-box-actions">
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => void fillFromDrive()}
+            disabled={!!using || !data?.drive}
+            title={data?.drive ? "Every post gets the Drive photo that fits it and the grid best; its shot is written again" : "Connect the client's Drive first"}
+          >
+            {using === "drive" ? <LoaderCircle className="spinning" size={13} /> : <HardDrive size={13} />} Fill from Drive
+          </button>
           <button type="button" className="text-button" onClick={() => setTick((t) => t + 1)} disabled={!data && !error} title="Look again">
             <RefreshCw size={13} />
           </button>

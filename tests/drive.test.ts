@@ -84,4 +84,20 @@ describe("Drive folders", () => {
       { image: 2, name: "Counter", kind: "other", note: "" },
     ]);
   });
+
+  it("asks for Drive photos first when filling from Drive", () => {
+    const text = productMatchInstruction({ client: "Habibah", posts: [{ index: 1, type: "product", brief: "A tray" }], options: [{ source: "drive", id: "d", name: "Tray", note: "" }], preferDrive: true });
+    expect(text).toMatch(/Drive photo first/);
+  });
+});
+
+describe("the month's wardrobe", () => {
+  it("reads one outfit per line and asks for modest outfits in the month's colours", async () => {
+    const { outfitsOf, wardrobeInstruction } = await import("@shared/posts");
+    expect(outfitsOf("1. A cream linen dress\n- Navy wide trousers and a tan blouse\n\n")).toEqual(["A cream linen dress", "Navy wide trousers and a tan blouse"]);
+    const text = wardrobeInstruction({ client: "Habibah", palette: ["navy #002a5c"], world: "A warm studio.", people: [{ name: "Lina", description: "young woman", gender: "woman", modest: true, hijab: true }] });
+    expect(text).toContain("navy #002a5c");
+    expect(text).toMatch(/wears a hijab/);
+    expect(text).toMatch(/wrist-length sleeves/);
+  });
 });

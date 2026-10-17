@@ -165,6 +165,8 @@ export interface PostBrief {
   styleKey?: string;
   /** Grid months: this post's own tile, cut from the grid (R2 key), attached instead of the whole grid. */
   tileKey?: string;
+  /** The outfit the post's people wear, from the month's wardrobe. */
+  wardrobe?: string;
   /**
    * Exact product mode: the engine paints the scene with an empty place, and the real photo of this
    * product (sources.id) is set into it afterwards, so the product is never redrawn.
@@ -574,6 +576,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `PROPS: the scene includes ${b.props.trim()}, placed naturally around the subject in the same light; they never cover the product.`,
     );
   else if (!b.styleKey) parts.push(NO_PROPS_RULE);
+  if (b.wardrobe)
+    parts.push(
+      `WARDROBE: the people in the picture wear ${b.wardrobe}. This outfit replaces any clothes the shot or the reference describes; it stays modest where the person's rules say so, and nothing is printed or written on it.`,
+    );
   if (b.grid)
     parts.push(
       `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
@@ -1393,5 +1399,40 @@ export function gridWithoutBags(grid: string): string {
     .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || LETTERED.test(line) || /\blogos?\b/i.test(line) ? "" : line) : withoutLettering(withoutBags(line))))
     .filter(Boolean)
     .join("\n");
+}
+
+/** The month's outfits, one per line; each post with people wears one of them, in turn. */
+export function outfitsOf(wardrobe: string | undefined | null): string[] {
+  return (wardrobe ?? "")
+    .split("\n")
+    .map((x) => x.replace(/^[-•*\d.)\s]+/, "").trim())
+    .filter(Boolean);
+}
+
+export const WARDROBE_SCHEMA = {
+  type: "object",
+  properties: { outfits: { type: "array", items: { type: "string" } } },
+  required: ["outfits"],
+};
+
+export function wardrobeInstruction(r: {
+  client: string;
+  palette: string[];
+  world: string;
+  people: { name: string; description: string; gender?: string; modest?: boolean; hijab?: boolean }[];
+}): string {
+  return [
+    `You are the stylist of a social-media photo shoot for the brand "${r.client}" in Jordan. Suggest 4 outfits for the people in this month's pictures.`,
+    r.world ? `THE MONTH'S LOOK: ${r.world.slice(0, 900)}` : "",
+    r.palette.length ? `THE MONTH'S COLOURS (the outfits use them, with their hex): ${r.palette.join(", ")}.` : "",
+    r.people.length
+      ? `THE PEOPLE:\n${r.people.map((p) => `- ${p.name}${p.gender ? ` (${p.gender})` : ""}: ${p.description.slice(0, 200)}${p.modest ? "; dresses modestly: sleeves down to the wrist, an ankle-length skirt or wide trousers, a loose fit, a high neckline, nothing sheer or fitted" : ""}${p.hijab ? "; wears a hijab, matching the outfit" : ""}`).join("\n")}`
+      : "THE PEOPLE: models of the brand's audience, dressed modestly (long sleeves, long skirts or wide trousers, loose fit).",
+    r.people.some((p) => p.modest) ? "Every outfit is for a person who dresses modestly: wrist-length sleeves, nothing above the ankle, no short or three-quarter sleeves." : "",
+    "Each outfit is one line: the garments, their cut and fabric, their colours (name and hex from the month's colours), shoes and one or two simple accessories (rings, a watch, a scarf). They suit a premium food brand: elegant, calm, never costume-like; no logos, prints or words on any garment; they never compete with the product.",
+    "Return ONLY JSON: {\"outfits\": [\"...\", \"...\"]}.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 

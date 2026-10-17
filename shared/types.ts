@@ -125,6 +125,8 @@ export interface Theme {
   library: string;
   /** Props the designer wants in the scenes (autumn leaves, pumpkins...). */
   props: string;
+  /** The outfits the brand's people wear this month, one per line. */
+  wardrobe: string;
   /** One ready shot per reference picture (collage tiles count), written by Analyse theme. */
   shots: string[];
   /** The month's colours: suggested by Analyse, editable; they replace the references' colours. */

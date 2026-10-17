@@ -25,8 +25,9 @@ import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } 
 import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
-import { stemOf } from "@shared/naming";
+import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, importDrivePhoto } from "./drive";
+import { freeName } from "@shared/drive";
 import { renameProduct } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
@@ -72,6 +73,9 @@ import {
   PALETTE_SCHEMA,
   paletteInstruction,
   gridPaletteInstruction,
+  outfitsOf,
+  WARDROBE_SCHEMA,
+  wardrobeInstruction,
   parsePalette,
   singleIdeaInstruction,
   type IdeasRequest,
@@ -210,6 +214,7 @@ interface ThemeRow {
   goal: string;
   library: string;
   props: string;
+  wardrobe?: string;
   /** JSON array of strings. */
   shots: string | null;
   /** JSON array of {name, hex}. */
@@ -283,6 +288,7 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     direction: r.goal,
     library: r.library,
     props: r.props ?? "",
+    wardrobe: r.wardrobe ?? "",
     shots: shotsOf(r),
     palette: themePaletteOf(r),
     paletteAuto: r.palette_auto !== 0,
@@ -353,6 +359,7 @@ postRoutes.put("/themes/:id", async (c) => {
       direction: z.string().trim().max(20000).optional(),
       library: z.string().trim().max(20000).optional(),
       props: z.string().trim().max(1000).optional(),
+      wardrobe: z.string().trim().max(2000).optional(),
       shots: z.array(z.string().trim().max(1200)).max(200).optional(),
       palette: z
         .array(z.object({ name: z.string().max(40), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/) }))
@@ -369,12 +376,13 @@ postRoutes.put("/themes/:id", async (c) => {
     );
   await run(
     c.env.DB,
-    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, shots = ?, updated = ? WHERE id = ?",
+    "UPDATE skills SET title = ?, description = ?, goal = ?, library = ?, props = ?, wardrobe = ?, shots = ?, updated = ? WHERE id = ?",
     d.title ?? row.title,
     d.description ?? row.description,
     d.direction ?? row.goal,
     d.library ?? row.library,
     d.props ?? row.props ?? "",
+    d.wardrobe ?? row.wardrobe ?? "",
     d.shots ? JSON.stringify(d.shots.filter((x) => x.trim())) : row.shots || "[]",
     now(),
     row.id,
@@ -471,6 +479,36 @@ postRoutes.post("/themes/:id/palette", async (c) => {
     now(),
     row.id,
   );
+  return c.json({ ok: true, themes: await listThemes(c.env, row.client!) });
+});
+
+/**
+ * "Suggest" for the wardrobe: a few outfits for the month's people, in the month's colours, for the
+ * grid or theme the month follows and each person's own rules (modest, hijab).
+ */
+postRoutes.post("/themes/:id/wardrobe", async (c) => {
+  const row = await themeRow(c.env, c.req.param("id"));
+  const batchId = String(((await c.req.json().catch(() => ({}))) as { batch?: unknown }).batch ?? "");
+  const b = batchId ? await ownedPlan(c.env, c.get("user"), batchId).catch(() => null) : null;
+  const config = b ? (JSON.parse(b.config) as Config) : null;
+  const client = await clientRow(c.env, row.client ?? config?.client);
+  const cast = config ? await monthAmbassadors(c.env, config) : (await ambassadorRows(c.env, client.id)).slice(0, 4);
+  const palette = monthPaletteOf(row).length ? monthPaletteOf(row) : paletteOf(client);
+  const d = parseJson<{ outfits?: unknown }>(
+    await askText(
+      c.env,
+      wardrobeInstruction({
+        client: client.name,
+        palette,
+        world: config?.gridRef ? config.gridNotes?.split("\n")[0] ?? "" : [row.goal, row.description].filter(Boolean).join(" "),
+        people: cast.map((a) => ({ name: a.name, description: a.description, gender: a.gender, modest: a.modest !== 0, hijab: !!a.hijab })),
+      }),
+      WARDROBE_SCHEMA,
+    ),
+  );
+  const outfits = (Array.isArray(d.outfits) ? d.outfits : []).map((x) => String(x ?? "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 6);
+  if (!outfits.length) throw new StudioError("The model returned no outfits. Try again.", 502);
+  await run(c.env.DB, "UPDATE skills SET wardrobe = ?, updated = ? WHERE id = ?", outfits.join("\n"), now(), row.id);
   return c.json({ ok: true, themes: await listThemes(c.env, row.client!) });
 });
 
@@ -1638,8 +1676,11 @@ postRoutes.post("/generate", async (c) => {
     const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
     // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
+    // Only a photo on a plain background is set in exactly; any other is drawn from its photo.
     const exactProduct =
-      config.exact && product && !extraProducts.length && post.type !== "offer" && (refId || styled) ? product : undefined;
+      config.exact && product && !extraProducts.length && post.type !== "offer" && (refId || styled) && (await import("./exact").then((m) => m.cutsCleanly(c.env, product)))
+        ? product
+        : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
       // No product photo in the picture: the style's own picture is image 1.
@@ -1734,6 +1775,12 @@ postRoutes.post("/generate", async (c) => {
       styleKey: styled?.image_key ?? undefined,
       // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
       tileKey: tileKey ?? undefined,
+      // People wear the month's wardrobe, one outfit after another across the posts.
+      wardrobe: (() => {
+        const outfits = outfitsOf(theme?.wardrobe);
+        const withPeople = (post.people?.length ?? 0) > 0 || post.tileSpec?.kind === "person";
+        return outfits.length && withPeople && !portraitDay ? outfits[(post.index - 1) % outfits.length] : undefined;
+      })(),
       refIsSource: (!product || !!exactProduct) && !!(refId || styled),
       hasProduct: !!product && !exactProduct,
       exact: exactProduct ? { source: exactProduct.id } : undefined,
@@ -2242,13 +2289,13 @@ const matchPost = (p: Post): MatchPost => ({
 });
 
 /** The best products for each post, and how many Drive photos the client's folder offered. */
-async function matchProducts(env: Env, b: BatchRow, config: Config, posts: Post[]): Promise<{ matches: ProductMatch[]; drive: number }> {
+async function matchProducts(env: Env, b: BatchRow, config: Config, posts: Post[], preferDrive = false): Promise<{ matches: ProductMatch[]; drive: number }> {
   const client = await clientRow(env, config.client);
   const options = await productOptions(env, b, client.id);
   const drive = options.filter((o) => o.source === "drive").length;
   if (!options.length || !posts.length) return { matches: posts.map((p) => ({ index: p.index, picks: [] })), drive };
   const list = posts.map(matchPost);
-  const raw = await askText(env, productMatchInstruction({ client: client.name, posts: list, options }), PRODUCT_MATCH_SCHEMA);
+  const raw = await askText(env, productMatchInstruction({ client: client.name, posts: list, options, preferDrive, exact: !!config.exact }), PRODUCT_MATCH_SCHEMA);
   return { matches: parseMatches(parseJson<unknown>(raw), list, options), drive };
 }
 
@@ -2284,10 +2331,17 @@ async function useProduct(
     ctx.waitUntil(describeUpload(env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
     name = productName(row);
   }
-  // The post's words follow the new product: the old one's name is changed wherever it is written.
+  const next = withProduct(current, name);
+  config.plan = plan.map((p) => (p.index === index ? next : p));
+  await saveConfig(env, b, config);
+  return next;
+}
+
+/** The post with its new product: the old one's name changes wherever it is written, and its shot is written again. */
+function withProduct(current: Post, name: string): Post {
   const old = current.product && current.product.toLowerCase() !== name.toLowerCase() ? current.product : "";
   const swap = (t: string | undefined) => (old && t ? renameProduct(t, old, name) : t);
-  const next: Post = {
+  return {
     ...current,
     product: name,
     products: current.products?.filter((x) => x.toLowerCase() !== name.toLowerCase()),
@@ -2298,9 +2352,6 @@ async function useProduct(
     subline: swap(current.subline),
     scene: undefined,
   };
-  config.plan = plan.map((p) => (p.index === index ? next : p));
-  await saveConfig(env, b, config);
-  return next;
 }
 
 /** The products that fit each post best (this month, earlier months, Drive), for the team to pick. */
@@ -2365,17 +2416,58 @@ postRoutes.post("/products/use", async (c) => {
  * or the client's Drive); posts that show no product are left alone. Run after a grid's ideas.
  */
 postRoutes.post("/products/fill", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      /** "Fill from Drive": every post that shows a product gets the Drive photo that fits it and its tile best. */
+      drive: z.boolean().optional(),
+    }),
+  );
   const user = c.get("user");
   const b = await ownedPlan(c.env, user, d.batch);
   let config = JSON.parse(b.config) as Config;
   const monthNames = (await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product'", b.id)).map(productName);
   const missing = (config.plan ?? []).filter(
-    (p) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "") && !matchProduct(p.product, monthNames),
+    (p) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "") && (d.drive || !matchProduct(p.product, monthNames)),
   );
   if (!missing.length) return c.json({ ok: true, filled: [] });
-  const { matches } = await matchProducts(c.env, b, config, missing);
+  const { matches, drive } = await matchProducts(c.env, b, config, missing, !!d.drive);
+  if (d.drive && !drive) throw new StudioError("No Drive photos yet: connect the client's Drive folder from the gallery on the Products screen.", 409);
   const filled: { index: number; product: string; source: string }[] = [];
+  if (d.drive) {
+    // From Drive: each post's best Drive photo, the photos brought in four at a time under names
+    // reserved first; a post whose Drive picks do not fit keeps its product.
+    const chosen = matches.flatMap((m) => {
+      const pick = m.picks.find((x) => x.source === "drive");
+      return pick ? [{ index: m.index, pick }] : [];
+    });
+    const taken = new Set((await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem));
+    const named = chosen.map((x) => {
+      const name = freeName(x.pick.name, taken);
+      taken.add(stemKey(`${name}.jpg`));
+      return { ...x, name };
+    });
+    const names = new Map<number, string>();
+    for (let i = 0; i < named.length; i += 4)
+      await Promise.all(
+        named.slice(i, i + 4).map(async (x) => {
+          try {
+            const row = await importDrivePhoto(c.env, user.id, b.id, x.pick.id, x.name, new Set());
+            c.executionCtx.waitUntil(describeUpload(c.env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
+            names.set(x.index, productName(row));
+          } catch (e) {
+            console.error("[products] drive", x.index, errorMessage(e));
+          }
+        }),
+      );
+    const fresh = await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
+    config = JSON.parse(fresh!.config) as Config;
+    config.plan = (config.plan ?? []).map((p) => (names.has(p.index) ? withProduct(p, names.get(p.index)!) : p));
+    await saveConfig(c.env, fresh!, config);
+    for (const [index, product] of names) filled.push({ index, product, source: "drive" });
+    return c.json({ ok: true, filled });
+  }
   for (const m of matches) {
     const pick = m.picks[0];
     if (!pick) continue;
@@ -2677,6 +2769,14 @@ postRoutes.post("/shots", async (c) => {
       tileImages.push({ bytes: await obj.arrayBuffer(), mime: "image/jpeg" });
       tileFor.set(p.index, tileImages.length);
     }
+  // Each post with people wears the outfit Generate gives it (the same turn), so shot and picture agree.
+  const outfits = outfitsOf(theme?.wardrobe);
+  const dressed = outfits.length
+    ? plan.filter((p) => wanted.has(p.index) && ((p.people?.length ?? 0) > 0 || p.tileSpec?.kind === "person")).map((p) => `post ${p.index} wears ${outfits[(p.index - 1) % outfits.length]}`)
+    : [];
+  const wardrobeRule = dressed.length
+    ? `\n\nWARDROBE (never the clothes of the reference or the tile): ${dressed.join("; ")}. Write each of these shots with exactly that outfit.`
+    : "";
   const tileRule = tileImages.length
     ? `\n\nTILE PICTURES: ${[...tileFor].map(([post, img]) => `image ${img} is the grid tile post ${post} recreates`).join("; ")}. Write each of these posts' shot from its tile picture, not only from its words: the same composition (how the items are arranged, stacked, tilted or scattered, how many and where), camera angle and distance, surface and set, light direction and shadows, with the client's own product in place of the tile's items (several pieces or copies of it when the tile shows several). Never its brand, packaging, bags, cups, cards, text or logos.`
     : "";
@@ -2691,7 +2791,7 @@ postRoutes.post("/shots", async (c) => {
           props: theme?.props,
           strict,
           service: sources.length ? undefined : client.service || undefined,
-        }) + tileRule,
+        }) + tileRule + wardrobeRule,
         SHOTS_SCHEMA,
         tileImages,
       ),

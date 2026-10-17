@@ -277,7 +277,11 @@ export function composite(scene: Raster, product: Raster, at: { x: number; y: nu
       out[i + 2] = out[i + 2] * (1 - s * 0.96);
     }
   }
-  // The product itself, alpha-blended: its pixels are the photo's.
+  // The product itself, blended into the scene but never redrawn: its shape, print and packaging
+  // stay the photo's. Only how it sits in this light moves a little: the scene's white balance and
+  // brightness (a light touch), a soft shade on the side away from the light, edges softened by a
+  // pixel or two, and the scene's colour wrapping its rim.
+  const b = blendFor(scene, product, at, light);
   for (let y = 0; y < ph; y++) {
     const Y = at.y + y;
     if (Y < 0 || Y >= H) continue;
@@ -285,14 +289,77 @@ export function composite(scene: Raster, product: Raster, at: { x: number; y: nu
       const X = at.x + x;
       if (X < 0 || X >= W) continue;
       const s = (y * pw + x) * 4;
-      const a = product.data[s + 3] / 255;
-      if (a <= 0) continue;
+      const a = b.alpha[y * pw + x];
+      if (a <= 0.004) continue;
       const i = (Y * W + X) * 4;
-      out[i] = product.data[s] * a + out[i] * (1 - a);
-      out[i + 1] = product.data[s + 1] * a + out[i + 1] * (1 - a);
-      out[i + 2] = product.data[s + 2] * a + out[i + 2] * (1 - a);
+      const shade = 1 - b.shade(x / pw, y / ph);
+      const wrap = b.wrap[y * pw + x];
+      for (let c = 0; c < 3; c++) {
+        const toned = Math.min(255, product.data[s + c] * b.gain[c] * shade);
+        const rim = toned * (1 - wrap) + out[i + c] * wrap;
+        out[i + c] = rim * a + out[i + c] * (1 - a);
+      }
       out[i + 3] = 255;
     }
   }
   return { data: out, width: W, height: H };
 }
+
+/** Mean colour of the pixels a test lets through, or null when there are none. */
+function meanColour(img: Raster, x0: number, y0: number, x1: number, y1: number, keep: (x: number, y: number, i: number) => boolean): [number, number, number] | null {
+  let r = 0;
+  let g = 0;
+  let bl = 0;
+  let n = 0;
+  const step = Math.max(1, Math.round(Math.max(x1 - x0, y1 - y0) / 160));
+  for (let y = Math.max(0, y0); y < Math.min(img.height, y1); y += step)
+    for (let x = Math.max(0, x0); x < Math.min(img.width, x1); x += step) {
+      const i = (y * img.width + x) * 4;
+      if (!keep(x, y, i)) continue;
+      r += img.data[i];
+      g += img.data[i + 1];
+      bl += img.data[i + 2];
+      n++;
+    }
+  return n ? [r / n, g / n, bl / n] : null;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * How the product blends into this scene: a colour gain toward the scene's white balance and
+ * brightness (capped, so the product's colours stay its own), a soft alpha edge, a rim of the
+ * scene's colour around it, and a shade on the side away from the light.
+ */
+export function blendFor(scene: Raster, product: Raster, at: { x: number; y: number }, light: Light) {
+  const pw = product.width;
+  const ph = product.height;
+  // The scene right around the product (a ring a quarter of its size), and the product itself.
+  const mx = Math.round(pw * 0.25);
+  const my = Math.round(ph * 0.25);
+  const around = meanColour(scene, at.x - mx, at.y - my, at.x + pw + mx, at.y + ph + my, (x, y) => x < at.x || x >= at.x + pw || y < at.y || y >= at.y + ph);
+  const own = meanColour(product, 0, 0, pw, ph, (_x, _y, i) => product.data[i + 3] > 128);
+  let gain: [number, number, number] = [1, 1, 1];
+  if (around && own) {
+    const sGrey = (around[0] + around[1] + around[2]) / 3 || 1;
+    const pGrey = (own[0] + own[1] + own[2]) / 3 || 1;
+    const bright = clamp(1 + 0.18 * (lum(...around) / Math.max(1, lum(...own)) - 1), 0.88, 1.06);
+    gain = [0, 1, 2].map((c) => clamp(1 + 0.3 * ((around[c] / sGrey) / ((own[c] / pGrey) || 1) - 1), 0.93, 1.07) * bright) as [number, number, number];
+  }
+  // Edges: the cut-out's alpha softened by a pixel or two; the rim takes the scene's colour.
+  const raw = new Float32Array(pw * ph);
+  for (let i = 0; i < pw * ph; i++) raw[i] = product.data[i * 4 + 3] / 255;
+  const soft = blur(raw, pw, ph, Math.max(1, Math.round(Math.min(pw, ph) * 0.003)));
+  const wide = blur(raw, pw, ph, Math.max(2, Math.round(Math.min(pw, ph) * 0.012)));
+  const alpha = new Float32Array(pw * ph);
+  const wrap = new Float32Array(pw * ph);
+  for (let i = 0; i < pw * ph; i++) {
+    alpha[i] = Math.min(raw[i], soft[i] * 1.15);
+    wrap[i] = raw[i] > 0 ? 0.3 * clamp(1 - wide[i], 0, 1) : 0;
+  }
+  // The side away from the light falls a little into shade (u, v: 0..1 across the product).
+  const shade = (u: number, v: number) =>
+    light === "left" ? 0.1 * u : light === "right" ? 0.1 * (1 - u) : light === "back" ? 0.06 : 0.07 * v;
+  return { gain, alpha, wrap, shade };
+}
+

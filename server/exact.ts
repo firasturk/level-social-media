@@ -109,6 +109,23 @@ export async function productCutout(env: Env, source: { key: string; mime?: stri
   return cut;
 }
 
+/**
+ * The product photo can be cut out exactly: it stands on a plain studio background (or its cut-out
+ * is already made). A photo with a scene behind it is drawn by the engine from the photo instead,
+ * since a model-drawn mask never lines up with it pixel for pixel.
+ */
+export async function cutsCleanly(env: Env, source: { key: string; reference_key?: string | null }): Promise<boolean> {
+  if (await env.BUCKET.head(`${source.key}.cutout.png`)) return true;
+  const obj = await env.BUCKET.get(source.reference_key || source.key);
+  if (!obj || (obj.size ?? 0) > 8_000_000) return false;
+  const { img, raster } = decode(await obj.arrayBuffer());
+  img.free();
+  const bg = plainBackground(raster);
+  if (!bg) return false;
+  const c = coverage(alphaFromBackground(raster, bg));
+  return c > 0.02 && c < 0.97;
+}
+
 const SPOT_SCHEMA = {
   type: "object",
   properties: {

@@ -236,7 +236,7 @@ export const PRODUCT_MATCH_SCHEMA = {
   required: ["matches"],
 };
 
-export function productMatchInstruction(r: { client: string; posts: MatchPost[]; options: ProductOption[] }): string {
+export function productMatchInstruction(r: { client: string; posts: MatchPost[]; options: ProductOption[]; preferDrive?: boolean; exact?: boolean }): string {
   const where = { month: "this month", gallery: "an earlier month", drive: "the client's Drive" };
   return [
     `You plan the product photos of the month's posts for the client "${r.client}". Each post needs the photo of the product its picture shows; the image model rebuilds that product from the photo.`,
@@ -251,11 +251,14 @@ export function productMatchInstruction(r: { client: string; posts: MatchPost[];
       "For every post, pick up to 3 photos (their numbers) that fit what its picture shows and its grid tile, best first:",
       "- the post's current product first when it fits and has a photo;",
       "- the same product, or the closest one in look and kind (a kunafa for a kunafa, a can for a can, a tray for a tray) when the exact one has no photo;",
-      "- at equal fit, this month's photos first, then earlier months, then Drive;",
+      r.preferDrive
+        ? "- the team asks for the client's Drive photos: pick a Drive photo first whenever one fits the post and its tile, then the others;"
+        : "- at equal fit, this month's photos first, then earlier months, then Drive;",
       "- spread the month: avoid giving the same product to every post when others fit;",
       "- a post whose picture shows no product (a text or quote tile, a texture, a place, a greeting) gets no picks; a person tile gets the product the person holds (a box or tin held level with both hands suits it best).",
+      r.exact ? "- exact product mode is on: the product photo is set into the picture as it is, so prefer a photo where the product stands alone on a plain background (a studio packshot) over one with a table, cups or a scene around it;" : "",
       "reason: a few words on why it fits.",
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     "Return ONLY the JSON.",
   ].join("\n\n");
 }

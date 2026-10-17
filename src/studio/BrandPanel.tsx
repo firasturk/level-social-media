@@ -744,7 +744,7 @@ function LogosGroup({ client, onClientsChanged }: { client: Client; onClientsCha
 
 /* ───────────── Theme ───────────── */
 
-export type ThemePart = "pick" | "references" | "direction" | "colours" | "props" | "shots";
+export type ThemePart = "pick" | "references" | "direction" | "colours" | "props" | "wardrobe" | "shots";
 
 export function ThemeSection({
   client,
@@ -755,9 +755,12 @@ export function ThemeSection({
   parts,
   bare,
   gridRef,
+  batchId,
 }: {
   /** The grid the month follows: its colours are suggested instead of the pins'. */
   gridRef?: string | null;
+  /** The month being made: its cast and grid steer the wardrobe Suggest. */
+  batchId?: string | null;
   client: Client;
   themes: Theme[];
   theme: string;
@@ -772,6 +775,8 @@ export function ThemeSection({
   const [direction, setDirection] = useState(current?.direction ?? "");
   const [props, setProps] = useState(current?.props ?? "");
   useEffect(() => setProps(current?.props ?? ""), [current?.id, current?.props]);
+  const [wardrobe, setWardrobe] = useState(current?.wardrobe ?? "");
+  useEffect(() => setWardrobe(current?.wardrobe ?? ""), [current?.id, current?.wardrobe]);
   const paletteKey = JSON.stringify(current?.palette ?? []);
   const [colors, setColors] = useState<{ name: string; hex: string }[]>(current?.palette ?? []);
   useEffect(() => setColors(current?.palette ?? []), [current?.id, paletteKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -784,7 +789,7 @@ export function ThemeSection({
   const shotsText = (current?.shots ?? []).join("\n\n");
   const [shots, setShots] = useState(shotsText);
   useEffect(() => setShots(shotsText), [current?.id, shotsText]);
-  const [busy, setBusy] = useState<"" | "analyse" | "import" | "create" | "colors">("");
+  const [busy, setBusy] = useState<"" | "analyse" | "import" | "create" | "colors" | "wardrobe">("");
   const [pins, setPins] = useState("");
   // The journey shows the links box open: pins are its main way in.
   const [showPins, setShowPins] = useState(!!bare);
@@ -868,6 +873,30 @@ export function ThemeSection({
       onThemesChanged(r.themes);
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  }
+
+  async function saveWardrobe() {
+    if (!current || wardrobe === (current.wardrobe ?? "")) return;
+    try {
+      const r = await put<ThemesReply>(`/api/studio/posts/themes/${current.id}`, { wardrobe });
+      onThemesChanged(r.themes);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function suggestWardrobe() {
+    if (!current) return;
+    setBusy("wardrobe");
+    try {
+      const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/wardrobe`, batchId ? { batch: batchId } : undefined);
+      onThemesChanged(r.themes);
+      toast.success("Outfits suggested for the month's people. Change any of them.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
     }
   }
 
@@ -1199,6 +1228,27 @@ export function ThemeSection({
             onBlur={() => void saveProps()}
           />
           <p className="field-hint">The ideas and every image prompt ask for these props, placed naturally around the product.</p>
+          </Group>
+          )}
+          {show("wardrobe") && (
+          <Group
+            kit="wardrobe"
+            actions={
+              <button type="button" className="text-button" onClick={() => void suggestWardrobe()} disabled={busy === "wardrobe"} title="Outfits in the month's colours, for its people and their rules (replaces the list)">
+                {busy === "wardrobe" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
+                Suggest
+              </button>
+            }
+          >
+          <textarea
+            id="theme-wardrobe"
+            rows={wardrobe ? Math.min(6, wardrobe.split("\n").length + 1) : 2}
+            value={wardrobe}
+            placeholder="One outfit per line: a long cream linen dress with a navy hijab, silver rings…"
+            onChange={(e) => setWardrobe(e.target.value)}
+            onBlur={() => void saveWardrobe()}
+          />
+          <p className="field-hint">The people in the posts wear these outfits, one after another; press Suggest and I pick them for the month.</p>
           </Group>
           )}
           {show("shots") && (

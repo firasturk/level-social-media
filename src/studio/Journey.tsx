@@ -1089,7 +1089,16 @@ export default function Journey(p: JourneyProps) {
                     <div className="scene-side">
                       {theme && (
                         <div className="journey-box">
-                          <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
+                          <ThemeSection
+                            client={client}
+                            themes={p.themes}
+                            theme={p.themeId}
+                            onTheme={p.onTheme}
+                            onThemesChanged={p.onThemesChanged}
+                            parts={["props", "wardrobe"]}
+                            batchId={p.batchId}
+                            bare
+                          />
                         </div>
                       )}
                       <RecommendedProducts
