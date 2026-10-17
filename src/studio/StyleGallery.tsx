@@ -149,6 +149,20 @@ export default function StyleScreen({
     [key],
   );
 
+  // Every list the screen loads asks the same way: the client's suggestions first and, for the admin
+  // picking a month's grid, the grids still waiting for approval.
+  const query = useCallback(
+    () =>
+      new URLSearchParams({
+        tab,
+        q,
+        page: String(page),
+        ...(pick?.client ? { client: pick.client } : {}),
+        ...(pick?.mode === "feed" && admin ? { waiting: "1" } : {}),
+      }).toString(),
+    [tab, q, page, pick?.client, pick?.mode, admin],
+  );
+
   const load = useCallback(
     async (force = false) => {
       const cached = pages.get(key);
@@ -156,21 +170,14 @@ export default function StyleScreen({
       if (cached && !force) return;
       setLoading(true);
       try {
-        const params = new URLSearchParams({
-          tab,
-          q,
-          page: String(page),
-          ...(pick?.client ? { client: pick.client } : {}),
-          ...(pick?.mode === "feed" && admin ? { waiting: "1" } : {}),
-        });
-        apply(await get<Page>(`/api/studio/styles?${params}`), key);
+        apply(await get<Page>(`/api/studio/styles?${query()}`), key);
       } catch (e) {
         toast.error((e as Error).message);
       } finally {
         setLoading(false);
       }
     },
-    [key, tab, q, page, apply, pick?.client, pick?.mode, admin],
+    [key, apply, query],
   );
 
   useEffect(() => {
@@ -208,7 +215,7 @@ export default function StyleScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, preview, shown, onClose]);
 
-  const query = () => new URLSearchParams({ tab, q, page: String(page) }).toString();
+
 
   async function remove(s: StyleItem) {
     // The tile leaves at once.
