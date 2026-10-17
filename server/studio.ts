@@ -67,6 +67,7 @@ import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
 import { styleRoutes } from "./styles";
 import { ambassadorRoutes } from "./ambassadors";
+import { metaRoutes } from "./meta";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -74,6 +75,7 @@ studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
+studioRoutes.route("/meta", metaRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

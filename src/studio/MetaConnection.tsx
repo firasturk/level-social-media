@@ -1,0 +1,139 @@
+import { useEffect, useState } from "react";
+import { Check, KeyRound, LoaderCircle, Search, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { askConfirm } from "@/lib/confirm";
+import { del, get, post } from "@/api";
+
+export interface MetaStatus {
+  connected: boolean;
+  account: { username: string; page: string; connected: number } | null;
+}
+
+interface Profile {
+  username: string;
+  name: string;
+  biography: string;
+  followers: number;
+  posts: number;
+  media: { id: string; image: string | null; caption: string; likes: number | null }[];
+}
+
+/** The Meta (Instagram) tab of Connection: the token, its account, and a test read of any brand. */
+export default function MetaConnection({ status, onChanged }: { status: MetaStatus | null; onChanged: () => void }) {
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [handle, setHandle] = useState("");
+  const [reading, setReading] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await post<{ account: { username: string; page: string } }>("/api/studio/meta", { token });
+      setToken("");
+      toast.success(`Instagram connected through @${r.account.username} (${r.account.page}).`);
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!(await askConfirm("Disconnect Instagram? Client profiles can no longer read Instagram accounts until a new token is saved."))) return;
+    try {
+      await del("/api/studio/meta");
+      setProfile(null);
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function read() {
+    setReading(true);
+    setProfile(null);
+    try {
+      const r = await get<{ profile: Profile }>(`/api/studio/meta/instagram/${encodeURIComponent(handle.replace(/^@/, ""))}?posts=6`);
+      setProfile(r.profile);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setReading(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="qa-heading" style={{ marginTop: 12 }}>
+        <KeyRound size={18} />
+        <strong>Instagram (Meta)</strong>
+      </div>
+      {status?.connected && status.account ? (
+        <div className="success-note">
+          <Check size={19} />
+          Connected through @{status.account.username} ({status.account.page}). Client profiles read public business and creator accounts with it.
+        </div>
+      ) : (
+        <p className="quality-note">
+          Paste a Meta access token that can see Level MENA's Facebook page and its linked Instagram business account (permissions instagram_basic,
+          pages_show_list, pages_read_engagement, business_management). A system user token from Business Settings never expires.
+        </p>
+      )}
+      <div className="footer-actions">
+        <input
+          type="password"
+          autoComplete="off"
+          placeholder={status?.connected ? "Paste a new token to replace it" : "EAAG…"}
+          aria-label="Meta access token"
+          value={token}
+          onChange={(e) => setToken(e.target.value.trim())}
+        />
+        <button className="primary" onClick={() => void save()} disabled={saving || token.length < 40}>
+          {saving ? <LoaderCircle className="spinning" size={17} /> : <KeyRound size={17} />}
+          {status?.connected ? "Replace" : "Connect"}
+        </button>
+        {status?.connected && (
+          <button className="secondary danger" onClick={() => void remove()} aria-label="Disconnect Instagram">
+            <Trash2 size={17} />
+          </button>
+        )}
+      </div>
+      {status?.connected && (
+        <>
+          <div className="footer-actions">
+            <input placeholder="Try an account: nike" aria-label="Instagram username" value={handle} onChange={(e) => setHandle(e.target.value.trim())} />
+            <button className="secondary" onClick={() => void read()} disabled={reading || !handle}>
+              {reading ? <LoaderCircle className="spinning" size={17} /> : <Search size={17} />} Read
+            </button>
+          </div>
+          {profile && (
+            <div className="meta-test">
+              <strong>
+                @{profile.username} · {profile.followers.toLocaleString()} followers · {profile.posts} posts
+              </strong>
+              <small dir="auto">{profile.biography}</small>
+              <div className="meta-test-grid">
+                {profile.media.map((m) => (m.image ? <img key={m.id} src={m.image} alt="" title={m.caption.slice(0, 120)} /> : null))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/** The connection's state, for the tab's dot. */
+export function useMetaStatus(open: boolean): [MetaStatus | null, () => void] {
+  const [status, setStatus] = useState<MetaStatus | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    get<MetaStatus>("/api/studio/meta")
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, [open, tick]);
+  return [status, () => setTick((t) => t + 1)];
+}
