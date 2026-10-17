@@ -4,7 +4,7 @@
  * paints the cells without words; the studio draws each post's words on its cell in the month's
  * fonts, so the Arabic is right.
  */
-import { matchProduct, withoutBags, type Post } from "./posts";
+import { matchProduct, withoutBags, withoutLettering, type Post } from "./posts";
 
 export const TEST_GRID_MAX = 12;
 export const TEST_GRID_COLUMNS = 3;
@@ -70,7 +70,7 @@ export function testGridPrompt(r: {
     const row = Math.floor(i / cols) + 1;
     const col = (i % cols) + 1;
     const kind = p.tileSpec ? `${p.tileSpec.kind} tile` : p.type;
-    const what = withoutBags(p.scene || p.brief || p.title).replace(/\s+/g, " ").slice(0, 420);
+    const what = withoutLettering(withoutBags(p.scene || p.brief || p.title)).replace(/\s+/g, " ").slice(0, 420);
     const bg = p.tileSpec?.kind === "text" && p.tileSpec.background ? ` A plain background: ${p.tileSpec.background}.` : "";
     // Each cell names the photo of its own product, so the cells never swap products.
     const photo = (name: string) => {

@@ -2,10 +2,10 @@
  * The checks a month's posts pass before any image is paid for: what the image engine would get
  * wrong if it were sent as it is. Each problem says where it is and how it is fixed.
  */
-import { BAGS, decodeEntities, offerReady, type Post } from "./posts";
+import { BAGS, LETTERED, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 
-export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace";
+export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank";
 
 export interface PostProblem {
   index: number;
@@ -15,7 +15,8 @@ export interface PostProblem {
    * "shot": write this post's shot again; "post": write the post (idea and caption) again; "unbag":
    * take out the sentences with a bag or a carrier (no writing needed); "include": the month's
    * products the post names join its picture (no writing needed); "noplace": the post is written
-   * again about a product, since the client has no photos of its shop.
+   * again about a product, since the client has no photos of its shop; "blank": a business card,
+   * a price tag or a menu is made blank (no writing needed).
    */
   fix: FixKind;
   /** "include": the products to add to the post's picture. */
@@ -89,6 +90,8 @@ export function postProblems(
     out.push({ index: n, text: "is an offer without its products, price and contents", fix: "post" });
   if (ctx.hasPlaces === false && post.type !== "greeting" && (post.tileSpec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${scene}`)))
     out.push({ index: n, text: "shows the client's shop, which has no photos: it would be invented", fix: "noplace" });
+  if (LETTERED.test(scene) || LETTERED.test(post.brief))
+    out.push({ index: n, text: "puts a card, a tag or a menu in its picture: the engine would write invented words on it", fix: "blank" });
   if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {

@@ -36,6 +36,7 @@ import {
   POST_TYPE_INFO,
   POST_TYPES,
   withoutBags,
+  withoutLettering,
   withoutPaletteText,
   type Format,
   type Post,
@@ -488,12 +489,14 @@ export default function Journey(p: JourneyProps) {
     if (!p.batchId || !list.length) return;
     // Fixes that need no writing: bag sentences out, named products into the picture.
     const unbag = new Set(list.filter((x) => x.fix === "unbag").map((x) => x.index));
+    const blank = new Set(list.filter((x) => x.fix === "blank").map((x) => x.index));
     const include = new Map<number, string[]>();
     for (const x of list) if (x.fix === "include" && x.products) include.set(x.index, [...(include.get(x.index) ?? []), ...x.products]);
-    if (unbag.size || include.size) {
+    if (unbag.size || include.size || blank.size) {
       const plan = p.plan.map((x) => {
         let y = x;
         if (unbag.has(x.index)) y = { ...y, brief: withoutBags(y.brief) || y.brief, ...(y.scene ? { scene: withoutBags(y.scene) || y.scene } : {}) };
+        if (blank.has(x.index)) y = { ...y, brief: withoutLettering(y.brief), ...(y.scene ? { scene: withoutLettering(y.scene) } : {}) };
         const add = include.get(x.index);
         if (add) y = { ...y, products: [...new Set([...(y.products ?? []), ...add])] };
         return y;
@@ -663,6 +666,8 @@ export default function Journey(p: JourneyProps) {
                 fix:
                   pr.fix === "unbag"
                     ? { label: "Take the bag out", run: () => fixPosts([pr]) }
+                    : pr.fix === "blank"
+                      ? { label: "Make it blank", run: () => fixPosts([pr]) }
                     : pr.fix === "include"
                       ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
                       : pr.fix === "noplace"

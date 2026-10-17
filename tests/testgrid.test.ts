@@ -52,3 +52,15 @@ describe("no invented shop", () => {
     expect(postProblems(tray, { ...ctx, hasPlaces: false }).find((x) => x.fix === "noplace")).toBeFalsy();
   });
 });
+
+describe("no invented words on cards", () => {
+  it("makes business cards, tags and menus blank, and flags them", async () => {
+    const { withoutLettering } = await import("@shared/posts");
+    const { postProblems } = await import("@shared/qa");
+    expect(withoutLettering("The tray sits next to a very dark blue and silver business card.")).toBe("The tray sits next to a very dark blue and silver blank card with nothing printed on it.");
+    expect(withoutLettering("A price tag and a menu on the counter.")).toBe("A blank tag with nothing written on it and a blank folded card on the counter.");
+    const p = post(1, { scene: "A tray next to a business card." });
+    expect(postProblems(p, { products: [], cast: [], needsScene: true }).find((x) => x.fix === "blank")).toBeTruthy();
+    expect(postProblems({ ...p, scene: withoutLettering(p.scene!) }, { products: [], cast: [], needsScene: true }).find((x) => x.fix === "blank")).toBeFalsy();
+  });
+});

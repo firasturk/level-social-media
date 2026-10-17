@@ -641,10 +641,15 @@ export default function Workspace({
   }
 
   /** The test post of the journey's last screen: its image and what the automatic review found. */
+  /** A finished image made before the month's ideas were last written belongs to the old ideas. */
+  const oldImage = (t: { status: string; updated: number }) =>
+    !["queued", "processing", "finalizing"].includes(t.status) && t.updated < (config?.plannedAt ?? 0);
   const testPost = useMemo(() => {
     const i = config?.testPost;
     if (!i || !plan.some((p) => p.index === i)) return null;
     const t = tasks.find((x) => x.post === i);
+    // A test made for older ideas tests nothing of this month's posts.
+    if (t && oldImage(t)) return null;
     let qa: QA | null = null;
     try {
       qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
@@ -673,12 +678,14 @@ export default function Workspace({
         } catch {
           qa = null;
         }
+        // An image made for older ideas is not this post's: it shows as not made yet.
+        const old = !!t && oldImage(t);
         return {
           index: p.index,
           taskId: t?.id ?? null,
-          status: t?.status ?? "none",
-          url: t?.output ? outputUrl(t) : null,
-          output: t?.output ?? null,
+          status: old ? "none" : (t?.status ?? "none"),
+          url: t?.output && !old ? outputUrl(t) : null,
+          output: old ? null : (t?.output ?? null),
           error: t?.error ?? null,
           flags: qa?.automated ? (qa.flags ?? []) : null,
         };

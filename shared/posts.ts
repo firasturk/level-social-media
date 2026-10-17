@@ -472,7 +472,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   // Sentences that put a product into a bag or a carrier (older briefs and shots) never reach the
   // engine: the product is held or set down, never packed into something.
   const unbagged = (t: string) => (b.hasProduct || b.exact ? withoutBags(t) : t);
-  const clean = (t: string) => unbagged(withoutProductNames(t, names));
+  const clean = (t: string) => withoutLettering(unbagged(withoutProductNames(t, names)));
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
@@ -1345,3 +1345,15 @@ export function withoutBags(text: string): string {
     .join(" ")
     .trim();
 }
+
+/** Things that carry words (a business card, a price tag, a menu): the engine writes on them. */
+export const LETTERED = /\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+cards?\b|\bprice\s+tags?\b|\bmenus?\b/i;
+
+/** The text with every lettered thing made blank: "a business card" → "a blank card with nothing printed on it". */
+export function withoutLettering(text: string): string {
+  return text
+    .replace(/\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+(cards?)\b/gi, "blank $1 with nothing printed on it")
+    .replace(/\bprice\s+(tags?)\b/gi, "blank $1 with nothing written on it")
+    .replace(/\b(menus?)\b/gi, "blank folded card");
+}
+
