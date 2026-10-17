@@ -467,6 +467,19 @@ export default function Journey(p: JourneyProps) {
   );
   const plannedAt = p.config?.plannedAt ?? 0;
 
+  /** The month follows a grid: its colours become the month's colours (the pins' are left aside). */
+  async function pickGrid(gridRef: string) {
+    p.onSettings({ gridRef });
+    if (!theme) return;
+    try {
+      const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, { grid: gridRef });
+      p.onThemesChanged(r.themes);
+      toast.success("The month's colours now come from the grid you chose. Change any of them on the Colours screen.");
+    } catch (e) {
+      toast.error(`Colours: ${(e as Error).message}`);
+    }
+  }
+
   /**
    * Fixes posts in one go, each from the stored plan: bag sentences are taken out on the spot, the
    * posts to write again are written, then every touched shot is written again.
@@ -572,11 +585,11 @@ export default function Journey(p: JourneyProps) {
         if (theme && !theme.palette.length)
           out.push({
             text: "No colours for this month.",
-            how: "Add the colours, or let the pins suggest them.",
+            how: `Add the colours, or let the ${p.config?.gridRef ? "grid" : "pins"} suggest them.`,
             fix: {
-              label: "Suggest from the pins",
+              label: p.config?.gridRef ? "Suggest from the grid" : "Suggest from the pins",
               run: async () => {
-                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`);
+                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, p.config?.gridRef ? { grid: p.config.gridRef } : undefined);
                 p.onThemesChanged(r.themes);
               },
             },
@@ -985,7 +998,7 @@ export default function Journey(p: JourneyProps) {
                 onFonts={(f) => p.onSettings({ monthFonts: f })}
                 gridRef={p.config?.gridRef ?? null}
                 admin={p.user.role === "admin"}
-                onPick={(id) => p.onSettings({ gridRef: `style:${id}` })}
+                onPick={(id) => void pickGrid(`style:${id}`)}
                 onClear={() => p.onSettings({ gridRef: null })}
               />
               <div className="journey-boxes cols-3">
@@ -1020,7 +1033,7 @@ export default function Journey(p: JourneyProps) {
             <>
               <StepHead kit="colours" title="The colours of this month">
                 {theme?.palette.length
-                  ? "These colours come from the pins you chose. Would you like to change the colours? The first one is the background of every post."
+                  ? `These colours come from the ${p.config?.gridRef ? "grid" : "pins"} you chose. Would you like to change the colours? The first one is the background of every post.`
                   : "Add the month's colours. The first one is the background of every post."}
               </StepHead>
               <div className="journey-boxes cols-3">
@@ -1035,6 +1048,7 @@ export default function Journey(p: JourneyProps) {
                       onTheme={p.onTheme}
                       onThemesChanged={p.onThemesChanged}
                       parts={["colours"]}
+                      gridRef={p.config?.gridRef}
                       bare
                     />
                   ) : (

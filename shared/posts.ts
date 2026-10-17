@@ -1230,6 +1230,11 @@ export function paletteInstruction(count: number): string {
   return `The ${count} attached images are the references of a social-media theme. Return ${PALETTE_ASK} Return ONLY JSON: {"palette": [{"name": "...", "hex": "#rrggbb"}]}.`;
 }
 
+/** The colour story of the feed grid the month follows, for "Suggest colours" in a grid month. */
+export function gridPaletteInstruction(): string {
+  return `The attached image is an Instagram feed grid the brand wants its month to look like (many posts side by side). Return ${PALETTE_ASK.replace("the references' colour story", "the grid's colour story: the tiles' backgrounds, the plain text tiles and the surfaces")} Return ONLY JSON: {"palette": [{"name": "...", "hex": "#rrggbb"}]}.`;
+}
+
 /** Parses a model palette: valid 6-digit hex only, no duplicates, at most 8. */
 export function parsePalette(raw: unknown): { name: string; hex: string }[] {
   if (!Array.isArray(raw)) return [];

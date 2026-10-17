@@ -71,6 +71,7 @@ import {
   productNoteInstruction,
   PALETTE_SCHEMA,
   paletteInstruction,
+  gridPaletteInstruction,
   parsePalette,
   singleIdeaInstruction,
   type IdeasRequest,
@@ -450,10 +451,16 @@ async function analyseTheme(env: Env, row: ThemeRow): Promise<void> {
 /** "Suggest colours": the references' colour story only, replacing the theme's palette. */
 postRoutes.post("/themes/:id/palette", async (c) => {
   const row = await themeRow(c.env, c.req.param("id"));
-  const images = await referenceImages(c.env, row.id, MAX_ANALYSE_IMAGES);
+  // A month that follows a grid takes its colours from that grid, not from the theme's pins.
+  const grid = String(((await c.req.json().catch(() => ({}))) as { grid?: unknown }).grid ?? "").slice(0, 120);
+  const gridRow = grid ? await gridImage(c.env, grid) : null;
+  const gridObj = gridRow ? await c.env.BUCKET.get(gridRow.key) : null;
+  const images = gridObj
+    ? [{ bytes: await gridObj.arrayBuffer(), mime: gridObj.httpMetadata?.contentType || "image/jpeg" }]
+    : await referenceImages(c.env, row.id, MAX_ANALYSE_IMAGES);
   if (!images.length) throw new StudioError("Add reference photos to this theme first.");
   const d = parseJson<{ palette?: unknown }>(
-    await askText(c.env, paletteInstruction(images.length), PALETTE_SCHEMA, images),
+    await askText(c.env, gridObj ? gridPaletteInstruction() : paletteInstruction(images.length), PALETTE_SCHEMA, images),
   );
   const palette = parsePalette(d.palette);
   if (!palette.length) throw new StudioError("The model returned no colours. Try again.", 502);

@@ -30,3 +30,13 @@ describe("test grid", () => {
     expect(text).toMatch(/NO words, letters/);
   });
 });
+
+describe("grid colours", () => {
+  it("asks for the colour story of the grid, not of the pins", async () => {
+    const { gridPaletteInstruction } = await import("@shared/posts");
+    const text = gridPaletteInstruction();
+    expect(text).toContain("Instagram feed grid");
+    expect(text).toContain("the grid's colour story");
+    expect(text).not.toContain("references' colour story");
+  });
+});

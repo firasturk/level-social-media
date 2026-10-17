@@ -754,7 +754,10 @@ export function ThemeSection({
   onThemesChanged,
   parts,
   bare,
+  gridRef,
 }: {
+  /** The grid the month follows: its colours are suggested instead of the pins'. */
+  gridRef?: string | null;
   client: Client;
   themes: Theme[];
   theme: string;
@@ -834,9 +837,9 @@ export function ThemeSection({
     if (!current) return;
     setBusy("colors");
     try {
-      const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/palette`);
+      const r = await post<ThemesReply>(`/api/studio/posts/themes/${current.id}/palette`, gridRef ? { grid: gridRef } : undefined);
       onThemesChanged(r.themes);
-      toast.success("Colours suggested from the references. Change any of them.");
+      toast.success(`Colours suggested from ${gridRef ? "the grid you chose" : "the references"}. Change any of them.`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -1077,8 +1080,8 @@ export function ThemeSection({
                 type="button"
                 className="text-button"
                 onClick={() => void suggestColors()}
-                disabled={busy === "colors" || !current.references}
-                title="Read the references again and suggest their colours (replaces the list)"
+                disabled={busy === "colors" || (!current.references && !gridRef)}
+                title={gridRef ? "Read the grid you chose and suggest its colours (replaces the list)" : "Read the references again and suggest their colours (replaces the list)"}
               >
                 {busy === "colors" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
                 Suggest
