@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readableOn } from "../src/lib/overlay";
+import { readableOn } from "@shared/contrast";
 import { postProblems } from "@shared/qa";
 import type { Post } from "@shared/posts";
 
