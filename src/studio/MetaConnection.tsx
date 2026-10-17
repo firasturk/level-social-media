@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { Check, KeyRound, LoaderCircle, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { askConfirm } from "@/lib/confirm";
-import { del, get, post } from "@/api";
+import { del, get, post, put } from "@/api";
 
 export interface MetaStatus {
   connected: boolean;
-  account: { username: string; page: string; connected: number; expires: number } | null;
+  account: { igId: string; username: string; page: string; connected: number; expires: number } | null;
+  /** Every Instagram business account behind the token: one of them reads the others. */
+  options?: { igId: string; username: string; page: string }[];
 }
 
 interface Profile {
@@ -37,6 +39,16 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
       toast.error((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function choose(igId: string) {
+    try {
+      const r = await put<{ account: { username: string } }>("/api/studio/meta/account", { igId });
+      toast.success(`Instagram is read through @${r.account.username} now.`);
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
     }
   }
 
@@ -76,6 +88,7 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           Connected through @{status.account.username} ({status.account.page}),{" "}
           {status.account.expires ? `until ${new Date(status.account.expires).toLocaleDateString()}` : "with no end date"}. Client profiles read public business and
           creator accounts with it.
+          {status.account.expires ? " Paste a new extended token before that day." : ""}
         </div>
       ) : (
         <ol className="meta-steps">
@@ -90,8 +103,8 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
             <a className="text-link" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">
               Graph API Explorer
             </a>
-            : pick the app, add the permissions instagram_basic, pages_show_list, pages_read_engagement and business_management, press Generate Access Token
-            and allow Level MENA's page and Instagram.
+            : pick the app, add the permissions instagram_basic, instagram_manage_insights, pages_show_list, pages_read_engagement, business_management and
+            ads_read, press Generate Access Token and allow the pages and their Instagram accounts.
           </li>
           <li>
             <a className="text-link" href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noreferrer">
@@ -120,6 +133,18 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           </button>
         )}
       </div>
+      {status?.connected && (status.options?.length ?? 0) > 1 && (
+        <label className="field-label">
+          Reads other accounts through
+          <select value={status.account?.igId ?? ""} onChange={(e) => void choose(e.target.value)}>
+            {status.options!.map((o) => (
+              <option key={o.igId} value={o.igId}>
+                @{o.username} ({o.page})
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {status?.connected && (
         <>
           <div className="footer-actions">
