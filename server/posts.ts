@@ -1655,12 +1655,16 @@ postRoutes.post("/generate", async (c) => {
         });
       }
     }
+    // A retake of the same idea counts up (each take asks for a different picture); a new idea or
+    // a new shot starts again at take 1.
     let take = 1;
     if (existing?.brief && d.regenerate) {
       try {
-        take = ((JSON.parse(existing.brief) as Partial<PostBrief>).take ?? 1) + 1;
+        const prev = JSON.parse(existing.brief) as Partial<PostBrief>;
+        const shot = textured ? spec!.background : post.scene?.trim() || undefined;
+        if (prev.brief === post.brief && (prev.shot ?? undefined) === shot) take = (prev.take ?? 1) + 1;
       } catch {
-        take = 2;
+        take = 1;
       }
     }
     const brief: PostBrief = {

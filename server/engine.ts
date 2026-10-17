@@ -1549,12 +1549,19 @@ function googleUnavailable(e: unknown): boolean {
 
 /** A reference-library photo from R2. */
 async function referenceExists(env: Env, id: string): Promise<boolean> {
-  return !!(await first<{ id: string }>(env.DB, "SELECT id FROM refs WHERE id = ?", id));
+  return !!(await referenceKey(env, id));
+}
+
+/** A theme's reference photo, or a grid from the style library ("style:<id>", a month's grid). */
+async function referenceKey(env: Env, id: string): Promise<string | null> {
+  if (id.startsWith("style:"))
+    return (await first<{ image_key: string | null }>(env.DB, "SELECT image_key FROM styles WHERE id = ?", id.slice(6)))?.image_key ?? null;
+  return (await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", id))?.key ?? null;
 }
 
 async function referenceBytes(env: Env, id: string): Promise<ImageBytes> {
-  const row = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", id);
-  const obj = row ? await env.BUCKET.get(row.key) : null;
+  const key = await referenceKey(env, id);
+  const obj = key ? await env.BUCKET.get(key) : null;
   if (!obj) throw new StudioError("Reference photo is missing from the library.", 500);
   return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
 }

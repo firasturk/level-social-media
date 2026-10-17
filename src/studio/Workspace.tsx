@@ -648,8 +648,8 @@ export default function Workspace({
     const i = config?.testPost;
     if (!i || !plan.some((p) => p.index === i)) return null;
     const t = tasks.find((x) => x.post === i);
-    // A test made for older ideas tests nothing of this month's posts.
-    if (t && oldImage(t)) return null;
+    // A test made for older ideas, or one that failed (it keeps an older picture), tests nothing.
+    if (t && (oldImage(t) || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status)))) return null;
     let qa: QA | null = null;
     try {
       qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
@@ -683,7 +683,8 @@ export default function Workspace({
         return {
           index: p.index,
           taskId: t?.id ?? null,
-          status: old ? "none" : (t?.status ?? "none"),
+          // A take that failed keeps the last picture: it is shown as failed, never as this idea's image.
+          status: old ? "none" : t?.error && !["queued", "processing", "finalizing"].includes(t.status) ? "failed" : (t?.status ?? "none"),
           url: t?.output && !old ? outputUrl(t) : null,
           output: old ? null : (t?.output ?? null),
           error: t?.error ?? null,
@@ -703,13 +704,15 @@ export default function Workspace({
   async function generateFromJourney() {
     askNotifications();
     const plannedAt = config?.plannedAt ?? 0;
-    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && t.updated < plannedAt);
+    // A take that failed (it keeps an older picture and says why) is made again too.
+    const failed = (t: (typeof tasks)[number]) => t.status === "failed" || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status));
+    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && (t.updated < plannedAt || failed(t)));
     if (!stale) return generatePosts(undefined, false, false);
     // Only what is older than the ideas, missing or failed is made again: a fresh test post stays.
     const due = plan
       .filter((p) => {
         const t = tasks.find((x) => x.post === p.index);
-        return !t || t.status === "failed" || t.updated < plannedAt || (testPost?.draft && testPost.index === p.index);
+        return !t || failed(t) || t.updated < plannedAt || (testPost?.draft && testPost.index === p.index);
       })
       .map((p) => p.index);
     await generatePosts(due.length ? due : undefined, true, false);

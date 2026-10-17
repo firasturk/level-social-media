@@ -1351,7 +1351,11 @@ export const LETTERED = /\b(?:business|name|greeting|gift|thank[- ]you|brand(?:e
 
 /** The text with every lettered thing made blank: "a business card" → "a blank card with nothing printed on it". */
 export function withoutLettering(text: string): string {
+  // Sentences that place a logo or a brand mark in the picture: logos are added later, by the designer.
   return text
+    .split(/(?<=[.!?\u061f])\s+/)
+    .filter((x) => !/\b(logos?|watermarks?|monograms?|mark)\b/i.test(x))
+    .join(" ")
     .replace(/\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+(cards?)\b/gi, "blank $1 with nothing printed on it")
     .replace(/\bprice\s+(tags?)\b/gi, "blank $1 with nothing written on it")
     .replace(/\b(menus?)\b/gi, "blank folded card");

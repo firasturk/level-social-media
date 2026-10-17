@@ -64,3 +64,11 @@ describe("no invented words on cards", () => {
     expect(postProblems({ ...p, scene: withoutLettering(p.scene!) }, { products: [], cast: [], needsScene: true }).find((x) => x.fix === "blank")).toBeFalsy();
   });
 });
+
+describe("no logos asked for in the picture", () => {
+  it("takes the logo and brand mark sentences out of a shot", async () => {
+    const { withoutLettering } = await import("@shared/posts");
+    expect(withoutLettering("A flat-lay on tan marble. The Habibah logo is centered at the top. The AlBandar mark is in the bottom-left. Warm light.")).toBe("A flat-lay on tan marble. Warm light.");
+    expect(withoutLettering("A marble tray on a market stall.")).toBe("A marble tray on a market stall.");
+  });
+});
