@@ -503,10 +503,13 @@ export default function Journey(p: JourneyProps) {
       });
       await put("/api/studio/posts/plan", { batch: p.batchId, plan });
     }
+    // A person with nothing in hand: the best-fitting products are put in the hands (one go for all).
+    if (list.some((x) => x.fix === "product")) await post("/api/studio/posts/products/fill", { batch: p.batchId });
+    const handed = list.filter((x) => x.fix === "product").map((x) => x.index);
     const noPlace = new Set(list.filter((x) => x.fix === "noplace").map((x) => x.index));
     const rewrite = [...new Set(list.filter((x) => x.fix === "post" || x.fix === "noplace").map((x) => x.index))];
     for (const index of rewrite) await post("/api/studio/posts/reidea", { batch: p.batchId, index, noPlace: noPlace.has(index) || undefined });
-    const shots = [...new Set([...list.filter((x) => x.fix === "shot").map((x) => x.index), ...rewrite])];
+    const shots = [...new Set([...list.filter((x) => x.fix === "shot").map((x) => x.index), ...rewrite, ...handed])];
     if (shots.length) await post("/api/studio/posts/shots", { batch: p.batchId, indexes: shots });
     await p.refresh();
   }
@@ -668,6 +671,8 @@ export default function Journey(p: JourneyProps) {
                     ? { label: "Take the bag out", run: () => fixPosts([pr]) }
                     : pr.fix === "blank"
                       ? { label: "Take it out", run: () => fixPosts([pr]) }
+                      : pr.fix === "product"
+                        ? { label: "Give it a product", run: () => fixPosts([pr]) }
                     : pr.fix === "include"
                       ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
                       : pr.fix === "noplace"

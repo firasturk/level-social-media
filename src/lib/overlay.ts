@@ -248,8 +248,8 @@ export async function drawOverlay(
   const dx = (patch.dx ?? 0) * W;
   const dy = (patch.dy ?? 0) * W;
   const x = (align === "center" ? W / 2 : align === "left" ? margin : W - margin) + dx;
-  const headColor = patch.color ?? h.color;
-  const subColor = patch.subColor ?? spec.subline.color;
+  let headColor = patch.color ?? h.color;
+  let subColor = patch.subColor ?? spec.subline.color;
 
   ctx.font = `${h.weight} ${hSize}px ${fontStack(h.font)}`;
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${h.letterSpacing * hSize}px`;
@@ -266,12 +266,30 @@ export async function drawOverlay(
   else if (h.position === "center") y = (H - blockH) / 2;
   else y = H - h.inset * W - blockH;
   y += dy;
+  // The words never sit on the logo: a block that meets it moves below it (or above a bottom logo).
+  const lg = layout.logo;
+  if (lg) {
+    const bx = align === "center" ? x - maxWidth / 2 : align === "left" ? x : x - maxWidth;
+    const across = bx < lg.x + lg.w && bx + maxWidth > lg.x;
+    const room = 0.025 * W;
+    if (across && y < lg.y + lg.h + room && y + blockH > lg.y - room) {
+      if (lg.y + lg.h / 2 < H / 2) y = lg.y + lg.h + room;
+      else y = lg.y - room - blockH;
+    }
+  }
   layout.text = {
     x: align === "center" ? x - maxWidth / 2 : align === "left" ? x : x - maxWidth,
     y,
     w: maxWidth,
     h: blockH,
   };
+  // Words that would vanish into the picture behind them (white on cream, navy on navy) take the
+  // colour that reads on it.
+  const behind = averageLuminance(ctx, layout.text.x, y, maxWidth, blockH);
+  if (behind !== null) {
+    headColor = readableOn(headColor, behind);
+    subColor = readableOn(subColor, behind);
+  }
 
   // Entry animation: fade, rise from below, or zoom in around the block's centre.
   ctx.save();
@@ -311,6 +329,46 @@ export async function drawOverlay(
   }
   ctx.restore();
   return layout;
+}
+
+/** Relative luminance (0-1) of a #rrggbb colour; null for anything else. */
+function luminanceOf(hex: string): number | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(((n >> 16) & 255) / 255) + 0.7152 * lin(((n >> 8) & 255) / 255) + 0.0722 * lin((n & 255) / 255);
+}
+
+/** The picture's mean luminance under a block, or null when it cannot be read. */
+function averageLuminance(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): number | null {
+  try {
+    const sx = Math.max(0, Math.round(x));
+    const sy = Math.max(0, Math.round(y));
+    const sw = Math.max(1, Math.min(ctx.canvas.width - sx, Math.round(w)));
+    const sh = Math.max(1, Math.min(ctx.canvas.height - sy, Math.round(h)));
+    const data = ctx.getImageData(sx, sy, sw, sh).data;
+    const step = Math.max(4, Math.floor(data.length / 4 / 4000) * 4);
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < data.length; i += step) {
+      const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+      sum += 0.2126 * lin(data[i]) + 0.7152 * lin(data[i + 1]) + 0.0722 * lin(data[i + 2]);
+      n++;
+    }
+    return n ? sum / n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The colour itself when it reads on the background (contrast 2.5:1), else a dark or a light ink. */
+export function readableOn(color: string, behind: number): string {
+  const l = luminanceOf(color);
+  if (l === null) return color;
+  const contrast = (Math.max(l, behind) + 0.05) / (Math.min(l, behind) + 0.05);
+  if (contrast >= 2.5) return color;
+  return behind > 0.35 ? "#1f1a17" : "#ffffff";
 }
 
 function hexWithAlpha(hex: string, alpha: number): string {

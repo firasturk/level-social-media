@@ -5,7 +5,7 @@
 import { BAGS, LETTERED, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 
-export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank";
+export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank" | "product";
 
 export interface PostProblem {
   index: number;
@@ -16,7 +16,8 @@ export interface PostProblem {
    * take out the sentences with a bag or a carrier (no writing needed); "include": the month's
    * products the post names join its picture (no writing needed); "noplace": the post is written
    * again about a product, since the client has no photos of its shop; "blank": a business card,
-   * a price tag or a menu is made blank (no writing needed).
+   * a price tag or a menu is taken out (no writing needed); "product": the best-fitting product is
+   * put in the person's hands.
    */
   fix: FixKind;
   /** "include": the products to add to the post's picture. */
@@ -90,6 +91,10 @@ export function postProblems(
     out.push({ index: n, text: "is an offer without its products, price and contents", fix: "post" });
   if (ctx.hasPlaces === false && post.type !== "greeting" && (post.tileSpec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${scene}`)))
     out.push({ index: n, text: "shows the client's shop, which has no photos: it would be invented", fix: "noplace" });
+  // A person tile shows someone holding the brand's product; with nothing in hand the engine fills
+  // the hands from the reference (a branded bag, a cup).
+  if (post.tileSpec?.kind === "person" && !post.product && post.type !== "offer" && post.type !== "greeting")
+    out.push({ index: n, text: "shows a person with no product to hold", fix: "product" });
   if (LETTERED.test(scene) || LETTERED.test(post.brief))
     out.push({ index: n, text: "puts a card, a tag or a menu in its picture: the engine would write invented words on it, so it is taken out", fix: "blank" });
   if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });

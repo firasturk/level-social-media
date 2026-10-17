@@ -56,7 +56,7 @@ import {
   type FramingCheck,
 } from "./editorial";
 import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
-import { buildPostPrompt, type PostBrief } from "@shared/posts";
+import { buildPostPrompt, tileWithoutBags, type PostBrief } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
@@ -1823,7 +1823,8 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     sellsDrinks: pb.sellsDrinks,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
-    tile: pb.grid && pb.tile ? pb.tile : undefined,
+    // The tile as the post was asked to follow it: its bags and cards were left out on purpose.
+    tile: pb.grid && pb.tile ? tileWithoutBags(pb.tile, !!pb.hasProduct || !!pb.exact) : undefined,
   };
   const instruction = postReviewInstruction(ctx);
   const all = [...images, result];

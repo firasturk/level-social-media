@@ -203,8 +203,8 @@ export interface ProductMatch {
   picks: (ProductOption & { reason: string })[];
 }
 
-/** Tiles that show no product: their posts are not given one. */
-export const NO_PRODUCT_TILES = new Set(["text", "texture", "place", "person"]);
+/** Tiles that show no product: their posts are not given one (a person tile holds one). */
+export const NO_PRODUCT_TILES = new Set(["text", "texture", "place"]);
 
 export interface MatchPost {
   index: number;
@@ -253,7 +253,7 @@ export function productMatchInstruction(r: { client: string; posts: MatchPost[];
       "- the same product, or the closest one in look and kind (a kunafa for a kunafa, a can for a can, a tray for a tray) when the exact one has no photo;",
       "- at equal fit, this month's photos first, then earlier months, then Drive;",
       "- spread the month: avoid giving the same product to every post when others fit;",
-      "- a post whose picture shows no product (a text or quote tile, a texture, a place, a person alone, a greeting) gets no picks.",
+      "- a post whose picture shows no product (a text or quote tile, a texture, a place, a greeting) gets no picks; a person tile gets the product the person holds (a box or tin held level with both hands suits it best).",
       "reason: a few words on why it fits.",
     ].join("\n"),
     "Return ONLY the JSON.",
