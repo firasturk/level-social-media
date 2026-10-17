@@ -6,7 +6,7 @@ import { del, get, post } from "@/api";
 
 export interface MetaStatus {
   connected: boolean;
-  account: { username: string; page: string; connected: number } | null;
+  account: { username: string; page: string; connected: number; expires: number } | null;
 }
 
 interface Profile {
@@ -73,13 +73,33 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
       {status?.connected && status.account ? (
         <div className="success-note">
           <Check size={19} />
-          Connected through @{status.account.username} ({status.account.page}). Client profiles read public business and creator accounts with it.
+          Connected through @{status.account.username} ({status.account.page}),{" "}
+          {status.account.expires ? `until ${new Date(status.account.expires).toLocaleDateString()}` : "with no end date"}. Client profiles read public business and
+          creator accounts with it.
         </div>
       ) : (
-        <p className="quality-note">
-          Paste a Meta access token that can see Level MENA's Facebook page and its linked Instagram business account (permissions instagram_basic,
-          pages_show_list, pages_read_engagement, business_management). A system user token from Business Settings never expires.
-        </p>
+        <ol className="meta-steps">
+          <li>
+            Once only:{" "}
+            <a className="text-link" href="https://developers.facebook.com/apps/creation/" target="_blank" rel="noreferrer">
+              create a Meta app
+            </a>{" "}
+            named Level Social Media (type Business).
+          </li>
+          <li>
+            <a className="text-link" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">
+              Graph API Explorer
+            </a>
+            : pick the app, add the permissions instagram_basic, pages_show_list, pages_read_engagement and business_management, press Generate Access Token
+            and allow Level MENA's page and Instagram.
+          </li>
+          <li>
+            <a className="text-link" href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noreferrer">
+              Access Token Debugger
+            </a>
+            : paste the token, Debug, then Extend Access Token. Copy the new token and paste it below.
+          </li>
+        </ol>
       )}
       <div className="footer-actions">
         <input

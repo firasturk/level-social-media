@@ -25,6 +25,8 @@ interface MetaAccount {
   username: string;
   page: string;
   connected: number;
+  /** When the stored token stops working (0: never). */
+  expires: number;
 }
 
 export interface InstagramPost {
@@ -62,23 +64,51 @@ async function graph<T>(path: string, token: string): Promise<T> {
   return d;
 }
 
-/** The Instagram business account behind a token: the first page with one linked. */
-async function findAccount(token: string): Promise<MetaAccount> {
-  const pages = await graph<{ data?: { name: string; instagram_business_account?: { id: string; username?: string } }[] }>(
-    "me/accounts?fields=name,instagram_business_account{id,username}&limit=50",
-    token,
+/** When a token stops working, in ms (0: never; null: Meta would not say). */
+async function expiresAt(token: string): Promise<number | null> {
+  try {
+    const d = await graph<{ data?: { expires_at?: number } }>(`debug_token?input_token=${encodeURIComponent(token)}`, token);
+    const at = d.data?.expires_at;
+    return typeof at === "number" ? at * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Instagram business account behind a pasted user token, and the token to keep: the page's own
+ * token, which never expires when it comes from a long-lived user token (an extended one).
+ */
+async function findAccount(userToken: string): Promise<{ account: MetaAccount; token: string }> {
+  const pages = await graph<{ data?: { name: string; access_token?: string; instagram_business_account?: { id: string; username?: string } }[] }>(
+    "me/accounts?fields=name,access_token,instagram_business_account{id,username}&limit=50",
+    userToken,
   );
   const page = (pages.data ?? []).find((p) => p.instagram_business_account?.id);
   if (!page?.instagram_business_account)
     throw new StudioError(
-      "This token sees no Facebook page with an Instagram business account linked. Link the Instagram account to the page, give the token the page and the account, then try again.",
+      "This token sees no Facebook page with an Instagram business account linked. Link Level MENA's Instagram to its Facebook page, tick that page when Facebook asks, then try again.",
+      400,
+    );
+  const ig = page.instagram_business_account;
+  // The page token is kept when it can read Instagram accounts; otherwise the user token itself.
+  let token = userToken;
+  if (page.access_token)
+    try {
+      await graph(`${ig.id}?fields=business_discovery.username(${ig.username ?? "instagram"}){username}`, page.access_token);
+      token = page.access_token;
+    } catch {
+      /* the user token stays */
+    }
+  const expires = await expiresAt(token);
+  if (expires && expires < Date.now() + 2 * 86_400_000)
+    throw new StudioError(
+      "This token lasts only an hour or two. Open the Access Token Debugger (the third link), paste it, press Debug, then Extend Access Token, and paste the new token here.",
       400,
     );
   return {
-    igId: page.instagram_business_account.id,
-    username: page.instagram_business_account.username ?? "",
-    page: page.name,
-    connected: Date.now(),
+    token,
+    account: { igId: ig.id, username: ig.username ?? "", page: page.name, connected: Date.now(), expires: expires ?? 0 },
   };
 }
 
@@ -145,7 +175,11 @@ function admin(user: User) {
 /** Whether Instagram is connected, and through which account (never the token). */
 metaRoutes.get("/", async (c) => {
   const conn = await connection(c.env);
-  return c.json({ ok: true, connected: !!conn, account: conn ? { username: conn.account.username, page: conn.account.page, connected: conn.account.connected } : null });
+  return c.json({
+    ok: true,
+    connected: !!conn,
+    account: conn ? { username: conn.account.username, page: conn.account.page, connected: conn.account.connected, expires: conn.account.expires ?? 0 } : null,
+  });
 });
 
 /** An admin pastes the token: it is checked against Meta, then kept encrypted. */
@@ -153,10 +187,10 @@ metaRoutes.post("/", async (c) => {
   admin(c.get("user"));
   const parsed = z.object({ token: z.string().trim().min(40).max(1000) }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Paste the whole access token.");
-  const account = await findAccount(parsed.data.token);
-  await setSetting(c.env, TOKEN_SETTING, parsed.data.token);
+  const { account, token } = await findAccount(parsed.data.token);
+  await setSetting(c.env, TOKEN_SETTING, token);
   await setSetting(c.env, ACCOUNT_SETTING, JSON.stringify(account));
-  return c.json({ ok: true, account: { username: account.username, page: account.page, connected: account.connected } });
+  return c.json({ ok: true, account: { username: account.username, page: account.page, connected: account.connected, expires: account.expires } });
 });
 
 metaRoutes.delete("/", async (c) => {
