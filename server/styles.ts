@@ -87,16 +87,15 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
 }
 
 /** One page of the library: a tab (all, trends or a category), a search and a page number. */
-async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string; waiting?: boolean } = {}) {
+async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string } = {}) {
   const admin = user.role === "admin";
   // The admin's queue: what the daily update and New ideas brought, waiting for approval.
   // The admin's queue, whole or split into grids and photo styles (the Approvals page).
   const reviewing = admin && (opts.tab === "review" || opts.tab === "review-grid" || opts.tab === "review-style");
   // A client's own collection ("Add to Habibah's"): its styles and grids, approved or not.
   const saved = opts.tab === "saved" && !!opts.client;
-  // The admin picking a month's grid also sees the grids waiting for approval (picking one approves it).
-  const waiting = admin && opts.waiting && opts.tab === "grid";
-  const where = [reviewing ? "status = 'review'" : waiting || saved ? "status IN ('active', 'review')" : "status = 'active'"];
+  // Everywhere else, the team (the admin picking a grid too) sees only what the admin approved.
+  const where = [reviewing ? "status = 'review'" : saved ? "status IN ('active', 'review')" : "status = 'active'"];
   const args: unknown[] = [];
   const trendsFrom = now() - TREND_DAYS * 86_400_000;
   if (reviewing) {
@@ -123,7 +122,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
       args.push(like, like, like, like);
     }
   // For a client: the styles saved to it first, then (on the Grids shelf) the grids its profile suggested.
-  const forClient = `${opts.client ? "(id IN (SELECT style FROM client_styles WHERE client = ?)) DESC, " : ""}${opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : ""}${waiting ? "(status = 'active') DESC, " : ""}`;
+  const forClient = `${opts.client ? "(id IN (SELECT style FROM client_styles WHERE client = ?)) DESC, " : ""}${opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : ""}`;
   const order = `${forClient}${opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC"}`;
   const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
@@ -161,7 +160,6 @@ function listQuery(c: { req: { query: (k: string) => string | undefined } }) {
     q: c.req.query("q") ?? "",
     page: Number(c.req.query("page") ?? 1) || 1,
     client: c.req.query("client") ?? "",
-    waiting: c.req.query("waiting") === "1",
   };
 }
 

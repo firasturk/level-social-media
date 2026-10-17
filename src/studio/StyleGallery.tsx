@@ -160,8 +160,7 @@ export default function StyleScreen({
     [key],
   );
 
-  // Every list the screen loads asks the same way: the client's suggestions first and, for the admin
-  // picking a month's grid, the grids still waiting for approval.
+  // Every list the screen loads asks the same way: the client's suggestions first.
   const query = useCallback(
     () =>
       new URLSearchParams({
@@ -169,9 +168,8 @@ export default function StyleScreen({
         q,
         page: String(page),
         ...(clientId ? { client: clientId } : {}),
-        ...(pick?.mode === "feed" && admin ? { waiting: "1" } : {}),
       }).toString(),
-    [tab, q, page, clientId, pick?.mode, admin],
+    [tab, q, page, clientId],
   );
 
   const load = useCallback(
