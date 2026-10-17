@@ -9241,3 +9241,297 @@ label.num select {
   font-size: 13px;
   color: var(--ink-700);
 }
+
+/* ───────────── Client profile ───────────── */
+.profile-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(760px, 100%);
+  margin: 4px auto 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  text-align: left;
+  animation: j-up 520ms var(--ease-out) both;
+}
+.profile-bar.on {
+  border-style: solid;
+}
+.profile-bar-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.profile-bar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-right: auto;
+}
+.profile-bar-text small {
+  color: var(--ink-500);
+  font-size: 12.5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.profile-bar button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.profile-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--canvas);
+  color: var(--ink-900);
+  display: flex;
+  flex-direction: column;
+  animation: journey-in var(--dur) var(--ease-out) both;
+}
+.profile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  background: #0b0b0b;
+  color: #fff;
+  flex: none;
+}
+.profile-top small {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.profile-top h2 {
+  margin: 2px 0 0;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+.profile-top .icon-button {
+  color: #fff;
+}
+.profile-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px 28px;
+}
+.profile-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+}
+.profile-inputs .field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.profile-inputs .field-label span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.profile-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.profile-ref {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  position: relative;
+}
+.profile-ref select {
+  grid-column: 1 / -1;
+}
+.profile-ref .icon-button {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+.profile-refs .text-button,
+.profile-card .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+}
+.profile-run {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.profile-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin: 0;
+}
+.profile-main {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-content: start;
+  padding-bottom: 24px;
+}
+.profile-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 300px;
+  color: var(--ink-500);
+  text-align: center;
+}
+.profile-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: j-up 480ms var(--ease-out) both;
+}
+.profile-card.wide {
+  grid-column: 1 / -1;
+}
+.profile-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.profile-card p {
+  margin: 0;
+  line-height: 1.55;
+  font-size: 13.5px;
+}
+.profile-muted {
+  color: var(--ink-500);
+}
+.profile-quotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.profile-quotes q {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.profile-list h4 {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.profile-list ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.profile-colours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.profile-colours .journey-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.profile-colours i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+}
+.profile-refs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.profile-ref-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.profile-grids {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.profile-grids figure {
+  margin: 0;
+}
+.profile-grids img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+.profile-grids figcaption {
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.profile-grids figcaption small {
+  font-weight: 500;
+  color: var(--ink-500);
+}
+@media (max-width: 900px) {
+  .profile-body {
+    grid-template-columns: 1fr;
+    overflow: auto;
+    padding: 12px 16px;
+  }
+  .profile-main {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .profile-top {
+    padding: 14px 16px;
+  }
+}

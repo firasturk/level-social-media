@@ -62,6 +62,8 @@ export interface StyleRow {
   h: number;
   category: string;
   tiles: number;
+  /** The client a suggested grid was found for ('' for the shared library). */
+  client: string;
 }
 
 function toItem(r: StyleRow, admin: boolean): StyleItem {
@@ -79,11 +81,12 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
     w: r.w,
     h: r.h,
     tiles: r.tiles ?? 0,
+    client: r.client || undefined,
   };
 }
 
 /** One page of the library: a tab (all, trends or a category), a search and a page number. */
-async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number } = {}) {
+async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string } = {}) {
   const admin = user.role === "admin";
   // The admin's queue: what the daily update and New ideas brought, waiting for approval.
   const reviewing = admin && opts.tab === "review";
@@ -109,7 +112,9 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
       const like = `%${word}%`;
       args.push(like, like, like, like);
     }
-  const order = opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC";
+  // A client's own suggested grids come first on its Grids shelf.
+  const forClient = opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : "";
+  const order = `${forClient}${opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC"}`;
   const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
   const page = Math.min(pages, Math.max(1, opts.page ?? 1));
@@ -117,6 +122,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
     env.DB,
     `SELECT * FROM styles WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
     ...args,
+    ...(forClient ? [opts.client] : []),
     STYLE_PAGE_SIZE,
     (page - 1) * STYLE_PAGE_SIZE,
   );
@@ -131,7 +137,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
 
 /** The query of a list request. */
 function listQuery(c: { req: { query: (k: string) => string | undefined } }) {
-  return { tab: c.req.query("tab") ?? "all", q: c.req.query("q") ?? "", page: Number(c.req.query("page") ?? 1) || 1 };
+  return { tab: c.req.query("tab") ?? "all", q: c.req.query("q") ?? "", page: Number(c.req.query("page") ?? 1) || 1, client: c.req.query("client") ?? "" };
 }
 
 export async function styleRow(env: Env, id: string): Promise<StyleRow | null> {
@@ -206,17 +212,18 @@ export async function relatedPins(pin: string): Promise<Pin[]> {
  * Collected pins join the pool. A pin already known is skipped, and so is a picture the library
  * has ever seen under another pin: a style the team took out never comes back.
  */
-async function addToPool(env: Env, pins: Pin[], kind: StyleKind, category = ""): Promise<number> {
+async function addToPool(env: Env, pins: Pin[], kind: StyleKind, category = "", client = ""): Promise<number> {
   let added = 0;
   for (const p of pins) {
     const sig = pictureSig(p.url);
     if (sig && (await first(env.DB, "SELECT 1 AS x FROM styles WHERE sig = ?", sig))) continue;
     const changed = await run(
       env.DB,
-      "INSERT OR IGNORE INTO styles (id, kind, category, status, pin, source, note, sig, created, updated) VALUES (?, ?, ?, 'pool', ?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO styles (id, kind, category, client, status, pin, source, note, sig, created, updated) VALUES (?, ?, ?, ?, 'pool', ?, ?, ?, ?, ?, ?)",
       uuid(),
       kind,
       category,
+      client,
       p.pin,
       p.url,
       p.note,
@@ -361,10 +368,32 @@ async function collect(env: Env, searches: number): Promise<number> {
 }
 
 /**
+ * Feed grids for one client, from the Pinterest searches its profile wrote. They are read on the
+ * cron within minutes and wait for the admin's approval like every new style.
+ */
+export async function suggestGrids(env: Env, client: string, queries: string[]): Promise<number> {
+  let added = 0;
+  for (const q of queries.slice(0, 5)) {
+    try {
+      added += await addToPool(env, (await searchPins(q)).slice(0, 10), "product", "grid", client);
+    } catch (e) {
+      console.error("[styles] grid search failed", q, errorMessage(e));
+    }
+  }
+  return added;
+}
+
+/**
  * The library's daily refresh, on the cron: once a day new pins are collected, and through the day
  * a few are read each minute until DAILY_READS is reached.
  */
 export async function dailyStyles(env: Env): Promise<void> {
+  // Grids found for a client's profile are read first, outside the day's budget.
+  const suggested = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' AND client != '' ORDER BY created DESC LIMIT 4");
+  if (suggested.length) {
+    await Promise.all(suggested.map((r) => readPin(env, r)));
+    return;
+  }
   const day = new Date().toISOString().slice(0, 10);
   const mark = await getSetting(env, "styles_daily");
   const [lastDay, readStr] = (mark ?? "").split("|");

@@ -15,6 +15,7 @@ import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { styleRow, type StyleRow } from "./styles";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
+import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
@@ -151,6 +152,16 @@ function hidesSubline(client: ClientRow): boolean {
     return resolveOverlay(client.overlay ? JSON.parse(client.overlay) : null).subline.show === false;
   } catch {
     return false;
+  }
+}
+
+/** The client's profile in a few lines (from its Analysis), for the writers; '' before one exists. */
+async function profileOf(env: Env, clientId: string): Promise<string> {
+  const r = await first<{ profile: string | null }>(env.DB, "SELECT profile FROM client_profiles WHERE client = ?", clientId).catch(() => null);
+  try {
+    return profileBrief(r?.profile ? (JSON.parse(r.profile) as ClientProfile) : null);
+  } catch {
+    return "";
   }
 }
 
@@ -795,6 +806,7 @@ function ideasContext(
   products: string[],
   productNotes: Record<string, string>,
   ambassadors: AmbassadorRow[] = [],
+  profile = "",
 ): Omit<IdeasRequest, "count"> {
   // Chosen colours win: the colour words of the references and the brand style give way.
   const chosen = monthPaletteOf(theme).length > 0;
@@ -802,6 +814,7 @@ function ideasContext(
   return {
     clientName: client.name,
     tone: client.tone,
+    profile,
     // Layout rules (logo placement, bands, marks) are the overlay's business, not the scene's.
     dos: photoRules(client.dos),
     donts: photoRules(client.donts),
@@ -868,7 +881,7 @@ postRoutes.post("/reidea", async (c) => {
   const others = plan.filter((p) => p.index !== d.index).map((p) => p.title);
   const cast = await monthAmbassadors(c.env, config);
   const instruction = singleIdeaInstruction(
-    { ...ideasContext(client, theme, config, products, productNotes, cast), count: 1 },
+    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id)), count: 1 },
     current,
     others,
     d.wish ?? "",
@@ -936,7 +949,7 @@ postRoutes.post("/ideas", async (c) => {
   const count = d.count ?? config.postCount ?? 12;
   const cast = await monthAmbassadors(c.env, config);
   const instruction = ideasInstruction({
-    ...ideasContext(client, theme, config, products, productNotes, cast),
+    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id)),
     count,
     notes: d.notes ?? config.notes,
     types: d.types,
@@ -997,7 +1010,7 @@ async function ensureOccasionPosts(
       scene: undefined,
     };
     const instruction = singleIdeaInstruction(
-      { ...ideasContext(client, theme, config, products, productNotes, cast), count: 1 },
+      { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id)), count: 1 },
       draft,
       plan.filter((p) => p.index !== target.index).map((p) => p.title),
       `This post is now the greeting for ${o.name} on ${o.date}: a greeting headline and a caption for the day, in the client's tone.`,
@@ -1092,6 +1105,7 @@ postRoutes.post("/grid-ideas", async (c) => {
   const instruction = gridIdeasInstruction({
     clientName: client.name,
     tone: client.tone,
+    profile: await profileOf(c.env, client.id),
     dos: client.dos,
     donts: client.donts,
     language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
@@ -1703,6 +1717,7 @@ postRoutes.post("/captions", async (c) => {
     return [{ post: p, task: t, output: t.output }];
   });
   const language = (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both";
+  const profile = await profileOf(c.env, client.id);
   const written = new Map<number, { caption: string; hashtags: string; from: string }>();
   const failed: number[] = [];
   const write = async ({ post: p, task, output }: (typeof due)[number]) => {
@@ -1717,6 +1732,7 @@ postRoutes.post("/captions", async (c) => {
       dos: photoRules(client.dos),
       donts: photoRules(client.donts),
       post: p,
+      profile,
       occasion: occ ? { name: occ.name, date: occ.date } : undefined,
       products: names.map((n) => ({ name: n.trim(), note: notes.get(n.trim().toLowerCase()) })),
     });

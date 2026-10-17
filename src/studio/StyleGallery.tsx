@@ -66,8 +66,10 @@ const TABS: { id: string; label: string }[] = [
   ...STYLE_CATEGORIES.filter((c) => c.id !== "grid").map((c) => ({ id: c.id, label: c.label })),
 ];
 
-const shelfLabel = (s: Pick<StyleItem, "category" | "tiles">) =>
-  s.category === "grid" ? `Grid${s.tiles ? ` · ${s.tiles} posts` : ""}` : (STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style");
+const shelfLabel = (s: Pick<StyleItem, "category" | "tiles" | "client">) =>
+  s.category === "grid"
+    ? `${s.client ? "Suggested · " : ""}Grid${s.tiles ? ` · ${s.tiles} posts` : ""}`
+    : (STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style");
 
 /** Pages already loaded open instantly when the team comes back to them. */
 const pages = new Map<string, Page>();
@@ -98,6 +100,8 @@ export default function StyleScreen({
     posts?: number;
     label?: string;
     tab?: string;
+    /** The client the grid is picked for: its suggested grids come first. */
+    client?: string;
     onPick: (ids: string[], items: StyleItem[]) => Promise<void> | void;
   };
 }) {
@@ -106,7 +110,7 @@ export default function StyleScreen({
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const key = `${tab}|${q}|${page}`;
+  const key = `${tab}|${q}|${page}|${pick?.client ?? ""}`;
   const [data, setData] = useState<Page | null>(pages.get(key) ?? null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<StyleItem[]>([]);
@@ -152,7 +156,7 @@ export default function StyleScreen({
       if (cached && !force) return;
       setLoading(true);
       try {
-        const params = new URLSearchParams({ tab, q, page: String(page) });
+        const params = new URLSearchParams({ tab, q, page: String(page), ...(pick?.client ? { client: pick.client } : {}) });
         apply(await get<Page>(`/api/studio/styles?${params}`), key);
       } catch (e) {
         toast.error((e as Error).message);
@@ -160,7 +164,7 @@ export default function StyleScreen({
         setLoading(false);
       }
     },
-    [key, tab, q, page, apply],
+    [key, tab, q, page, apply, pick?.client],
   );
 
   useEffect(() => {

@@ -46,6 +46,7 @@ import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
 import { KitIcon, type KitKey } from "./kit";
+import { ProfileBar } from "./ClientProfile";
 import { CaptionsStep, captionCurrent, FeedStep, MAKING, MakeStep, type JourneyPost } from "./JourneyResults";
 import type { OverlaySpec } from "@shared/overlay";
 
@@ -778,6 +779,7 @@ export default function Journey(p: JourneyProps) {
                   </button>
                 ))}
               </div>
+              {client && <ProfileBar key={client.id} client={client} onClientsChanged={p.onClientsChanged} />}
               {client && p.previousMonth && !p.batchId && (
                 <div className="journey-continue">
                   <span>
@@ -854,6 +856,7 @@ export default function Journey(p: JourneyProps) {
                 Pick the brand ambassadors for this month, then the theme and its Pinterest pins, or a whole feed grid the month follows.
               </StepHead>
               <GridPick
+                clientId={client.id}
                 gridRef={p.config?.gridRef ?? null}
                 admin={p.user.role === "admin"}
                 onPick={(id) => p.onSettings({ gridRef: `style:${id}` })}
@@ -2120,11 +2123,13 @@ function IdeaCard({
 /* ───────────── A feed grid the month follows ───────────── */
 
 function GridPick({
+  clientId,
   gridRef,
   admin,
   onPick,
   onClear,
 }: {
+  clientId: string;
   gridRef: string | null;
   admin: boolean;
   onPick: (id: string) => void;
@@ -2159,7 +2164,7 @@ function GridPick({
           Stop following
         </button>
       )}
-      <StyleScreen open={open} onClose={() => setOpen(false)} admin={admin} pick={{ mode: "feed", tab: "grid", onPick: (ids) => onPick(ids[0]) }} />
+      <StyleScreen open={open} onClose={() => setOpen(false)} admin={admin} pick={{ mode: "feed", tab: "grid", client: clientId, onPick: (ids) => onPick(ids[0]) }} />
     </div>
   );
 }

@@ -662,6 +662,8 @@ export const IDEAS_SCHEMA = {
 export interface IdeasRequest {
   clientName: string;
   tone: string;
+  /** The client's profile from its Analysis (voice, audience, what works, rules for headlines and captions). */
+  profile?: string;
   dos: string;
   donts: string;
   language: "ar" | "en" | "both";
@@ -764,6 +766,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     `You are the social-media creative lead of a design agency planning ${r.count} Instagram posts for the client "${r.clientName}" for ${monthLabel(r.month)}. The posts are produced as single images (no text inside the image; headlines are added later as an overlay), each with a caption.`,
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
+    r.profile ? `CLIENT PROFILE (the Analysis of their Instagram and website; write for this audience, in this voice, by these rules for headlines and captions; other brands are never copied):\n${r.profile}` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.monthPalette?.length
@@ -884,6 +887,8 @@ export interface CaptionRequest {
   dos?: string;
   donts?: string;
   post: Post;
+  /** The client's profile from its Analysis: its voice and its rules for captions. */
+  profile?: string;
   /** The greeting's occasion: its name and day. */
   occasion?: { name: string; date: string };
   /** The post's products with what their photos show. */
@@ -898,6 +903,7 @@ export function captionFromImageInstruction(r: CaptionRequest): string {
     `You are the social-media copywriter of a design agency. The attached image is the finished photograph of one Instagram post for "${r.clientName}". Write its caption from what the picture really shows: the moment, the place, the light and the mood, what the people do and how the product appears. Never mention anything the picture does not show.`,
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${languageRule(r.language)}`,
+    r.profile ? `CLIENT PROFILE (their audience, their voice at its best and the rules for their captions):\n${r.profile}` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     `THE POST: ${info?.label ?? p.type} (${info?.description ?? ""}).`,
@@ -1026,6 +1032,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     "First describe the grid: world (one paragraph: the sets, materials, surfaces, props, palette with colour words, light, camera angles, mood, how products are staged and where text sits) and tiles (one entry per tile in reading order: position like 'row 1, col 2'; scene; productPlacement; textPlacement). Ignore the reference's brand, products, logos and words: only the staging matters.",
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
+    r.profile ? `CLIENT PROFILE (the Analysis of their Instagram and website; write for this audience, in this voice, by these rules for headlines and captions; other brands are never copied):\n${r.profile}` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     r.monthPalette?.length

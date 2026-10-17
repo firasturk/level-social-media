@@ -58,6 +58,8 @@ export interface StyleItem {
   h: number;
   /** A grid's number of post tiles (0 for a photo style). */
   tiles: number;
+  /** The client a suggested grid was found for. */
+  client?: string;
 }
 
 export const STYLE_SCHEMA = {
