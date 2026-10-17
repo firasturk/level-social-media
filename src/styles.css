@@ -10065,3 +10065,115 @@ button.shot-product:hover {
 .drive-skipped {
   margin: 0;
 }
+
+/* Autopilot: the admin's button on the first screen, and its running log. */
+.journey-autopilot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(760px, 100%);
+  margin: 8px auto 0;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(90deg, #d946a8, #7c3aed) border-box;
+  text-align: left;
+  animation: j-up 520ms var(--ease-out) both;
+}
+.journey-autopilot > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-right: auto;
+}
+.journey-autopilot small {
+  color: var(--ink-500);
+  font-size: 12.5px;
+}
+.journey-autopilot button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.journey-autopilot-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #d946a8, #7c3aed);
+}
+.autopilot-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  z-index: 60;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(60vh, 520px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 50px rgba(20, 16, 40, 0.18);
+  overflow: hidden;
+}
+.autopilot-panel.on {
+  border-color: #b04fd0;
+}
+.autopilot-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.autopilot-head strong {
+  margin-right: auto;
+}
+.autopilot-panel ol {
+  list-style: none;
+  margin: 0;
+  padding: 8px 12px 12px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+}
+.autopilot-panel li {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 8px;
+  font-size: 13px;
+  align-items: start;
+}
+.autopilot-panel li > svg {
+  margin-top: 3px;
+}
+.autopilot-panel li small {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.autopilot-panel li.done > svg {
+  color: #1f8a4c;
+}
+.autopilot-panel li.warn > svg {
+  color: #d9822b;
+}
+@media (max-width: 640px) {
+  .journey-autopilot {
+    flex-wrap: wrap;
+  }
+  .autopilot-panel {
+    bottom: 140px;
+  }
+}

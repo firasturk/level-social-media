@@ -15,7 +15,9 @@ import {
   Plus,
   RefreshCw,
   Repeat,
+  Rocket,
   Sparkles,
+  TriangleAlert,
   Upload,
   Wand2,
   X,
@@ -78,6 +80,18 @@ const STEPS: { key: string; kit?: KitKey; title: string; brief?: BriefStep }[] =
 const MAGIC = STEPS.findIndex((s) => s.key === "magic");
 
 const RESUME_KEY = "lsm-journey-step";
+
+interface AutoLine {
+  step: string;
+  text: string;
+  state: "run" | "done" | "warn";
+}
+interface AutoRun {
+  on: boolean;
+  lines: AutoLine[];
+  started: number;
+  ended?: string;
+}
 
 function greeting(d = new Date()): string {
   const h = d.getHours();
@@ -578,8 +592,10 @@ export default function Journey(p: JourneyProps) {
             out.push({ text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
         }
         if (!theme) out.push({ warn: true, text: "No theme: the posts follow the brand identity and get no shots from pins." });
-        else if (!theme.references)
-          out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
+        // A month that follows a grid takes its look from the grid: the theme only keeps its colours.
+        else if (!theme.references) {
+          if (!p.config?.gridRef) out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
+        }
         else if (reading) out.push({ text: "Wait: the pins are being read." });
         else if (!theme.shots.length || !analysedAt || (theme.latestRef ?? 0) > analysedAt)
           out.push({
@@ -802,6 +818,223 @@ export default function Journey(p: JourneyProps) {
     }
   }
 
+  /* ── Autopilot (admins): the journey walks itself, deciding what a person would ── */
+  const [auto, setAuto] = useState<AutoRun | null>(null);
+  const autoDecided = useRef(new Set<string>());
+  const autoTries = useRef<Record<string, number>>({});
+  const autoBusy = useRef(false);
+  /** Each screen gets a few seconds to start its own readings before Autopilot steps in. */
+  const autoCalm = useRef(0);
+  const autoTick = useRef<() => Promise<void>>(async () => {});
+  const log = (text: string, state: AutoLine["state"] = "done") =>
+    setAuto((a) => {
+      if (!a) return a;
+      const here = STEPS[stepRef.current].title;
+      // A step's "working on it" line is replaced by what came of it; older ones are done.
+      const kept = a.lines.filter((l) => !(l.step === here && l.state === "run")).map((l) => (l.state === "run" ? { ...l, state: "done" as const } : l));
+      return { ...a, lines: [...kept, { step: here, text, state }] };
+    });
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  async function startAutopilot() {
+    if (!client) return;
+    const ok = await askConfirm(
+      `Autopilot runs ${client.name}'s ${monthLabel(p.month)} by itself: it reads the profile, picks a grid, picks products from Drive, writes the ideas and shots, fixes what it finds, generates ${p.postCount} posts and writes their captions. It uses image credits. Start?`,
+      { ok: "Start Autopilot", danger: false },
+    );
+    if (!ok) return;
+    autoDecided.current = new Set();
+    autoTries.current = {};
+    autoCalm.current = 0;
+    setAuto({ on: true, lines: [], started: Date.now() });
+  }
+
+  function stopAutopilot(why: string, state: AutoLine["state"] = "warn") {
+    log(why, state);
+    setAuto((a) => (a ? { ...a, on: false, ended: why } : a));
+  }
+
+  /** What a person decides on each screen, decided by Autopilot. */
+  async function autoDecide(k: string) {
+    if (!client) return;
+    switch (k) {
+      case "client": {
+        const r = await get<{ profile: { instagram: string; website: string; profile: { summary?: string } | null; analysed: number | null; status: string } }>(
+          `/api/studio/profiles/${encodeURIComponent(client.id)}`,
+        );
+        const fresh = r.profile.profile && (r.profile.analysed ?? 0) > Date.now() - 30 * 86_400_000;
+        if (fresh) log(`Profile already read: ${r.profile.profile!.summary?.slice(0, 140) ?? "ready"}`);
+        else if (r.profile.instagram || r.profile.website) {
+          log(`Reading ${r.profile.instagram ? `@${r.profile.instagram}` : r.profile.website} and the compared brands…`, "run");
+          try {
+            const a = await post<{ profile: { profile: { summary?: string } | null } }>(`/api/studio/profiles/${encodeURIComponent(client.id)}/analyse`, {});
+            log(`Profile read: ${a.profile.profile?.summary?.slice(0, 140) ?? "done"}`);
+          } catch (e) {
+            log(`The Analysis failed (${(e as Error).message}); going on with the brand kit.`, "warn");
+          }
+        } else log("No Instagram or website on file: going on with the brand kit.", "warn");
+        await p.ensurePlan();
+        break;
+      }
+      case "products": {
+        if (p.products.length || client.service?.trim()) {
+          log(`${p.products.length || "No"} product photos in the month already.`);
+          break;
+        }
+        log("Picking the best product photos from Drive…", "run");
+        const count = Math.min(10, Math.max(4, p.postCount));
+        const r = await post<{ picks: { id: string; product: string; reason: string }[]; looked: number }>(`/api/studio/drive/${encodeURIComponent(client.id)}/pick`, { count });
+        if (!r.picks.length) throw new Error("Drive gave no product photos to pick from.");
+        const added = await post<{ added: string[]; failed: string[] }>("/api/studio/posts/products/drive", {
+          batch: p.batchId ?? (await p.ensurePlan()),
+          photos: r.picks.map((x) => ({ id: x.id, name: x.product })),
+        });
+        await p.refresh();
+        log(`Looked at ${r.looked} Drive photos and added ${added.added.length}: ${r.picks.map((x) => x.product).join(", ")}.`);
+        break;
+      }
+      case "count":
+        log(`${p.postCount} posts, ${FORMAT_INFO[p.format].label}.`);
+        break;
+      case "brand":
+        log(client.logo ? "Brand kit read." : "Brand kit read (no logo yet).", client.logo ? "done" : "warn");
+        break;
+      case "identity": {
+        let themeId = theme?.id ?? "";
+        if (!themeId) {
+          const t = await post<{ id: string; themes: Theme[] }>("/api/studio/posts/themes", { client: client.id, title: `${monthLabel(p.month)}` });
+          p.onThemesChanged(t.themes);
+          p.onTheme(t.id);
+          themeId = t.id;
+        }
+        let gridRef = p.config?.gridRef ?? null;
+        if (!gridRef) {
+          log("Picking the grid that fits the brand…", "run");
+          const g = await post<{ id: string; title: string; reason: string }>("/api/studio/autopilot/grid", { client: client.id, count: p.postCount });
+          gridRef = `style:${g.id}`;
+          p.onSettings({ gridRef });
+          log(`Grid: “${g.title}”. ${g.reason}`);
+        } else log("The month already follows a grid.");
+        const r = await post<ThemesReply>(`/api/studio/posts/themes/${themeId}/palette`, { grid: gridRef });
+        p.onThemesChanged(r.themes);
+        log("The month's colours come from the grid.");
+        if (!p.cast.length) {
+          const ready = p.ambassadors.filter((a) => a.image && a.gender).slice(0, 2);
+          if (ready.length) {
+            p.onCast(ready.map((a) => a.id));
+            log(`Ambassadors: ${ready.map((a) => a.name).join(" and ")}.`);
+          }
+        }
+        break;
+      }
+      case "colours": {
+        if (p.config?.gridFonts && !p.config.monthFonts) {
+          p.onSettings({ monthFonts: { headline: p.config.gridFonts.headline, body: p.config.gridFonts.body } });
+          log(`The grid's lettering: ${p.config.gridFonts.headline} + ${p.config.gridFonts.body}.`);
+        }
+        if (theme && p.cast.length && !theme.wardrobe?.trim()) {
+          log("Writing the month's wardrobe…", "run");
+          const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/wardrobe`, { batch: p.batchId });
+          p.onThemesChanged(r.themes);
+          log("Wardrobe written for the ambassadors.");
+        } else log(`${theme?.palette.length ?? 0} colours this month.`);
+        break;
+      }
+      case "ideas":
+        if (!p.plan.length) {
+          log("Writing the month's ideas from the grid, tile by tile…", "run");
+          if (!(await p.onGenerateIdeas())) throw new Error("The ideas could not be written.");
+        }
+        log(`${p.plan.length || p.postCount} ideas written; products found for each.`);
+        break;
+      case "scene":
+        log("Writing one shot per post…", "run");
+        break;
+      case "magic": {
+        const blocks = issuesFor("magic").filter((i) => !i.warn);
+        if (blocks.length) throw new Error(blocks[0].text);
+        log(`Generating ${p.plan.length} posts…`, "run");
+        confetti();
+        await p.onGenerate();
+        setStep(STEPS.findIndex((x) => x.key === "make"));
+        break;
+      }
+      case "make":
+        log("The pictures are being made; each one is reviewed as it arrives.", "run");
+        break;
+      case "captions":
+        log("Writing the captions from the pictures…", "run");
+        break;
+      case "feed":
+        confetti();
+        stopAutopilot(`Done: ${p.posts.filter((x) => x.url).length} posts ready in the feed.`, "done");
+        break;
+    }
+  }
+
+  /** Problems with no fix button that Autopilot can still solve. */
+  async function autoRescue(list: Issue[]): Promise<boolean> {
+    // An offer with no price or contents becomes a product post.
+    const offers = p.plan.filter((x) => x.type === "offer" && !offerReady(x.offer));
+    if (offers.length && list.some((i) => /is an offer/.test(i.text))) {
+      for (const o of offers) p.onRewrite(o.index, p.plan.map((x) => (x.index === o.index ? { ...x, type: "product" as const, offer: undefined } : x)));
+      log(`Offer post${offers.length > 1 ? "s" : ""} ${offers.map((o) => o.index).join(", ")} rewritten as product posts (no price given).`, "warn");
+      return true;
+    }
+    return false;
+  }
+
+  autoTick.current = async () => {
+    if (!auto?.on || autoBusy.current || fixing || moving || p.ideasBusy || p.rewriting || briefBusy || adapting || reading || captionsWriting.length) return;
+    autoBusy.current = true;
+    try {
+      if (!autoDecided.current.has(key)) {
+        autoDecided.current.add(key);
+        await autoDecide(key);
+        autoCalm.current = Date.now();
+        return;
+      }
+      if (key === "feed" || Date.now() - autoCalm.current < 4000) return;
+      // Generate was pressed but nothing is being made: its message says why (the engine, a missing photo…).
+      if (key === "magic" || (key === "make" && !started)) {
+        if (Date.now() - autoCalm.current > 20_000) stopAutopilot("Stopped: the posts did not start generating. Check the message on screen and press Generate.");
+        return;
+      }
+      if (blocking.some((i) => /^Wait/.test(i.text))) return;
+      if (!blocking.length) {
+        autoCalm.current = Date.now();
+        await next();
+        return;
+      }
+      const tries = autoTries.current[key] ?? 0;
+      if (tries < 3 && blocking.every((i) => i.fix)) {
+        autoTries.current[key] = tries + 1;
+        log(`Fixing ${blocking.length === 1 ? blocking[0].text.replace(/\.$/, "") : `${blocking.length} things`}…`, "run");
+        await fixAll(blocking);
+        setAutoTried(true);
+        autoCalm.current = Date.now();
+        return;
+      }
+      if (tries < 3 && (await autoRescue(blocking))) {
+        autoTries.current[key] = tries + 1;
+        autoCalm.current = Date.now();
+        return;
+      }
+      setShowIssues(true);
+      stopAutopilot(`Stopped on ${STEPS[step].title}: ${blocking[0].text}`);
+    } catch (e) {
+      stopAutopilot(`Stopped on ${STEPS[step].title}: ${(e as Error).message}`);
+    } finally {
+      autoBusy.current = false;
+    }
+  };
+  useEffect(() => {
+    if (!auto?.on) return;
+    const t = setInterval(() => void autoTick.current(), 1500);
+    return () => clearInterval(t);
+  }, [auto?.on]);
+
   const name = firstName(p.user);
   const stepsLeft = STEPS.length - step - 1;
 
@@ -920,6 +1153,23 @@ export default function Journey(p: JourneyProps) {
                 ))}
               </div>
               {client && <ProfileBar key={client.id} client={client} onClientsChanged={p.onClientsChanged} />}
+              {client && p.user.role === "admin" && (
+                <div className="journey-autopilot">
+                  <span className="journey-autopilot-icon">
+                    <Rocket size={18} />
+                  </span>
+                  <span>
+                    <strong>Autopilot</strong>
+                    <small>
+                      The AI runs every step for {client.name}: reads its Instagram, picks a grid, picks products from Drive, writes the ideas and
+                      shots, fixes what it finds and generates the month. You land on the finished feed.
+                    </small>
+                  </span>
+                  <button type="button" className="primary" disabled={!!auto?.on || !p.engineReady} onClick={() => void startAutopilot()} title={p.engineReady ? undefined : "Connect an image engine first"}>
+                    <Rocket size={14} /> Run Autopilot
+                  </button>
+                </div>
+              )}
               {client && p.previousMonth && !p.batchId && (
                 <div className="journey-continue">
                   <span>
@@ -1214,6 +1464,44 @@ export default function Journey(p: JourneyProps) {
           )}
         </div>
       </div>
+
+      {auto && (
+        <aside className={`autopilot-panel ${auto.on ? "on" : ""}`} aria-live="polite">
+          <div className="autopilot-head">
+            <Rocket size={15} />
+            <strong>{auto.on ? "Autopilot is running" : auto.ended?.startsWith("Done") ? "Autopilot finished" : "Autopilot stopped"}</strong>
+            {auto.on ? (
+              <button type="button" className="text-button" onClick={() => stopAutopilot("Stopped by you.")}>
+                Stop
+              </button>
+            ) : (
+              <button type="button" className="icon-button" onClick={() => setAuto(null)} aria-label="Close">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <ol ref={(el) => el?.scrollTo({ top: el.scrollHeight })}>
+            {auto.lines.map((l, i) => (
+              <li key={i} className={l.state}>
+                {l.state === "run" && auto.on ? <LoaderCircle className="spinning" size={13} /> : l.state === "warn" ? <TriangleAlert size={13} /> : <Check size={13} />}
+                <span>
+                  <small>{l.step}</small>
+                  {l.text}
+                </span>
+              </li>
+            ))}
+            {auto.on && !auto.lines.some((l) => l.state === "run") && (
+              <li className="run">
+                <LoaderCircle className="spinning" size={13} />
+                <span>
+                  <small>{STEPS[step].title}</small>
+                  {blocking.find((i) => /^Wait/.test(i.text))?.text ?? "Checking this screen…"}
+                </span>
+              </li>
+            )}
+          </ol>
+        </aside>
+      )}
 
       <footer className="journey-foot">
         <div className="journey-progress" aria-label={`Step ${step + 1} of ${STEPS.length}`}>
