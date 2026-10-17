@@ -225,6 +225,7 @@ export default function Workspace({
 
   const client = clients.find((c) => c.id === clientId) ?? null;
   const monthFonts = batch?.config ? (JSON.parse(batch.config) as Config).monthFonts : undefined;
+  const gridMonth = !!(batch?.config && (JSON.parse(batch.config) as Config).gridRef);
   const overlaySpec = useMemo(() => {
     const spec = resolveOverlay(client?.overlay);
     const src = client?.badge ? `/api/studio/clients/${client.id}/badge?v=${client.updated}` : null;
@@ -233,8 +234,10 @@ export default function Workspace({
       ? { ...spec.headline, font: monthFonts.headline, weight: HEADLINE_FONTS.find((f) => f.family === monthFonts.headline)?.weight ?? spec.headline.weight }
       : spec.headline;
     const subline = monthFonts ? { ...spec.subline, font: monthFonts.body } : spec.subline;
-    return { ...spec, headline, subline, badge: { ...spec.badge, src } };
-  }, [client, monthFonts?.headline, monthFonts?.body]); // eslint-disable-line react-hooks/exhaustive-deps
+    // A grid month's words sit on the picture like the grid's own, without a dark fade behind them
+    // (the overlay switches their colour when it would not read).
+    return { ...spec, headline, subline, badge: { ...spec.badge, src }, ...(gridMonth ? { scrim: 0 } : {}) };
+  }, [client, monthFonts?.headline, monthFonts?.body, gridMonth]); // eslint-disable-line react-hooks/exhaustive-deps
   const logoSrc = client?.logo ? `/api/studio/clients/${client.id}/logo?v=${client.updated}` : null;
   // Brand font files are registered with the browser once per client so the canvas can use them.
   useEffect(() => {

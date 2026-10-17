@@ -1763,8 +1763,8 @@ async function submitTask(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    if (pb.styleKey && !pb.refIsSource) {
-      imageUrls.push(await signObjectUrl(env, pb.styleKey));
+    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource) {
+      imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
       roles.mood = true;
     } else if (pb.ref && !pb.refIsSource) {
       imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
@@ -1950,8 +1950,8 @@ async function submitOpenAITask(
           mime: obj.httpMetadata?.contentType || "image/jpeg",
         });
     }
-    if (pb.styleKey && !pb.refIsSource) {
-      const obj = await env.BUCKET.get(pb.styleKey);
+    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource) {
+      const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
       if (obj) {
         images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
         roles.mood = true;

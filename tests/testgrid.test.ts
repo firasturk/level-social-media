@@ -90,3 +90,16 @@ describe("the reference grid's bags and logos never reach the engine", () => {
     );
   });
 });
+
+describe("a post's own tile", () => {
+  const notes = "World.\nTile 1 (row 1, col 1, food): A pastry.\nTile 5 (row 2, col 2, person): A person holding a large brand shopping bag.\nTile 6 (row 2, col 3, detail): A stack on a stone.\nTile 7 (row 3, col 1, place): A shop.\nTile 9 (row 3, col 3, product): A container and a branded card.";
+  it("finds where the tile sits and which tiles are copied closely", async () => {
+    const { tileCell, cleanGrid } = await import("@shared/testgrid");
+    expect(tileCell("Tile 6 (row 2, col 3): A stack on a stone.", notes, [])).toEqual({ row: 2, col: 3, rows: 3, cols: 3 });
+    expect(tileCell("Tile 7 (row 3, col 1): A shop.", notes, [])).toBeNull();
+    expect(tileCell("Tile 5 (row 2, col 2): A person.", notes, [])).toBeNull();
+    expect(tileCell("Tile 9 (row 3, col 3): A container and a branded card.", notes, [])).toBeNull();
+    expect(cleanGrid(736, 981, 3, 3)).toBe(true);
+    expect(cleanGrid(1170, 2532, 3, 3)).toBe(false);
+  });
+});

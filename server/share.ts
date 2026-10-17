@@ -101,6 +101,9 @@ shareRoutes.get("/:token", async (c) => {
       updated: client.updated,
     },
     month: config.month ?? b.month ?? "",
+    // A grid month: its own fonts, and its words without a dark fade (as in the studio).
+    grid: !!config.gridRef,
+    monthFonts: config.monthFonts ?? null,
     posts,
   });
 });

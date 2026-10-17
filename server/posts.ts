@@ -12,7 +12,7 @@ import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient } from "./engine";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
-import { testGridLayout, testGridPrompt, type TestGridInfo } from "@shared/testgrid";
+import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { styleRow, type StyleRow } from "./styles";
@@ -1332,6 +1332,42 @@ postRoutes.put("/settings", async (c) => {
 });
 
 /** The month's grid picture: a theme photo (refs) or a grid from the style library ("style:<id>"). */
+/**
+ * A post's own tile, cut once from the month's grid and kept next to it; null when the tile is not
+ * one to copy closely or the grid is not a clean grid of cells.
+ */
+async function gridTileKey(env: Env, gridKey: string, cell: { row: number; col: number; rows: number; cols: number }): Promise<string | null> {
+  const key = `${gridKey}.tile-${cell.rows}x${cell.cols}-${cell.row}-${cell.col}.jpg`;
+  if (await env.BUCKET.head(key)) return key;
+  const obj = await env.BUCKET.get(gridKey);
+  if (!obj || (obj.size ?? 0) > 12_000_000) return null;
+  const { PhotonImage, crop } = await import("@cf-wasm/photon");
+  const img = PhotonImage.new_from_byteslice(new Uint8Array(await obj.arrayBuffer()));
+  try {
+    const w = img.get_width();
+    const h = img.get_height();
+    if (!cleanGrid(w, h, cell.rows, cell.cols)) return null;
+    const cw = w / cell.cols;
+    const ch = h / cell.rows;
+    // A little inside the cell, so the white lines between tiles stay out.
+    const inset = Math.round(Math.min(cw, ch) * 0.03);
+    const x1 = Math.round((cell.col - 1) * cw) + inset;
+    const y1 = Math.round((cell.row - 1) * ch) + inset;
+    const cut = crop(img, x1, y1, Math.round(cell.col * cw) - inset, Math.round(cell.row * ch) - inset);
+    try {
+      await env.BUCKET.put(key, cut.get_bytes_jpeg(90), { httpMetadata: { contentType: "image/jpeg" } });
+    } finally {
+      cut.free();
+    }
+    return key;
+  } catch (e) {
+    console.error("[grid] tile", errorMessage(e));
+    return null;
+  } finally {
+    img.free();
+  }
+}
+
 async function gridImage(env: Env, gridRef: string | undefined): Promise<{ id: string; key: string } | null> {
   if (!gridRef) return null;
   if (gridRef.startsWith("style:")) {
@@ -1669,6 +1705,9 @@ postRoutes.post("/generate", async (c) => {
         take = 1;
       }
     }
+    // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
+    const cell = !styled && gridRef && !textured && product && !exactProduct ? tileCell(post.tile, config.gridNotes, plan) : null;
+    const tileKey = cell && gridRef ? await gridTileKey(c.env, gridRef.key, cell) : null;
     const brief: PostBrief = {
       post: true,
       draft,
@@ -1693,6 +1732,8 @@ postRoutes.post("/generate", async (c) => {
       format: config.format ?? "4:5",
       ref: refId,
       styleKey: styled?.image_key ?? undefined,
+      // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
+      tileKey: tileKey ?? undefined,
       refIsSource: (!product || !!exactProduct) && !!(refId || styled),
       hasProduct: !!product && !exactProduct,
       exact: exactProduct ? { source: exactProduct.id } : undefined,

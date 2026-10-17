@@ -163,6 +163,8 @@ export interface PostBrief {
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
   styleKey?: string;
+  /** Grid months: this post's own tile, cut from the grid (R2 key), attached instead of the whole grid. */
+  tileKey?: string;
   /**
    * Exact product mode: the engine paints the scene with an empty place, and the real photo of this
    * product (sources.id) is set into it afterwards, so the product is never redrawn.
@@ -416,7 +418,7 @@ export const HANDLING_RULE =
 
 /** A picked style may stage the product big or several times: its size follows the style, its look never changes. */
 export const STYLED_HANDLING_RULE =
-  "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style (a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo.";
+  "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo.";
 
 /** Every copy of the product in a styled picture is the photographed product, never the style's own. */
 export function styledProductRule(styleImage: number): string {
@@ -478,6 +480,9 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
+  // A grid month's own tile: its composition is the picture, the brand is not.
+  const tileRef =
+    "the tile of the month's reference grid that this post recreates: recreate its composition, camera angle and distance, arrangement, set, surface and light closely, with this brand's product in place of its products; never its products, packaging, bags, cups, cards, text, logo, brand or the identity of its people";
   // A style picked from the gallery is the picture to make, not just a mood.
   const picked =
     "the style the designer picked: recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people";
@@ -491,9 +496,9 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   } else if (b.hasProduct) {
     n = 1;
     parts.push("Image 1 is the product photo: the product is the source of truth and is reproduced exactly.");
-  } else if (b.ref || b.styleKey) {
+  } else if (b.ref || b.styleKey || b.tileKey) {
     n = 1;
-    parts.push(`No product is attached. Image 1 is ${b.styleKey ? picked : `a style reference: ${styleRef}`}.`);
+    parts.push(`No product is attached. Image 1 is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
   } else parts.push("No product is attached.");
   if (people.length) {
     const first = n + 1;
@@ -508,9 +513,9 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `Image ${n} is a photo of the client's own place: the picture is taken HERE, in this same room with its walls, materials, furniture, windows and light, from a fitting angle; the product and any people are set into it. Never invent another place, never copy its signs or words.`,
     );
   }
-  if (b.hasProduct && (b.ref || b.styleKey) && !b.refIsSource) {
+  if (b.hasProduct && (b.ref || b.styleKey || b.tileKey) && !b.refIsSource) {
     n += 1;
-    parts.push(`Image ${n} is ${b.styleKey ? picked : `a style reference: ${styleRef}`}.`);
+    parts.push(`Image ${n} is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
   }
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
   if (b.exact && !images.revision)
@@ -541,7 +546,8 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const typeRule = postTypeRule(b);
   if (typeRule) parts.push(typeRule);
   // The month's theme (its pins' world, visual language and props) steps back for a picked style.
-  const theme = b.styleKey ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
+  // A grid month follows its grid: the theme's pins and their visual language step back too.
+  const theme = b.styleKey || b.grid ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
   if (style && b.styleKey)
     parts.push(`CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):\n${style}`);
@@ -557,7 +563,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
         ? `CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):\n${rules.join("\n")}`
         : `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
     );
-  const library = b.library && !b.styleKey ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
+  const library = b.library && !b.styleKey && !b.grid ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim() && !b.styleKey)
     parts.push(
@@ -570,7 +576,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   else if (!b.styleKey) parts.push(NO_PROPS_RULE);
   if (b.grid)
     parts.push(
-      `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
+      `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
     );
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
@@ -589,12 +595,12 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     parts.push(
       `EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.`,
     );
-  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, b.styleKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
   else
     parts.push(
       "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
     );
-  if (b.hasProduct && !extras.length) parts.push(b.styleKey && !b.refIsSource ? styledProductRule(n) : ONE_PRODUCT_RULE);
+  if (b.hasProduct && !extras.length) parts.push((b.styleKey || b.tileKey) && !b.refIsSource ? styledProductRule(n) : ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
     parts.push(
       `PRODUCTS: the ${extras.length + 1} attached products are the only products in the picture, each shown once, whole, undistorted and recognisable; no invented extra cups, bottles or packs.`,
@@ -1072,8 +1078,8 @@ export function overlayFromTile(t: TileText, kind: TileKind): { overlay?: false;
       align: t.align,
       scale: kind === "text" ? Math.max(scale, 1.35) : scale,
       ...(/^#[0-9a-f]{6}$/i.test(t.color) ? { color: t.color } : {}),
-      // A typographic tile has nothing to fade behind its words.
-      ...(kind === "text" ? { fade: false } : {}),
+      // A grid's tiles carry their words without a dark fade behind them.
+      fade: false,
     },
   };
 }

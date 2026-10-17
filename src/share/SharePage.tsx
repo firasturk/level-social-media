@@ -25,6 +25,9 @@ interface SharedPost {
 interface Shared {
   client: { name: string; overlay: Partial<OverlaySpec> | null; logo: boolean; badge: boolean; fonts: { id: string; name: string }[]; updated: number };
   month: string;
+  /** A grid month: no dark fade behind the words. */
+  grid?: boolean;
+  monthFonts?: { headline: string; body: string } | null;
   posts: SharedPost[];
 }
 
@@ -49,7 +52,13 @@ export default function SharePage({ token }: { token: string }) {
   const spec = useMemo(() => {
     if (!data) return null;
     const s = resolveOverlay(data.client.overlay);
-    return { ...s, badge: { ...s.badge, src: data.client.badge ? `${base}/badge?v=${data.client.updated}` : null } };
+    const fonts = data.monthFonts;
+    return {
+      ...s,
+      ...(fonts ? { headline: { ...s.headline, font: fonts.headline }, subline: { ...s.subline, font: fonts.body } } : {}),
+      ...(data.grid ? { scrim: 0 } : {}),
+      badge: { ...s.badge, src: data.client.badge ? `${base}/badge?v=${data.client.updated}` : null },
+    };
   }, [data, base]);
 
   if (error)

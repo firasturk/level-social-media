@@ -94,3 +94,40 @@ export function testGridPrompt(r: {
     .filter(Boolean)
     .join("\n\n");
 }
+
+/* ───────────── A post's own tile, cut from the grid ───────────── */
+
+/** Tiles whose picture is copied closely; place, person and text tiles are not (they would bring the reference's shop, bag or words). */
+const COPIED_TILES = new Set(["product", "food", "drink", "detail", "texture"]);
+
+/**
+ * Where a post's tile sits in the grid and how many rows and columns the grid has, from the
+ * tiles read in it ("Tile 6 (row 2, col 3, detail): …"); null when the tile should not be copied.
+ */
+export function tileCell(tile: string | undefined, gridNotes: string | undefined, plan: { tile?: string }[]): { row: number; col: number; rows: number; cols: number } | null {
+  const at = /\(row (\d+), col (\d+)/i.exec(tile ?? "");
+  if (!at) return null;
+  const row = Number(at[1]);
+  const col = Number(at[2]);
+  const lines = [...(gridNotes ?? "").split("\n"), ...plan.map((p) => p.tile ?? "")];
+  let rows = row;
+  let cols = col;
+  for (const l of lines) {
+    const m = /\(row (\d+), col (\d+)/i.exec(l);
+    if (m) {
+      rows = Math.max(rows, Number(m[1]));
+      cols = Math.max(cols, Number(m[2]));
+    }
+  }
+  const own = lines.find((l) => new RegExp(`\\(row ${row}, col ${col}, (\\w+)\\)`, "i").test(l));
+  const kind = own ? new RegExp(`\\(row ${row}, col ${col}, (\\w+)\\)`, "i").exec(own)![1].toLowerCase() : "";
+  if (kind && !COPIED_TILES.has(kind)) return null;
+  if (/\b(bags?|cards?|logos?|cups?)\b/i.test(own ?? tile ?? "")) return null;
+  return { row, col, rows, cols };
+}
+
+/** The grid picture is a clean grid of cells (not a phone screenshot) when its shape fits its rows and columns. */
+export function cleanGrid(width: number, height: number, rows: number, cols: number): boolean {
+  const ratio = width / height;
+  return [4 / 5, 1, 3 / 4].some((cell) => Math.abs(ratio / ((cols * cell) / rows) - 1) < 0.12);
+}
