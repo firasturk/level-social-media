@@ -66,6 +66,11 @@ const MONTH_KEY = "lsm-month";
 /** The style library has its own address: the team opens it straight from a link or a bookmark. */
 const STYLES_PATH = "/styles";
 const atStyles = () => window.location.pathname.replace(/\/$/, "") === STYLES_PATH;
+/** The admin's Approvals page has its own address too. */
+const APPROVALS_PATH = "/approvals";
+const atApprovals = () => window.location.pathname.replace(/\/$/, "") === APPROVALS_PATH;
+const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : "/");
+const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : null);
 
 function remembered(key: string): string {
   try {
@@ -90,14 +95,14 @@ export default function Workspace({
   user: User;
   onSignedOut: () => void;
 }) {
-  const [page, setPage] = useState<Page>(() => (atStyles() ? "styles" : "studio"));
+  const [page, setPage] = useState<Page>(() => pageAt() ?? "studio");
   // The address follows the page (and Back returns from the styles), so /styles can be bookmarked.
   useEffect(() => {
-    const want = page === "styles";
-    if (want !== atStyles()) window.history.pushState(null, "", want ? STYLES_PATH : "/");
+    const want = pathOf(page);
+    if (want !== (pageAt() ? pathOf(pageAt()!) : "/")) window.history.pushState(null, "", want);
   }, [page]);
   useEffect(() => {
-    const onPop = () => setPage((p) => (atStyles() ? "styles" : p === "styles" ? "studio" : p));
+    const onPop = () => setPage((p) => pageAt() ?? (p === "styles" || p === "approvals" ? "studio" : p));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -128,7 +133,7 @@ export default function Workspace({
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
-  const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !atStyles());
+  const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
   // Only "Skip to the studio" or Generate leaves the journey: a refresh keeps the team in it.
   useEffect(() => {
     try {
@@ -936,6 +941,20 @@ export default function Workspace({
               <AdminView me={user.id} />
             </Suspense>
           </>
+        ) : page === "approvals" && user.role === "admin" ? (
+          <section className="style-page">
+            <StyleScreen
+              open
+              approvals
+              admin
+              clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
+              onPendingChange={() => void loadPending()}
+              onClose={() => {
+                setPage("studio");
+                void loadPending();
+              }}
+            />
+          </section>
         ) : page === "styles" ? (
           <>
             <div className="workspace-head">
@@ -1087,6 +1106,8 @@ export default function Workspace({
       {journey && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
           user={user}
+          pendingStyles={pendingStyles}
+          onPendingChange={() => void loadPending()}
           clients={clients}
           clientId={clientId}
           onClient={setClientId}

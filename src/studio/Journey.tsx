@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   ArrowRight,
+  BadgeCheck,
   Check,
   FlaskConical,
   Grid3x3,
@@ -190,6 +191,9 @@ export interface JourneyProps {
   onTest: (index: number) => Promise<void>;
   onFixTest: (edit: string) => Promise<void>;
   onDone: () => void;
+  /** Styles and grids waiting for the admin's approval, and a nudge when the admin decided some. */
+  pendingStyles?: number;
+  onPendingChange?: () => void;
   /** An image engine is connected (Generate would otherwise fail). */
   engineReady: boolean;
   /** Every post's image and review, once Generate has started. */
@@ -211,6 +215,7 @@ export default function Journey(p: JourneyProps) {
   const active = p.clients.filter((c) => c.status === "active");
   const client = active.find((c) => c.id === p.clientId) ?? null;
   const theme = p.themes.find((t) => t.id === p.themeId) ?? null;
+  const [approving, setApproving] = useState(false);
   const [step, setStep] = useState(() => {
     const r = readResume();
     return r && r.client === p.clientId && r.month === p.month ? Math.min(r.step, STEPS.length - 1) : 0;
@@ -691,6 +696,13 @@ export default function Journey(p: JourneyProps) {
     <div className="journey" role="dialog" aria-modal="true" aria-label="Start your session">
       <header className="journey-top">
         <LevelLogo className="journey-logo" />
+        {p.user.role === "admin" && (
+          <button type="button" className="secondary journey-approvals" aria-label="Approvals" onClick={() => setApproving(true)}>
+            <BadgeCheck size={17} />
+            <span className="journey-approvals-label">Approvals</span>
+            {(p.pendingStyles ?? 0) > 0 && <span className="journey-approvals-count">{p.pendingStyles}</span>}
+          </button>
+        )}
         <span className="journey-where">
           {client && step > 0 ? `${client.name} · ${monthLabel(p.month)}` : ""}
         </span>
@@ -698,6 +710,20 @@ export default function Journey(p: JourneyProps) {
           Skip to the studio
         </button>
       </header>
+
+      {approving && (
+        <StyleScreen
+          open
+          approvals
+          admin
+          clients={p.clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
+          onPendingChange={p.onPendingChange}
+          onClose={() => {
+            setApproving(false);
+            p.onPendingChange?.();
+          }}
+        />
+      )}
 
       <div className="journey-body">
         <div className={`journey-step step-${key}`} key={key}>

@@ -90,7 +90,8 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
 async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string; waiting?: boolean } = {}) {
   const admin = user.role === "admin";
   // The admin's queue: what the daily update and New ideas brought, waiting for approval.
-  const reviewing = admin && opts.tab === "review";
+  // The admin's queue, whole or split into grids and photo styles (the Approvals page).
+  const reviewing = admin && (opts.tab === "review" || opts.tab === "review-grid" || opts.tab === "review-style");
   // A client's own collection ("Add to Habibah's"): its styles and grids, approved or not.
   const saved = opts.tab === "saved" && !!opts.client;
   // The admin picking a month's grid also sees the grids waiting for approval (picking one approves it).
@@ -99,7 +100,8 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   const args: unknown[] = [];
   const trendsFrom = now() - TREND_DAYS * 86_400_000;
   if (reviewing) {
-    /* the whole queue */
+    if (opts.tab === "review-grid") where.push("category = 'grid'");
+    if (opts.tab === "review-style") where.push("category != 'grid'");
   } else if (saved) {
     where.push("id IN (SELECT style FROM client_styles WHERE client = ?)");
     args.push(opts.client);
@@ -140,7 +142,12 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   const pool = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
   const counts: Record<string, number> = { all: cats.filter((c) => c.category !== "grid").reduce((x, c) => x + c.n, 0), trends };
   for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
-  if (admin) counts.review = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review'"))?.n ?? 0;
+  if (admin) {
+    const queue = await all<{ grid: number; n: number }>(env.DB, "SELECT category = 'grid' AS grid, COUNT(*) AS n FROM styles WHERE status = 'review' GROUP BY category = 'grid'");
+    counts["review-grid"] = queue.find((x) => x.grid)?.n ?? 0;
+    counts["review-style"] = queue.find((x) => !x.grid)?.n ?? 0;
+    counts.review = counts["review-grid"] + counts["review-style"];
+  }
   counts.gridWaiting = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review' AND category = 'grid'"))?.n ?? 0;
   const mine = opts.client ? new Set((await all<{ style: string }>(env.DB, "SELECT style FROM client_styles WHERE client = ?", opts.client)).map((r) => r.style)) : new Set<string>();
   if (opts.client) counts.saved = mine.size;

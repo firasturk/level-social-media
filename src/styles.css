@@ -9625,3 +9625,33 @@ label.num select {
   color: var(--warning-text);
   font-size: 13px;
 }
+.sidebar-approvals {
+  font-weight: 700;
+}
+
+.journey-approvals {
+  font-weight: 700;
+}
+.journey-approvals-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d946a8, #7c3aed);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+@media (max-width: 900px) {
+  /* The music sits by the logo on a phone: Approvals moves next to Skip. */
+  .journey-approvals {
+    order: 1;
+    margin-left: auto;
+  }
+  .journey-top > .text-button {
+    order: 2;
+  }
+  .journey-approvals-label {
+    display: none;
+  }
+}

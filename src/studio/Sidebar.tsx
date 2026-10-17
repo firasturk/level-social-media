@@ -1,11 +1,11 @@
-import { FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { BadgeCheck, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
 import type { Client, EngineModel, User } from "@shared/types";
 import type { EngineInfo } from "./ConnectionDialog";
 
-export type Page = "studio" | "batches" | "styles" | "admin";
+export type Page = "studio" | "batches" | "styles" | "approvals" | "admin";
 
 /** Left rail: brand, pages, the client list and the connection/user footer. */
 export default function Sidebar({
@@ -60,6 +60,17 @@ export default function Sidebar({
         </span>
       </a>
       <nav className="sidebar-nav" aria-label="Pages">
+        {user.role === "admin" && (
+          <button className={`sidebar-approvals ${page === "approvals" ? "active" : ""}`} onClick={() => onPage("approvals")}>
+            <BadgeCheck size={17} />
+            Approvals
+            {pendingStyles > 0 && (
+              <span className="count waiting" title={`${pendingStyles} styles and grids waiting for your approval`}>
+                {pendingStyles}
+              </span>
+            )}
+          </button>
+        )}
         <button className={page === "studio" ? "active" : ""} onClick={() => onPage("studio")}>
           <LayoutGrid size={17} />
           Studio
@@ -72,11 +83,6 @@ export default function Sidebar({
         <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
           <Images size={17} />
           Styles
-          {pendingStyles > 0 && (
-            <span className="count waiting" title={`${pendingStyles} new styles waiting for your approval`}>
-              {pendingStyles}
-            </span>
-          )}
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => onPage("admin")}>

@@ -87,7 +87,10 @@ export default function StyleScreen({
   onPendingChange,
   forClient,
   clients,
+  approvals,
 }: {
+  /** The admin's Approvals page: only what waits for approval, grids and styles apart. */
+  approvals?: boolean;
   /** The client the team works on: "Add to Habibah's" and a tab with that client's collection. */
   forClient?: { id: string; name: string };
   /** Without a client in hand (the library page), the dock offers every client to add to. */
@@ -111,8 +114,9 @@ export default function StyleScreen({
     onPick: (ids: string[], items: StyleItem[]) => Promise<void> | void;
   };
 }) {
-  const [tab, setTab] = useState(pick?.tab ?? "all");
-  const reviewing = !!admin && tab === "review";
+  const firstTab = approvals ? "review-grid" : (pick?.tab ?? "all");
+  const [tab, setTab] = useState(firstTab);
+  const reviewing = !!admin && tab.startsWith("review");
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -134,9 +138,9 @@ export default function StyleScreen({
   useEffect(() => {
     if (!open) return;
     setSelected([]);
-    setTab(pick?.tab ?? "all");
+    setTab(firstTab);
     setPage(1);
-  }, [open, pick?.tab]);
+  }, [open, firstTab]);
 
   // Search as the team types (after a short pause), from page one.
   useEffect(() => {
@@ -370,7 +374,14 @@ export default function StyleScreen({
   const n = selected.length;
   // A month's grid is picked from the Grids shelf only; a post never takes a whole grid.
   const shelves = pick?.mode === "feed" ? TABS.filter((t) => t.id === "grid") : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
-  const tabs = forClient && pick?.mode !== "feed" ? [{ id: "saved", label: `${forClient.name}'s` }, ...shelves] : shelves;
+  const tabs = approvals
+    ? [
+        { id: "review-grid", label: "Grids to approve" },
+        { id: "review-style", label: "Styles to approve" },
+      ]
+    : forClient && pick?.mode !== "feed"
+      ? [{ id: "saved", label: `${forClient.name}'s` }, ...shelves]
+      : shelves;
   const counts = data?.counts ?? {};
   const pageCount = data?.pages ?? 1;
   const useLabel = !pick
@@ -400,9 +411,11 @@ export default function StyleScreen({
         <div className="style-top-row">
           <div className="style-brand">
             <AnimatedLevelLogo className="style-logo" />
-            <span className="style-eyebrow">{pick ? (pick.mode === "feed" ? "The month's grid" : pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
+            <span className="style-eyebrow">
+              {approvals ? "Admin" : pick ? (pick.mode === "feed" ? "The month's grid" : pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}
+            </span>
           </div>
-          <h1 className="style-title">{pick?.mode === "feed" || tab === "grid" ? "Pick your grid" : "Pick your style"}</h1>
+          <h1 className="style-title">{approvals ? "Approvals" : pick?.mode === "feed" || tab === "grid" ? "Pick your grid" : "Pick your style"}</h1>
           <label className="style-search">
             <Search size={15} />
             <input
@@ -464,13 +477,13 @@ export default function StyleScreen({
         )}
         <div className="style-top-row">
           <div className="style-tabs" role="tablist">
-            {[...(admin && !pick ? [{ id: "review", label: "To approve" }] : []), ...tabs].map((t) => (
+            {[...(admin && !pick && !approvals ? [{ id: "review", label: "To approve" }] : []), ...tabs].map((t) => (
               <button
                 key={t.id}
                 type="button"
                 role="tab"
                 aria-selected={tab === t.id}
-                className={`journey-chip ${tab === t.id ? "active" : ""} ${t.id === "review" && counts.review ? "waiting" : ""}`}
+                className={`journey-chip ${tab === t.id ? "active" : ""} ${t.id.startsWith("review") && counts[t.id] ? "waiting" : ""}`}
                 onClick={() => {
                   setTab(t.id);
                   setPage(1);
