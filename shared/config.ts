@@ -88,9 +88,14 @@ export interface Config {
   testPost?: number;
   /** The month this one was continued from ("Continue with the same direction"). */
   continuedFrom?: string;
-  /** Grid mode: the reference photo (refs.id) whose feed grid the month follows, and its read. */
+  /**
+   * Grid mode: the feed grid the month follows (a theme photo's refs.id, or "style:<id>" for a grid
+   * from the style library), and its read.
+   */
   gridRef?: string;
   gridNotes?: string;
+  /** When the grid was picked or taken off: ideas written before it follow the old one. */
+  gridAt?: number;
   /** The creative brief of the journey: what each step's analysis understood. */
   brief?: Partial<Record<BriefStep, BriefNote>>;
   /** The occasions this month posts (picked from the calendar or added by the team). */

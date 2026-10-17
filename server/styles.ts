@@ -13,7 +13,11 @@ import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
 import {
   describeStyleInstruction,
+  GRID_STYLE_SCHEMA,
+  gridStyleInstruction,
+  parseGridStyle,
   parseStyle,
+  PHOTO_CATEGORY_IDS,
   pictureSig,
   seasonWords,
   STYLE_CATEGORIES,
@@ -57,6 +61,7 @@ export interface StyleRow {
   w: number;
   h: number;
   category: string;
+  tiles: number;
 }
 
 function toItem(r: StyleRow, admin: boolean): StyleItem {
@@ -73,6 +78,7 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
     score: r.score,
     w: r.w,
     h: r.h,
+    tiles: r.tiles ?? 0,
   };
 }
 
@@ -87,11 +93,14 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   if (reviewing) {
     /* the whole queue */
   } else if (opts.tab === "trends") {
-    where.push("created >= ?");
+    where.push("created >= ?", "category != 'grid'");
     args.push(trendsFrom);
   } else if (opts.tab && STYLE_CATEGORY_IDS.includes(opts.tab as StyleCategory)) {
     where.push("category = ?");
     args.push(opts.tab);
+  } else {
+    // The grids have their own shelf: All shows the photo styles a post can take.
+    where.push("category != 'grid'");
   }
   const q = (opts.q ?? "").trim().toLowerCase().slice(0, 60);
   if (q)
@@ -112,9 +121,9 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
     (page - 1) * STYLE_PAGE_SIZE,
   );
   const cats = await all<{ category: string; n: number }>(env.DB, "SELECT category, COUNT(*) AS n FROM styles WHERE status = 'active' GROUP BY category");
-  const trends = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'active' AND created >= ?", trendsFrom))?.n ?? 0;
+  const trends = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'active' AND category != 'grid' AND created >= ?", trendsFrom))?.n ?? 0;
   const pool = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
-  const counts: Record<string, number> = { all: cats.reduce((x, c) => x + c.n, 0), trends };
+  const counts: Record<string, number> = { all: cats.filter((c) => c.category !== "grid").reduce((x, c) => x + c.n, 0), trends };
   for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
   if (admin) counts.review = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review'"))?.n ?? 0;
   return { ok: true, styles: rows.map((r) => toItem(r, user.role === "admin")), total, page, pages, counts, pool };
@@ -197,16 +206,17 @@ export async function relatedPins(pin: string): Promise<Pin[]> {
  * Collected pins join the pool. A pin already known is skipped, and so is a picture the library
  * has ever seen under another pin: a style the team took out never comes back.
  */
-async function addToPool(env: Env, pins: Pin[], kind: StyleKind): Promise<number> {
+async function addToPool(env: Env, pins: Pin[], kind: StyleKind, category = ""): Promise<number> {
   let added = 0;
   for (const p of pins) {
     const sig = pictureSig(p.url);
     if (sig && (await first(env.DB, "SELECT 1 AS x FROM styles WHERE sig = ?", sig))) continue;
     const changed = await run(
       env.DB,
-      "INSERT OR IGNORE INTO styles (id, kind, status, pin, source, note, sig, created, updated) VALUES (?, ?, 'pool', ?, ?, ?, ?, ?, ?)",
+      "INSERT OR IGNORE INTO styles (id, kind, category, status, pin, source, note, sig, created, updated) VALUES (?, ?, ?, 'pool', ?, ?, ?, ?, ?, ?)",
       uuid(),
       kind,
+      category,
       p.pin,
       p.url,
       p.note,
@@ -225,13 +235,19 @@ function own(u: Uint8Array): ArrayBuffer {
   return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
 }
 
+type Stored = { image: string; thumb: string; bytes: ArrayBuffer; mime: string; w: number; h: number };
+
 /** The pin's picture, stored with a small thumbnail so the gallery opens fast. */
-async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thumb: string; bytes: ArrayBuffer; mime: string; w: number; h: number }> {
+async function storeImage(env: Env, row: StyleRow): Promise<Stored> {
   const r = await fetch(row.source, { headers: { "User-Agent": UA, Accept: "image/*" }, signal: AbortSignal.timeout(20_000) });
   if (!r.ok) throw new StudioError(`The pin's image is gone (${r.status}).`, 404);
   const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
   if (!mime.startsWith("image/")) throw new StudioError("The pin is not an image.", 415);
-  const bytes = await r.arrayBuffer();
+  return storeBytes(env, row.id, await r.arrayBuffer(), mime);
+}
+
+/** A style's picture (a pin's or an upload), kept with its thumbnail. */
+async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime: string): Promise<Stored> {
   const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
   const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
   let thumbBytes: Uint8Array;
@@ -245,11 +261,24 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
   } finally {
     img.free();
   }
-  const image = `styles/${row.id}.${/png/.test(mime) ? "png" : /webp/.test(mime) ? "webp" : "jpg"}`;
-  const thumb = `styles/${row.id}-thumb.jpg`;
+  const image = `styles/${id}.${/png/.test(mime) ? "png" : /webp/.test(mime) ? "webp" : "jpg"}`;
+  const thumb = `styles/${id}-thumb.jpg`;
   await env.BUCKET.put(image, bytes, { httpMetadata: { contentType: mime } });
   await env.BUCKET.put(thumb, own(thumbBytes), { httpMetadata: { contentType: "image/jpeg" } });
   return { image, thumb, bytes, mime, w, h };
+}
+
+type Reading = { keep: boolean; score: number; kind: StyleKind; category: string; title: string; tags: string; prompt: string; tiles: number };
+
+/** One picture read into a style: a photo style, or a whole feed for the Grids shelf. */
+async function readPicture(env: Env, image: { bytes: ArrayBuffer; mime: string }, note: string, grid: boolean, previous?: { title: string; prompt: string }): Promise<Reading> {
+  const clean = (t: string) => JSON.parse(t.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as unknown;
+  if (grid) {
+    const g = parseGridStyle(clean(await askText(env, gridStyleInstruction(note, previous), GRID_STYLE_SCHEMA, [image])));
+    return { ...g, kind: "product", category: "grid" };
+  }
+  const s = parseStyle(clean(await askText(env, describeStyleInstruction(note, previous), STYLE_SCHEMA, [image])));
+  return { ...s, tiles: 0 };
 }
 
 /**
@@ -259,8 +288,7 @@ async function storeImage(env: Env, row: StyleRow): Promise<{ image: string; thu
 async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> {
   try {
     const stored = await storeImage(env, row);
-    const text = await askText(env, describeStyleInstruction(row.note), STYLE_SCHEMA, [{ bytes: stored.bytes, mime: stored.mime }]);
-    const s = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
+    const s = await readPicture(env, { bytes: stored.bytes, mime: stored.mime }, row.note, row.category === "grid");
     if (!s.keep) {
       await env.BUCKET.delete([stored.image, stored.thumb]);
       await run(env.DB, "UPDATE styles SET status = 'rejected', score = ?, image_key = NULL, thumb_key = NULL, updated = ? WHERE id = ?", s.score, now(), row.id);
@@ -268,10 +296,11 @@ async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> 
     }
     await run(
       env.DB,
-      "UPDATE styles SET status = 'review', kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
+      "UPDATE styles SET status = 'review', kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
       s.kind,
       s.category,
       s.score,
+      s.tiles,
       stored.w,
       stored.h,
       s.title,
@@ -306,7 +335,7 @@ async function collect(env: Env, searches: number): Promise<number> {
   let added = 0;
   const best = await all<{ pin: string; kind: StyleKind }>(
     env.DB,
-    "SELECT pin, kind FROM styles WHERE status = 'active' AND score >= 9 AND pin GLOB '[0-9]*' ORDER BY RANDOM() LIMIT 3",
+    "SELECT pin, kind FROM styles WHERE status = 'active' AND category != 'grid' AND score >= 9 AND pin GLOB '[0-9]*' ORDER BY RANDOM() LIMIT 3",
   );
   for (const b of best) {
     try {
@@ -317,12 +346,13 @@ async function collect(env: Env, searches: number): Promise<number> {
   }
   const season = seasonWords(new Date());
   for (let i = 0; i < searches; i++) {
-    const cat = STYLE_CATEGORY_IDS[Math.floor(Math.random() * STYLE_CATEGORY_IDS.length)];
+    // The day's first search brings feeds for the Grids shelf; the others, photo styles.
+    const cat = i === 0 && searches >= 4 ? "grid" : PHOTO_CATEGORY_IDS[Math.floor(Math.random() * PHOTO_CATEGORY_IDS.length)];
     const list = STYLE_QUERIES[cat];
     let query = list[Math.floor(Math.random() * list.length)];
     if (cat === "seasonal" || Math.random() < 0.25) query = `${season[Math.floor(Math.random() * season.length)]} ${query}`;
     try {
-      added += await addToPool(env, await searchPins(query), "product");
+      added += await addToPool(env, await searchPins(query), "product", cat === "grid" ? "grid" : "");
     } catch (e) {
       console.error("[styles] search failed", query, errorMessage(e));
     }
@@ -391,13 +421,15 @@ styleRoutes.post("/import", async (c) => {
     c,
     z.object({
       kind: z.enum(STYLE_KINDS),
+      /** "grid": the pins are whole feeds, read for the Grids shelf. */
+      category: z.enum(["grid"]).optional(),
       pins: z
         .array(z.object({ pin: z.string().min(3).max(120), url: z.string().url().max(600), note: z.string().max(2000).default("") }))
         .max(300),
     }),
   );
   const pins = d.pins.filter((p) => /^https:\/\/i\.pinimg\.com\//.test(p.url));
-  return c.json({ ok: true, added: await addToPool(c.env, pins, d.kind) });
+  return c.json({ ok: true, added: await addToPool(c.env, pins, d.kind, d.category ?? "") });
 });
 
 /** A pin link (pin.it short link or pinterest.com/pin/…) as a pool pin: its id, picture and text. */
@@ -424,7 +456,7 @@ async function pinFromLink(link: string): Promise<Pin | null> {
  * (the team chose them). The gallery's weakest style of that kind steps back to the spares.
  */
 styleRoutes.post("/add", async (c) => {
-  const d = await body(c, z.object({ links: z.array(z.string().url().max(600)).min(1).max(20) }));
+  const d = await body(c, z.object({ links: z.array(z.string().url().max(600)).min(1).max(20), grid: z.boolean().optional() }));
   const added: string[] = [];
   const failed: string[] = [];
   await Promise.all(
@@ -446,17 +478,17 @@ styleRoutes.post("/add", async (c) => {
         const row = await first<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE pin = ?", pin.pin);
         if (!row) return failed.push(link);
         const stored = await storeImage(c.env, row);
-        const text = await askText(c.env, describeStyleInstruction(row.note), STYLE_SCHEMA, [{ bytes: stored.bytes, mime: stored.mime }]);
-        const st = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
+        const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, row.note, !!d.grid);
         if (!st.prompt) return failed.push(link);
         await run(
           c.env.DB,
-          "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
+          "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
           // The admin's own pins go straight in; anyone else's wait for the admin.
           c.get("user").role === "admin" ? "active" : "review",
           st.kind,
           st.category,
           Math.max(st.score, 9),
+          st.tiles,
           stored.w,
           stored.h,
           st.title || "Team pick",
@@ -475,7 +507,55 @@ styleRoutes.post("/add", async (c) => {
       }
     }),
   );
-  return c.json({ ...(await list(c.env, c.get("user"), { tab: c.get("user").role === "admin" ? "trends" : "all" })), added: added.length, failed });
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: d.grid ? "grid" : c.get("user").role === "admin" ? "trends" : "all" })), added: added.length, failed });
+});
+
+/**
+ * The team's own pictures: a feed grid (or a photo style) uploaded from the computer. The admin's
+ * go straight in; anyone else's wait for the admin's approval.
+ */
+styleRoutes.post("/upload", async (c) => {
+  const form = await c.req.formData();
+  const grid = form.get("grid") === "1";
+  const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 10);
+  if (!files.length) throw new StudioError("Choose one or more pictures.");
+  const admin = c.get("user").role === "admin";
+  const added: string[] = [];
+  const failed: string[] = [];
+  for (const file of files) {
+    try {
+      if (!file.type.startsWith("image/")) throw new StudioError("Not a picture.", 415);
+      if (file.size > 15 * 1024 * 1024) throw new StudioError("Larger than 15 MB.", 413);
+      const id = uuid();
+      const stored = await storeBytes(c.env, id, await file.arrayBuffer(), file.type);
+      const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, file.name.replace(/\.[a-z0-9]+$/i, ""), grid);
+      await run(
+        c.env.DB,
+        "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, source, note, image_key, thumb_key, position, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, -1, ?, ?)",
+        id,
+        st.kind,
+        admin ? "active" : "review",
+        grid ? "grid" : st.category,
+        Math.max(st.score, 9),
+        st.tiles,
+        stored.w,
+        stored.h,
+        st.title || (grid ? "Team grid" : "Team pick"),
+        st.tags,
+        st.prompt,
+        file.name.slice(0, 200),
+        stored.image,
+        stored.thumb,
+        now(),
+        now(),
+      );
+      added.push(id);
+    } catch (e) {
+      console.error("[styles] upload failed", file.name, errorMessage(e));
+      failed.push(file.name);
+    }
+  }
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: admin ? (grid ? "grid" : "trends") : "all" })), added: added.length, failed });
 });
 
 /** Reads a few more pins into the library now (admins may read more at once). */
@@ -515,7 +595,7 @@ styleRoutes.post("/recheck", async (c) => {
   const d = await body(c, z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(12).default(8) }));
   const rows = await all<StyleRow>(
     c.env.DB,
-    "SELECT * FROM styles WHERE status = 'active' ORDER BY created LIMIT ? OFFSET ?",
+    "SELECT * FROM styles WHERE status = 'active' AND category != 'grid' ORDER BY created LIMIT ? OFFSET ?",
     d.limit,
     d.offset,
   );
@@ -571,9 +651,9 @@ styleRoutes.post("/recheck", async (c) => {
 styleRoutes.post("/classify", async (c) => {
   if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
   const d = await body(c, z.object({ offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(60).default(40) }));
-  const rows = await all<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE status = 'active' ORDER BY created LIMIT ? OFFSET ?", d.limit, d.offset);
+  const rows = await all<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE status = 'active' AND category != 'grid' ORDER BY created LIMIT ? OFFSET ?", d.limit, d.offset);
   if (!rows.length) return c.json({ ok: true, done: 0 });
-  const shelves = STYLE_CATEGORIES.map((x) => x.id);
+  const shelves = PHOTO_CATEGORY_IDS;
   const text = await askText(
     c.env,
     [
@@ -627,10 +707,8 @@ styleRoutes.post("/refresh", async (c) => {
       const obj = await c.env.BUCKET.get(r.image_key);
       if (!obj) return;
       try {
-        const text = await askText(c.env, describeStyleInstruction(r.note, { title: r.title, prompt: r.prompt }), STYLE_SCHEMA, [
-          { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" },
-        ]);
-        const s = parseStyle(JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()));
+        const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
+        const s = await readPicture(c.env, image, r.note, r.category === "grid", { title: r.title, prompt: r.prompt });
         if (s.prompt)
           await run(c.env.DB, "UPDATE styles SET title = ?, tags = ?, prompt = ?, updated = ? WHERE id = ?", s.title || r.title, s.tags || r.tags, s.prompt, now(), r.id);
       } catch (e) {

@@ -355,6 +355,8 @@ export default function Workspace({
       exact?: boolean;
       shots?: string[];
       occasions?: { picked: string[]; custom: { id: string; date: string; name: string; elements?: string }[] };
+      /** A grid from the style library ("style:<id>"), or null to stop following one. */
+      gridRef?: string | null;
     },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
@@ -477,8 +479,10 @@ export default function Workspace({
     setBusy("ideas");
     try {
       const id = await ensurePlan();
-      const r = await post<{ plan: Post[] }>("/api/studio/posts/ideas", {
+      // A month that follows a grid is planned from the grid, tile by tile.
+      const r = await post<{ plan: Post[] }>(config?.gridRef ? "/api/studio/posts/grid-ideas" : "/api/studio/posts/ideas", {
         batch: id,
+        ref: config?.gridRef,
         notes: notes || undefined,
         count: shownSettings.postCount,
       });

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, ChevronLeft, ChevronRight, Link2, LoaderCircle, Maximize2, RefreshCw, Search, Sparkles, X } from "lucide-react";
-import { del, get, post } from "@/api";
+import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, LoaderCircle, Maximize2, RefreshCw, Search, Sparkles, Upload, X } from "lucide-react";
+import { del, get, post, postForm } from "@/api";
 import { AnimatedLevelLogo } from "@/components/LevelLogo";
 import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
 
@@ -62,8 +62,12 @@ export const styleThumb = (s: Pick<StyleItem, "id" | "updated">, full = false) =
 const TABS: { id: string; label: string }[] = [
   { id: "all", label: "All" },
   { id: "trends", label: "Trends" },
-  ...STYLE_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
+  { id: "grid", label: "Grids" },
+  ...STYLE_CATEGORIES.filter((c) => c.id !== "grid").map((c) => ({ id: c.id, label: c.label })),
 ];
+
+const shelfLabel = (s: Pick<StyleItem, "category" | "tiles">) =>
+  s.category === "grid" ? `Grid${s.tiles ? ` · ${s.tiles} posts` : ""}` : (STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style");
 
 /** Pages already loaded open instantly when the team comes back to them. */
 const pages = new Map<string, Page>();
@@ -85,9 +89,12 @@ export default function StyleScreen({
   admin?: boolean;
   /** The admin's queue changed (the sidebar's badge follows). */
   onPendingChange?: () => void;
-  /** Picking for one post ("post") or for the grid ("grid", spread over `posts` posts). */
+  /**
+   * Picking for one post ("post"), for the posts of the month ("grid", spread over `posts` posts),
+   * or the feed grid the whole month follows ("feed", one from the Grids shelf).
+   */
   pick?: {
-    mode: "post" | "grid";
+    mode: "post" | "grid" | "feed";
     posts?: number;
     label?: string;
     tab?: string;
@@ -107,6 +114,9 @@ export default function StyleScreen({
   const [busy, setBusy] = useState("");
   const [adding, setAdding] = useState(false);
   const [links, setLinks] = useState("");
+  const [asGrid, setAsGrid] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const single = pick?.mode === "post" || pick?.mode === "feed";
   const scroller = useRef<HTMLDivElement>(null);
   const ids = useMemo(() => selected.map((s) => s.id), [selected]);
 
@@ -241,7 +251,7 @@ export default function StyleScreen({
 
   async function use() {
     if (!pick || !selected.length) return;
-    if (pick.mode === "post" && selected.length !== 1) return;
+    if (single && selected.length !== 1) return;
     setBusy("pick");
     try {
       await pick.onPick(ids, selected);
@@ -257,14 +267,14 @@ export default function StyleScreen({
     if (!list.length) return toast.error("Paste one or more Pinterest links.");
     setBusy("add");
     try {
-      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20) });
+      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20), grid: asGrid || undefined });
       pages.clear();
       remember(r.styles);
-      toast.success(`${r.added} pin${r.added === 1 ? "" : "s"} added (on Trends).${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
+      toast.success(`${r.added} ${asGrid ? "grid" : "pin"}${r.added === 1 ? "" : "s"} added${asGrid ? " (on Grids)" : " (on Trends)"}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
       setLinks("");
       setAdding(false);
       setTyped("");
-      setTab("trends");
+      setTab(asGrid ? "grid" : "trends");
       setPage(1);
     } catch (e) {
       toast.error((e as Error).message);
@@ -273,13 +283,47 @@ export default function StyleScreen({
     }
   }
 
+  /** The team's own pictures from the computer: feed grids, or photo styles. */
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy("upload");
+    const form = new FormData();
+    for (const f of Array.from(files).slice(0, 10)) form.append("file", f);
+    if (asGrid) form.append("grid", "1");
+    try {
+      const r = await postForm<Page & { added: number; failed: string[] }>("/api/studio/styles/upload", form);
+      pages.clear();
+      remember(r.styles);
+      const what = `${r.added} ${asGrid ? "grid" : "picture"}${r.added === 1 ? "" : "s"}`;
+      toast.success(`${admin ? `${what} added${asGrid ? " to Grids" : ""}` : `${what} sent to the admin for approval`}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
+      setAdding(false);
+      setTyped("");
+      setTab(admin ? (asGrid ? "grid" : "trends") : tab);
+      setPage(1);
+      if (!admin) void load(true);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
   if (!open) return null;
   const n = selected.length;
+  // A month's grid is picked from the Grids shelf only; a post never takes a whole grid.
+  const tabs = pick?.mode === "feed" ? TABS.filter((t) => t.id === "grid") : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
   const counts = data?.counts ?? {};
   const pageCount = data?.pages ?? 1;
   const useLabel = !pick
     ? ""
-    : pick.mode === "post"
+    : pick.mode === "feed"
+      ? n === 1
+        ? "Follow this grid"
+        : n > 1
+          ? "Select one grid"
+          : "Pick a grid"
+      : pick.mode === "post"
       ? n === 1
         ? "Use for this post"
         : n > 1
@@ -298,12 +342,17 @@ export default function StyleScreen({
         <div className="style-top-row">
           <div className="style-brand">
             <AnimatedLevelLogo className="style-logo" />
-            <span className="style-eyebrow">{pick ? (pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
+            <span className="style-eyebrow">{pick ? (pick.mode === "feed" ? "The month's grid" : pick.mode === "grid" ? "Style grid" : pick.label ?? "One post") : "Style library"}</span>
           </div>
-          <h1 className="style-title">Pick your style</h1>
+          <h1 className="style-title">{pick?.mode === "feed" || tab === "grid" ? "Pick your grid" : "Pick your style"}</h1>
           <label className="style-search">
             <Search size={15} />
-            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Search: balloons, ice, gift box, ramadan…" aria-label="Search the styles" />
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={tab === "grid" ? "Search: pastel, cafe, skincare, gold…" : "Search: balloons, ice, gift box, ramadan…"}
+              aria-label="Search the styles"
+            />
             {typed && (
               <button type="button" onClick={() => setTyped("")} aria-label="Clear the search">
                 <X size={13} />
@@ -311,8 +360,16 @@ export default function StyleScreen({
             )}
           </label>
           <div className="style-top-actions">
-            <button type="button" className="secondary" onClick={() => setAdding((v) => !v)} title="Add your own Pinterest pins to the library">
-              <Link2 size={14} /> Add pins
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setAsGrid(pick?.mode === "feed" || tab === "grid");
+                setAdding((v) => !v);
+              }}
+              title="Add your own pictures or Pinterest pins to the library"
+            >
+              <Link2 size={14} /> Add
             </button>
             <button type="button" className="icon-button style-close" onClick={onClose} aria-label="Close">
               <X size={18} />
@@ -326,16 +383,30 @@ export default function StyleScreen({
               value={links}
               autoFocus
               onChange={(e) => setLinks(e.target.value)}
-              placeholder="Paste Pinterest links (pin.it/… or pinterest.com/pin/…), one per line. They join the library at once."
+              placeholder={
+                asGrid
+                  ? "Paste Pinterest links of whole Instagram feeds (pin.it/… or pinterest.com/pin/…), one per line, or upload screenshots of feeds."
+                  : "Paste Pinterest links (pin.it/… or pinterest.com/pin/…), one per line, or upload your own pictures."
+              }
             />
-            <button type="button" className="primary" disabled={busy === "add"} onClick={() => void addLinks()}>
-              {busy === "add" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add
-            </button>
+            <div className="style-add-actions">
+              <label className="check-row" title="A whole Instagram feed: a month follows it tile by tile">
+                <input type="checkbox" checked={asGrid} onChange={(e) => setAsGrid(e.target.checked)} />
+                <Grid3x3 size={13} /> Feed grids
+              </label>
+              <button type="button" className="secondary" disabled={!!busy} onClick={() => fileInput.current?.click()}>
+                {busy === "upload" ? <LoaderCircle className="spinning" size={14} /> : <Upload size={14} />} Upload pictures
+              </button>
+              <button type="button" className="primary" disabled={!!busy || !links.trim()} onClick={() => void addLinks()}>
+                {busy === "add" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add links
+              </button>
+              <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => void upload(e.target.files)} />
+            </div>
           </div>
         )}
         <div className="style-top-row">
           <div className="style-tabs" role="tablist">
-            {[...(admin ? [{ id: "review", label: "To approve" }] : []), ...TABS].map((t) => (
+            {[...(admin && !pick ? [{ id: "review", label: "To approve" }] : []), ...tabs].map((t) => (
               <button
                 key={t.id}
                 type="button"
@@ -347,12 +418,13 @@ export default function StyleScreen({
                   setPage(1);
                 }}
               >
-                {t.id === "trends" && <Sparkles size={12} />} {t.label}
+                {t.id === "trends" && <Sparkles size={12} />}
+                {t.id === "grid" && <Grid3x3 size={12} />} {t.label}
                 {counts[t.id] !== undefined && <em>{counts[t.id]}</em>}
               </button>
             ))}
           </div>
-          <div className="style-select">
+          <div className="style-select" hidden={single}>
             <button type="button" className="text-button" onClick={() => setSelected((sel) => [...sel, ...shown.filter((s) => !sel.some((x) => x.id === s.id))])}>
               Select all
             </button>
@@ -411,7 +483,7 @@ export default function StyleScreen({
                 <button type="button" className="style-tile-image" style={{ aspectRatio: `${ar}` }} onClick={() => toggle(s)} aria-pressed={on} title={s.tags}>
                   <img src={styleThumb(s)} alt={s.title} loading="lazy" decoding="async" />
                   <span className="style-tile-label">
-                    <small>{STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style"}</small>
+                    <small>{shelfLabel(s)}</small>
                     <b>{s.title}</b>
                   </span>
                 </button>
@@ -468,7 +540,9 @@ export default function StyleScreen({
 
       {(n > 0 || (pick && !reviewing)) && (
         <div className="style-dock">
-          <span className="style-dock-count">{n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : "Select one style"}</span>
+          <span className="style-dock-count">
+            {n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : pick?.mode === "feed" ? "Select one grid" : "Select one style"}
+          </span>
           {n > 0 && reviewing && (
             <>
               <button type="button" className="secondary" disabled={!!busy} onClick={() => void judge("remove", ids)} title="Reject: they never reach the team">
@@ -490,7 +564,7 @@ export default function StyleScreen({
             </>
           )}
           {pick && !reviewing && (
-            <button type="button" className="primary" disabled={!n || !!busy || (pick.mode === "post" && n !== 1)} onClick={() => void use()}>
+            <button type="button" className="primary" disabled={!n || !!busy || (single && n !== 1)} onClick={() => void use()}>
               {busy === "pick" ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} {useLabel}
             </button>
           )}
@@ -503,13 +577,17 @@ export default function StyleScreen({
             <img src={styleThumb(preview, true)} alt={preview.title} />
             <div className="style-preview-text">
               <small>
-                {STYLE_CATEGORIES.find((c) => c.id === preview.category)?.label ?? "Style"} · {preview.tags}
+                {shelfLabel(preview)} · {preview.tags}
               </small>
               <h2>{preview.title}</h2>
               {admin && preview.prompt ? (
                 <p>{preview.prompt}</p>
               ) : (
-                <p>Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
+                <p>
+                  {preview.category === "grid"
+                    ? "Picked for a month, the posts follow this feed tile by tile, with the brand's own products, people and colours."
+                    : "Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours."}
+                </p>
               )}
               <div className="style-preview-actions">
                 <button

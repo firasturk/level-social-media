@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   FlaskConical,
+  Grid3x3,
   Images,
   ImagePlus,
   LoaderCircle,
@@ -161,6 +162,7 @@ export interface JourneyProps {
     exact?: boolean;
     format?: Format;
     shots?: string[];
+    gridRef?: string | null;
     occasions?: { picked: string[]; custom: NonNullable<MonthOccasions["custom"]> };
   }) => void;
   themes: Theme[];
@@ -297,19 +299,22 @@ export default function Journey(p: JourneyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting, briefBusy]);
 
+  // A month that follows a grid from the library: its ideas carry a tile each and its shots come from them.
+  const gridMonth = !!p.config?.gridRef && p.plan.some((x) => x.tile);
+
   /* ── The pins' shots rewritten for this month's products and colours ── */
   // One shot per post: written again when the posts, the pins, the colours or the props change.
   const planSig = JSON.stringify(
-    p.plan.map((x) => [x.index, x.type, x.product, x.products, x.occasion, x.people, x.brief, x.offer?.products]),
+    p.plan.map((x) => [x.index, x.type, x.product, x.products, x.occasion, x.people, x.brief, x.offer?.products, x.tile]),
   );
   const shotsSig = hash(
-    `v3|${p.themeId}|${(theme?.shots ?? []).join("|")}|${planSig}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`,
+    `v3|${p.themeId}|${p.config?.gridRef ?? ""}|${(theme?.shots ?? []).join("|")}|${planSig}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`,
   );
   const adaptedFor = useRef("");
   const adaptShots = useCallback(
     async (force = false) => {
       // Styled posts are rewritten from their styles even when the theme has no pin shots.
-      if (!p.batchId || !p.plan.length || (!theme?.shots.length && !p.plan.some((x) => x.style))) return;
+      if (!p.batchId || !p.plan.length || (!theme?.shots.length && !gridMonth && !p.plan.some((x) => x.style))) return;
       if (!force && adaptedFor.current === shotsSig) return;
       adaptedFor.current = shotsSig;
       setAdapting(true);
@@ -323,7 +328,7 @@ export default function Journey(p: JourneyProps) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.batchId, theme?.shots, shotsSig, p.refresh],
+    [p.batchId, theme?.shots, gridMonth, shotsSig, p.refresh],
   );
   useEffect(() => {
     if (key !== "scene" || !p.config || reading) return;
@@ -545,7 +550,9 @@ export default function Journey(p: JourneyProps) {
         }
         const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
         // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
-        if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
+        if ((p.config?.gridAt ?? 0) > plannedAt)
+          out.push({ text: "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite });
+        else if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
           out.push({ text: "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite });
         else if (p.plan.length !== p.postCount)
           out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite });
@@ -576,7 +583,7 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: "Wait: the shots are being written." });
           break;
         }
-        const needsScene = !!theme?.shots.length;
+        const needsScene = !!theme?.shots.length || gridMonth;
         if (needsScene && (p.plan.some((x) => !x.scene) || p.config?.shotsFor !== shotsSig))
           out.push({ text: "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) } });
         else
@@ -844,8 +851,14 @@ export default function Journey(p: JourneyProps) {
           {key === "identity" && client && (
             <>
               <StepHead kit="identity" title="Visual identity">
-                Pick the brand ambassadors for this month, then the theme and its Pinterest pins.
+                Pick the brand ambassadors for this month, then the theme and its Pinterest pins, or a whole feed grid the month follows.
               </StepHead>
+              <GridPick
+                gridRef={p.config?.gridRef ?? null}
+                admin={p.user.role === "admin"}
+                onPick={(id) => p.onSettings({ gridRef: `style:${id}` })}
+                onClear={() => p.onSettings({ gridRef: null })}
+              />
               <div className="journey-boxes cols-3">
                 <div className="journey-box">
                   <BoxTitle kit="ambassadors">Brand ambassadors</BoxTitle>
@@ -915,11 +928,13 @@ export default function Journey(p: JourneyProps) {
                   <div className="journey-box">
                     <Reading />
                   </div>
-                ) : theme ? (
+                ) : theme || gridMonth ? (
                   <>
-                    <div className="journey-box">
-                      <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
-                    </div>
+                    {theme && (
+                      <div className="journey-box">
+                        <ThemeSection client={client} themes={p.themes} theme={p.themeId} onTheme={p.onTheme} onThemesChanged={p.onThemesChanged} parts={["props"]} bare />
+                      </div>
+                    )}
                     <MonthShots
                       plan={p.plan}
                       products={p.products}
@@ -927,9 +942,9 @@ export default function Journey(p: JourneyProps) {
                       admin={p.user.role === "admin"}
                       onStyles={p.onStyles}
                       busy={adapting}
-                      empty={!theme.shots.length}
+                      empty={!theme?.shots.length && !gridMonth}
                       onRewrite={() => void adaptShots(true)}
-                      onReadPins={theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
+                      onReadPins={theme && theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
                       onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene } : x)))}
                     />
                   </>
@@ -1939,7 +1954,7 @@ function IdeasStep({
       .filter(([k]) => k !== "shots")
       .map(([, n]) => n?.at ?? 0),
   );
-  const stale = plan.length > 0 && briefAt > (config?.plannedAt ?? 0);
+  const stale = plan.length > 0 && Math.max(briefAt, config?.gridAt ?? 0) > (config?.plannedAt ?? 0);
   const started = useRef(false);
   // Ideas are written by themselves only for a month that has none, once it has loaded (a reload
   // that lands here must never overwrite ideas that are still on their way).
@@ -2099,6 +2114,53 @@ function IdeaCard({
       <input className="idea-headline" dir="auto" value={headline} onChange={(e) => setHeadline(e.target.value)} onBlur={save} aria-label="Headline on the image" />
       <p className="idea-brief">{post.brief}</p>
     </article>
+  );
+}
+
+/* ───────────── A feed grid the month follows ───────────── */
+
+function GridPick({
+  gridRef,
+  admin,
+  onPick,
+  onClear,
+}: {
+  gridRef: string | null;
+  admin: boolean;
+  onPick: (id: string) => void;
+  onClear: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const styleId = gridRef?.startsWith("style:") ? gridRef.slice(6) : null;
+  const info = useStyleInfo([styleId]);
+  const g = styleId ? info.get(styleId) : undefined;
+  return (
+    <div className={`journey-grid-pick ${gridRef ? "on" : ""}`}>
+      {gridRef ? (
+        <img src={styleId ? styleThumb({ id: styleId, updated: g?.updated ?? 0 }) : `/api/studio/references/${gridRef}/file`} alt="" />
+      ) : (
+        <span className="journey-grid-icon">
+          <Grid3x3 size={18} />
+        </span>
+      )}
+      <span className="journey-grid-text">
+        <strong>{gridRef ? `This month follows ${g ? `“${g.title}”` : "a grid"}` : "Follow a grid"}</strong>
+        <small>
+          {gridRef
+            ? `${g?.tiles ? `${g.tiles} posts, one for each tile. ` : ""}The ideas and the shots are written from its tiles, with your products, people and colours.`
+            : "Pick a whole Instagram feed from the library: the month follows its rhythm tile by tile."}
+        </small>
+      </span>
+      <button type="button" className="secondary" onClick={() => setOpen(true)}>
+        <Grid3x3 size={14} /> {gridRef ? "Change" : "Pick a grid"}
+      </button>
+      {gridRef && (
+        <button type="button" className="text-button" onClick={onClear}>
+          Stop following
+        </button>
+      )}
+      <StyleScreen open={open} onClose={() => setOpen(false)} admin={admin} pick={{ mode: "feed", tab: "grid", onPick: (ids) => onPick(ids[0]) }} />
+    </div>
   );
 }
 

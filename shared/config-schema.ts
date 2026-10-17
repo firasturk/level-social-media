@@ -79,6 +79,7 @@ export const configSchema = z.object({
   continuedFrom: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   gridRef: z.string().max(80).optional(),
   gridNotes: z.string().max(12000).optional(),
+  gridAt: z.number().optional(),
   mode: z.enum(MODES),
   /** Kept optional so batches saved before the category picker was removed still load. */
   category: z.string().max(80).optional(),

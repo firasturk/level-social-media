@@ -449,7 +449,7 @@ export default function PlanView({
         <div className="grid-chip">
           <Grid3x3 size={14} />
           <span>This month follows a reference grid: every post is staged in its world.</span>
-          <img src={`/api/studio/references/${gridRef}/file`} alt="" />
+          <img src={gridRef.startsWith("style:") ? styleThumb({ id: gridRef.slice(6), updated: 0 }) : `/api/studio/references/${gridRef}/file`} alt="" />
           <button type="button" className="text-button" onClick={onClearGrid}>
             Stop following
           </button>

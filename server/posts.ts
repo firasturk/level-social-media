@@ -14,7 +14,7 @@ import { advanceBatch } from "./engine";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { styleRow, type StyleRow } from "./styles";
-import { ADAPT_SCHEMA, adaptStyleInstruction } from "@shared/styles";
+import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { resolveOverlay } from "@shared/overlay";
@@ -1066,11 +1066,7 @@ postRoutes.post("/grid-ideas", async (c) => {
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
-  const ref = await first<{ id: string; key: string }>(
-    c.env.DB,
-    "SELECT id, key FROM refs WHERE id = ?",
-    d.ref,
-  );
+  const ref = await gridImage(c.env, d.ref);
   const obj = ref ? await c.env.BUCKET.get(ref.key) : null;
   if (!ref || !obj) throw new StudioError("Reference image not found.", 404);
   const image = {
@@ -1193,7 +1189,8 @@ postRoutes.put("/settings", async (c) => {
       size: z.enum(["1K", "2K", "4K"]).optional(),
       postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
       notes: z.string().max(2000).optional(),
-      gridRef: z.null().optional(),
+      /** A grid from the style library ("style:<id>"), or null to take the grid off. */
+      gridRef: z.string().regex(/^style:[\w-]{1,80}$/).nullable().optional(),
       ambassadors: z.array(z.string().max(80)).max(3).optional(),
       exact: z.boolean().optional(),
       shots: z.array(z.string().trim().max(1200)).max(200).optional(),
@@ -1248,10 +1245,30 @@ postRoutes.put("/settings", async (c) => {
   if (d.gridRef === null) {
     delete config.gridRef;
     delete config.gridNotes;
+    config.gridAt = now();
+  } else if (d.gridRef) {
+    const st = await first<{ tiles: number; category: string; status: string }>(c.env.DB, "SELECT tiles, category, status FROM styles WHERE id = ?", d.gridRef.slice(6));
+    if (!st || st.category !== "grid" || st.status !== "active") throw new StudioError("That grid is not in the library.", 404);
+    // The month takes the grid's posts: one per tile. Its tiles are read when the ideas are written.
+    if (config.gridRef !== d.gridRef) delete config.gridNotes;
+    config.gridRef = d.gridRef;
+    config.gridAt = now();
+    config.postCount = gridPostCount(st.tiles, config.postCount ?? 12);
+    await refreshCountNote(c.env, b.id, config);
   }
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, config });
 });
+
+/** The month's grid picture: a theme photo (refs) or a grid from the style library ("style:<id>"). */
+async function gridImage(env: Env, gridRef: string | undefined): Promise<{ id: string; key: string } | null> {
+  if (!gridRef) return null;
+  if (gridRef.startsWith("style:")) {
+    const st = await first<{ image_key: string | null }>(env.DB, "SELECT image_key FROM styles WHERE id = ?", gridRef.slice(6));
+    return st?.image_key ? { id: gridRef, key: st.image_key } : null;
+  }
+  return first<{ id: string; key: string }>(env.DB, "SELECT id, key FROM refs WHERE id = ?", gridRef);
+}
 
 interface TaskLite {
   id: string;
@@ -1418,9 +1435,7 @@ postRoutes.post("/generate", async (c) => {
           }))
       : [];
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
-    const gridRef = config.gridRef
-      ? await first<{ id: string, key: string }>(c.env.DB, "SELECT id, key FROM refs WHERE id = ?", config.gridRef)
-      : null;
+    const gridRef = await gridImage(c.env, config.gridRef);
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
     const styled = post.style ? styles.get(post.style) : undefined;
     const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);
@@ -2117,7 +2132,9 @@ postRoutes.post("/shots", async (c) => {
   const theme = config.theme
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
-  const base = theme ? shotsOf(theme) : [];
+  // A month that follows a grid takes its shots from the grid's tiles, each post from its own tile.
+  const tiles = config.gridRef ? [...new Set(plan.map((p) => p.tile).filter((t): t is string => !!t))] : [];
+  const base = tiles.length ? tiles : theme ? shotsOf(theme) : [];
   const allStyled = plan.every((p) => p.style || p.type === "greeting");
   if (!base.length && !allStyled) throw new StudioError("The theme has no shots yet: add pins and read them first.", 409);
   const client = await clientRow(c.env, config.client);
@@ -2168,7 +2185,7 @@ postRoutes.post("/shots", async (c) => {
               .filter((a): a is AmbassadorRow => !!a)
               .map((a) => `${a.name} (${a.description})`),
         headline: p.headline ?? "",
-        brief: withoutProductNames(p.brief, [...names, ...[p.product, ...(p.products ?? []), ...(p.offer?.products ?? [])].filter((n): n is string => !!n)]).slice(0, 600),
+        brief: (tiles.length && p.tile ? `Use reference shot ${tiles.indexOf(p.tile) + 1} (its tile of the grid). ` : "") + withoutProductNames(p.brief, [...names, ...[p.product, ...(p.products ?? []), ...(p.offer?.products ?? [])].filter((n): n is string => !!n)]).slice(0, 600),
       };
     });
   // The client may sell drinks: then cups and glasses are their products, not foreign items.

@@ -1,6 +1,6 @@
 import { postReviewInstruction } from "@shared/qa";
 import { describe, expect, it } from "vitest";
-import { adaptStyleInstruction, describeStyleInstruction, parseStyle, pictureSig, seasonWords } from "@shared/styles";
+import { adaptStyleInstruction, describeStyleInstruction, gridPostCount, gridStyleInstruction, parseGridStyle, parseStyle, pictureSig, seasonWords } from "@shared/styles";
 import { buildPostPrompt, type PostBrief } from "@shared/posts";
 
 describe("style gallery", () => {
@@ -103,5 +103,26 @@ describe("the open style library", () => {
     expect(seasonWords(new Date(Date.UTC(2026, 1, 20)))).toContain("valentine");
     // 1 Ramadan 1448 falls in February 2027.
     expect(seasonWords(new Date(Date.UTC(2027, 1, 15)))).toContain("ramadan");
+  });
+});
+
+describe("the Grids shelf", () => {
+  it("keeps only real feeds of six tiles or more", () => {
+    const base = { keep: true, score: 8, title: "Sunlit Pastel Cafe", tags: "pastel", tiles: 9, prompt: "p".repeat(80) };
+    expect(parseGridStyle(base).keep).toBe(true);
+    expect(parseGridStyle({ ...base, tiles: 3 }).keep).toBe(false);
+    expect(parseGridStyle({ ...base, score: 6 }).keep).toBe(false);
+    expect(parseGridStyle({ ...base, keep: false }).keep).toBe(false);
+  });
+  it("gives the month one post per tile", () => {
+    expect(gridPostCount(9, 12)).toBe(9);
+    expect(gridPostCount(0, 12)).toBe(12);
+    expect(gridPostCount(48, 12)).toBe(30);
+  });
+  it("reads a feed's world and its rhythm for any brand", () => {
+    const ins = gridStyleInstruction("");
+    expect(ins).toContain("rows of three");
+    expect(ins).toContain("tile by tile");
+    expect(ins).toContain("never a brand name");
   });
 });

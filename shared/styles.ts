@@ -17,9 +17,13 @@ export const STYLE_CATEGORIES = [
   { id: "beauty", label: "Beauty" },
   { id: "seasonal", label: "Seasonal" },
   { id: "luxury", label: "Luxury" },
+  // A whole Instagram feed: the month follows it tile by tile (never one post's style).
+  { id: "grid", label: "Grids" },
 ] as const;
 export type StyleCategory = (typeof STYLE_CATEGORIES)[number]["id"];
 export const STYLE_CATEGORY_IDS = STYLE_CATEGORIES.map((c) => c.id) as StyleCategory[];
+/** The shelves of single photo styles (everything but the grids). */
+export const PHOTO_CATEGORY_IDS: StyleCategory[] = STYLE_CATEGORY_IDS.filter((c) => c !== "grid");
 
 /** Styles per page of the library. */
 export const STYLE_PAGE_SIZE = 120;
@@ -52,6 +56,8 @@ export interface StyleItem {
   /** The picture's size, for the gallery's even rows (0 when unknown). */
   w: number;
   h: number;
+  /** A grid's number of post tiles (0 for a photo style). */
+  tiles: number;
 }
 
 export const STYLE_SCHEMA = {
@@ -99,11 +105,70 @@ export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: 
     keep: d.keep !== false && prompt.length > 40 && !!title && score >= MIN_SCORE,
     score,
     kind: d.kind === "people" ? "people" : "product",
-    category: STYLE_CATEGORY_IDS.includes(d.category as StyleCategory) ? (d.category as StyleCategory) : "lifestyle",
+    category: PHOTO_CATEGORY_IDS.includes(d.category as StyleCategory) ? (d.category as StyleCategory) : "lifestyle",
     title,
     tags: String(d.tags ?? "").trim().slice(0, 120),
     prompt,
   };
+}
+
+/* ───────────── Grids: whole Instagram feeds a month follows ───────────── */
+
+/** A grid enters the library from this score (a feed is judged as a month's plan, not one ad). */
+export const GRID_MIN_SCORE = 7;
+
+export const GRID_STYLE_SCHEMA = {
+  type: "object",
+  properties: {
+    keep: { type: "boolean" },
+    score: { type: "integer" },
+    title: { type: "string" },
+    tags: { type: "string" },
+    tiles: { type: "integer" },
+    prompt: { type: "string" },
+  },
+  required: ["keep", "score", "title", "tags", "tiles", "prompt"],
+};
+
+/** The vision model reads a picture of an Instagram feed into a grid a brand's month can follow. */
+export function gridStyleInstruction(note: string, previous?: { title: string; prompt: string }): string {
+  return [
+    "You are an art director building a library of Instagram feed grids that a brand's month of posts can follow. The image is a picture of a feed (a pin, a screenshot or a designer's upload).",
+    note.trim() ? `Its own title and description: ${note.trim().slice(0, 1200)}` : "",
+    "keep: true only when the image shows one brand's Instagram feed as a grid: at least 6 post tiles in rows of three (a profile screenshot or a flat grid mockup) with one consistent visual world. keep is false for: a single photo; a collage that is not a feed; tiles of unrelated stock photos; a template where most tiles are only text; alcohol; any person in clothes unsuitable for a Middle Eastern family brand (bare shoulders, low necklines, short skirts, swimwear).",
+    "score: 1-10, how strong the feed is as a month's plan: a clear rhythm between product heroes, lifestyle moments, close-ups and calm text tiles; one colour world; premium photography (9-10: a feed a top agency would show; 7-8: strong and consistent; 4-6: ordinary; 1-3: messy or amateur).",
+    'title: 2-3 words naming the feed\'s look ("Sunlit Pastel Cafe", "Bold Colour Blocks", "Night Gold Luxury").',
+    "tags: 3-5 short words, comma separated (palette, light, mood, kind of brand).",
+    "tiles: how many post tiles the feed shows.",
+    "prompt: 120-200 words in English for ANY brand: first the feed's world (palette written as 'the brand's main colour' and named neutrals, light, sets, materials, camera habits), then its rhythm tile by tile in reading order, one short line each (\"1 product hero on a plinth, 2 lifestyle with the brand ambassador, 3 calm text tile\"). Write 'the product' for the item; never a brand name, a logo or a specific food.",
+    previous
+      ? `This grid already exists as "${previous.title}": ${previous.prompt}\nWrite it again as a FRESH reading: the same feed, described anew.`
+      : "",
+    'Return ONLY JSON: {"keep": true, "score": 8, "title": "...", "tags": "...", "tiles": 9, "prompt": "..."}.',
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function parseGridStyle(raw: unknown): { keep: boolean; score: number; title: string; tags: string; tiles: number; prompt: string } {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const prompt = String(d.prompt ?? "").trim().slice(0, 2000);
+  const title = String(d.title ?? "").trim().replace(/^["']|["']$/g, "").slice(0, 60);
+  const score = Math.max(0, Math.min(10, Math.round(Number(d.score) || 0)));
+  const tiles = Math.max(0, Math.min(30, Math.round(Number(d.tiles) || 0)));
+  return {
+    keep: d.keep !== false && prompt.length > 40 && !!title && score >= GRID_MIN_SCORE && tiles >= 6,
+    score,
+    title,
+    tags: String(d.tags ?? "").trim().slice(0, 120),
+    tiles,
+    prompt,
+  };
+}
+
+/** How many posts a month gets from a grid: its tiles, within what a month can hold. */
+export function gridPostCount(tiles: number, fallback: number): number {
+  return tiles >= 3 ? Math.min(30, tiles) : fallback;
 }
 
 export const ADAPT_SCHEMA = {
@@ -174,6 +239,7 @@ export const STYLE_QUERIES: Record<StyleCategory, string[]> = {
   beauty: ["creative skincare advertising concept 3d", "surreal cosmetics product ad", "perfume creative campaign surreal"],
   seasonal: ["ramadan product advertising creative", "eid gift box advertising concept", "winter product advertising surreal", "summer product advertising creative"],
   luxury: ["luxury gift box creative advertising", "premium packaging surreal campaign", "luxury product set design advertising", "jewellery creative campaign surreal"],
+  grid: ["instagram feed grid aesthetic brand", "instagram feed layout cafe brand", "instagram grid design food brand", "instagram feed planner aesthetic product", "skincare brand instagram feed grid", "dessert shop instagram feed aesthetic"],
 };
 
 /** Words of the season for the daily search (a Jordanian brand's calendar). */
