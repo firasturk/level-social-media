@@ -104,7 +104,13 @@ const COPIED_TILES = new Set(["product", "food", "drink", "detail", "texture"]);
  * Where a post's tile sits in the grid and how many rows and columns the grid has, from the
  * tiles read in it ("Tile 6 (row 2, col 3, detail): …"); null when the tile should not be copied.
  */
-export function tileCell(tile: string | undefined, gridNotes: string | undefined, plan: { tile?: string }[]): { row: number; col: number; rows: number; cols: number } | null {
+export function tileCell(
+  tile: string | undefined,
+  gridNotes: string | undefined,
+  plan: { tile?: string }[],
+  /** For the shot writer, who only reads it: every tile but a text tile (its words are the reference's). */
+  toRead = false,
+): { row: number; col: number; rows: number; cols: number } | null {
   const at = /\(row (\d+), col (\d+)/i.exec(tile ?? "");
   if (!at) return null;
   const row = Number(at[1]);
@@ -121,6 +127,7 @@ export function tileCell(tile: string | undefined, gridNotes: string | undefined
   }
   const own = lines.find((l) => new RegExp(`\\(row ${row}, col ${col}, (\\w+)\\)`, "i").test(l));
   const kind = own ? new RegExp(`\\(row ${row}, col ${col}, (\\w+)\\)`, "i").exec(own)![1].toLowerCase() : "";
+  if (toRead) return kind === "text" ? null : { row, col, rows, cols };
   if (kind && !COPIED_TILES.has(kind)) return null;
   if (/\b(bags?|cards?|logos?|cups?)\b/i.test(own ?? tile ?? "")) return null;
   return { row, col, rows, cols };

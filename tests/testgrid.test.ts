@@ -99,6 +99,7 @@ describe("a post's own tile", () => {
     expect(tileCell("Tile 7 (row 3, col 1): A shop.", notes, [])).toBeNull();
     expect(tileCell("Tile 5 (row 2, col 2): A person.", notes, [])).toBeNull();
     expect(tileCell("Tile 9 (row 3, col 3): A container and a branded card.", notes, [])).toBeNull();
+    expect(tileCell("Tile 5 (row 2, col 2): A person.", notes, [], true)).toEqual({ row: 2, col: 2, rows: 3, cols: 3 });
     expect(cleanGrid(736, 981, 3, 3)).toBe(true);
     expect(cleanGrid(1170, 2532, 3, 3)).toBe(false);
   });

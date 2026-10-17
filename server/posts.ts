@@ -2664,6 +2664,22 @@ postRoutes.post("/shots", async (c) => {
   // The client may sell drinks: then cups and glasses are their products, not foreign items.
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const palette = monthPaletteOf(theme);
+  // A grid month: the writer looks at each post's own tile (cut from the grid), not only its words.
+  const tileImages: ImageBytes[] = [];
+  const tileFor = new Map<number, number>();
+  const grid = config.gridRef ? await gridImage(c.env, config.gridRef) : null;
+  if (grid)
+    for (const p of plan.filter((x) => wanted.has(x.index))) {
+      const cell = tileCell(p.tile, config.gridNotes, plan, true);
+      const key = cell ? await gridTileKey(c.env, grid.key, cell) : null;
+      const obj = key ? await c.env.BUCKET.get(key) : null;
+      if (!obj) continue;
+      tileImages.push({ bytes: await obj.arrayBuffer(), mime: "image/jpeg" });
+      tileFor.set(p.index, tileImages.length);
+    }
+  const tileRule = tileImages.length
+    ? `\n\nTILE PICTURES: ${[...tileFor].map(([post, img]) => `image ${img} is the grid tile post ${post} recreates`).join("; ")}. Write each of these posts' shot from its tile picture, not only from its words: the same composition (how the items are arranged, stacked, tilted or scattered, how many and where), camera angle and distance, surface and set, light direction and shadows, with the client's own product in place of the tile's items (several pieces or copies of it when the tile shows several). Never its brand, packaging, bags, cups, cards, text or logos.`
+    : "";
   const ask = async (strict: boolean) => {
     const raw = parseJson<{ shots?: unknown }>(
       await askText(
@@ -2675,8 +2691,9 @@ postRoutes.post("/shots", async (c) => {
           props: theme?.props,
           strict,
           service: sources.length ? undefined : client.service || undefined,
-        }),
+        }) + tileRule,
         SHOTS_SCHEMA,
+        tileImages,
       ),
     );
     const out = new Map<number, string>();
