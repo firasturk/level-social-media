@@ -472,11 +472,18 @@ export default function Journey(p: JourneyProps) {
    */
   async function fixPosts(list: PostProblem[]) {
     if (!p.batchId || !list.length) return;
+    // Fixes that need no writing: bag sentences out, named products into the picture.
     const unbag = new Set(list.filter((x) => x.fix === "unbag").map((x) => x.index));
-    if (unbag.size) {
-      const plan = p.plan.map((x) =>
-        unbag.has(x.index) ? { ...x, brief: withoutBags(x.brief) || x.brief, ...(x.scene ? { scene: withoutBags(x.scene) || x.scene } : {}) } : x,
-      );
+    const include = new Map<number, string[]>();
+    for (const x of list) if (x.fix === "include" && x.products) include.set(x.index, [...(include.get(x.index) ?? []), ...x.products]);
+    if (unbag.size || include.size) {
+      const plan = p.plan.map((x) => {
+        let y = x;
+        if (unbag.has(x.index)) y = { ...y, brief: withoutBags(y.brief) || y.brief, ...(y.scene ? { scene: withoutBags(y.scene) || y.scene } : {}) };
+        const add = include.get(x.index);
+        if (add) y = { ...y, products: [...new Set([...(y.products ?? []), ...add])] };
+        return y;
+      });
       await put("/api/studio/posts/plan", { batch: p.batchId, plan });
     }
     const rewrite = [...new Set(list.filter((x) => x.fix === "post").map((x) => x.index))];
@@ -641,6 +648,8 @@ export default function Journey(p: JourneyProps) {
                 fix:
                   pr.fix === "unbag"
                     ? { label: "Take the bag out", run: () => fixPosts([pr]) }
+                    : pr.fix === "include"
+                      ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
                     : pr.fix === "shot"
                       ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
                       : { label: "Write the post again", run: () => fixPosts([pr]) },
@@ -1185,7 +1194,13 @@ export default function Journey(p: JourneyProps) {
             <div className="journey-issues-head">
               <strong>{blocking.length ? `Fix ${blocking.length === 1 ? "this" : `these ${blocking.length}`} before Next` : "Worth a look"}</strong>
               {issues.filter((i) => i.fix).length > 1 && (
-                <button type="button" className="secondary journey-fix-all" disabled={!!fixing} onClick={() => void fixAll(issues.filter((i) => i.fix))}>
+                <button
+                  type="button"
+                  className="secondary journey-fix-all"
+                  disabled={!!fixing}
+                  // What is left after one go never holds the journey (the review after each image checks it).
+                  onClick={() => void fixAll(issues.filter((i) => i.fix)).then(() => setAutoTried(true))}
+                >
                   {fixing === "all" ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix all for me
                 </button>
               )}

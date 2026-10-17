@@ -25,6 +25,7 @@ import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FORE
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
 import { clientDrivePhotos, importDrivePhoto } from "./drive";
+import { renameProduct } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -2149,7 +2150,20 @@ async function useProduct(
     ctx.waitUntil(describeUpload(env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
     name = productName(row);
   }
-  const next: Post = { ...current, product: name, products: current.products?.filter((x) => x.toLowerCase() !== name.toLowerCase()), scene: undefined };
+  // The post's words follow the new product: the old one's name is changed wherever it is written.
+  const old = current.product && current.product.toLowerCase() !== name.toLowerCase() ? current.product : "";
+  const swap = (t: string | undefined) => (old && t ? renameProduct(t, old, name) : t);
+  const next: Post = {
+    ...current,
+    product: name,
+    products: current.products?.filter((x) => x.toLowerCase() !== name.toLowerCase()),
+    title: swap(current.title) ?? current.title,
+    brief: swap(current.brief) ?? current.brief,
+    caption: swap(current.caption) ?? current.caption,
+    headline: swap(current.headline),
+    subline: swap(current.subline),
+    scene: undefined,
+  };
   config.plan = plan.map((p) => (p.index === index ? next : p));
   await saveConfig(env, b, config);
   return next;

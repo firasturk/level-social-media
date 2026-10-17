@@ -5,7 +5,7 @@
 import { BAGS, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 
-export type FixKind = "shot" | "post" | "unbag";
+export type FixKind = "shot" | "post" | "unbag" | "include";
 
 export interface PostProblem {
   index: number;
@@ -13,9 +13,12 @@ export interface PostProblem {
   text: string;
   /**
    * "shot": write this post's shot again; "post": write the post (idea and caption) again; "unbag":
-   * take out the sentences with a bag or a carrier (no writing needed).
+   * take out the sentences with a bag or a carrier (no writing needed); "include": the month's
+   * products the post names join its picture (no writing needed).
    */
   fix: FixKind;
+  /** "include": the products to add to the post's picture. */
+  products?: string[];
 }
 
 const MALE = /\b(man|male|boy|gentleman|husband|father|son)\b|رجل|شاب|ولد/i;
@@ -96,11 +99,19 @@ export function postProblems(
     ...(post.type === "offer" && post.offer ? post.offer.products : [post.product, ...(post.products ?? [])]),
   ].filter((x): x is string => !!x);
   const extraCaption = extraProductsIn(`${post.headline ?? ""} ${post.subline ?? ""} ${post.caption}`, allowed, ctx.products);
-  if (extraCaption.length)
-    out.push({ index: n, text: `names ${extraCaption.join(", ")} in its text, which is not in its picture`, fix: "post" });
   const extraScene = extraProductsIn(`${post.brief} ${scene}`, allowed, ctx.products);
-  if (extraScene.length)
-    out.push({ index: n, text: `shows ${extraScene.join(", ")} in its picture, which is not one of its products`, fix: scene ? "shot" : "post" });
+  // A product the post names and the month has a photo of simply joins its picture: writing the
+  // text again tends to name it again. Offers keep exactly the designer's products.
+  const include = (names: string[]) => post.type !== "offer" && (post.products?.length ?? 0) + names.length <= 3;
+  if (extraCaption.length) {
+    const text = `names ${extraCaption.join(", ")} in its text, which is not in its picture`;
+    out.push(include(extraCaption) ? { index: n, text, fix: "include", products: extraCaption } : { index: n, text, fix: "post" });
+  }
+  const sceneOnly = extraScene.filter((x) => !extraCaption.includes(x));
+  if (sceneOnly.length) {
+    const text = `shows ${sceneOnly.join(", ")} in its picture, which is not one of its products`;
+    out.push(include([...extraCaption, ...sceneOnly]) ? { index: n, text, fix: "include", products: sceneOnly } : { index: n, text, fix: scene ? "shot" : "post" });
+  }
   for (const name of post.people ?? []) {
     const a = ctx.cast.find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!a) continue;
@@ -222,4 +233,15 @@ export function fixNote(flags: PostFlag[]): string {
     tile: "Stage it like its tile of the reference grid",
   };
   return flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
+}
+
+/**
+ * The text with one product's name changed to another's, however it was written ("كنافة-ناعمة-سوبر",
+ * "كنافة ناعمة سوبر"): a post whose product is replaced no longer names the old one.
+ */
+export function renameProduct(text: string, from: string, to: string): string {
+  const words = from.split(/[\s_\-\u0640]+/).filter(Boolean);
+  if (!text || !words.length || !to.trim()) return text;
+  const pattern = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_\\-\\u0640]+");
+  return text.replace(new RegExp(pattern, "gi"), to.trim());
 }
