@@ -9535,3 +9535,7 @@ label.num select {
     padding: 14px 16px;
   }
 }
+.style-tile-new.waiting {
+  background: #f59e0b;
+  color: #111;
+}

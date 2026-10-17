@@ -66,9 +66,9 @@ const TABS: { id: string; label: string }[] = [
   ...STYLE_CATEGORIES.filter((c) => c.id !== "grid").map((c) => ({ id: c.id, label: c.label })),
 ];
 
-const shelfLabel = (s: Pick<StyleItem, "category" | "tiles" | "client">) =>
+const shelfLabel = (s: Pick<StyleItem, "category" | "tiles" | "client" | "waiting">) =>
   s.category === "grid"
-    ? `${s.client ? "Suggested · " : ""}Grid${s.tiles ? ` · ${s.tiles} posts` : ""}`
+    ? `${s.waiting ? "Waiting · " : ""}${s.client ? "Suggested · " : ""}Grid${s.tiles ? ` · ${s.tiles} posts` : ""}`
     : (STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style");
 
 /** Pages already loaded open instantly when the team comes back to them. */
@@ -156,7 +156,13 @@ export default function StyleScreen({
       if (cached && !force) return;
       setLoading(true);
       try {
-        const params = new URLSearchParams({ tab, q, page: String(page), ...(pick?.client ? { client: pick.client } : {}) });
+        const params = new URLSearchParams({
+          tab,
+          q,
+          page: String(page),
+          ...(pick?.client ? { client: pick.client } : {}),
+          ...(pick?.mode === "feed" && admin ? { waiting: "1" } : {}),
+        });
         apply(await get<Page>(`/api/studio/styles?${params}`), key);
       } catch (e) {
         toast.error((e as Error).message);
@@ -164,7 +170,7 @@ export default function StyleScreen({
         setLoading(false);
       }
     },
-    [key, tab, q, page, apply, pick?.client],
+    [key, tab, q, page, apply, pick?.client, pick?.mode, admin],
   );
 
   useEffect(() => {
@@ -258,6 +264,13 @@ export default function StyleScreen({
     if (single && selected.length !== 1) return;
     setBusy("pick");
     try {
+      // A grid still waiting is approved by the admin's pick: it joins the shelf as it is used.
+      const waiting = selected.filter((x) => x.waiting).map((x) => x.id);
+      if (waiting.length && admin) {
+        await post("/api/studio/styles/approve", { ids: waiting });
+        pages.clear();
+        onPendingChange?.();
+      }
       await pick.onPick(ids, selected);
       setSelected([]);
       onClose();
@@ -491,7 +504,7 @@ export default function StyleScreen({
                     <b>{s.title}</b>
                   </span>
                 </button>
-                {fresh && <span className="style-tile-new">New</span>}
+                {s.waiting ? <span className="style-tile-new waiting">Waiting</span> : fresh && <span className="style-tile-new">New</span>}
                 <span className="style-tile-check" aria-hidden>
                   {on && <Check size={13} strokeWidth={3} />}
                 </span>
@@ -517,7 +530,13 @@ export default function StyleScreen({
             ))}
           {data && !shown.length && (
             <p className="style-empty">
-              {reviewing ? "Nothing waiting: new styles arrive here every day for your approval." : q ? `Nothing for “${q}” here. Try another word or another tab.` : "No styles here yet: new ones come in every day."}
+              {reviewing
+                ? "Nothing waiting: new styles arrive here every day for your approval."
+                : q
+                  ? `Nothing for “${q}” here. Try another word or another tab.`
+                  : tab === "grid" && counts.gridWaiting
+                    ? `${counts.gridWaiting} grids are waiting for the admin's approval; they show here once approved.`
+                    : "No styles here yet: new ones come in every day."}
             </p>
           )}
           <span className="style-rows-end" />

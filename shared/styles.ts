@@ -60,6 +60,8 @@ export interface StyleItem {
   tiles: number;
   /** The client a suggested grid was found for. */
   client?: string;
+  /** Still waiting for the admin's approval (shown to the admin picking a month's grid). */
+  waiting?: boolean;
 }
 
 export const STYLE_SCHEMA = {
