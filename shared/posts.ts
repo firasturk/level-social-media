@@ -681,6 +681,8 @@ export interface IdeasRequest {
   tone: string;
   /** The client's profile from its Analysis (voice, audience, what works, rules for headlines and captions). */
   profile?: string;
+  /** The client has photos of its own shop: a grid's place tiles can be shot there. */
+  hasPlaces?: boolean;
   dos: string;
   donts: string;
   language: "ar" | "en" | "both";
@@ -1143,7 +1145,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
-    "MATCH EACH TILE: a post takes its tile's role. A drink tile shows one of the client's drinks, a food tile one of its dishes or sweets, a product tile a packaged product (a box, tin or bottle), a place tile the client's own shop or café, a person tile a brand ambassador with the product, a detail or texture tile a close-up of the product's own ingredients or surface, and a text tile is a typographic post (type quote, tip or announcement: its headline carries the message and the picture is only the tile's background). Pick the product whose photo note fits the tile's kind; reproduce the tile's items as non-food props in the month's colours.",
+    `MATCH EACH TILE: a post takes its tile's role. A drink tile shows one of the client's drinks, a food tile one of its dishes or sweets, a product tile a packaged product (a box, tin or bottle), ${r.hasPlaces === false ? "a place tile becomes a food or product tile (the client has no photos of its shop: never an interior, a shop, a counter, a shelf or a wall with signs or patterns; a close-up of a product on the tile's surfaces and in its light instead)" : "a place tile the client's own shop or café"}, a person tile a brand ambassador with the product, a detail or texture tile a close-up of the product's own ingredients or surface, and a text tile is a typographic post (type quote, tip or announcement: its headline carries the message and the picture is only the tile's background). Pick the product whose photo note fits the tile's kind; reproduce the tile's items as non-food props in the month's colours.`,
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} SHORT: at most 15 words in all; no hashtags inside), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "fonts": {...}, "posts": [...]} with exactly ${r.count} posts.`,
   ]

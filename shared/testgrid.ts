@@ -4,7 +4,7 @@
  * paints the cells without words; the studio draws each post's words on its cell in the month's
  * fonts, so the Arabic is right.
  */
-import type { Post } from "./posts";
+import { matchProduct, withoutBags, type Post } from "./posts";
 
 export const TEST_GRID_MAX = 12;
 export const TEST_GRID_COLUMNS = 3;
@@ -70,9 +70,14 @@ export function testGridPrompt(r: {
     const row = Math.floor(i / cols) + 1;
     const col = (i % cols) + 1;
     const kind = p.tileSpec ? `${p.tileSpec.kind} tile` : p.type;
-    const what = (p.scene || p.brief || p.title).replace(/\s+/g, " ").slice(0, 420);
+    const what = withoutBags(p.scene || p.brief || p.title).replace(/\s+/g, " ").slice(0, 420);
     const bg = p.tileSpec?.kind === "text" && p.tileSpec.background ? ` A plain background: ${p.tileSpec.background}.` : "";
-    const product = p.product ? ` Product: ${p.product}${p.products?.length ? ` with ${p.products.join(", ")}` : ""}.` : "";
+    // Each cell names the photo of its own product, so the cells never swap products.
+    const photo = (name: string) => {
+      const m = matchProduct(name, r.products);
+      return m ? `${name} (exactly as in Image ${r.products.indexOf(m) + 1})` : name;
+    };
+    const product = p.product ? ` Product: ${photo(p.product)}${p.products?.length ? ` with ${p.products.map(photo).join(", ")}` : ""}.` : "";
     return `Cell ${i + 1} (row ${row}, column ${col}), ${kind}: ${what}${bg}${product}${wordsPlace(p)}`;
   });
   return [
@@ -83,7 +88,8 @@ export function testGridPrompt(r: {
       : "",
     r.palette.length ? `The month's colours: ${r.palette.join(", ")}.` : "",
     `THE CELLS, left to right and top to bottom:\n${cells.join("\n")}`,
-    "NO words, letters, numbers, logos or watermarks anywhere in the image: the words of each post are added afterwards. No phone frame, no app interface, no profile header: only the grid of cells.",
+    "Each cell shows only its own product, the one its line names; a cell with no product named shows none of the brand's products.",
+    "NO words, letters, numbers, logos or watermarks anywhere in the image: the words of each post are added afterwards. Packaging keeps only the design its product photo shows; never invent lettering, a logo or a label on it, on a wall, a sign or a pattern. No invented shop, branch, counter or interior with brand signs. No phone frame, no app interface, no profile header: only the grid of cells.",
   ]
     .filter(Boolean)
     .join("\n\n");

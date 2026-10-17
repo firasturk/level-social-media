@@ -882,8 +882,12 @@ postRoutes.post("/reidea", async (c) => {
       batch: z.string().min(1),
       index: z.number().int().min(1).max(MAX_POST_COUNT),
       wish: z.string().max(1000).optional(),
+      /** The client has no photos of its shop: the post becomes a product post. */
+      noPlace: z.boolean().optional(),
     }),
   );
+  if (d.noPlace)
+    d.wish = `${d.wish ? `${d.wish} ` : ""}The client has no photos of its shop or branch: this post shows one of its products instead (a close-up on a surface in the month's colours, with the tile's props), never an interior, a shop, a counter, shelves, or a wall with signs, logos or patterns.`;
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
@@ -934,6 +938,8 @@ postRoutes.post("/reidea", async (c) => {
     occasion: current.occasion ?? fresh.occasion,
     // The post changed: its shot is written again on the shots screen.
     scene: undefined,
+    // A place tile without photos of the shop becomes a food tile.
+    tileSpec: d.noPlace && current.tileSpec?.kind === "place" ? { ...current.tileSpec, kind: "food" } : current.tileSpec,
   };
   // An offer shows exactly the designer's products.
   if (next.type === "offer" && next.offer?.products.length) {
@@ -1127,7 +1133,9 @@ postRoutes.post("/grid-ideas", async (c) => {
   );
   const count = d.count ?? config.postCount ?? 12;
   const gridCast = await monthAmbassadors(c.env, config);
+  const hasPlaces = !!(await first(c.env.DB, "SELECT 1 AS x FROM brand_assets WHERE client = ? AND kind = 'place' LIMIT 1", client.id));
   const instruction = gridIdeasInstruction({
+    hasPlaces,
     clientName: client.name,
     tone: client.tone,
     profile: await profileOf(c.env, client.id),
@@ -1177,6 +1185,8 @@ postRoutes.post("/grid-ideas", async (c) => {
     // The tile's own role and lettering: a text tile becomes a typographic post, and the words sit
     // where the tile has them.
     const spec = tileSpecOf(t);
+    // Without photos of the client's shop, a place tile is written as a food tile: no invented interior.
+    if (spec?.kind === "place" && !hasPlaces) spec.kind = "food";
     if (spec) {
       p.tileSpec = spec;
       Object.assign(p, overlayFromTile(spec.text, spec.kind));

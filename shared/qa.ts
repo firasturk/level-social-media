@@ -5,7 +5,7 @@
 import { BAGS, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 
-export type FixKind = "shot" | "post" | "unbag" | "include";
+export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace";
 
 export interface PostProblem {
   index: number;
@@ -14,13 +14,17 @@ export interface PostProblem {
   /**
    * "shot": write this post's shot again; "post": write the post (idea and caption) again; "unbag":
    * take out the sentences with a bag or a carrier (no writing needed); "include": the month's
-   * products the post names join its picture (no writing needed).
+   * products the post names join its picture (no writing needed); "noplace": the post is written
+   * again about a product, since the client has no photos of its shop.
    */
   fix: FixKind;
   /** "include": the products to add to the post's picture. */
   products?: string[];
 }
 
+/** A picture inside the client's shop or branch (its counter, shelves, interior). */
+const SHOP_INSIDE =
+  /\b(interior|inside)\b[^.]{0,60}\b(shop|store|branch|bakery|caf[eé]|boutique|showroom)\b|\b(shop|store|branch|bakery|caf[eé]|boutique|showroom)\b[^.]{0,60}\b(interior|counter|shelf|shelves|display case|storefront|shop window)\b/i;
 const MALE = /\b(man|male|boy|gentleman|husband|father|son)\b|رجل|شاب|ولد/i;
 const FEMALE = /\b(woman|female|girl|lady|wife|mother|daughter)\b|امرأة|بنت|سيدة|فتاة/i;
 const WOMENS_WEAR = /\b(headscarf|head scarf|hijab|veil|dress|skirt|abaya)\b|حجاب|فستان|تنورة/i;
@@ -73,6 +77,8 @@ export function postProblems(
     sellsDrinks?: boolean;
     /** The theme has shots, so every post should have its own. */
     needsScene: boolean;
+    /** The client has photos of its own shop; without them a shop interior would be invented. */
+    hasPlaces?: boolean;
   },
 ): PostProblem[] {
   const out: PostProblem[] = [];
@@ -81,6 +87,8 @@ export function postProblems(
   if (ctx.needsScene && !scene.trim()) out.push({ index: n, text: "has no shot yet", fix: "shot" });
   if (post.type === "offer" && !offerReady(post.offer))
     out.push({ index: n, text: "is an offer without its products, price and contents", fix: "post" });
+  if (ctx.hasPlaces === false && post.type !== "greeting" && (post.tileSpec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${scene}`)))
+    out.push({ index: n, text: "shows the client's shop, which has no photos: it would be invented", fix: "noplace" });
   if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {
