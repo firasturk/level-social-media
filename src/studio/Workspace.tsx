@@ -600,7 +600,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false) {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false) {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -621,6 +621,7 @@ export default function Workspace({
         indexes,
         regenerate,
         test: test || undefined,
+        retake: retake || undefined,
       });
       await refresh();
       if (test && r.planned)
@@ -1105,7 +1106,7 @@ export default function Workspace({
                 cast={ambassadors.filter((a) => castIds.includes(a.id))}
                 onPostCount={(n) => void updateSettings({ postCount: n })}
                 onSavePlan={(p) => void savePlan(p)}
-                onGeneratePosts={(i, r) => void generatePosts(i, r)}
+                onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
@@ -1188,7 +1189,7 @@ export default function Workspace({
           }}
           engineReady={engineConnected}
           posts={journeyPosts}
-          onRetake={(index) => generatePosts([index], true, false)}
+          onRetake={(index) => generatePosts([index], true, false, false, true)}
           onFix={async (index, edit) => {
             const t = tasks.find((x) => x.post === index);
             if (!t) return;
@@ -1231,7 +1232,7 @@ export default function Workspace({
               ? () => {
                   const i = selected.post!;
                   setSelected(null);
-                  void generatePosts([i], true, false);
+                  void generatePosts([i], true, false, false, true);
                 }
               : undefined
           }

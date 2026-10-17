@@ -1408,6 +1408,8 @@ postRoutes.post("/generate", async (c) => {
       regenerate: z.boolean().optional(),
       /** One post first, to check the month's look before the rest is paid for. */
       test: z.boolean().optional(),
+      /** The designer asked for another take of this post (the take count goes up). */
+      retake: z.boolean().optional(),
     }),
   );
   const user = c.get("user");
@@ -1655,10 +1657,10 @@ postRoutes.post("/generate", async (c) => {
         });
       }
     }
-    // A retake of the same idea counts up (each take asks for a different picture); a new idea or
-    // a new shot starts again at take 1.
+    // Only the designer's own Retake of the same idea counts up (each take asks for a different
+    // picture); a new idea, a new shot or the system making a post again starts at take 1.
     let take = 1;
-    if (existing?.brief && d.regenerate) {
+    if (existing?.brief && d.regenerate && d.retake) {
       try {
         const prev = JSON.parse(existing.brief) as Partial<PostBrief>;
         const shot = textured ? spec!.background : post.scene?.trim() || undefined;

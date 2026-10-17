@@ -72,3 +72,14 @@ describe("no logos asked for in the picture", () => {
     expect(withoutLettering("A marble tray on a market stall.")).toBe("A marble tray on a market stall.");
   });
 });
+
+describe("the reference grid's bags and logos never reach the engine", () => {
+  it("cleans the tile and the grid reading", async () => {
+    const { tileWithoutBags, gridWithoutBags } = await import("@shared/posts");
+    const tile = "Tile 5 (row 2, col 2): A person holding a large brand shopping bag. Product: bag held at waist level Items: shopping bag, person in modest clothing";
+    expect(tileWithoutBags(tile, true)).toContain("A person holding the product.");
+    expect(tileWithoutBags(tile, false)).not.toMatch(/bag/i);
+    const grid = "A warm studio world. The brand logo sits on every box.\nTile 4 (row 2, col 1, text): A nut and a ribbon.\nTile 5 (row 2, col 2, person): A person holding a large brand shopping bag.\nTile 7 (row 3, col 1, place): Items: display case, arched wall, logo";
+    expect(gridWithoutBags(grid)).toBe("A warm studio world.\nTile 4 (row 2, col 1, text): A nut and a ribbon.");
+  });
+});

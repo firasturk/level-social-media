@@ -471,7 +471,9 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   })();
   // Sentences that put a product into a bag or a carrier (older briefs and shots) never reach the
   // engine: the product is held or set down, never packed into something.
-  const unbagged = (t: string) => (b.hasProduct || b.exact ? withoutBags(t) : t);
+  // Bags and carriers never reach the engine, with a product or without one (it copies a
+  // reference's branded bag, logo and all).
+  const unbagged = (t: string) => withoutBags(t);
   const clean = (t: string) => withoutLettering(unbagged(withoutProductNames(t, names)));
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
@@ -568,7 +570,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   else if (!b.styleKey) parts.push(NO_PROPS_RULE);
   if (b.grid)
     parts.push(
-      `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, text or logos.${b.tile ? ` THIS POST FOLLOWS TILE: ${b.tile.trim()}` : ""}\n${b.grid.trim()}`,
+      `REFERENCE GRID: the attached style reference is a whole feed grid. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
     );
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
@@ -1359,5 +1361,27 @@ export function withoutLettering(text: string): string {
     .replace(/\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+(cards?)\b/gi, "blank $1 with nothing printed on it")
     .replace(/\bprice\s+(tags?)\b/gi, "blank $1 with nothing written on it")
     .replace(/\b(menus?)\b/gi, "blank folded card");
+}
+
+/** A bag, carrier or tote however it is written ("a large brand shopping bag"). */
+const BAG_PHRASE = /\b(?:an?\s+|the\s+)?(?:(?:large|small|big|paper|brand(?:ed)?|shopping|gift|tote)\s+)*(?:bags?|carriers?|totes?|baskets?)\b/gi;
+
+/** A grid tile's words without its bag: the product takes the bag's place, or the bag goes. */
+export function tileWithoutBags(tile: string, hasProduct: boolean): string {
+  if (!BAGS.test(tile)) return tile;
+  if (hasProduct) return tile.replace(BAG_PHRASE, "the product");
+  return tile
+    .split(/(?<=[.:])\s+/)
+    .filter((x) => !BAGS.test(x))
+    .join(" ");
+}
+
+/** The grid's reading without the tiles that hold bags or logos (the engine copies them). */
+export function gridWithoutBags(grid: string): string {
+  return grid
+    .split("\n")
+    .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || /\blogos?\b/i.test(line) ? "" : line) : withoutLettering(withoutBags(line))))
+    .filter(Boolean)
+    .join("\n");
 }
 
