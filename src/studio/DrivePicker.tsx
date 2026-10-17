@@ -3,13 +3,15 @@ import { Check, Copy, FolderOpen, LoaderCircle, RefreshCw, Sparkles } from "luci
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post, put } from "@/api";
-import { DRIVE_KINDS, DRIVE_KIND_LABELS, type DriveKind, type DrivePhoto, type DrivePick } from "@shared/drive";
+import { DRIVE_KINDS, DRIVE_KIND_LABELS, type DriveKind, type DrivePhoto, type DrivePick, type DriveSkipped } from "@shared/drive";
 
 interface DriveState {
   link: string;
   email: string | null;
   folder: string | null;
   photos: DrivePhoto[];
+  /** Files it does not read (videos, RAW files…), by folder. */
+  skipped?: DriveSkipped[];
   error?: string;
 }
 
@@ -225,6 +227,15 @@ export default function DrivePicker({
                 </button>
               </span>
             </div>
+            {!!state.skipped?.length && (
+              <p className="field-hint drive-skipped">
+                Not read (only JPEG, PNG, WebP, HEIC and TIFF photos are):{" "}
+                {state.skipped
+                  .slice(0, 6)
+                  .map((x) => `${x.folder || "top folder"}: ${x.n} ${x.what}`)
+                  .join(" · ")}
+              </p>
+            )}
             {list.length ? (
               <div className="drive-grid">
                 {list.slice(0, shown).map((p) => {
@@ -241,6 +252,7 @@ export default function DrivePicker({
                       <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
                       <figcaption>{why?.product || p.name}</figcaption>
                       {why && <span className="journey-tag drive-ai">AI pick</span>}
+                      {p.video && <span className="journey-tag drive-video">Video frame</span>}
                       {on && (
                         <span className="journey-thumb-check">
                           <Check size={12} />

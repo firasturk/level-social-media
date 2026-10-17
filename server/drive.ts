@@ -21,7 +21,7 @@ import {
   parseDriveRead,
   type DriveKind,
 } from "@shared/drive";
-import { DRIVE_PICK_SCHEMA, DRIVE_READ_VERSION, driveFolderId, drivePickInstruction, freeName, isClientFolder, parsePicks, photoName, PLACE_KINDS, PRODUCT_KINDS, spreadPhotos, type DrivePhoto } from "@shared/drive";
+import { DRIVE_PICK_SCHEMA, DRIVE_READ_VERSION, driveFolderId, drivePickInstruction, freeName, isClientFolder, parsePicks, photoName, PLACE_KINDS, PRODUCT_KINDS, spreadPhotos, type DrivePhoto, type DriveSkipped } from "@shared/drive";
 import { stemKey } from "@shared/naming";
 
 type Variables = { user: User };
@@ -78,6 +78,17 @@ async function children(env: Env, folder: string): Promise<DriveFile[]> {
 }
 
 const listed = new Map<string, { at: number; photos: DrivePhoto[] }>(); // per isolate
+/** The files under a folder that are not photos the studio reads ("factory HB": 40 videos), per isolate. */
+const skippedIn = new Map<string, DriveSkipped[]>();
+
+/** What a file the studio does not read is, in words. */
+function skippedKind(mime: string, size: number): string {
+  if (mime.startsWith("video/")) return "videos";
+  if (/^image\//.test(mime)) return /^image\/(jpe?g|png|webp|heic|heif|tiff)$/i.test(mime) && size <= 40_000 ? "tiny images" : "RAW or other image files";
+  if (mime === "application/pdf") return "PDFs";
+  if (mime.startsWith("application/vnd.google-apps.shortcut")) return "shortcuts";
+  return `${mime.replace(/^application\//, "")} files`;
+}
 
 /** Every photo under the folder, its subfolders included, with the folder path it sits in. */
 async function photosIn(env: Env, root: string, fresh = false): Promise<DrivePhoto[]> {
@@ -86,6 +97,7 @@ async function photosIn(env: Env, root: string, fresh = false): Promise<DrivePho
   const photos: DrivePhoto[] = [];
   const queue: { id: string; path: string[] }[] = [{ id: root, path: [] }];
   let folders = 0;
+  const skipped = new Map<string, DriveSkipped>();
   while (queue.length && folders < MAX_FOLDERS && photos.length < MAX_PHOTOS) {
     const batch = queue.splice(0, 6);
     folders += batch.length;
@@ -95,8 +107,10 @@ async function photosIn(env: Env, root: string, fresh = false): Promise<DrivePho
         const mime = x.shortcutDetails?.targetMimeType ?? x.mimeType;
         const id = x.shortcutDetails?.targetId ?? x.id;
         if (mime === FOLDER) queue.push({ id, path: [...f.path, x.name] });
-        else if (/^image\/(jpe?g|png|webp|heic|heif|tiff)$/i.test(mime) && Number(x.size ?? 1e6) > 40_000)
+        else if ((/^image\/(jpe?g|png|webp|heic|heif|tiff)$/i.test(mime) && Number(x.size ?? 1e6) > 40_000) || mime.startsWith("video/"))
           photos.push({
+            // A video is read from its frame (Drive's thumbnail): a kitchen or factory clip becomes a place photo.
+            ...(mime.startsWith("video/") ? { video: true } : {}),
             id,
             file: x.name,
             name: photoName(x.name, f.path),
@@ -105,9 +119,18 @@ async function photosIn(env: Env, root: string, fresh = false): Promise<DrivePho
             h: x.imageMediaMetadata?.height ?? 0,
             modified: x.modifiedTime ?? "",
           });
+        else if (!/xml|json/i.test(mime)) {
+          // Camera sidecar files (XML) are not worth a word.
+          const folder = f.path[0] ?? "";
+          const what = skippedKind(mime, Number(x.size ?? 0));
+          const had = skipped.get(`${folder}|${what}`);
+          if (had) had.n++;
+          else skipped.set(`${folder}|${what}`, { folder, what, n: 1 });
+        }
       }
   }
   listed.set(root, { at: Date.now(), photos });
+  skippedIn.set(root, [...skipped.values()].sort((a, b) => b.n - a.n));
   return photos;
 }
 
@@ -122,6 +145,7 @@ async function photoBytes(env: Env, id: string, size: number): Promise<ImageByte
         return { bytes: await r.arrayBuffer(), mime: r.headers.get("content-type")!.split(";")[0] };
     }
   }
+  if (meta.mimeType.startsWith("video/")) throw new StudioError("Drive has no frame of this video yet; try again later.", 502);
   if (Number(meta.size ?? 0) > 25_000_000) throw new StudioError("Drive has no smaller copy of this photo yet; try again in a minute.", 502);
   const { token } = await auth(env);
   const r = await fetch(`${API}/${encodeURIComponent(id)}?alt=media&${ALL_DRIVES}`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
@@ -289,7 +313,7 @@ driveRoutes.get("/:client", async (c) => {
   try {
     const folder = await drive<DriveFile>(c.env, `/${id}?fields=id,name&${ALL_DRIVES}`);
     const photos = await listClient(c.env, c.req.param("client"), id, c.req.query("fresh") === "1");
-    return c.json({ ok: true, link, email, folder: folder.name, photos });
+    return c.json({ ok: true, link, email, folder: folder.name, photos, skipped: skippedIn.get(id) ?? [] });
   } catch (e) {
     return c.json({ ok: true, link, email, folder: null, photos: [], error: errorMessage(e) });
   }
@@ -386,7 +410,7 @@ driveRoutes.post("/:client/pick", async (c) => {
   if (!id) throw new StudioError("Add the client's Drive folder first.");
   // Only photos of products: what vision read as the shop, the kitchen, people or a design stays out.
   const all = (await listClient(c.env, clientId, id))
-    .filter((p) => !p.kind || PRODUCT_KINDS.has(p.kind))
+    .filter((p) => !p.video && (!p.kind || PRODUCT_KINDS.has(p.kind)))
     .filter((p) => !d.folder || p.folder === d.folder || p.folder.startsWith(`${d.folder} / `));
   if (!all.length) throw new StudioError("No photos in this folder.", 404);
   const candidates = spreadPhotos(all, 36);

@@ -10055,3 +10055,13 @@ button.shot-product:hover {
   grid-column: 2;
   justify-self: start;
 }
+.drive-video {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+.drive-skipped {
+  margin: 0;
+}

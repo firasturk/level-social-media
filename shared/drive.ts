@@ -19,6 +19,15 @@ export interface DrivePhoto {
   kind?: DriveKind;
   /** A few words on what it shows. */
   note?: string;
+  /** A video, seen through its frame: used for the client's places, never as a product photo. */
+  video?: boolean;
+}
+
+/** Files in a client's folder the studio does not read, by top folder ("factory HB": 40 videos). */
+export interface DriveSkipped {
+  folder: string;
+  what: string;
+  n: number;
 }
 
 /**
@@ -138,6 +147,7 @@ export const DRIVE_READ_SCHEMA = {
 export function driveReadInstruction(client: string, photos: { file: string; folder: string }[]): string {
   return [
     `Images 1 to ${photos.length} are photos from the Google Drive of the client "${client}" (a brand in Jordan). Say what each one is, so the team finds it by name.`,
+    "A file with a video name (.mp4, .mov) is seen through one frame of the video.",
     `Where each comes from (folder / file):\n${photos.map((p, i) => `${i + 1}. ${p.folder || "(top folder)"} / ${p.file}`).join("\n")}`,
     [
       "For every image:",

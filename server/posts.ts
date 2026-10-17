@@ -1554,7 +1554,7 @@ postRoutes.post("/generate", async (c) => {
         if (row) sources.push(row);
       }
       // Then the client's Drive: its newest photo of that product joins the month.
-      const drive = notInGallery.length ? (await clientDrivePhotos(c.env, config.client ?? "")).filter((x) => !x.kind || PRODUCT_KINDS.has(x.kind)) : [];
+      const drive = notInGallery.length ? (await clientDrivePhotos(c.env, config.client ?? "")).filter((x) => !x.video && (!x.kind || PRODUCT_KINDS.has(x.kind))) : [];
       if (drive.length) {
         // The cleanest photo of each product first (a packshot), the newest among equals.
         const newest = [...drive].sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
@@ -2300,7 +2300,7 @@ async function productOptions(env: Env, b: BatchRow, client: string): Promise<Pr
   // Photos vision read as the shop, the kitchen, people or a design are not products.
   const drive = new Map<string, { id: string; name: string; folder: string; note: string; n: number }>();
   for (const p of (await clientDrivePhotos(env, client)).sort((a, z) => productRank(a.kind) - productRank(z.kind) || z.modified.localeCompare(a.modified))) {
-    if (p.kind && !PRODUCT_KINDS.has(p.kind)) continue;
+    if (p.video || (p.kind && !PRODUCT_KINDS.has(p.kind))) continue;
     const k = p.name.toLowerCase();
     const had = drive.get(k);
     if (had) had.n++;
