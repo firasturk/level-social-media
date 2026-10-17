@@ -15,7 +15,14 @@ export interface DrivePhoto {
   w: number;
   h: number;
   modified: string;
+  /** What vision read in the photo, once read: product, place, people, design or other. */
+  kind?: DriveKind;
+  /** A few words on what it shows. */
+  note?: string;
 }
+
+export const DRIVE_KINDS = ["product", "place", "people", "design", "other"] as const;
+export type DriveKind = (typeof DRIVE_KINDS)[number];
 
 /** The folder id in a Drive link (…/folders/<id>, ?id=<id>) or a bare id; null when there is none. */
 export function driveFolderId(link: string): string | null {
@@ -31,11 +38,80 @@ const MEANINGLESS = /^(dsc|dscf|img|_?mg|at5a|dji|pxl|zeko|gemini_generated_imag
 const GENERIC_FOLDER = /^(gallery|photos?|pictures?|images?|final|finals|edited|selects?|raw|jpe?g|png|high ?res|low ?res|web|new|old|misc|\d{2,4}([-_ ]\d{1,2})*)$/i;
 
 export function photoName(file: string, folders: string[]): string {
-  const stem = file.replace(/\.[a-z0-9]{2,5}$/i, "").trim();
-  const meaningful = stem && !MEANINGLESS.test(stem) && /[a-z؀-ۿ]{3,}/i.test(stem) && !/^\d+$/.test(stem);
+  // "22. Turkish Trillica Kunafa.jpg" → "Turkish Trillica Kunafa": catalogue numbers name no product.
+  const stem = file.replace(/(\.[a-z0-9]{2,5})+$/i, "").replace(/^\d{1,3}\s*[.)\-_]\s*/, "").trim();
+  const meaningful = stem && !isCameraName(stem) && /[a-z؀-ۿ]{3,}/i.test(stem);
   if (meaningful) return stem.replace(/[_]+/g, " ").replace(/\s+\d+$/, "").trim();
   const folder = [...folders].reverse().find((f) => !GENERIC_FOLDER.test(f.trim()));
   return (folder ?? stem).trim();
+}
+
+const nameKey = (s: string) => s.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff]+/g, "");
+
+/** A folder named after the client ("Habibah", "Abu saleh", "Habibah Photos"): its own folder in a shared one. */
+export function isClientFolder(folder: string, client: string): boolean {
+  const f = nameKey(folder);
+  const c = nameKey(client);
+  if (!f || c.length < 3) return false;
+  return f === c || (f.startsWith(c) && f.length - c.length <= 12) || (c.startsWith(f) && f.length >= 4);
+}
+
+/** Camera and export codes ("DSC01838", "D22A1936 copy", "IMG_2041 (2)"): they say nothing of the product. */
+/** One word with three digits in a row and no real word in it ("DSC01838", "D22A1936", "IMG_2041"). */
+const CAMERA = /^(?=.*\d{3})(?!.*[a-z]{4})[a-z0-9_-]+$/i;
+export function isCameraName(name: string): boolean {
+  const s = name.replace(/(\s+copy|\s*\(\d+\))+$/i, "").trim();
+  return !s || MEANINGLESS.test(s) || CAMERA.test(s) || /^\d+$/.test(s);
+}
+
+/* ───────────── Reading Drive photos ───────────── */
+
+export const DRIVE_READ_SCHEMA = {
+  type: "object",
+  properties: {
+    photos: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          image: { type: "integer" },
+          name: { type: "string" },
+          kind: { type: "string", enum: [...DRIVE_KINDS] },
+          note: { type: "string" },
+        },
+        required: ["image", "name", "kind", "note"],
+      },
+    },
+  },
+  required: ["photos"],
+};
+
+export function driveReadInstruction(client: string, photos: { file: string; folder: string }[]): string {
+  return [
+    `Images 1 to ${photos.length} are photos from the Google Drive of the client "${client}" (a brand in Jordan). Say what each one is, so the team finds it by name.`,
+    `Where each comes from (folder / file):\n${photos.map((p, i) => `${i + 1}. ${p.folder || "(top folder)"} / ${p.file}`).join("\n")}`,
+    [
+      "For every image:",
+      "- name: the product in it, 2-5 words, the way the brand would name it (\"Pistachio kunafa tray\", \"Mango juice cup\", \"Chocolate fudge cake slice\"); use the folder's or packaging's name when it says it; for a non-product photo, what it shows (\"Shop counter\", \"Barista at work\");",
+      "- kind: product (a product is the subject), place (the shop, branch or a space), people (a person is the subject), design (a finished post, poster, logo or anything with designed text), other;",
+      "- note: one short sentence on what is in it (packaging, colours, how it is shot).",
+    ].join("\n"),
+    "Return ONLY the JSON.",
+  ].join("\n\n");
+}
+
+export function parseDriveRead(raw: unknown, count: number): { image: number; name: string; kind: DriveKind; note: string }[] {
+  const list = raw && typeof raw === "object" && Array.isArray((raw as { photos?: unknown }).photos) ? (raw as { photos: Record<string, unknown>[] }).photos : [];
+  const out = new Map<number, { image: number; name: string; kind: DriveKind; note: string }>();
+  for (const x of list) {
+    const image = Math.round(Number(x?.image));
+    if (image < 1 || image > count || out.has(image)) continue;
+    const kind = (DRIVE_KINDS as readonly string[]).includes(String(x?.kind)) ? (String(x.kind) as DriveKind) : "other";
+    const name = String(x?.name ?? "").replace(/[\\/]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!name) continue;
+    out.set(image, { image, name, kind, note: String(x?.note ?? "").trim().slice(0, 240) });
+  }
+  return [...out.values()];
 }
 
 /** At most `max` photos spread over the folders (round robin, newest first in each), for the picker. */

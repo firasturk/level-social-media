@@ -2080,17 +2080,19 @@ async function productOptions(env: Env, b: BatchRow, client: string): Promise<Pr
     names.push(name);
     out.push({ source: "gallery", id: g.id, name, note: g.note ?? "" });
   }
-  // Drive: one option per product name (its newest photo), with how many photos it has.
-  const drive = new Map<string, { id: string; name: string; folder: string; n: number }>();
+  // Drive: one option per product name (its newest photo), with how many photos it has. Photos
+  // vision read as a place, people or a design are not products.
+  const drive = new Map<string, { id: string; name: string; folder: string; note: string; n: number }>();
   for (const p of (await clientDrivePhotos(env, client)).sort((a, z) => z.modified.localeCompare(a.modified))) {
+    if (p.kind && p.kind !== "product") continue;
     const k = p.name.toLowerCase();
     const had = drive.get(k);
     if (had) had.n++;
-    else drive.set(k, { id: p.id, name: p.name, folder: p.folder, n: 1 });
+    else drive.set(k, { id: p.id, name: p.name, folder: p.folder, note: p.note ?? "", n: 1 });
   }
   for (const d of drive.values()) {
     if (names.some((n) => n.toLowerCase() === d.name.toLowerCase()) || out.filter((o) => o.source === "drive").length >= 150) continue;
-    out.push({ source: "drive", id: d.id, name: d.name, note: `${d.n} photo${d.n > 1 ? "s" : ""}${d.folder ? ` in ${d.folder}` : ""}` });
+    out.push({ source: "drive", id: d.id, name: d.name, note: `${d.note ? `${d.note} ` : ""}(${d.n} photo${d.n > 1 ? "s" : ""}${d.folder ? ` in ${d.folder}` : ""})` });
   }
   return out;
 }

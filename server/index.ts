@@ -10,6 +10,7 @@ import { adminRoutes, cleanupOldBatches } from "./admin";
 import { advanceBatch, activeBatchIds, readPendingReferences } from "./engine";
 import type { User } from "@shared/types";
 import { serveStatic } from "./static";
+import { readDrivePhotos } from "./drive";
 import { shareRoutes } from "./share";
 
 type Variables = { user: User };
@@ -127,6 +128,8 @@ export default {
     );
     // The style library grows by itself: new pins collected each day, a few read each minute.
     ctx.waitUntil(dailyStyles(env).catch((e) => console.error("[styles]", errorMessage(e))));
+    // The clients' Drive photos are named by vision a few at a time, so the team finds them by name.
+    ctx.waitUntil(readDrivePhotos(env).catch((e) => console.error("[drive]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     for (const id of ids)
       ctx.waitUntil(advanceBatch(env, id).catch((e) => console.error("[cron]", id, e)));

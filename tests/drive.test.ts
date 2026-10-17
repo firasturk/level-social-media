@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { driveFolderId, drivePickInstruction, freeName, parseMatches, parsePicks, photoName, productMatchInstruction, spreadPhotos, type DrivePhoto, type ProductOption } from "@shared/drive";
+import { driveFolderId, driveReadInstruction, isCameraName, isClientFolder, parseDriveRead, drivePickInstruction, freeName, parseMatches, parsePicks, photoName, productMatchInstruction, spreadPhotos, type DrivePhoto, type ProductOption } from "@shared/drive";
 
 const photo = (id: string, folder: string, modified = "2026-01-01", file = `${id}.jpg`): DrivePhoto => ({ id, file, name: photoName(file, folder.split(" / ")), folder, w: 0, h: 0, modified });
 
@@ -60,5 +60,28 @@ describe("Drive folders", () => {
   it("finds a free product name in the month", () => {
     expect(freeName("Sidr - Tray", new Set(["sidr - tray", "sidr - tray (2)"]))).toBe("Sidr - Tray (3)");
     expect(freeName("Kunafah / Sidr", new Set())).toBe("Kunafah Sidr");
+  });
+
+  it("finds each client's own folder and names catalogue photos without their number", () => {
+    expect(isClientFolder("Habibah", "Habibah")).toBe(true);
+    expect(isClientFolder("Abu saleh", "Abu Saleh")).toBe(true);
+    expect(isClientFolder("Habibah Photos", "Habibah")).toBe(true);
+    expect(isClientFolder("Level shared", "Habibah")).toBe(false);
+    expect(isClientFolder("Bekdash", "Abu Saleh")).toBe(false);
+    expect(photoName("22. Turkish Trillica Kunafa.jpg.png", ["Bekdash"])).toBe("Turkish Trillica Kunafa");
+    expect(photoName("1. Arabic Ice Cream Rolls.jpg", [])).toBe("Arabic Ice Cream Rolls");
+  });
+
+  it("knows camera names and reads what vision says of each photo", () => {
+    expect(isCameraName("DSC01838")).toBe(true);
+    expect(isCameraName("D22A1936 copy")).toBe(true);
+    expect(isCameraName("IMG_2041 (2)")).toBe(true);
+    expect(isCameraName("Carrot Cake")).toBe(false);
+    expect(photoName("D22A1936 copy.jpg", ["Gallery", "Cake Pictures"])).toBe("Cake Pictures");
+    expect(driveReadInstruction("Abu Saleh", [{ file: "DSC01838.JPG", folder: "Photos" }])).toContain("1. Photos / DSC01838.JPG");
+    expect(parseDriveRead({ photos: [{ image: 1, name: "Mango / juice cup", kind: "product", note: "orange cup" }, { image: 1, name: "again" }, { image: 2, name: "Counter", kind: "shop" }, { image: 5, name: "x" }] }, 2)).toEqual([
+      { image: 1, name: "Mango juice cup", kind: "product", note: "orange cup" },
+      { image: 2, name: "Counter", kind: "other", note: "" },
+    ]);
   });
 });

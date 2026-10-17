@@ -74,7 +74,24 @@ export default function DrivePicker({
   async function saveLink() {
     setSaving(true);
     try {
-      await put(`/api/studio/drive/${encodeURIComponent(client.id)}`, { link });
+      const r = await put<{ folder: string; narrowed: boolean }>(`/api/studio/drive/${encodeURIComponent(client.id)}`, { link });
+      if (r.narrowed) toast.success(`That folder holds every client: ${client.name} reads only its own folder, "${r.folder}".`);
+      load(true);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** One shared folder of all the clients: each client gets the folder named after it. */
+  async function connectAll() {
+    setSaving(true);
+    try {
+      const r = await post<{ connected: { client: string; folder: string }[]; missing: string[] }>("/api/studio/drive/all", { link });
+      toast.success(
+        `${r.connected.length} client${r.connected.length === 1 ? "" : "s"} connected (${r.connected.map((x) => x.client).join(", ") || "none"}).${r.missing.length ? ` No folder named after ${r.missing.join(", ")}.` : ""}`,
+      );
       load(true);
     } catch (e) {
       toast.error((e as Error).message);
@@ -167,6 +184,9 @@ export default function DrivePicker({
                 {saving ? <LoaderCircle className="spinning" size={16} /> : <FolderOpen size={16} />} Connect
               </button>
             </div>
+            <button type="button" className="text-button drive-all" onClick={() => void connectAll()} disabled={saving || !link.trim()} title="For a folder that holds every client's folder">
+              Connect every client from this folder (each one gets the folder with its name)
+            </button>
           </div>
         ) : (
           <>

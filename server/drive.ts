@@ -8,13 +8,20 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
-import { first, now, run, uuid } from "./db";
+import { all, first, now, run, uuid } from "./db";
 import { askText, parseJson, profileOf } from "./posts";
 import { resolveVertex } from "./settings";
 import { vertexToken } from "./vertex";
 import type { ImageBytes } from "./openai";
 import type { User } from "@shared/types";
-import { DRIVE_PICK_SCHEMA, driveFolderId, drivePickInstruction, freeName, parsePicks, photoName, spreadPhotos, type DrivePhoto } from "@shared/drive";
+import {
+  DRIVE_READ_SCHEMA,
+  driveReadInstruction,
+  isCameraName,
+  parseDriveRead,
+  type DriveKind,
+} from "@shared/drive";
+import { DRIVE_PICK_SCHEMA, driveFolderId, drivePickInstruction, freeName, isClientFolder, parsePicks, photoName, spreadPhotos, type DrivePhoto } from "@shared/drive";
 import { stemKey } from "@shared/naming";
 
 type Variables = { user: User };
@@ -132,11 +139,80 @@ export async function clientDrivePhotos(env: Env, client: string): Promise<Drive
   const id = driveFolderId(await folderOf(env, client));
   if (!id) return [];
   try {
-    return await photosIn(env, id);
+    return await listClient(env, client, id);
   } catch (e) {
     console.error("[drive] list", errorMessage(e));
     return [];
   }
+}
+
+/**
+ * The client's photos with what vision read in them: a camera-named photo ("DSC01838") takes the
+ * name vision gave it. New photos are queued for the cron to read.
+ */
+async function listClient(env: Env, client: string, root: string, fresh = false): Promise<DrivePhoto[]> {
+  const photos = await photosIn(env, root, fresh);
+  const t = now();
+  const insert = env.DB.prepare("INSERT OR IGNORE INTO drive_photos (id, client, file, folder, updated) VALUES (?, ?, ?, ?, ?)");
+  for (let i = 0; i < photos.length; i += 50)
+    await env.DB.batch(photos.slice(i, i + 50).map((p) => insert.bind(p.id, client, p.file, p.folder, t)));
+  await run(env.DB, "UPDATE client_profiles SET drive_listed = ? WHERE client = ?", t, client);
+  const read = new Map(
+    (await all<{ id: string; name: string; kind: DriveKind; note: string }>(env.DB, "SELECT id, name, kind, note FROM drive_photos WHERE client = ? AND status = 'read'", client)).map((r) => [r.id, r]),
+  );
+  return photos.map((p) => {
+    const r = read.get(p.id);
+    if (!r) return p;
+    const own = photoName(p.file, []);
+    return { ...p, name: isCameraName(own) ? r.name : p.name, kind: r.kind, note: r.note };
+  });
+}
+
+/**
+ * The cron reads a few Drive photos each minute: lists one client's folder when it is due (every
+ * six hours), then names the next photos waiting, twelve to a vision call.
+ */
+export async function readDrivePhotos(env: Env, calls = 2): Promise<number> {
+  if (!(await resolveVertex(env))) return 0;
+  const due = await first<{ client: string; drive: string }>(
+    env.DB,
+    "SELECT client, drive FROM client_profiles WHERE drive != '' AND (drive_listed IS NULL OR drive_listed < ?) ORDER BY drive_listed LIMIT 1",
+    now() - 6 * 3600_000,
+  );
+  const dueId = due ? driveFolderId(due.drive) : null;
+  if (due && dueId) await listClient(env, due.client, dueId, true).catch((e) => console.error("[drive] list", errorMessage(e)));
+  let done = 0;
+  for (let call = 0; call < calls; call++) {
+    const head = await first<{ client: string }>(env.DB, "SELECT client FROM drive_photos WHERE status = 'new' ORDER BY updated LIMIT 1");
+    if (!head) break;
+    const rows = await all<{ id: string; file: string; folder: string }>(
+      env.DB,
+      "SELECT id, file, folder FROM drive_photos WHERE client = ? AND status = 'new' ORDER BY updated LIMIT 12",
+      head.client,
+    );
+    const client = (await first<{ name: string }>(env.DB, "SELECT name FROM clients WHERE id = ?", head.client))?.name ?? head.client;
+    const images = await Promise.all(rows.map((r) => photoBytes(env, r.id, 384).catch(() => null)));
+    const seen = rows.filter((_, i) => images[i]);
+    const t = now();
+    const mark = env.DB.prepare("UPDATE drive_photos SET status = ?, name = ?, kind = ?, note = ?, updated = ? WHERE id = ?");
+    const results = new Map<string, { name: string; kind: DriveKind; note: string }>();
+    if (seen.length)
+      try {
+        const raw = await askText(env, driveReadInstruction(client, seen), DRIVE_READ_SCHEMA, images.filter((x): x is ImageBytes => !!x));
+        for (const x of parseDriveRead(parseJson<unknown>(raw), seen.length)) results.set(seen[x.image - 1].id, x);
+      } catch (e) {
+        console.error("[drive] read", errorMessage(e));
+        break;
+      }
+    await env.DB.batch(
+      rows.map((r) => {
+        const x = results.get(r.id);
+        return x ? mark.bind("read", x.name, x.kind, x.note, t, r.id) : mark.bind("failed", "", "", "", t, r.id);
+      }),
+    );
+    done += results.size;
+  }
+  return done;
 }
 
 /**
@@ -195,33 +271,83 @@ driveRoutes.get("/:client", async (c) => {
   if (!id) return c.json({ ok: true, link, email, folder: null, photos: [] });
   try {
     const folder = await drive<DriveFile>(c.env, `/${id}?fields=id,name&${ALL_DRIVES}`);
-    const photos = await photosIn(c.env, id, c.req.query("fresh") === "1");
+    const photos = await listClient(c.env, c.req.param("client"), id, c.req.query("fresh") === "1");
     return c.json({ ok: true, link, email, folder: folder.name, photos });
   } catch (e) {
     return c.json({ ok: true, link, email, folder: null, photos: [], error: errorMessage(e) });
   }
 });
 
-driveRoutes.put("/:client", async (c) => {
-  const client = c.req.param("client");
-  if (!(await first(c.env.DB, "SELECT 1 AS x FROM clients WHERE id = ?", client))) throw new StudioError("Client not found.", 404);
-  const parsed = z.object({ link: z.string().trim().max(400) }).safeParse(await c.req.json().catch(() => ({})));
-  if (!parsed.success) throw new StudioError("Paste the folder's Drive link.");
-  const link = parsed.data.link;
-  const id = link ? driveFolderId(link) : "";
-  if (link && !id) throw new StudioError("This is not a Drive folder link: open the folder in Drive and copy the address.");
-  if (id) {
-    const f = await drive<DriveFile>(c.env, `/${id}?fields=id,name,mimeType&${ALL_DRIVES}`);
-    if (f.mimeType !== FOLDER) throw new StudioError("This link is a file: give the link of the folder the photos are in.");
-  }
+const folderLink = (id: string) => `https://drive.google.com/drive/folders/${id}`;
+
+/** The client's own folder directly inside a shared one ("Level shared" → "Habibah"), or null. */
+async function clientSubfolder(env: Env, parent: string, client: string): Promise<{ id: string; name: string } | null> {
+  const hit = (await children(env, parent)).find((x) => (x.shortcutDetails?.targetMimeType ?? x.mimeType) === FOLDER && isClientFolder(x.name, client));
+  return hit ? { id: hit.shortcutDetails?.targetId ?? hit.id, name: hit.name } : null;
+}
+
+async function saveFolder(env: Env, client: string, link: string): Promise<void> {
   await run(
-    c.env.DB,
+    env.DB,
     "INSERT INTO client_profiles (client, drive, updated) VALUES (?, ?, ?) ON CONFLICT(client) DO UPDATE SET drive = excluded.drive, updated = excluded.updated",
     client,
     link,
     now(),
   );
-  return c.json({ ok: true });
+}
+
+/**
+ * The client's folder. A shared folder of every client ("Level shared") is narrowed to the folder
+ * named after the client, so a client never reads another client's photos.
+ */
+driveRoutes.put("/:client", async (c) => {
+  const client = await first<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM clients WHERE id = ?", c.req.param("client"));
+  if (!client) throw new StudioError("Client not found.", 404);
+  const parsed = z.object({ link: z.string().trim().max(400) }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throw new StudioError("Paste the folder's Drive link.");
+  let link = parsed.data.link;
+  const id = link ? driveFolderId(link) : "";
+  if (link && !id) throw new StudioError("This is not a Drive folder link: open the folder in Drive and copy the address.");
+  let folder = "";
+  let narrowed = false;
+  if (id) {
+    const f = await drive<DriveFile>(c.env, `/${id}?fields=id,name,mimeType&${ALL_DRIVES}`);
+    if (f.mimeType !== FOLDER) throw new StudioError("This link is a file: give the link of the folder the photos are in.");
+    folder = f.name;
+    if (!isClientFolder(f.name, client.name)) {
+      const sub = await clientSubfolder(c.env, id, client.name);
+      if (sub) {
+        link = folderLink(sub.id);
+        folder = sub.name;
+        narrowed = true;
+      }
+    }
+  }
+  await saveFolder(c.env, client.id, link);
+  return c.json({ ok: true, folder, narrowed });
+});
+
+/** Every client gets its own folder from one shared folder of all the clients, by name. */
+driveRoutes.post("/all", async (c) => {
+  const parsed = z.object({ link: z.string().trim().min(1).max(400) }).safeParse(await c.req.json().catch(() => ({})));
+  const id = parsed.success ? driveFolderId(parsed.data.link) : null;
+  if (!id) throw new StudioError("Paste the Drive link of the folder that holds every client's folder.");
+  const clients = await all<{ id: string; name: string; drive: string | null }>(
+    c.env.DB,
+    "SELECT c.id, c.name, p.drive FROM clients c LEFT JOIN client_profiles p ON p.client = c.id WHERE c.status = 'active' ORDER BY c.name",
+  );
+  const connected: { client: string; folder: string }[] = [];
+  const missing: string[] = [];
+  for (const cl of clients) {
+    const sub = await clientSubfolder(c.env, id, cl.name);
+    if (!sub) {
+      if (!cl.drive) missing.push(cl.name);
+      continue;
+    }
+    await saveFolder(c.env, cl.id, folderLink(sub.id));
+    connected.push({ client: cl.name, folder: sub.name });
+  }
+  return c.json({ ok: true, connected, missing });
 });
 
 /** One photo, resized by Drive: small for the picker, large to join the month. */
