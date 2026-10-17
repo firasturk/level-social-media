@@ -26,9 +26,9 @@ import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
-import { clientDrivePhotos, importDrivePhoto } from "./drive";
-import { freeName } from "@shared/drive";
-import { renameProduct } from "@shared/qa";
+import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
+import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
+import { renameProduct, SHOP_INSIDE } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -186,6 +186,15 @@ export async function profileOf(env: Env, clientId: string): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/** The client has photos of its own spaces: uploaded ones, or the shop, kitchen or factory in its Drive. */
+async function clientHasPlaces(env: Env, client: string): Promise<boolean> {
+  return !!(await first(
+    env.DB,
+    "SELECT 1 AS x FROM brand_assets WHERE client = ?1 AND kind = 'place' UNION ALL SELECT 1 FROM drive_photos WHERE client = ?1 AND status = 'read' AND kind IN ('place', 'factory') LIMIT 1",
+    client,
+  ));
 }
 
 async function clientRow(env: Env, id: string | undefined): Promise<ClientRow> {
@@ -1171,9 +1180,15 @@ postRoutes.post("/grid-ideas", async (c) => {
   );
   const count = d.count ?? config.postCount ?? 12;
   const gridCast = await monthAmbassadors(c.env, config);
-  const hasPlaces = !!(await first(c.env.DB, "SELECT 1 AS x FROM brand_assets WHERE client = ? AND kind = 'place' LIMIT 1", client.id));
+  const hasPlaces = await clientHasPlaces(c.env, client.id);
+  const placeCounts = await all<{ kind: string; n: number }>(
+    c.env.DB,
+    "SELECT kind, COUNT(*) AS n FROM drive_photos WHERE client = ? AND status = 'read' AND kind IN ('place', 'factory') GROUP BY kind",
+    client.id,
+  );
   const instruction = gridIdeasInstruction({
     hasPlaces,
+    places: placeCounts.map((x) => `its ${x.kind === "factory" ? "kitchen or factory" : "shop"} (${x.n} photo${x.n > 1 ? "s" : ""})`).join(", ") || undefined,
     clientName: client.name,
     tone: client.tone,
     profile: await profileOf(c.env, client.id),
@@ -1539,9 +1554,10 @@ postRoutes.post("/generate", async (c) => {
         if (row) sources.push(row);
       }
       // Then the client's Drive: its newest photo of that product joins the month.
-      const drive = notInGallery.length ? await clientDrivePhotos(c.env, config.client ?? "") : [];
+      const drive = notInGallery.length ? (await clientDrivePhotos(c.env, config.client ?? "")).filter((x) => !x.kind || PRODUCT_KINDS.has(x.kind)) : [];
       if (drive.length) {
-        const newest = [...drive].sort((x, y) => y.modified.localeCompare(x.modified));
+        // The cleanest photo of each product first (a packshot), the newest among equals.
+        const newest = [...drive].sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
         const driveNames = [...new Set(newest.map((x) => x.name))];
         for (const n of notInGallery) {
           const m = matchProduct(n, driveNames);
@@ -1592,7 +1608,25 @@ postRoutes.post("/generate", async (c) => {
   let designSource: string | undefined;
   // Photos of the client's own place: a grid's place tile is set there, one photo after another.
   const places = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'place' ORDER BY created", client.id);
+  // And the shop, kitchen and factory photos in its Drive, as vision read them.
+  const drivePlaces = await clientPlacePhotos(c.env, client.id);
   let placeTurn = 0;
+  const placeFor = async (p: Post): Promise<PostBrief["place"]> => {
+    const factory = wantsFactory(`${p.title} ${p.brief} ${p.scene ?? ""}`);
+    const shops = drivePlaces.filter((x) => x.kind === "place");
+    const kitchens = drivePlaces.filter((x) => x.kind === "factory");
+    // A behind-the-scenes post is set in the kitchen or factory; any other in the shop.
+    if (!(factory && kitchens.length) && places.length) return { ...places[placeTurn++ % places.length], what: "shop or space" };
+    const pool = factory && kitchens.length ? kitchens : shops.length ? shops : kitchens;
+    if (!pool.length) return undefined;
+    const photo = pool[placeTurn++ % pool.length];
+    try {
+      return { key: await drivePlaceKey(c.env, client.id, photo.id), what: photo.kind === "factory" ? "kitchen or factory" : "shop" };
+    } catch (e) {
+      console.error("[generate] drive place", errorMessage(e));
+      return undefined;
+    }
+  };
   let planned = 0;
   const skipped: number[] = [];
   const missingProduct: { index: number; product: string }[] = [];
@@ -1764,7 +1798,7 @@ postRoutes.post("/generate", async (c) => {
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
       design: textured ? "background" : undefined,
-      place: spec?.kind === "place" && places.length ? places[placeTurn++ % places.length] : undefined,
+      place: post.type !== "greeting" && (spec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${post.scene ?? ""}`)) ? await placeFor(post) : undefined,
       shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
@@ -2262,11 +2296,11 @@ async function productOptions(env: Env, b: BatchRow, client: string): Promise<Pr
     names.push(name);
     out.push({ source: "gallery", id: g.id, name, note: g.note ?? "" });
   }
-  // Drive: one option per product name (its newest photo), with how many photos it has. Photos
-  // vision read as a place, people or a design are not products.
+  // Drive: one option per product name (its cleanest, newest photo), with how many photos it has.
+  // Photos vision read as the shop, the kitchen, people or a design are not products.
   const drive = new Map<string, { id: string; name: string; folder: string; note: string; n: number }>();
-  for (const p of (await clientDrivePhotos(env, client)).sort((a, z) => z.modified.localeCompare(a.modified))) {
-    if (p.kind && p.kind !== "product") continue;
+  for (const p of (await clientDrivePhotos(env, client)).sort((a, z) => productRank(a.kind) - productRank(z.kind) || z.modified.localeCompare(a.modified))) {
+    if (p.kind && !PRODUCT_KINDS.has(p.kind)) continue;
     const k = p.name.toLowerCase();
     const had = drive.get(k);
     if (had) had.n++;

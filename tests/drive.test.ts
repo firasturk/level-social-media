@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { driveFolderId, driveReadInstruction, isCameraName, isClientFolder, parseDriveRead, drivePickInstruction, freeName, parseMatches, parsePicks, photoName, productMatchInstruction, spreadPhotos, type DrivePhoto, type ProductOption } from "@shared/drive";
+import { driveFolderId, productRank, wantsFactory, driveReadInstruction, isCameraName, isClientFolder, parseDriveRead, drivePickInstruction, freeName, parseMatches, parsePicks, photoName, productMatchInstruction, spreadPhotos, type DrivePhoto, type ProductOption } from "@shared/drive";
 
 const photo = (id: string, folder: string, modified = "2026-01-01", file = `${id}.jpg`): DrivePhoto => ({ id, file, name: photoName(file, folder.split(" / ")), folder, w: 0, h: 0, modified });
 
@@ -81,8 +81,19 @@ describe("Drive folders", () => {
     expect(driveReadInstruction("Abu Saleh", [{ file: "DSC01838.JPG", folder: "Photos" }])).toContain("1. Photos / DSC01838.JPG");
     expect(parseDriveRead({ photos: [{ image: 1, name: "Mango / juice cup", kind: "product", note: "orange cup" }, { image: 1, name: "again" }, { image: 2, name: "Counter", kind: "shop" }, { image: 5, name: "x" }] }, 2)).toEqual([
       { image: 1, name: "Mango juice cup", kind: "product", note: "orange cup" },
-      { image: 2, name: "Counter", kind: "other", note: "" },
+      { image: 2, name: "Counter", kind: "place", note: "" },
     ]);
+  });
+
+  it("knows the shop from the kitchen and a packshot from a styled photo", () => {
+    const text = driveReadInstruction("Habibah", [{ file: "a.jpg", folder: "factory HB" }]);
+    expect(text).toMatch(/factory: the kitchen, bakery, factory/);
+    expect(text).toMatch(/lifestyle: the product styled/);
+    expect(parseDriveRead({ photos: [{ image: 1, name: "Ovens", kind: "Kitchen" }, { image: 2, name: "Cup", kind: "drink" }] }, 2).map((x) => x.kind)).toEqual(["factory", "drink"]);
+    expect(wantsFactory("Behind the scenes: hands folding kunafa dough")).toBe(true);
+    expect(wantsFactory("من مطبخ حبيبة")).toBe(true);
+    expect(wantsFactory("A kunafa tray on marble")).toBe(false);
+    expect(["lifestyle", undefined, "product", "drink"].sort((a, b) => productRank(a as never) - productRank(b as never))).toEqual(["product", "drink", "lifestyle", undefined]);
   });
 
   it("asks for Drive photos first when filling from Drive", () => {

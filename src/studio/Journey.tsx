@@ -662,7 +662,7 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) } });
         else
           for (const x of p.plan)
-            for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene, hasPlaces: !!client?.places?.length }))
+            for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene, hasPlaces: !!client?.places?.length || !!client?.drivePlaces }))
               out.push({
                 text: `Post ${pr.index} ${pr.text}.`,
                 problem: pr,

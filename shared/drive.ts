@@ -15,14 +15,63 @@ export interface DrivePhoto {
   w: number;
   h: number;
   modified: string;
-  /** What vision read in the photo, once read: product, place, people, design or other. */
+  /** What vision read in the photo, once read (see DRIVE_KINDS). */
   kind?: DriveKind;
   /** A few words on what it shows. */
   note?: string;
 }
 
-export const DRIVE_KINDS = ["product", "place", "people", "design", "other"] as const;
+/**
+ * What a Drive photo is, so each post takes the right kind: a packshot or a styled product photo
+ * for a product tile, the client's shop for a place tile, the kitchen or factory for a
+ * behind-the-scenes post.
+ */
+export const DRIVE_KINDS = ["product", "lifestyle", "drink", "place", "factory", "people", "design", "other"] as const;
 export type DriveKind = (typeof DRIVE_KINDS)[number];
+
+export const DRIVE_KIND_LABELS: Record<DriveKind, string> = {
+  product: "Products",
+  lifestyle: "Lifestyle",
+  drink: "Drinks",
+  place: "The shop",
+  factory: "Kitchen & factory",
+  people: "People",
+  design: "Designs",
+  other: "Other",
+};
+
+/** The kinds that show a product: a month's product photo comes from these. */
+export const PRODUCT_KINDS = new Set<DriveKind>(["product", "lifestyle", "drink"]);
+/** The kinds that show the client's own spaces: a place tile is set in one of them. */
+export const PLACE_KINDS = new Set<DriveKind>(["place", "factory"]);
+
+/** Bumped when the reading learns new kinds: photos read by an older version are read again. */
+export const DRIVE_READ_VERSION = 2;
+
+/** A product's photo for the month: a clean packshot first, then a drink, then a styled photo; unread photos last. */
+export function productRank(kind: DriveKind | undefined): number {
+  return kind === "product" ? 0 : kind === "drink" ? 1 : kind === "lifestyle" ? 2 : 3;
+}
+
+const FACTORY_WORDS = /\b(kitchen|factory|bakery|workshop|production|behind the scenes|bts|making of|chefs?|baker|craft(ing|smen|sman)?|hand-?made|dough|oven)\b|مطبخ|مصنع|تحضير|صناعة|خلف الكواليس|الشيف/i;
+
+/** A place post set in the kitchen or factory (it shows the making), not the shop. */
+export function wantsFactory(text: string): boolean {
+  return FACTORY_WORDS.test(text);
+}
+
+/** Old and loose names vision may give a kind. */
+const KIND_SYNONYMS: Record<string, DriveKind> = {
+  packshot: "product",
+  shop: "place",
+  store: "place",
+  branch: "place",
+  interior: "place",
+  kitchen: "factory",
+  production: "factory",
+  beverage: "drink",
+  person: "people",
+};
 
 /** The folder id in a Drive link (…/folders/<id>, ?id=<id>) or a bare id; null when there is none. */
 export function driveFolderId(link: string): string | null {
@@ -93,7 +142,15 @@ export function driveReadInstruction(client: string, photos: { file: string; fol
     [
       "For every image:",
       "- name: the product in it, 2-5 words, the way the brand would name it (\"Pistachio kunafa tray\", \"Mango juice cup\", \"Chocolate fudge cake slice\"); use the folder's or packaging's name when it says it; for a non-product photo, what it shows (\"Shop counter\", \"Barista at work\");",
-      "- kind: product (a product is the subject), place (the shop, branch or a space), people (a person is the subject), design (a finished post, poster, logo or anything with designed text), other;",
+      "- kind, the one that fits best:",
+      "  product: a packshot, the product alone as the subject on a plain or simple background;",
+      "  lifestyle: the product styled in a scene (a table, hands holding it, a gathering, props around it);",
+      "  drink: a beverage is the subject (a cup, glass, can or bottle of a drink);",
+      "  place: the client's shop, branch, café or showroom, inside or outside (counter, shelves, seating, storefront);",
+      "  factory: the kitchen, bakery, factory or workshop: production lines, ovens, chefs or workers making the product, raw ingredients being prepared;",
+      "  people: a person is the subject with no product in focus (a portrait, the team);",
+      "  design: a finished post, poster, menu, logo or anything with designed text on it;",
+      "  other: none of these;",
       "- note: one short sentence on what is in it (packaging, colours, how it is shot).",
     ].join("\n"),
     "Return ONLY the JSON.",
@@ -106,7 +163,8 @@ export function parseDriveRead(raw: unknown, count: number): { image: number; na
   for (const x of list) {
     const image = Math.round(Number(x?.image));
     if (image < 1 || image > count || out.has(image)) continue;
-    const kind = (DRIVE_KINDS as readonly string[]).includes(String(x?.kind)) ? (String(x.kind) as DriveKind) : "other";
+    const said = String(x?.kind ?? "").toLowerCase().trim();
+    const kind = (DRIVE_KINDS as readonly string[]).includes(said) ? (said as DriveKind) : (KIND_SYNONYMS[said] ?? "other");
     const name = String(x?.name ?? "").replace(/[\\/]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
     if (!name) continue;
     out.set(image, { image, name, kind, note: String(x?.note ?? "").trim().slice(0, 240) });

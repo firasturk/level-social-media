@@ -25,7 +25,7 @@ export interface PostProblem {
 }
 
 /** A picture inside the client's shop or branch (its counter, shelves, interior). */
-const SHOP_INSIDE =
+export const SHOP_INSIDE =
   /\b(interior|inside)\b[^.]{0,60}\b(shop|store|branch|bakery|caf[eé]|boutique|showroom)\b|\b(shop|store|branch|bakery|caf[eé]|boutique|showroom)\b[^.]{0,60}\b(interior|counter|shelf|shelves|display case|storefront|shop window)\b/i;
 const MALE = /\b(man|male|boy|gentleman|husband|father|son)\b|رجل|شاب|ولد/i;
 const FEMALE = /\b(woman|female|girl|lady|wife|mother|daughter)\b|امرأة|بنت|سيدة|فتاة/i;

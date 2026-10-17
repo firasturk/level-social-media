@@ -212,6 +212,8 @@ export interface Client {
   overlay: Partial<OverlaySpec> | null;
   /** Uploaded brand font files, served at /clients/:id/fonts/:id/file. */
   fontFiles: { id: string; name: string }[];
+  /** How many photos of the client's shop, kitchen or factory its Drive holds (as vision read them). */
+  drivePlaces?: number;
   /** Photos of the client's own place (shop, café, kitchen), served at /clients/:id/places/:id/file. */
   places: { id: string; name: string }[];
 }

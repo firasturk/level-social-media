@@ -84,8 +84,12 @@ export async function listClients(env: Env, includeArchived = false): Promise<Cl
     env.DB,
     "SELECT id, client, name, kind FROM brand_assets WHERE kind IN ('font', 'place') ORDER BY created",
   );
+  const drivePlaces = new Map(
+    (await all<{ client: string; n: number }>(env.DB, "SELECT client, COUNT(*) AS n FROM drive_photos WHERE status = 'read' AND kind IN ('place', 'factory') GROUP BY client")).map((r) => [r.client, r.n]),
+  );
   return rows.map((r) => ({
     ...toClient(r),
+    drivePlaces: drivePlaces.get(r.id) ?? 0,
     fontFiles: assets
       .filter((f) => f.client === r.id && f.kind === "font")
       .map((f) => ({ id: f.id, name: f.name ?? "Font" })),

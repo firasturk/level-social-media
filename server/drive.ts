@@ -21,7 +21,7 @@ import {
   parseDriveRead,
   type DriveKind,
 } from "@shared/drive";
-import { DRIVE_PICK_SCHEMA, driveFolderId, drivePickInstruction, freeName, isClientFolder, parsePicks, photoName, spreadPhotos, type DrivePhoto } from "@shared/drive";
+import { DRIVE_PICK_SCHEMA, DRIVE_READ_VERSION, driveFolderId, drivePickInstruction, freeName, isClientFolder, parsePicks, photoName, PLACE_KINDS, PRODUCT_KINDS, spreadPhotos, type DrivePhoto } from "@shared/drive";
 import { stemKey } from "@shared/naming";
 
 type Variables = { user: User };
@@ -172,7 +172,7 @@ async function listClient(env: Env, client: string, root: string, fresh = false)
  * The cron reads a few Drive photos each minute: lists one client's folder when it is due (every
  * six hours), then names the next photos waiting, twelve to a vision call.
  */
-export async function readDrivePhotos(env: Env, calls = 2): Promise<number> {
+export async function readDrivePhotos(env: Env, calls = 3): Promise<number> {
   if (!(await resolveVertex(env))) return 0;
   const due = await first<{ client: string; drive: string }>(
     env.DB,
@@ -183,18 +183,21 @@ export async function readDrivePhotos(env: Env, calls = 2): Promise<number> {
   if (due && dueId) await listClient(env, due.client, dueId, true).catch((e) => console.error("[drive] list", errorMessage(e)));
   let done = 0;
   for (let call = 0; call < calls; call++) {
-    const head = await first<{ client: string }>(env.DB, "SELECT client FROM drive_photos WHERE status = 'new' ORDER BY updated LIMIT 1");
+    // New photos first, then the ones an older reading named (they keep that reading meanwhile).
+    const waiting = "(status = 'new' OR version < ?)";
+    const head = await first<{ client: string }>(env.DB, `SELECT client FROM drive_photos WHERE ${waiting} ORDER BY status = 'new' DESC, updated LIMIT 1`, DRIVE_READ_VERSION);
     if (!head) break;
     const rows = await all<{ id: string; file: string; folder: string }>(
       env.DB,
-      "SELECT id, file, folder FROM drive_photos WHERE client = ? AND status = 'new' ORDER BY updated LIMIT 12",
+      `SELECT id, file, folder FROM drive_photos WHERE client = ? AND ${waiting} ORDER BY status = 'new' DESC, updated LIMIT 12`,
       head.client,
+      DRIVE_READ_VERSION,
     );
     const client = (await first<{ name: string }>(env.DB, "SELECT name FROM clients WHERE id = ?", head.client))?.name ?? head.client;
     const images = await Promise.all(rows.map((r) => photoBytes(env, r.id, 384).catch(() => null)));
     const seen = rows.filter((_, i) => images[i]);
     const t = now();
-    const mark = env.DB.prepare("UPDATE drive_photos SET status = ?, name = ?, kind = ?, note = ?, updated = ? WHERE id = ?");
+    const mark = env.DB.prepare(`UPDATE drive_photos SET status = ?, name = ?, kind = ?, note = ?, updated = ?, version = ${DRIVE_READ_VERSION} WHERE id = ?`);
     const results = new Map<string, { name: string; kind: DriveKind; note: string }>();
     if (seen.length)
       try {
@@ -213,6 +216,20 @@ export async function readDrivePhotos(env: Env, calls = 2): Promise<number> {
     done += results.size;
   }
   return done;
+}
+
+/** The client's own spaces in its Drive (the shop, the kitchen or factory), as vision read them. */
+export async function clientPlacePhotos(env: Env, client: string): Promise<DrivePhoto[]> {
+  return (await clientDrivePhotos(env, client)).filter((p) => p.kind && PLACE_KINDS.has(p.kind));
+}
+
+/** A Drive photo of the client's place, kept in the bucket once, for the engine to set a post in. */
+export async function drivePlaceKey(env: Env, client: string, photoId: string): Promise<string> {
+  const key = `drive-place/${client}/${photoId}`;
+  if (await env.BUCKET.head(key)) return key;
+  const img = await photoBytes(env, photoId, 1600);
+  await env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: img.mime } });
+  return key;
 }
 
 /**
@@ -367,7 +384,10 @@ driveRoutes.post("/:client/pick", async (c) => {
     .parse(await c.req.json().catch(() => ({})));
   const id = driveFolderId(await folderOf(c.env, clientId));
   if (!id) throw new StudioError("Add the client's Drive folder first.");
-  const all = (await photosIn(c.env, id)).filter((p) => !d.folder || p.folder === d.folder || p.folder.startsWith(`${d.folder} / `));
+  // Only photos of products: what vision read as the shop, the kitchen, people or a design stays out.
+  const all = (await listClient(c.env, clientId, id))
+    .filter((p) => !p.kind || PRODUCT_KINDS.has(p.kind))
+    .filter((p) => !d.folder || p.folder === d.folder || p.folder.startsWith(`${d.folder} / `));
   if (!all.length) throw new StudioError("No photos in this folder.", 404);
   const candidates = spreadPhotos(all, 36);
   const images: (ImageBytes | null)[] = [];

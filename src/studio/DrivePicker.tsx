@@ -3,7 +3,7 @@ import { Check, Copy, FolderOpen, LoaderCircle, RefreshCw, Sparkles } from "luci
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post, put } from "@/api";
-import type { DrivePhoto, DrivePick } from "@shared/drive";
+import { DRIVE_KINDS, DRIVE_KIND_LABELS, type DriveKind, type DrivePhoto, type DrivePick } from "@shared/drive";
 
 interface DriveState {
   link: string;
@@ -44,6 +44,8 @@ export default function DrivePicker({
   const [link, setLink] = useState("");
   const [saving, setSaving] = useState(false);
   const [top, setTop] = useState("");
+  /** What the photos show, as vision read them: products, the shop, the kitchen… */
+  const [kind, setKind] = useState<DriveKind | "">("");
   const [shown, setShown] = useState(PAGE);
   const [picked, setPicked] = useState<string[]>([]);
   const [ai, setAi] = useState<Map<string, DrivePick>>(new Map());
@@ -68,7 +70,10 @@ export default function DrivePicker({
 
   const photos = useMemo(() => state?.photos ?? [], [state]);
   const tops = useMemo(() => [...new Set(photos.map(topOf))].sort((a, b) => a.localeCompare(b)), [photos]);
-  const list = photos.filter((p) => !top || topOf(p) === top);
+  const inFolder = photos.filter((p) => !top || topOf(p) === top);
+  const kinds = DRIVE_KINDS.filter((k) => inFolder.some((p) => p.kind === k));
+  const unread = inFolder.filter((p) => !p.kind).length;
+  const list = inFolder.filter((p) => !kind || !kinds.includes(kind) || p.kind === kind);
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
 
   async function saveLink() {
@@ -201,6 +206,16 @@ export default function DrivePicker({
                   </button>
                 ))}
               </div>
+              {kinds.length > 0 && (
+                <div className="journey-filter drive-kinds" aria-label="What the photos show">
+                  {kinds.map((k) => (
+                    <button key={k} type="button" className={`journey-chip small ${kind === k ? "active" : ""}`} onClick={() => (setKind(kind === k ? "" : k), setShown(PAGE))}>
+                      {DRIVE_KIND_LABELS[k]} · {inFolder.filter((p) => p.kind === k).length}
+                    </button>
+                  ))}
+                  {unread > 0 && <span className="field-hint">{unread} still being read</span>}
+                </div>
+              )}
               <span className="drive-tools">
                 <button type="button" className="text-button" onClick={() => load(true)} title="Read the folder again">
                   <RefreshCw size={13} /> Refresh
@@ -221,7 +236,7 @@ export default function DrivePicker({
                       type="button"
                       className={`journey-thumb pick ${on ? "on" : ""}`}
                       onClick={() => setPicked((l) => (on ? l.filter((x) => x !== p.id) : [...l, p.id]))}
-                      title={why ? `${why.product}: ${why.reason}` : `${p.folder ? `${p.folder} / ` : ""}${p.file}`}
+                      title={why ? `${why.product}: ${why.reason}` : [p.kind ? DRIVE_KIND_LABELS[p.kind] : "", p.note, `${p.folder ? `${p.folder} / ` : ""}${p.file}`].filter(Boolean).join("\n")}
                     >
                       <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
                       <figcaption>{why?.product || p.name}</figcaption>
