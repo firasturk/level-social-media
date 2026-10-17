@@ -54,11 +54,11 @@ describe("no invented shop", () => {
 });
 
 describe("no invented words on cards", () => {
-  it("makes business cards, tags and menus blank, and flags them", async () => {
+  it("takes business cards, tags and menus out, and flags them", async () => {
     const { withoutLettering } = await import("@shared/posts");
     const { postProblems } = await import("@shared/qa");
-    expect(withoutLettering("The tray sits next to a very dark blue and silver business card.")).toBe("The tray sits next to a very dark blue and silver blank card with nothing printed on it.");
-    expect(withoutLettering("A price tag and a menu on the counter.")).toBe("A blank tag with nothing written on it and a blank folded card on the counter.");
+    expect(withoutLettering("The tray sits on a cream paper surface next to a very dark blue and silver business card. Soft light.")).toBe("The tray sits on a cream paper surface. Soft light.");
+    expect(withoutLettering("A price tag on the counter. Warm light.")).toBe("Warm light.");
     const p = post(1, { scene: "A tray next to a business card." });
     expect(postProblems(p, { products: [], cast: [], needsScene: true }).find((x) => x.fix === "blank")).toBeTruthy();
     expect(postProblems({ ...p, scene: withoutLettering(p.scene!) }, { products: [], cast: [], needsScene: true }).find((x) => x.fix === "blank")).toBeFalsy();
@@ -81,5 +81,12 @@ describe("the reference grid's bags and logos never reach the engine", () => {
     expect(tileWithoutBags(tile, false)).not.toMatch(/bag/i);
     const grid = "A warm studio world. The brand logo sits on every box.\nTile 4 (row 2, col 1, text): A nut and a ribbon.\nTile 5 (row 2, col 2, person): A person holding a large brand shopping bag.\nTile 7 (row 3, col 1, place): Items: display case, arched wall, logo";
     expect(gridWithoutBags(grid)).toBe("A warm studio world.\nTile 4 (row 2, col 1, text): A nut and a ribbon.");
+  });
+
+  it("takes the card out of a grid tile", async () => {
+    const { tileWithoutBags } = await import("@shared/posts");
+    expect(tileWithoutBags("Tile 9 (row 3, col 3): A product container and a branded card on a textured surface. Items: dessert cup, card, crumbs", true)).toBe(
+      "Tile 9 (row 3, col 3): A product container on a textured surface. Items: dessert cup, crumbs",
+    );
   });
 });

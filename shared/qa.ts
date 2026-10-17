@@ -91,7 +91,7 @@ export function postProblems(
   if (ctx.hasPlaces === false && post.type !== "greeting" && (post.tileSpec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${scene}`)))
     out.push({ index: n, text: "shows the client's shop, which has no photos: it would be invented", fix: "noplace" });
   if (LETTERED.test(scene) || LETTERED.test(post.brief))
-    out.push({ index: n, text: "puts a card, a tag or a menu in its picture: the engine would write invented words on it", fix: "blank" });
+    out.push({ index: n, text: "puts a card, a tag or a menu in its picture: the engine would write invented words on it, so it is taken out", fix: "blank" });
   if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {

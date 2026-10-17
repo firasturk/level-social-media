@@ -667,7 +667,7 @@ export default function Journey(p: JourneyProps) {
                   pr.fix === "unbag"
                     ? { label: "Take the bag out", run: () => fixPosts([pr]) }
                     : pr.fix === "blank"
-                      ? { label: "Make it blank", run: () => fixPosts([pr]) }
+                      ? { label: "Take it out", run: () => fixPosts([pr]) }
                     : pr.fix === "include"
                       ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
                       : pr.fix === "noplace"

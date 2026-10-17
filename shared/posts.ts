@@ -1348,19 +1348,21 @@ export function withoutBags(text: string): string {
     .trim();
 }
 
-/** Things that carry words (a business card, a price tag, a menu): the engine writes on them. */
-export const LETTERED = /\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+cards?\b|\bprice\s+tags?\b|\bmenus?\b/i;
+/** Things that carry words (a card, a price tag, a menu): the engine writes on them, so they stay out. */
+export const LETTERED = /\bcards?\b|\bprice\s+tags?\b|\bmenus?\b/i;
 
-/** The text with every lettered thing made blank: "a business card" → "a blank card with nothing printed on it". */
+/**
+ * The text without the things that carry words: "next to a business card" goes, and a sentence
+ * that still names a card, a price tag or a menu goes; so do sentences that place a logo or a brand
+ * mark in the picture (logos are added later, by the designer).
+ */
 export function withoutLettering(text: string): string {
-  // Sentences that place a logo or a brand mark in the picture: logos are added later, by the designer.
   return text
+    .replace(/,?\s+(?:next to|beside|alongside|with|and|near|by)\s+(?:an?|the|some|two|three)?\s*(?:[\w#-]+\s+){0,6}?(?:cards?|price\s+tags?|menus?)\b/gi, "")
     .split(/(?<=[.!?\u061f])\s+/)
-    .filter((x) => !/\b(logos?|watermarks?|monograms?|mark)\b/i.test(x))
+    .filter((x) => !/\b(logos?|watermarks?|monograms?|mark)\b/i.test(x) && !LETTERED.test(x))
     .join(" ")
-    .replace(/\b(?:business|name|greeting|gift|thank[- ]you|brand(?:ed)?)\s+(cards?)\b/gi, "blank $1 with nothing printed on it")
-    .replace(/\bprice\s+(tags?)\b/gi, "blank $1 with nothing written on it")
-    .replace(/\b(menus?)\b/gi, "blank folded card");
+    .trim();
 }
 
 /** A bag, carrier or tote however it is written ("a large brand shopping bag"). */
@@ -1368,6 +1370,8 @@ const BAG_PHRASE = /\b(?:an?\s+|the\s+)?(?:(?:large|small|big|paper|brand(?:ed)?
 
 /** A grid tile's words without its bag: the product takes the bag's place, or the bag goes. */
 export function tileWithoutBags(tile: string, hasProduct: boolean): string {
+  // Cards carry words: they leave the tile ("A container and a branded card" → "A container").
+  tile = tile.replace(/,?\s*(?:and\s+)?(?:an?\s+)?(?:(?:branded|business|name|gift|greeting)\s+)?cards?\b/gi, "");
   if (!BAGS.test(tile)) return tile;
   if (hasProduct) return tile.replace(BAG_PHRASE, "the product");
   return tile
@@ -1380,7 +1384,7 @@ export function tileWithoutBags(tile: string, hasProduct: boolean): string {
 export function gridWithoutBags(grid: string): string {
   return grid
     .split("\n")
-    .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || /\blogos?\b/i.test(line) ? "" : line) : withoutLettering(withoutBags(line))))
+    .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || LETTERED.test(line) || /\blogos?\b/i.test(line) ? "" : line) : withoutLettering(withoutBags(line))))
     .filter(Boolean)
     .join("\n");
 }
