@@ -210,6 +210,8 @@ export interface Client {
   overlay: Partial<OverlaySpec> | null;
   /** Uploaded brand font files, served at /clients/:id/fonts/:id/file. */
   fontFiles: { id: string; name: string }[];
+  /** Photos of the client's own place (shop, café, kitchen), served at /clients/:id/places/:id/file. */
+  places: { id: string; name: string }[];
 }
 
 /** Team overrides for a production approach card. */

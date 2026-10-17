@@ -18,7 +18,7 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
-import { resolveOverlay } from "@shared/overlay";
+import { HOSTED_FONTS, resolveOverlay } from "@shared/overlay";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
@@ -39,6 +39,11 @@ import {
   GRID_SCHEMA,
   gridIdeasInstruction,
   gridNotes,
+  hexIn,
+  overlayFromTile,
+  TEXTURED_BACKGROUND,
+  tileSpecOf,
+  type GridFonts,
   IDEAS_SCHEMA,
   type GridRead,
   IDENTITY_SCHEMA,
@@ -1148,14 +1153,29 @@ postRoutes.post("/grid-ideas", async (c) => {
     const m = /^T(\d+)\s*[·:-]/i.exec(p.title);
     const i = m ? Number(m[1]) - 1 : (p.index - 1) % Math.max(1, grid.tiles.length);
     const t = grid.tiles[i];
-    if (t) p.tile = `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement}`;
+    if (t) p.tile = `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement}${t.items ? ` Items: ${t.items}` : ""}`;
+    // The tile's own role and lettering: a text tile becomes a typographic post, and the words sit
+    // where the tile has them.
+    const spec = tileSpecOf(t);
+    if (spec) {
+      p.tileSpec = spec;
+      Object.assign(p, overlayFromTile(spec.text, spec.kind));
+    }
     if (m) p.title = p.title.slice(m[0].length).trim() || p.title;
   }
-  config.plan = withDates(plan, config.month ?? "");
+  // The feed shows the newest post first (top left): the posts are posted from the grid's last
+  // tile to its first, so at the end of the month the feed reads exactly like the reference.
+  const posted = [...plan].reverse().map((p, i) => ({ ...p, index: i + 1 }));
+  config.plan = withDates(posted, config.month ?? "");
   config.plannedAt = now();
   config.postCount = count;
   config.gridRef = ref.id;
   config.gridNotes = gridNotes(grid).slice(0, 12000);
+  // The fonts closest to the grid's lettering, offered to the designer for this month.
+  const f = (read as { fonts?: Partial<GridFonts> }).fonts;
+  if (f?.headline && HOSTED_FONTS.includes(f.headline))
+    config.gridFonts = { headline: f.headline, body: f.body && HOSTED_FONTS.includes(f.body) ? f.body : f.headline, why: String(f.why ?? "").slice(0, 400) };
+  else delete config.gridFonts;
   if (d.notes !== undefined) config.notes = d.notes;
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan, grid });
@@ -1203,6 +1223,8 @@ postRoutes.put("/settings", async (c) => {
       size: z.enum(["1K", "2K", "4K"]).optional(),
       postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
       notes: z.string().max(2000).optional(),
+      /** The fonts this month uses instead of the brand's (the grid's recommendation), or null for the brand's. */
+      monthFonts: z.object({ headline: z.string().max(80), body: z.string().max(80) }).nullable().optional(),
       /** A grid from the style library ("style:<id>"), or null to take the grid off. */
       gridRef: z.string().regex(/^style:[\w-]{1,80}$/).nullable().optional(),
       ambassadors: z.array(z.string().max(80)).max(3).optional(),
@@ -1256,6 +1278,11 @@ postRoutes.put("/settings", async (c) => {
   if (d.notes !== undefined) config.notes = d.notes;
   if (d.ambassadors) config.ambassadors = [...new Set(d.ambassadors)].slice(0, 3);
   if (d.exact !== undefined) config.exact = d.exact || undefined;
+  if (d.monthFonts === null) delete config.monthFonts;
+  else if (d.monthFonts) {
+    if (!HOSTED_FONTS.includes(d.monthFonts.headline) || !HOSTED_FONTS.includes(d.monthFonts.body)) throw new StudioError("Pick fonts from the list.");
+    config.monthFonts = d.monthFonts;
+  }
   if (d.gridRef === null) {
     delete config.gridRef;
     delete config.gridNotes;
@@ -1290,6 +1317,43 @@ interface TaskLite {
   status: string;
   output: string | null;
   brief: string | null;
+}
+
+/** A plain background in one colour, the size of the post: a typographic tile's picture. */
+async function plainBackground(hex: string, format: string): Promise<ArrayBuffer> {
+  const [w, h] = format === "1:1" ? [1080, 1080] : format === "9:16" ? [1080, 1920] : [1080, 1350];
+  const n = parseInt(hex.slice(1), 16);
+  const px = new Uint8Array(w * h * 4);
+  for (let i = 0; i < px.length; i += 4) {
+    px[i] = (n >> 16) & 255;
+    px[i + 1] = (n >> 8) & 255;
+    px[i + 2] = n & 255;
+    px[i + 3] = 255;
+  }
+  const { PhotonImage } = await import("@cf-wasm/photon");
+  const img = new PhotonImage(px, w, h);
+  try {
+    const bytes = img.get_bytes();
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  } finally {
+    img.free();
+  }
+}
+
+/** The month's source row for drawn backgrounds (a task always points at a source). */
+async function designSourceOf(env: Env, batchId: string, key: string): Promise<string> {
+  const found = await first<{ id: string }>(env.DB, "SELECT id FROM sources WHERE batch = ? AND stem = 'design-background'", batchId);
+  if (found) return found.id;
+  const id = uuid();
+  await run(
+    env.DB,
+    "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, created) VALUES (?, ?, 'design/background.png', 'design-background', ?, NULL, 'image/png', 0, 'supporting', 'reference', ?)",
+    id,
+    batchId,
+    key,
+    now(),
+  );
+  return id;
 }
 
 /** A random reference among those used the fewest times in this plan. */
@@ -1399,6 +1463,10 @@ postRoutes.post("/generate", async (c) => {
       .map((r) => [r.id, r]),
   );
   const statements: D1PreparedStatement[] = [];
+  let designSource: string | undefined;
+  // Photos of the client's own place: a grid's place tile is set there, one photo after another.
+  const places = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'place' ORDER BY created", client.id);
+  let placeTurn = 0;
   let planned = 0;
   const skipped: number[] = [];
   const missingProduct: { index: number; product: string }[] = [];
@@ -1416,8 +1484,9 @@ postRoutes.post("/generate", async (c) => {
         : undefined;
     // A royal day shows the official portrait (added on the design), never a product or a person.
     const portraitDay = !!occasion?.portrait;
-    const leadName = post.type === "offer" ? post.offer!.products[0] : portraitDay ? undefined : post.product;
-    const extraNames = post.type === "offer" ? post.offer!.products.slice(1) : portraitDay ? [] : (post.products ?? []);
+    const typographic = config.gridRef && post.tileSpec?.kind === "text";
+    const leadName = post.type === "offer" ? post.offer!.products[0] : portraitDay || typographic ? undefined : post.product;
+    const extraNames = post.type === "offer" ? post.offer!.products.slice(1) : portraitDay || typographic ? [] : (post.products ?? []);
     const existing = byPost.get(post.index);
     if (existing) {
       const busy = existing.status === "processing" || existing.status === "finalizing";
@@ -1425,6 +1494,32 @@ postRoutes.post("/generate", async (c) => {
       // A smaller test image is made again at the month's size with the rest.
       if (!d.regenerate && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
     }
+    // A text tile of the grid is a typographic post. A plain background is drawn here, exactly in its
+    // colour and without the image engine; the headline goes on it as the tile has it.
+    const spec = config.gridRef ? post.tileSpec : undefined;
+    if (spec?.kind === "text" && !TEXTURED_BACKGROUND.test(spec.background)) {
+      const taskId = existing?.id ?? uuid();
+      const colour = hexIn(spec.background, monthPaletteOf(theme)[0] ? hexIn(monthPaletteOf(theme)[0], "#f3ece0") : hexIn(paletteOf(client)[0], "#f3ece0"));
+      const key = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.png`;
+      await c.env.BUCKET.put(key, await plainBackground(colour, config.format ?? "4:5"), { httpMetadata: { contentType: "image/png" } });
+      designSource ??= await designSourceOf(c.env, b.id, key);
+      const qa = JSON.stringify({ found: false, count: 0, box: [], productConcern: false, notes: "A typographic post: its background is drawn in the tile's colour.", automated: true, flags: [] });
+      const brief = JSON.stringify({ post: true, index: post.index, type: post.type, typographic: true, background: colour });
+      const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
+      statements.push(
+        existing
+          ? c.env.DB.prepare(
+              "UPDATE tasks SET status = 'ready', source = ?, output = ?, prompt = '', brief = ?, caption = ?, qa = ?, error = NULL, edit = NULL, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ?",
+            ).bind(designSource, key, brief, caption, qa, now(), existing.id)
+          : c.env.DB.prepare(
+              "INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, ?, ?)",
+            ).bind(taskId, b.id, designSource, post.index, key, brief, post.index, caption, qa, now()),
+      );
+      planned++;
+      continue;
+    }
+    // A textured one (paper, marble…) is painted by the engine: its background only.
+    const textured = spec?.kind === "text";
     const productSources = sources.filter((s) => s.kind === "product");
     const productNames = productSources.map(productName);
     const productMatch = matchProduct(leadName, productNames);
@@ -1532,7 +1627,9 @@ postRoutes.post("/generate", async (c) => {
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
-      shot: post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
+      design: textured ? "background" : undefined,
+      place: spec?.kind === "place" && places.length ? places[placeTurn++ % places.length] : undefined,
+      shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       grid: config.gridRef ? config.gridNotes || undefined : undefined,

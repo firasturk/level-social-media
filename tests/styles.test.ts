@@ -1,7 +1,7 @@
-import { postReviewInstruction } from "@shared/qa";
+import { parsePostReview, postReviewInstruction } from "@shared/qa";
 import { describe, expect, it } from "vitest";
 import { adaptStyleInstruction, describeStyleInstruction, gridPostCount, gridStyleInstruction, parseGridStyle, parseStyle, pictureSig, seasonWords } from "@shared/styles";
-import { buildPostPrompt, type PostBrief } from "@shared/posts";
+import { buildPostPrompt, hexIn, overlayFromTile, TEXTURED_BACKGROUND, tileSpecOf, type PostBrief } from "@shared/posts";
 
 describe("style gallery", () => {
   it("reads a pin into a style for any product", () => {
@@ -124,5 +124,31 @@ describe("the Grids shelf", () => {
     expect(ins).toContain("rows of three");
     expect(ins).toContain("tile by tile");
     expect(ins).toContain("never a brand name");
+  });
+});
+
+describe("following a grid tile by tile", () => {
+  it("reads a tile and lays its words out like the tile", () => {
+    const spec = tileSpecOf({ kind: "text", items: "", background: "cream paper #f3ece0", text: { position: "center", align: "left", size: "huge", color: "#1a1a1a", style: "bold serif" } })!;
+    expect(spec.kind).toBe("text");
+    const o = overlayFromTile(spec.text, spec.kind);
+    expect(o.ov).toMatchObject({ position: "center", align: "left", scale: 1.8, color: "#1a1a1a", fade: false });
+    expect(tileSpecOf({ kind: "nonsense" as never })).toBeUndefined();
+    expect(overlayFromTile({ position: "none", align: "center", size: "small", color: "", style: "" }, "product")).toEqual({ overlay: false });
+  });
+  it("tells a plain background from a textured one", () => {
+    expect(TEXTURED_BACKGROUND.test("cream paper #f3ece0")).toBe(true);
+    expect(TEXTURED_BACKGROUND.test("solid navy #0b2a4a")).toBe(false);
+    expect(hexIn("solid navy #0b2a4a", "#ffffff")).toBe("#0b2a4a");
+  });
+  it("paints only the background of a textured typographic tile", () => {
+    const p = buildPostPrompt({ post: true, index: 1, type: "quote", title: "T", brief: "B", palette: [], style: "", theme: "", format: "4:5", ref: null, refIsSource: true, hasProduct: false, design: "background", shot: "white marble" });
+    expect(p).toContain("THE BACKGROUND: white marble");
+    expect(p).toContain("NOTHING ELSE");
+    expect(p).not.toContain("PRODUCT TRUTH");
+  });
+  it("flags a post that drifts from its tile", () => {
+    const flags = parsePostReview({ productSame: true, productIssue: "", sizeRight: true, invented: "", text: "", bag: false, foreign: [], people: "", tile: "a drink tile shows a box" }, { products: 1, tile: "Tile 2: a drink" });
+    expect(flags.map((f) => f.kind)).toEqual(["tile"]);
   });
 });

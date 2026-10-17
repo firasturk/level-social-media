@@ -8,7 +8,7 @@ import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
 import { canvasBlob, loadFont, loadImage, renderOverlay } from "@/lib/overlay";
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
-import { resolveOverlay } from "@shared/overlay";
+import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, monthLabel, postFileName, type Format, type Post } from "@shared/posts";
 import { testSize } from "@shared/pricing";
@@ -219,11 +219,17 @@ export default function Workspace({
   }, [page, loadState]);
 
   const client = clients.find((c) => c.id === clientId) ?? null;
+  const monthFonts = batch?.config ? (JSON.parse(batch.config) as Config).monthFonts : undefined;
   const overlaySpec = useMemo(() => {
     const spec = resolveOverlay(client?.overlay);
     const src = client?.badge ? `/api/studio/clients/${client.id}/badge?v=${client.updated}` : null;
-    return { ...spec, badge: { ...spec.badge, src } };
-  }, [client]);
+    // A month that follows a grid may use the grid's fonts instead of the brand's.
+    const headline = monthFonts
+      ? { ...spec.headline, font: monthFonts.headline, weight: HEADLINE_FONTS.find((f) => f.family === monthFonts.headline)?.weight ?? spec.headline.weight }
+      : spec.headline;
+    const subline = monthFonts ? { ...spec.subline, font: monthFonts.body } : spec.subline;
+    return { ...spec, headline, subline, badge: { ...spec.badge, src } };
+  }, [client, monthFonts?.headline, monthFonts?.body]); // eslint-disable-line react-hooks/exhaustive-deps
   const logoSrc = client?.logo ? `/api/studio/clients/${client.id}/logo?v=${client.updated}` : null;
   // Brand font files are registered with the browser once per client so the canvas can use them.
   useEffect(() => {
@@ -357,6 +363,7 @@ export default function Workspace({
       occasions?: { picked: string[]; custom: { id: string; date: string; name: string; elements?: string }[] };
       /** A grid from the style library ("style:<id>"), or null to stop following one. */
       gridRef?: string | null;
+      monthFonts?: { headline: string; body: string } | null;
     },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));

@@ -161,6 +161,8 @@ export const NO_OVERLAY: OverlaySpec = {
 
 /** Per-post adjustments made in the on-image editor: offsets are fractions of the width. */
 export interface PostOverlayPatch {
+  /** Where the words sit on this post, whatever the client's layout says (a grid tile's own place). */
+  position?: TextPosition;
   dx?: number;
   dy?: number;
   /** Multiplier on the headline and sub-line sizes. */

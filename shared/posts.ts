@@ -4,7 +4,7 @@
  * subject is a product, a place, a person at work, a texture, whatever the post calls for.
  */
 import type { PromptImages } from "./prompts";
-import type { PostOverlayPatch } from "./overlay";
+import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS, type PostOverlayPatch } from "./overlay";
 import { FULL_FRAME_RULE } from "./prompts";
 import { SAFE_WORDING_RULE } from "./safety";
 
@@ -131,6 +131,8 @@ export interface Post {
   ov?: PostOverlayPatch;
   /** Which tile of a reference grid this post follows (grid mode). */
   tile?: string;
+  /** That tile read in detail: what it shows, its background and how its text is set. */
+  tileSpec?: TileSpec;
   /** Which of the theme's shots (1-based) this post follows, when the theme has shots. */
   shot?: number;
   /** Posting day, YYYY-MM-DD, inside the month. */
@@ -153,6 +155,10 @@ export interface Post {
 export interface PostBrief {
   post: true;
   index: number;
+  /** "background": a typographic tile's textured background only; the headline goes on it later. */
+  design?: "background";
+  /** A photo of the client's own place (R2 key): the picture is taken there (a grid's place tile). */
+  place?: { key: string };
   /** A test post made smaller than the month's size: it is made again with the rest. */
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
@@ -442,6 +448,17 @@ function postTypeRule(b: PostBrief): string {
 
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
+  // A typographic tile: only its background is painted; the words go on it afterwards.
+  if (b.design === "background")
+    return [
+      `A flat, evenly lit background that fills the whole ${b.format === "9:16" ? "tall 9:16 story frame" : b.format === "1:1" ? "square frame" : "4:5 portrait frame"}.`,
+      `THE BACKGROUND: ${b.shot ?? "a plain surface in the month's first colour"}. Seen straight on, edge to edge, with a soft natural texture and even light.`,
+      "NOTHING ELSE: no objects, products, food, drinks, people, hands, props, shadows of objects, frames, borders, text, letters, numbers or logos. Words are set on it later.",
+      "Any attached image is a reference feed for this background's colour and texture only: never reproduce its tiles, objects or words.",
+      edit.trim() ? `REVISION: ${edit.trim()}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   const parts: string[] = [];
   const extras = b.extraProducts ?? [];
   const people = b.ambassadors ?? [];
@@ -487,6 +504,12 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     n += people.length;
     parts.push(
       `${people.length > 1 ? `Images ${first} to ${n} are portraits of the brand's ambassadors` : `Image ${first} is the portrait of the brand's ambassador`}: ${people.map((p, i) => `Image ${first + i}: ${p.name}${p.description ? ` (${p.description})` : ""}.`).join(" ")} Every ambassador in the picture is exactly this person: the same face, features, hair, skin tone and build as the portrait, in a new pose, expression and outfit that fit the scene; the portrait's background, framing and clothes are not copied. No other people appear unless the post asks for them.`,
+    );
+  }
+  if (b.place) {
+    n += 1;
+    parts.push(
+      `Image ${n} is a photo of the client's own place: the picture is taken HERE, in this same room with its walls, materials, furniture, windows and light, from a fitting angle; the product and any people are set into it. Never invent another place, never copy its signs or words.`,
     );
   }
   if (b.hasProduct && (b.ref || b.styleKey) && !b.refIsSource) {
@@ -1002,6 +1025,61 @@ export function parseIdeas(
   return out;
 }
 
+/** What one tile of a reference grid shows, so the month's post takes the same role in the feed. */
+export const TILE_KINDS = ["product", "drink", "food", "place", "person", "text", "texture", "detail"] as const;
+export type TileKind = (typeof TILE_KINDS)[number];
+
+/** How a tile's words sit on it: the overlay of the month's post follows it. */
+export interface TileText {
+  position: "top" | "center" | "bottom" | "none";
+  align: "left" | "center" | "right";
+  size: "small" | "medium" | "large" | "huge";
+  /** The words' colour as #rrggbb ("" when unclear). */
+  color: string;
+  /** Lettering: serif, sans, script, handwritten, condensed, display… */
+  style: string;
+}
+
+export interface TileSpec {
+  kind: TileKind;
+  /** The objects and props on the tile (never the reference's products or brand). */
+  items: string;
+  /** Its background: colour words with #rrggbb when it is a plain colour, or the texture. */
+  background: string;
+  text: TileText;
+}
+
+/** The grid's lettering matched to the fonts the overlay can use. */
+export interface GridFonts {
+  headline: string;
+  body: string;
+  why: string;
+}
+
+/** A textured background (paper, marble…) is painted by the engine; a plain one is drawn exactly. */
+export const TEXTURED_BACKGROUND = /textur|paper|marble|fabric|linen|concrete|stone|wood|gradient|grain|terrazzo|plaster|cloth|velvet|photo/i;
+
+/** The first #rrggbb in a description, else the fallback. */
+export function hexIn(text: string | undefined, fallback: string): string {
+  return /#[0-9a-f]{6}\b/i.exec(text ?? "")?.[0] ?? fallback;
+}
+
+/** The post's text laid out like its tile: position, alignment, size and colour (the designer can still move it). */
+export function overlayFromTile(t: TileText, kind: TileKind): { overlay?: false; ov?: PostOverlayPatch } {
+  if (t.position === "none" && kind !== "text") return { overlay: false };
+  const scale = { small: 0.8, medium: 1, large: 1.35, huge: 1.8 }[t.size] ?? 1;
+  return {
+    ov: {
+      position: t.position === "none" ? "center" : t.position,
+      align: t.align,
+      scale: kind === "text" ? Math.max(scale, 1.35) : scale,
+      ...(/^#[0-9a-f]{6}$/i.test(t.color) ? { color: t.color } : {}),
+      // A typographic tile has nothing to fade behind its words.
+      ...(kind === "text" ? { fade: false } : {}),
+    },
+  };
+}
+
 /** Grid mode: one reference image shows a whole feed; the model reads it tile by tile and plans the month. */
 export const GRID_SCHEMA = {
   type: "object",
@@ -1016,13 +1094,32 @@ export const GRID_SCHEMA = {
           scene: { type: "string" },
           productPlacement: { type: "string" },
           textPlacement: { type: "string" },
+          kind: { type: "string", enum: [...TILE_KINDS] },
+          items: { type: "string" },
+          background: { type: "string" },
+          text: {
+            type: "object",
+            properties: {
+              position: { type: "string", enum: ["top", "center", "bottom", "none"] },
+              align: { type: "string", enum: ["left", "center", "right"] },
+              size: { type: "string", enum: ["small", "medium", "large", "huge"] },
+              color: { type: "string" },
+              style: { type: "string" },
+            },
+            required: ["position", "align", "size", "color", "style"],
+          },
         },
-        required: ["position", "scene", "productPlacement", "textPlacement"],
+        required: ["position", "scene", "productPlacement", "textPlacement", "kind", "items", "background", "text"],
       },
+    },
+    fonts: {
+      type: "object",
+      properties: { headline: { type: "string" }, body: { type: "string" }, why: { type: "string" } },
+      required: ["headline", "body", "why"],
     },
     posts: IDEAS_SCHEMA.properties.posts,
   },
-  required: ["world", "tiles", "posts"],
+  required: ["world", "tiles", "fonts", "posts"],
 };
 
 export function gridIdeasInstruction(r: IdeasRequest): string {
@@ -1030,6 +1127,8 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
   return [
     `The attached image is a reference social-media feed grid (several post tiles in one picture). You are the creative lead of a design agency: read it tile by tile, then plan ${r.count} posts for the client "${r.clientName}" for ${monthLabel(r.month)} that recreate the SAME world and rhythm with the client's own products and identity. The posts are produced as single images by an image engine (no text inside the image) and get a headline overlay and a caption.`,
     "First describe the grid: world (one paragraph: the sets, materials, surfaces, props, palette with colour words, light, camera angles, mood, how products are staged and where text sits) and tiles (one entry per tile in reading order: position like 'row 1, col 2'; scene; productPlacement; textPlacement). Ignore the reference's brand, products, logos and words: only the staging matters.",
+    `For each tile also give: kind (${TILE_KINDS.join(", ")}: "text" is a tile that is mostly words on a plain or textured background, "place" shows a shop, café, kitchen or interior, "drink" a beverage, "food" a dish or dessert, "product" a packaged item, "person" a person, "texture" a close-up surface, "detail" a close-up of an ingredient or object); items (the objects and props on it, as words); background (its colour words with #rrggbb when it is plain, or the texture: "cream paper #f3ece0", "white marble"); text (how its words sit: position top, center, bottom or none; align; size small, medium, large or huge; color #rrggbb; style: the lettering such as bold serif, thin sans, script, handwritten, condensed, display).`,
+    `fonts: the closest overlay fonts to the grid's lettering, from these only. Headline: ${HEADLINE_FONTS.map((f) => `${f.family} (${f.style})`).join(", ")}, ${LATIN_FONTS.map((f) => `${f.family} (${f.style})`).join(", ")}. Body: ${BODY_FONTS.map((f) => `${f.family} (${f.style})`).join(", ")}. why: one sentence on the match.`,
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${lang}`,
     r.profile ? `CLIENT PROFILE (the Analysis of their Instagram and website; write for this audience, in this voice, by these rules for headlines and captions; other brands are never copied):\n${r.profile}` : "",
@@ -1050,8 +1149,9 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,
     r.notes ? `DESIGNER NOTES: ${r.notes}` : "",
+    "MATCH EACH TILE: a post takes its tile's role. A drink tile shows one of the client's drinks, a food tile one of its dishes or sweets, a product tile a packaged product (a box, tin or bottle), a place tile the client's own shop or café, a person tile a brand ambassador with the product, a detail or texture tile a close-up of the product's own ingredients or surface, and a text tile is a typographic post (type quote, tip or announcement: its headline carries the message and the picture is only the tile's background). Pick the product whose photo note fits the tile's kind; reproduce the tile's items as non-food props in the month's colours.",
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} SHORT: at most 15 words in all; no hashtags inside), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
-    `Return ONLY JSON: {"world": "...", "tiles": [...], "posts": [...]} with exactly ${r.count} posts.`,
+    `Return ONLY JSON: {"world": "...", "tiles": [...], "fonts": {...}, "posts": [...]} with exactly ${r.count} posts.`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -1059,7 +1159,27 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
 
 export interface GridRead {
   world: string;
-  tiles: { position: string; scene: string; productPlacement: string; textPlacement: string }[];
+  tiles: ({ position: string; scene: string; productPlacement: string; textPlacement: string } & Partial<TileSpec>)[];
+  fonts?: GridFonts;
+}
+
+/** One tile's detailed read, cleaned (null when the model gave none). */
+export function tileSpecOf(t: Partial<TileSpec> | undefined): TileSpec | undefined {
+  if (!t || !t.kind || !(TILE_KINDS as readonly string[]).includes(t.kind)) return undefined;
+  const x = (t.text ?? {}) as Partial<TileText>;
+  const pick = <T extends string>(v: unknown, list: readonly T[], d: T): T => ((list as readonly unknown[]).includes(v) ? (v as T) : d);
+  return {
+    kind: t.kind,
+    items: String(t.items ?? "").slice(0, 400),
+    background: String(t.background ?? "").slice(0, 160),
+    text: {
+      position: pick(x.position, ["top", "center", "bottom", "none"] as const, "bottom"),
+      align: pick(x.align, ["left", "center", "right"] as const, "center"),
+      size: pick(x.size, ["small", "medium", "large", "huge"] as const, "medium"),
+      color: /^#[0-9a-f]{6}$/i.test(String(x.color ?? "").trim()) ? String(x.color).trim() : "",
+      style: String(x.style ?? "").slice(0, 80),
+    },
+  };
 }
 
 /** The grid description as one text for the prompts and the theme notes. */
@@ -1068,7 +1188,7 @@ export function gridNotes(g: GridRead): string {
     g.world.trim(),
     ...g.tiles.map(
       (t, i) =>
-        `Tile ${i + 1} (${t.position}): ${t.scene} Product: ${t.productPlacement} Text: ${t.textPlacement}`,
+        `Tile ${i + 1} (${t.position}${t.kind ? `, ${t.kind}` : ""}): ${t.scene} Product: ${t.productPlacement} Text: ${t.textPlacement}${t.items ? ` Items: ${t.items}` : ""}${t.background ? ` Background: ${t.background}` : ""}`,
     ),
   ].join("\n");
 }

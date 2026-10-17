@@ -96,6 +96,9 @@ export interface Config {
   gridNotes?: string;
   /** When the grid was picked or taken off: ideas written before it follow the old one. */
   gridAt?: number;
+  /** The fonts closest to the grid's lettering (its read), and the ones the month uses instead of the brand's. */
+  gridFonts?: { headline: string; body: string; why: string };
+  monthFonts?: { headline: string; body: string };
   /** The creative brief of the journey: what each step's analysis understood. */
   brief?: Partial<Record<BriefStep, BriefNote>>;
   /** The occasions this month posts (picked from the calendar or added by the team). */

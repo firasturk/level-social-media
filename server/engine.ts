@@ -1816,6 +1816,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     sellsDrinks: pb.sellsDrinks,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
+    tile: pb.grid && pb.tile ? pb.tile : undefined,
   };
   const instruction = postReviewInstruction(ctx);
   const all = [...images, result];
@@ -1933,7 +1934,7 @@ async function submitOpenAITask(
   if (config.mode === "post") {
     const pb = postBrief(task);
     // Order matters: the prompt numbers products, then ambassador portraits, then the reference.
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? [])]) {
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : [])]) {
       const obj = await env.BUCKET.get(extra.key);
       if (obj)
         images.push({
@@ -2354,7 +2355,7 @@ async function collectReferenceKeys(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? [])]) keys.push(extra.key);
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : [])]) keys.push(extra.key);
     if (pb.styleKey && !pb.refIsSource) {
       keys.push(pb.styleKey);
       roles.mood = true;

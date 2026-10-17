@@ -103,6 +103,8 @@ export async function drawOverlay(
   const layout: OverlayLayout = { logo: null, text: null };
   if (spec.template === "none") return layout;
   const patch = opts.patch ?? {};
+  // A post can put its words elsewhere than the client's layout (a grid tile's own place).
+  if (patch.position && patch.position !== spec.headline.position) spec = { ...spec, headline: { ...spec.headline, position: patch.position } };
   const anim = opts.anim;
   const p = anim ? Math.max(0, Math.min(1, anim.progress)) : 1;
   const ease = 1 - Math.pow(1 - p, 3);

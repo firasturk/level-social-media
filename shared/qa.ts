@@ -115,7 +115,7 @@ export function postProblems(
 
 /* ───────────── The automatic review of a finished post image ───────────── */
 
-export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people";
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile";
 
 /** One thing the review found wrong in a generated post. */
 export interface PostFlag {
@@ -134,8 +134,9 @@ export const POST_REVIEW_SCHEMA = {
     bag: { type: "boolean" },
     foreign: { type: "array", items: { type: "string" } },
     people: { type: "string" },
+    tile: { type: "string" },
   },
-  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people"],
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile"],
 };
 
 /** What the reviewer is told about the post it checks. */
@@ -153,6 +154,8 @@ export interface ReviewContext {
   coffeeDay?: boolean;
   /** The picked style's scene: it may stage the product giant or several times on purpose. */
   style?: string;
+  /** The grid tile this post follows: its role and staging in the feed. */
+  tile?: string;
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -179,11 +182,14 @@ export function postReviewInstruction(r: ReviewContext): string {
     r.people.length
       ? `people: the post may show only ${r.people.map((p) => `${p.name} (${p.description})`).join("; ")}. Describe in one sentence any problem: more people than these, a man in a headscarf, hijab or dress, clothes that break the look (bare shoulders, a low neckline or short skirt when the look says modest; a hijab missing or added against the look), or broken hands, fingers or faces. Else "".`
       : 'people: this post shows nobody, but one or two hands holding, touching or dipping the product or its ingredient are allowed and never a problem. Describe only a face, a body or more than two hands, or hands with broken or extra fingers. Else "".',
+    r.tile
+      ? `tile: this post recreates one tile of a reference feed grid: "${r.tile.slice(0, 500)}". Describe in one sentence how the post drifts from that tile's role and staging (a drink tile showing a box, a close-up shot from far away, a place tile with no room), else "". Colours, products and people are the client's own and never count as drift.`
+      : 'tile: "".',
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }
 
-export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay">): PostFlag[] {
+export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay" | "tile">): PostFlag[] {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const none = (t: string) => !t || /^(none|no|n\/a|nothing|-)\.?$/i.test(t);
@@ -198,6 +204,7 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
   if (foreign.length && !r.sellsDrinks && !r.coffeeDay)
     out.push({ kind: "foreign", text: `Shows what the brand does not sell: ${foreign.join(", ")}` });
   if (!none(str(d.people))) out.push({ kind: "people", text: str(d.people) });
+  if (r.tile && !none(str(d.tile))) out.push({ kind: "tile", text: `Not like its grid tile: ${str(d.tile)}` });
   return out;
 }
 
@@ -211,6 +218,7 @@ export function fixNote(flags: PostFlag[]): string {
     bag: "Remove the bag, carrier or basket; the product is held or set on a surface",
     foreign: "Remove every drink, cup, glass, bottle and food that is not the brand's product",
     people: "Fix the people as described",
+    tile: "Stage it like its tile of the reference grid",
   };
   return flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }

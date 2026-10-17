@@ -401,6 +401,7 @@ export function BrandKit({
       actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
     >
       <LogosGroup client={client} onClientsChanged={onClientsChanged} />
+      <PlacesGroup client={client} onClientsChanged={onClientsChanged} />
       <Group
         kit="colours"
         title="Brand colours"
@@ -597,6 +598,65 @@ export function BrandKit({
 /* ───────────── Logos ───────────── */
 
 /** The client's main logo and its corner logo (a parent or partner mark), uploaded here. */
+/** Photos of the client's own place: a grid's place tile is set in the real shop, café or kitchen. */
+function PlacesGroup({ client, onClientsChanged }: { client: Client; onClientsChanged: (clients: Client[]) => void }) {
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const places = client.places ?? [];
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      for (const f of Array.from(files).slice(0, 12)) form.append("file", f);
+      const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/places`, form);
+      onClientsChanged(r.clients);
+      toast.success(`${files.length} photo${files.length > 1 ? "s" : ""} of the place added.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+  async function remove(id: string) {
+    if (!(await askConfirm("Remove this photo of the place?", { ok: "Remove" }))) return;
+    try {
+      const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/places/${id}`);
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  return (
+    <Group
+      kit="references"
+      title="Place photos"
+      actions={
+        <button type="button" className="text-button" disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Add photos
+        </button>
+      }
+    >
+      <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(e) => void upload(e.target.files)} />
+      {places.length ? (
+        <div className="place-list">
+          {places.map((p) => (
+            <span key={p.id} className="place-thumb">
+              <img src={`/api/studio/clients/${client.id}/places/${p.id}/file`} alt={p.name} loading="lazy" />
+              <button type="button" className="icon-button" aria-label={`Remove ${p.name}`} onClick={() => void remove(p.id)}>
+                <Trash2 size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="prompt-tip">The shop, café, kitchen or counter. When a month follows a grid, its place tiles are set in these real photos.</div>
+      )}
+    </Group>
+  );
+}
+
 function LogosGroup({ client, onClientsChanged }: { client: Client; onClientsChanged: (clients: Client[]) => void }) {
   const [busy, setBusy] = useState<"" | "logo" | "badge">("");
   const inputs = { logo: useRef<HTMLInputElement>(null), badge: useRef<HTMLInputElement>(null) };

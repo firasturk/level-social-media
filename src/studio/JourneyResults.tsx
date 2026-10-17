@@ -328,6 +328,8 @@ export function FeedStep({
   logoSrc,
   onShare,
   onExport,
+  reference,
+  onRetake,
 }: {
   client: Client;
   month: string;
@@ -338,6 +340,9 @@ export function FeedStep({
   logoSrc: string | null;
   onShare: () => Promise<void>;
   onExport: () => Promise<void>;
+  /** The reference grid the month follows (its picture), shown beside the feed. */
+  reference?: string;
+  onRetake: (index: number) => Promise<void>;
 }) {
   const [sharing, setSharing] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -345,6 +350,8 @@ export function FeedStep({
   // The newest post sits top left, as in the feed at the end of the month.
   const feed = [...plan].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.index - a.index);
   const flagged = posts.filter((x) => x.flags?.length).length;
+  const drifted = posts.filter((x) => x.flags?.some((f) => f.kind === "tile")).length;
+  const [retaking, setRetaking] = useState(false);
   const ready = posts.filter((x) => x.url).length;
   const opened = open !== null ? plan.find((p) => p.index === open) : null;
   const openedJob = opened ? posts.find((x) => x.index === opened.index) : null;
@@ -370,8 +377,17 @@ export function FeedStep({
           <div className="feed-grid">
             {feed.map((p, i) => {
               const j = posts.find((x) => x.index === p.index);
+              const drift = j?.flags?.find((f) => f.kind === "tile");
               return (
-                <button type="button" key={p.index} className="feed-tile" style={{ "--i": i } as React.CSSProperties} onClick={() => setOpen(p.index)} disabled={!j?.url}>
+                <button
+                  type="button"
+                  key={p.index}
+                  className={`feed-tile ${drift ? "drift" : ""}`}
+                  style={{ "--i": i } as React.CSSProperties}
+                  onClick={() => setOpen(p.index)}
+                  disabled={!j?.url}
+                  title={drift?.text}
+                >
                   {j?.url ? (
                     p.overlay !== false && (p.headline || logoSrc) ? (
                       <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} width={420} alt={p.title} />
@@ -387,6 +403,14 @@ export function FeedStep({
           </div>
         </div>
         <div className="journey-box feed-side">
+          {reference && (
+            <figure className="feed-reference">
+              <img src={reference} alt="The grid this month follows" />
+              <figcaption>
+                The grid you picked. {drifted ? `${drifted} post${drifted > 1 ? "s" : ""} drift from their tile (marked in orange): open one to make it again.` : "Every post follows its tile."}
+              </figcaption>
+            </figure>
+          )}
           <p className="magic-big">{ready}</p>
           <p className="field-hint">
             posts ready · {FORMAT_INFO[format].label} · {monthLabel(month)}
@@ -412,6 +436,19 @@ export function FeedStep({
               <strong dir="auto">{opened.headline ?? opened.title}</strong>
               <p dir="auto">{opened.caption}</p>
               <small dir="auto">{opened.hashtags}</small>
+              {openedJob.flags?.find((f) => f.kind === "tile") && (
+                <>
+                  <p className="feed-drift">{openedJob.flags.find((f) => f.kind === "tile")!.text}</p>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={retaking}
+                    onClick={() => void run(setRetaking, () => onRetake(opened.index)).then(() => setOpen(null))}
+                  >
+                    {retaking ? <LoaderCircle className="spinning" size={14} /> : <RotateCcw size={14} />} Make it again
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </Overlay>

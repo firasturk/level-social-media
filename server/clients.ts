@@ -68,6 +68,7 @@ function toClient(r: ClientRow): Client {
     updated: r.updated,
     overlay: r.overlay ? parseJson<Client["overlay"]>(r.overlay, null) : null,
     fontFiles: [],
+    places: [],
   };
 }
 
@@ -79,15 +80,18 @@ export async function listClients(env: Env, includeArchived = false): Promise<Cl
      FROM clients c ${includeArchived ? "" : "WHERE c.status = 'active'"}
      ORDER BY c.position, c.created`,
   );
-  const fonts = await all<{ id: string; client: string; name: string | null }>(
+  const assets = await all<{ id: string; client: string; name: string | null; kind: string }>(
     env.DB,
-    "SELECT id, client, name FROM brand_assets WHERE kind = 'font' ORDER BY created",
+    "SELECT id, client, name, kind FROM brand_assets WHERE kind IN ('font', 'place') ORDER BY created",
   );
   return rows.map((r) => ({
     ...toClient(r),
-    fontFiles: fonts
-      .filter((f) => f.client === r.id)
+    fontFiles: assets
+      .filter((f) => f.client === r.id && f.kind === "font")
       .map((f) => ({ id: f.id, name: f.name ?? "Font" })),
+    places: assets
+      .filter((f) => f.client === r.id && f.kind === "place")
+      .map((f) => ({ id: f.id, name: f.name ?? "Place" })),
   }));
 }
 
@@ -323,6 +327,59 @@ clientRoutes.post("/:id/fonts", async (c) => {
     now(),
   );
   return c.json(await payload(c.env));
+});
+
+/** Photos of the client's own place: a grid's place tile is set in the real shop or café. */
+clientRoutes.post("/:id/places", async (c) => {
+  const id = c.req.param("id");
+  await clientRow(c.env, id);
+  const form = await c.req.formData();
+  const files = form.getAll("file").filter((f): f is File => f instanceof File).slice(0, 12);
+  if (!files.length) throw new StudioError("Choose one or more photos of the place.");
+  for (const f of files) {
+    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) throw new StudioError(`${f.name}: use a JPG, PNG or WebP photo.`);
+    if (f.size > 15 * 1024 * 1024) throw new StudioError(`${f.name}: the photo is over 15 MB.`);
+    const assetId = uuid();
+    const key = `clients/${id}/place-${assetId}`;
+    await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type } });
+    await run(
+      c.env.DB,
+      "INSERT INTO brand_assets (id, client, kind, key, name, created) VALUES (?, ?, 'place', ?, ?, ?)",
+      assetId,
+      id,
+      key,
+      f.name.replace(/\.[^.]+$/, "").slice(0, 80),
+      now(),
+    );
+  }
+  return c.json(await payload(c.env));
+});
+
+clientRoutes.delete("/:id/places/:assetId", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'place'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  if (!row) throw new StudioError("Photo not found.", 404);
+  await c.env.BUCKET.delete(row.key);
+  await run(c.env.DB, "DELETE FROM brand_assets WHERE id = ?", c.req.param("assetId"));
+  return c.json(await payload(c.env));
+});
+
+clientRoutes.get("/:id/places/:assetId/file", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'place'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  const obj = row ? await c.env.BUCKET.get(row.key) : null;
+  if (!obj) throw new StudioError("Photo not found.", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=604800" },
+  });
 });
 
 clientRoutes.delete("/:id/fonts/:assetId", async (c) => {

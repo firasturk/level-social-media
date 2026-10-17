@@ -9,7 +9,7 @@ import {
   SIZES,
   type Config,
 } from "./config";
-import { FORMATS, MAX_POST_COUNT, POST_TYPES } from "./posts";
+import { FORMATS, MAX_POST_COUNT, POST_TYPES, TILE_KINDS } from "./posts";
 
 export const postSchema = z.object({
   index: z.number().int().min(1).max(MAX_POST_COUNT),
@@ -39,9 +39,24 @@ export const postSchema = z.object({
       logoWidth: z.number().min(0.02).max(1).optional(),
       photo: z.string().max(400).optional(),
       fade: z.boolean().optional(),
+      position: z.enum(["top", "center", "bottom"]).optional(),
     })
     .optional(),
   tile: z.string().max(400).optional(),
+  tileSpec: z
+    .object({
+      kind: z.enum(TILE_KINDS),
+      items: z.string().max(400),
+      background: z.string().max(160),
+      text: z.object({
+        position: z.enum(["top", "center", "bottom", "none"]),
+        align: z.enum(["left", "center", "right"]),
+        size: z.enum(["small", "medium", "large", "huge"]),
+        color: z.string().max(12),
+        style: z.string().max(80),
+      }),
+    })
+    .optional(),
   date: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -80,6 +95,8 @@ export const configSchema = z.object({
   gridRef: z.string().max(80).optional(),
   gridNotes: z.string().max(12000).optional(),
   gridAt: z.number().optional(),
+  gridFonts: z.object({ headline: z.string().max(80), body: z.string().max(80), why: z.string().max(400) }).optional(),
+  monthFonts: z.object({ headline: z.string().max(80), body: z.string().max(80) }).optional(),
   mode: z.enum(MODES),
   /** Kept optional so batches saved before the category picker was removed still load. */
   category: z.string().max(80).optional(),

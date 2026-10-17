@@ -164,6 +164,7 @@ export interface JourneyProps {
     format?: Format;
     shots?: string[];
     gridRef?: string | null;
+    monthFonts?: { headline: string; body: string } | null;
     occasions?: { picked: string[]; custom: NonNullable<MonthOccasions["custom"]> };
   }) => void;
   themes: Theme[];
@@ -858,6 +859,9 @@ export default function Journey(p: JourneyProps) {
               <GridPick
                 clientId={client.id}
                 clientName={client.name}
+                gridFonts={p.config?.gridFonts}
+                monthFonts={p.config?.monthFonts}
+                onFonts={(f) => p.onSettings({ monthFonts: f })}
                 gridRef={p.config?.gridRef ?? null}
                 admin={p.user.role === "admin"}
                 onPick={(id) => p.onSettings({ gridRef: `style:${id}` })}
@@ -1025,6 +1029,14 @@ export default function Journey(p: JourneyProps) {
               logoSrc={p.logoSrc}
               onShare={p.onShare}
               onExport={p.onExport}
+              onRetake={p.onRetake}
+              reference={
+                p.config?.gridRef
+                  ? p.config.gridRef.startsWith("style:")
+                    ? styleThumb({ id: p.config.gridRef.slice(6), updated: 0 }, true)
+                    : `/api/studio/references/${p.config.gridRef}/file`
+                  : undefined
+              }
             />
           )}
         </div>
@@ -2130,6 +2142,9 @@ function IdeaCard({
 function GridPick({
   clientId,
   clientName,
+  gridFonts,
+  monthFonts,
+  onFonts,
   gridRef,
   admin,
   onPick,
@@ -2137,6 +2152,9 @@ function GridPick({
 }: {
   clientId: string;
   clientName: string;
+  gridFonts?: { headline: string; body: string; why: string };
+  monthFonts?: { headline: string; body: string };
+  onFonts: (f: { headline: string; body: string } | null) => void;
   gridRef: string | null;
   admin: boolean;
   onPick: (id: string) => void;
@@ -2170,6 +2188,23 @@ function GridPick({
         <button type="button" className="text-button" onClick={onClear}>
           Stop following
         </button>
+      )}
+      {gridRef && gridFonts && (
+        <span className="journey-grid-fonts" title={gridFonts.why}>
+          <small>The grid's lettering:</small>
+          <b style={{ fontFamily: `"${gridFonts.headline}"` }}>{gridFonts.headline}</b>
+          <span>+</span>
+          <b style={{ fontFamily: `"${gridFonts.body}"`, fontWeight: 400 }}>{gridFonts.body}</b>
+          {monthFonts?.headline === gridFonts.headline && monthFonts.body === gridFonts.body ? (
+            <button type="button" className="text-button" onClick={() => onFonts(null)}>
+              Back to the brand's fonts
+            </button>
+          ) : (
+            <button type="button" className="secondary" onClick={() => onFonts({ headline: gridFonts.headline, body: gridFonts.body })}>
+              Use them this month
+            </button>
+          )}
+        </span>
       )}
       <StyleScreen
         open={open}
