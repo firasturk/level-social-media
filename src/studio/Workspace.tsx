@@ -945,6 +945,7 @@ export default function Workspace({
               <StyleScreen
                 open
                 admin={user.role === "admin"}
+                clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
                 onPendingChange={() => void loadPending()}
                 onClose={() => {
                   setPage("studio");

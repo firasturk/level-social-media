@@ -857,6 +857,7 @@ export default function Journey(p: JourneyProps) {
               </StepHead>
               <GridPick
                 clientId={client.id}
+                clientName={client.name}
                 gridRef={p.config?.gridRef ?? null}
                 admin={p.user.role === "admin"}
                 onPick={(id) => p.onSettings({ gridRef: `style:${id}` })}
@@ -939,6 +940,7 @@ export default function Journey(p: JourneyProps) {
                       </div>
                     )}
                     <MonthShots
+                      forClient={{ id: client.id, name: client.name }}
                       plan={p.plan}
                       products={p.products}
                       sourceUrl={p.sourceUrl}
@@ -1469,7 +1471,9 @@ function MonthShots({
   onRewrite,
   onReadPins,
   onSave,
+  forClient,
 }: {
+  forClient: { id: string; name: string };
   plan: Post[];
   products: Source[];
   sourceUrl: (id: string) => string;
@@ -1502,6 +1506,7 @@ function MonthShots({
         open={picking !== null}
         onClose={() => setPicking(null)}
         admin={admin}
+        forClient={forClient}
         pick={{
           mode: picking === "grid" ? "grid" : "post",
           posts: gridPosts.length,
@@ -2124,12 +2129,14 @@ function IdeaCard({
 
 function GridPick({
   clientId,
+  clientName,
   gridRef,
   admin,
   onPick,
   onClear,
 }: {
   clientId: string;
+  clientName: string;
   gridRef: string | null;
   admin: boolean;
   onPick: (id: string) => void;
@@ -2164,7 +2171,13 @@ function GridPick({
           Stop following
         </button>
       )}
-      <StyleScreen open={open} onClose={() => setOpen(false)} admin={admin} pick={{ mode: "feed", tab: "grid", client: clientId, onPick: (ids) => onPick(ids[0]) }} />
+      <StyleScreen
+        open={open}
+        onClose={() => setOpen(false)}
+        admin={admin}
+        forClient={{ id: clientId, name: clientName }}
+        pick={{ mode: "feed", tab: "grid", client: clientId, onPick: (ids) => onPick(ids[0]) }}
+      />
     </div>
   );
 }

@@ -91,13 +91,18 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   const admin = user.role === "admin";
   // The admin's queue: what the daily update and New ideas brought, waiting for approval.
   const reviewing = admin && opts.tab === "review";
+  // A client's own collection ("Add to Habibah's"): its styles and grids, approved or not.
+  const saved = opts.tab === "saved" && !!opts.client;
   // The admin picking a month's grid also sees the grids waiting for approval (picking one approves it).
   const waiting = admin && opts.waiting && opts.tab === "grid";
-  const where = [reviewing ? "status = 'review'" : waiting ? "status IN ('active', 'review')" : "status = 'active'"];
+  const where = [reviewing ? "status = 'review'" : waiting || saved ? "status IN ('active', 'review')" : "status = 'active'"];
   const args: unknown[] = [];
   const trendsFrom = now() - TREND_DAYS * 86_400_000;
   if (reviewing) {
     /* the whole queue */
+  } else if (saved) {
+    where.push("id IN (SELECT style FROM client_styles WHERE client = ?)");
+    args.push(opts.client);
   } else if (opts.tab === "trends") {
     where.push("created >= ?", "category != 'grid'");
     args.push(trendsFrom);
@@ -115,8 +120,8 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
       const like = `%${word}%`;
       args.push(like, like, like, like);
     }
-  // A client's own suggested grids come first on its Grids shelf.
-  const forClient = `${opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : ""}${waiting ? "(status = 'active') DESC, " : ""}`;
+  // For a client: the styles saved to it first, then (on the Grids shelf) the grids its profile suggested.
+  const forClient = `${opts.client ? "(id IN (SELECT style FROM client_styles WHERE client = ?)) DESC, " : ""}${opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : ""}${waiting ? "(status = 'active') DESC, " : ""}`;
   const order = `${forClient}${opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC"}`;
   const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
@@ -125,6 +130,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
     env.DB,
     `SELECT * FROM styles WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT ? OFFSET ?`,
     ...args,
+    ...(opts.client ? [opts.client] : []),
     ...(opts.tab === "grid" && opts.client ? [opts.client] : []),
     STYLE_PAGE_SIZE,
     (page - 1) * STYLE_PAGE_SIZE,
@@ -136,7 +142,9 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
   if (admin) counts.review = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review'"))?.n ?? 0;
   counts.gridWaiting = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review' AND category = 'grid'"))?.n ?? 0;
-  return { ok: true, styles: rows.map((r) => toItem(r, user.role === "admin")), total, page, pages, counts, pool };
+  const mine = opts.client ? new Set((await all<{ style: string }>(env.DB, "SELECT style FROM client_styles WHERE client = ?", opts.client)).map((r) => r.style)) : new Set<string>();
+  if (opts.client) counts.saved = mine.size;
+  return { ok: true, styles: rows.map((r) => ({ ...toItem(r, user.role === "admin"), ...(mine.has(r.id) ? { saved: true } : {}) })), total, page, pages, counts, pool };
 }
 
 /** The query of a list request. */
@@ -720,6 +728,27 @@ styleRoutes.post("/approve", async (c) => {
   for (const id of d.ids)
     await run(c.env.DB, "UPDATE styles SET status = 'active', created = ?, updated = ? WHERE id = ? AND status = 'review'", now(), now(), id);
   return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), approved: d.ids.length });
+});
+
+/**
+ * "Add to Habibah's": the selected styles and grids join the client's own collection, shown first
+ * whenever the team picks for that client. The admin's pick also approves the ones still waiting.
+ */
+styleRoutes.post("/save", async (c) => {
+  const d = await body(c, z.object({ client: z.string().min(1).max(80), ids: z.array(z.string().max(80)).min(1).max(200) }));
+  if (!(await first(c.env.DB, "SELECT 1 AS x FROM clients WHERE id = ?", d.client))) throw new StudioError("Client not found.", 404);
+  for (const id of d.ids) {
+    await run(c.env.DB, "INSERT OR IGNORE INTO client_styles (client, style, added) VALUES (?, ?, ?)", d.client, id, now());
+    if (c.get("user").role === "admin")
+      await run(c.env.DB, "UPDATE styles SET status = 'active', created = ?, updated = ? WHERE id = ? AND status = 'review'", now(), now(), id);
+  }
+  return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), saved: d.ids.length });
+});
+
+styleRoutes.post("/unsave", async (c) => {
+  const d = await body(c, z.object({ client: z.string().min(1).max(80), ids: z.array(z.string().max(80)).min(1).max(200) }));
+  for (const id of d.ids) await run(c.env.DB, "DELETE FROM client_styles WHERE client = ? AND style = ?", d.client, id);
+  return c.json(await list(c.env, c.get("user"), listQuery(c)));
 });
 
 /** Takes several styles out at once (the admin's Reject, or a team member's clean-up). */

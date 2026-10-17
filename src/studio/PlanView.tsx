@@ -241,6 +241,7 @@ export default function PlanView({
       <StyleScreen
         open={picking !== null}
         onClose={() => setPicking(null)}
+        forClient={{ id: client.id, name: client.name }}
         pick={{
           mode: "post",
           label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,

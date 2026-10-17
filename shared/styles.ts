@@ -62,6 +62,8 @@ export interface StyleItem {
   client?: string;
   /** Still waiting for the admin's approval (shown to the admin picking a month's grid). */
   waiting?: boolean;
+  /** In the collection of the client the list was asked for ("Add to Habibah's"). */
+  saved?: boolean;
 }
 
 export const STYLE_SCHEMA = {

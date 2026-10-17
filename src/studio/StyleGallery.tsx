@@ -85,7 +85,13 @@ export default function StyleScreen({
   admin,
   pick,
   onPendingChange,
+  forClient,
+  clients,
 }: {
+  /** The client the team works on: "Add to Habibah's" and a tab with that client's collection. */
+  forClient?: { id: string; name: string };
+  /** Without a client in hand (the library page), the dock offers every client to add to. */
+  clients?: { id: string; name: string }[];
   open: boolean;
   onClose: () => void;
   admin?: boolean;
@@ -110,7 +116,7 @@ export default function StyleScreen({
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const key = `${tab}|${q}|${page}|${pick?.client ?? ""}`;
+  const key = `${tab}|${q}|${page}|${forClient?.id ?? pick?.client ?? ""}`;
   const [data, setData] = useState<Page | null>(pages.get(key) ?? null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<StyleItem[]>([]);
@@ -121,6 +127,7 @@ export default function StyleScreen({
   const [asGrid, setAsGrid] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const single = pick?.mode === "post" || pick?.mode === "feed";
+  const clientId = forClient?.id ?? pick?.client;
   const scroller = useRef<HTMLDivElement>(null);
   const ids = useMemo(() => selected.map((s) => s.id), [selected]);
 
@@ -157,10 +164,10 @@ export default function StyleScreen({
         tab,
         q,
         page: String(page),
-        ...(pick?.client ? { client: pick.client } : {}),
+        ...(clientId ? { client: clientId } : {}),
         ...(pick?.mode === "feed" && admin ? { waiting: "1" } : {}),
       }).toString(),
-    [tab, q, page, pick?.client, pick?.mode, admin],
+    [tab, q, page, clientId, pick?.mode, admin],
   );
 
   const load = useCallback(
@@ -307,6 +314,32 @@ export default function StyleScreen({
     }
   }
 
+  /** "Add to Habibah's": the selection joins the client's own collection (the admin's also approves). */
+  async function saveTo(client: { id: string; name: string }, list = ids) {
+    if (!list.length) return;
+    setBusy("save");
+    try {
+      changed(await post<Page>(`/api/studio/styles/save?${query()}`, { client: client.id, ids: list }));
+      toast.success(`${list.length} added to ${client.name}'s styles. They come first whenever you pick for ${client.name}.`);
+      setSelected([]);
+      onPendingChange?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function unsave(list: string[]) {
+    if (!forClient || !list.length) return;
+    try {
+      changed(await post<Page>(`/api/studio/styles/unsave?${query()}`, { client: forClient.id, ids: list }));
+      setSelected((sel) => sel.filter((x) => !list.includes(x.id)));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
   /** The team's own pictures from the computer: feed grids, or photo styles. */
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -336,7 +369,8 @@ export default function StyleScreen({
   if (!open) return null;
   const n = selected.length;
   // A month's grid is picked from the Grids shelf only; a post never takes a whole grid.
-  const tabs = pick?.mode === "feed" ? TABS.filter((t) => t.id === "grid") : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
+  const shelves = pick?.mode === "feed" ? TABS.filter((t) => t.id === "grid") : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
+  const tabs = forClient && pick?.mode !== "feed" ? [{ id: "saved", label: `${forClient.name}'s` }, ...shelves] : shelves;
   const counts = data?.counts ?? {};
   const pageCount = data?.pages ?? 1;
   const useLabel = !pick
@@ -443,7 +477,8 @@ export default function StyleScreen({
                 }}
               >
                 {t.id === "trends" && <Sparkles size={12} />}
-                {t.id === "grid" && <Grid3x3 size={12} />} {t.label}
+                {t.id === "grid" && <Grid3x3 size={12} />}
+                {t.id === "saved" && <Check size={12} />} {t.label}
                 {counts[t.id] !== undefined && <em>{counts[t.id]}</em>}
               </button>
             ))}
@@ -511,7 +546,13 @@ export default function StyleScreen({
                     <b>{s.title}</b>
                   </span>
                 </button>
-                {s.waiting ? <span className="style-tile-new waiting">Waiting</span> : fresh && <span className="style-tile-new">New</span>}
+                {s.saved && forClient ? (
+                  <span className="style-tile-new saved">{forClient.name}</span>
+                ) : s.waiting ? (
+                  <span className="style-tile-new waiting">Waiting</span>
+                ) : (
+                  fresh && <span className="style-tile-new">New</span>
+                )}
                 <span className="style-tile-check" aria-hidden>
                   {on && <Check size={13} strokeWidth={3} />}
                 </span>
@@ -521,9 +562,15 @@ export default function StyleScreen({
                   </button>
                   <button
                     type="button"
-                    onClick={() => (reviewing ? void judge("remove", [s.id]) : void remove(s))}
+                    onClick={() => (reviewing ? void judge("remove", [s.id]) : tab === "saved" ? void unsave([s.id]) : void remove(s))}
                     aria-label={`${reviewing ? "Reject" : "Remove"} ${s.title}`}
-                    title={reviewing ? "Reject: it never reaches the team" : "Remove from the library for good"}
+                    title={
+                      reviewing
+                        ? "Reject: it never reaches the team"
+                        : tab === "saved"
+                          ? `Take it out of ${forClient?.name ?? "the client"}'s styles (it stays in the library)`
+                          : "Remove from the library for good"
+                    }
                   >
                     <X size={13} />
                   </button>
@@ -582,6 +629,35 @@ export default function StyleScreen({
                 {busy === "approve" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Approve {n}
               </button>
             </>
+          )}
+          {n > 0 && !reviewing && forClient && tab !== "saved" && (
+            <button type="button" className="secondary style-save" disabled={!!busy} onClick={() => void saveTo(forClient)} title={`Keep these for ${forClient.name}: they come first whenever you pick for ${forClient.name}`}>
+              {busy === "save" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add to {forClient.name}'s
+            </button>
+          )}
+          {n > 0 && !reviewing && !forClient && clients && clients.length > 0 && (
+            <select
+              className="style-save-select"
+              value=""
+              disabled={!!busy}
+              aria-label="Add to a client's styles"
+              onChange={(e) => {
+                const c = clients.find((x) => x.id === e.target.value);
+                if (c) void saveTo(c);
+              }}
+            >
+              <option value="">Add to a client's…</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {n > 0 && !reviewing && tab === "saved" && forClient && (
+            <button type="button" className="secondary" disabled={!!busy} onClick={() => void unsave(ids)}>
+              <X size={14} /> Take out of {forClient.name}'s
+            </button>
           )}
           {n > 0 && !reviewing && (
             <>

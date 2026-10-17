@@ -9539,3 +9539,10 @@ label.num select {
   background: #f59e0b;
   color: #111;
 }
+.style-tile-new.saved {
+  background: var(--ink-900);
+  color: #fff;
+}
+.style-save-select {
+  min-width: 170px;
+}
