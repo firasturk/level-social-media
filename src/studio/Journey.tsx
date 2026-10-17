@@ -45,6 +45,8 @@ import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
 import { KitIcon, type KitKey } from "./kit";
+import { CaptionsStep, captionCurrent, FeedStep, MAKING, MakeStep, type JourneyPost } from "./JourneyResults";
+import type { OverlaySpec } from "@shared/overlay";
 
 type ThemesReply = { themes: Theme[] };
 
@@ -55,10 +57,15 @@ const STEPS: { key: string; kit?: KitKey; title: string; brief?: BriefStep }[] =
   { key: "brand", kit: "brand", title: "Brand kit", brief: "brand" },
   { key: "identity", kit: "identity", title: "Visual identity", brief: "theme" },
   { key: "colours", kit: "colours", title: "Colours", brief: "colours" },
-  { key: "ideas", kit: "voice", title: "Post types and captions" },
+  { key: "ideas", kit: "voice", title: "Ideas and dates" },
   { key: "scene", kit: "shots", title: "Props and shots", brief: "shots" },
-  { key: "magic", kit: "theme", title: "Generate" },
+  { key: "magic", kit: "theme", title: "Test post" },
+  // After Generate the journey stays: the images arrive, then their captions, then the feed.
+  { key: "make", kit: "output", title: "Generate" },
+  { key: "captions", kit: "voice", title: "Captions" },
+  { key: "feed", kit: "output", title: "Feed" },
 ];
+const MAGIC = STEPS.findIndex((s) => s.key === "magic");
 
 const RESUME_KEY = "lsm-journey-step";
 
@@ -181,6 +188,14 @@ export interface JourneyProps {
   onDone: () => void;
   /** An image engine is connected (Generate would otherwise fail). */
   engineReady: boolean;
+  /** Every post's image and review, once Generate has started. */
+  posts: JourneyPost[];
+  onRetake: (index: number) => Promise<void>;
+  onFix: (index: number, edit: string) => Promise<void>;
+  onShare: () => Promise<void>;
+  onExport: () => Promise<void>;
+  overlay: OverlaySpec;
+  logoSrc: string | null;
 }
 
 /**
@@ -315,6 +330,45 @@ export default function Journey(p: JourneyProps) {
     if (p.plan.every((x) => x.scene) && p.config.shotsFor === shotsSig) return;
     void adaptShots();
   }, [key, shotsSig, p.config?.shotsFor, reading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── Captions, written from the finished pictures ── */
+  const [captionsWriting, setCaptionsWriting] = useState<number[]>([]);
+  const [captionsFailed, setCaptionsFailed] = useState<number[]>([]);
+  const writeCaptions = useCallback(
+    async (indexes?: number[], force = false) => {
+      if (!p.batchId) return;
+      const due = indexes ?? p.plan.filter((x) => !captionCurrent(x, p.posts.find((j) => j.index === x.index))).map((x) => x.index);
+      if (!due.length) return;
+      setCaptionsWriting(due);
+      try {
+        const r = await post<{ written: number[]; failed: number[] }>("/api/studio/posts/captions", {
+          batch: p.batchId,
+          indexes: due,
+          force: force || undefined,
+        });
+        setCaptionsFailed((f) => [...f.filter((i) => !due.includes(i)), ...r.failed]);
+        await p.refresh();
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setCaptionsWriting([]);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.batchId, p.plan, p.posts, p.refresh],
+  );
+  // On the captions screen, every caption older than its picture is written once by itself.
+  const staleCaptions = p.plan
+    .filter((x) => !captionCurrent(x, p.posts.find((j) => j.index === x.index)))
+    .map((x) => `${x.index}:${p.posts.find((j) => j.index === x.index)?.output ?? ""}`)
+    .join(",");
+  const captionsTried = useRef("");
+  useEffect(() => {
+    if (key !== "captions" || !staleCaptions || captionsWriting.length || captionsTried.current === staleCaptions) return;
+    captionsTried.current = staleCaptions;
+    void writeCaptions();
+  }, [key, staleCaptions, captionsWriting.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const started = p.posts.some((x) => x.status !== "none");
 
   /* ── Reading the pins (theme analysis) before colours and shots ── */
   async function readReferences(force = false) {
@@ -539,7 +593,7 @@ export default function Journey(p: JourneyProps) {
         break;
       }
       case "magic": {
-        for (const st of STEPS.slice(0, STEPS.length - 1)) {
+        for (const st of STEPS.slice(0, MAGIC)) {
           const blocks = issuesFor(st.key).filter((i) => !i.warn);
           if (blocks.length)
             out.push({ text: `${st.title}: ${blocks[0].text}${blocks.length > 1 ? ` (+${blocks.length - 1} more)` : ""}`, fix: { label: `Go to ${st.title}`, run: go(st.key) } });
@@ -549,6 +603,37 @@ export default function Journey(p: JourneyProps) {
           if (o.portrait && !sel?.photos?.[o.id])
             out.push({ text: `${o.name} needs its official portrait.`, fix: { label: "Go to Posts", run: go("count") } });
         if (!p.engineReady) out.push({ text: "No image engine is connected.", how: "Open Connection in the studio's left rail and connect Google." });
+        break;
+      }
+      case "make": {
+        if (!started) {
+          out.push({ text: "Nothing is being made yet.", fix: { label: "Go to the test post", run: go("magic") } });
+          break;
+        }
+        const making = p.posts.filter((x) => MAKING.includes(x.status));
+        if (making.length)
+          out.push({ text: `Wait: ${making.length} post${making.length > 1 ? "s are" : " is"} still being made.`, how: "You can close the page; they keep going and are here when you come back." });
+        for (const x of p.posts) {
+          if (x.status === "failed")
+            out.push({ text: `Post ${x.index} failed: ${(x.error ?? "the engine gave no image").replace(/\.$/, "")}.`, fix: { label: "Make it again", run: () => p.onRetake(x.index) } });
+          else if (x.status === "none")
+            out.push({ text: `Post ${x.index} has no image.`, fix: { label: "Make it", run: () => p.onRetake(x.index) } });
+          else if (x.flags?.length && !MAKING.includes(x.status))
+            out.push({ warn: true, text: `Post ${x.index}: ${x.flags.map((f) => f.text).join("; ")}`, fix: { label: "Fix it", run: () => p.onFix(x.index, fixNote(x.flags!)) } });
+        }
+        break;
+      }
+      case "captions": {
+        if (captionsWriting.length) {
+          out.push({ text: "Wait: the captions are being written from the pictures." });
+          break;
+        }
+        const old = p.plan.filter((x) => !captionCurrent(x, p.posts.find((j) => j.index === x.index)));
+        if (old.length)
+          out.push({
+            text: `${old.length === 1 ? `Post ${old[0].index}'s caption is` : `${old.length} captions are`} not written from ${old.length === 1 ? "its" : "their"} picture yet.`,
+            fix: { label: "Write from the pictures", run: () => writeCaptions(old.map((x) => x.index)) },
+          });
         break;
       }
     }
@@ -891,13 +976,35 @@ export default function Journey(p: JourneyProps) {
               onGenerate={async () => {
                 confetti();
                 await p.onGenerate();
-                try {
-                  localStorage.removeItem(RESUME_KEY);
-                } catch {
-                  /* private mode */
-                }
-                p.onDone();
+                setStep(STEPS.findIndex((s) => s.key === "make"));
               }}
+            />
+          )}
+
+          {key === "make" && <MakeStep plan={p.plan} posts={p.posts} format={p.format} onRetake={p.onRetake} onFix={p.onFix} />}
+
+          {key === "captions" && (
+            <CaptionsStep
+              plan={p.plan}
+              posts={p.posts}
+              writing={captionsWriting}
+              failed={captionsFailed}
+              onWrite={(indexes, force) => void writeCaptions(indexes, force)}
+              onSave={(next) => p.onSavePlan(p.plan.map((x) => (x.index === next.index ? next : x)))}
+            />
+          )}
+
+          {key === "feed" && client && (
+            <FeedStep
+              client={client}
+              month={p.month}
+              plan={p.plan}
+              posts={p.posts}
+              format={p.format}
+              overlay={p.overlay}
+              logoSrc={p.logoSrc}
+              onShare={p.onShare}
+              onExport={p.onExport}
             />
           )}
         </div>
@@ -967,7 +1074,24 @@ export default function Journey(p: JourneyProps) {
               <ArrowLeft size={15} /> Back
             </button>
           )}
-          {!last && (
+          {last && (
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                try {
+                  localStorage.removeItem(RESUME_KEY);
+                } catch {
+                  /* private mode */
+                }
+                p.onDone();
+              }}
+            >
+              Open the studio <ArrowRight size={15} />
+            </button>
+          )}
+          {/* The test post's screen moves on with its Generate button; once the posts exist, Next goes to them. */}
+          {!last && (key !== "magic" || started) && (
             <button
               type="button"
               className="primary"
@@ -1830,7 +1954,7 @@ function IdeasStep({
       <div className="journey-head">
         <KitIcon kit="voice" size={18} />
         <div>
-          <h2>Types of posts and caption ideas</h2>
+          <h2>Ideas and dates</h2>
           <p>
             {busy
               ? "Writing the month from the whole brief: products, colours, pins and the occasions…"
@@ -1838,7 +1962,7 @@ function IdeasStep({
                 ? `Adding the greeting post${missing.length > 1 ? "s" : ""} for ${missing.map((o) => o.name).join(", ")}…`
                 : stale
                   ? "The brief changed after these ideas were written. Write them again to follow it."
-                  : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type."}
+                  : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type. The captions are written after the pictures, from what each one shows."}
           </p>
         </div>
         <button type="button" className="secondary journey-head-action" onClick={onGenerate} disabled={busy}>
@@ -1899,11 +2023,10 @@ function IdeaCard({
   onSave: (p: Post) => void;
   onRewrite: (p: Post) => void;
 }) {
-  const [caption, setCaption] = useState(post.caption);
   const [headline, setHeadline] = useState(post.headline ?? "");
   const [offer, setOffer] = useState<Post["offer"]>(post.offer);
   const save = () => {
-    if (caption !== post.caption || headline !== (post.headline ?? "")) onSave({ ...post, caption, headline: headline || undefined });
+    if (headline !== (post.headline ?? "")) onSave({ ...post, headline: headline || undefined });
   };
   const isOffer = post.type === "offer";
   return (
@@ -1926,7 +2049,7 @@ function IdeaCard({
               onSave({ ...post, type, offer: o });
               return;
             }
-            onRewrite({ ...post, type, offer: undefined, caption, headline: headline || undefined });
+            onRewrite({ ...post, type, offer: undefined, headline: headline || undefined });
           }}
         >
           {POST_TYPES.filter((t) => t !== "greeting" || post.type === "greeting").map((t) => (
@@ -1974,10 +2097,7 @@ function IdeaCard({
         </div>
       ) : null}
       <input className="idea-headline" dir="auto" value={headline} onChange={(e) => setHeadline(e.target.value)} onBlur={save} aria-label="Headline on the image" />
-      <textarea className="idea-caption" dir="auto" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} aria-label="Recommended caption" />
-      <small className="idea-tags" dir="auto">
-        {post.hashtags}
-      </small>
+      <p className="idea-brief">{post.brief}</p>
     </article>
   );
 }

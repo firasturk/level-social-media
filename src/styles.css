@@ -6292,7 +6292,8 @@ label.num select {
 }
 .journey-progress {
   display: grid;
-  grid-template-columns: repeat(9, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 6px;
 }
 .journey-seg {
@@ -8775,4 +8776,358 @@ label.num select {
 .sidebar-nav .count.waiting {
   background: linear-gradient(90deg, #d946a8, #7c3aed);
   color: #fff;
+}
+
+/* ───────────── Journey after Generate: the images, their captions, the feed ───────────── */
+.idea-brief {
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  color: var(--ink-500);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.make-progress {
+  flex: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.make-progress i {
+  display: block;
+  height: 100%;
+  background: var(--ink-900);
+  border-radius: inherit;
+  transition: width var(--dur-slow) var(--ease-out);
+}
+.make-card {
+  gap: 8px;
+  padding: 12px;
+}
+.make-card.flagged {
+  border-color: var(--warning);
+}
+.make-type {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.make-state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.make-state.ok {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.make-state.warn {
+  color: var(--warning-text);
+  background: var(--warning-soft);
+}
+.make-image {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: 100%;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.make-open {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.make-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: j-pop 420ms var(--ease-out) both;
+}
+.make-open img.fading {
+  opacity: 0.35;
+  filter: blur(2px);
+}
+.make-zoom {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  color: #fff;
+  opacity: 0;
+  transition: opacity var(--dur);
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+}
+.make-open:hover .make-zoom {
+  opacity: 1;
+}
+.make-wait {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+  text-align: center;
+  padding: 10px;
+}
+.make-wait.failed {
+  color: var(--danger);
+}
+.make-card .idea-title {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: none;
+}
+.make-flags {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 11.5px;
+  color: var(--warning-text);
+  flex: none;
+  max-height: 64px;
+  overflow: auto;
+}
+.make-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex: none;
+}
+.make-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgb(10 10 10 / 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  animation: journey-in var(--dur) var(--ease-out) both;
+}
+.make-lightbox > img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+}
+.make-lightbox > .icon-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: #fff;
+}
+.caption-card {
+  gap: 8px;
+  padding: 12px;
+}
+.caption-top {
+  display: flex;
+  gap: 10px;
+  flex: none;
+}
+.caption-thumb {
+  flex: none;
+  width: 72px;
+  aspect-ratio: 4 / 5;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.caption-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.caption-what {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.caption-headline {
+  font-size: 14px;
+  line-height: 1.3;
+}
+.caption-card .idea-caption {
+  min-height: 70px;
+  font-size: 13px;
+}
+.caption-tags {
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.caption-skeleton {
+  flex: 1;
+  padding: 8px 0;
+}
+.caption-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+}
+.caption-note {
+  color: var(--ink-400);
+  font-size: 11.5px;
+}
+.caption-note.warn {
+  color: var(--danger);
+}
+.journey-boxes.feed-cols {
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+}
+.feed-phone {
+  align-items: center;
+}
+.feed-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  flex: none;
+}
+.feed-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+}
+.feed-avatar img {
+  width: 80%;
+  height: 80%;
+  object-fit: contain;
+}
+.feed-grid {
+  width: 100%;
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+.feed-tile {
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 0;
+  background: var(--surface-2);
+  overflow: hidden;
+  cursor: zoom-in;
+  animation: j-pop 420ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.feed-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.feed-tile:disabled {
+  cursor: default;
+}
+.feed-empty {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-400);
+  font-weight: 700;
+}
+.feed-side {
+  gap: 12px;
+}
+.feed-side button {
+  justify-content: center;
+}
+.feed-open-card {
+  display: flex;
+  gap: 18px;
+  max-width: min(1000px, 100%);
+  max-height: 100%;
+  background: var(--surface);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.feed-open-card img {
+  max-height: calc(100vh - 64px);
+  max-width: 60%;
+  object-fit: contain;
+  display: block;
+}
+.feed-open-text {
+  padding: 20px 20px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 220px;
+  overflow: auto;
+}
+.feed-open-text p {
+  margin: 0;
+  line-height: 1.55;
+}
+.feed-open-text small {
+  color: var(--ink-500);
+}
+@media (max-width: 760px) {
+  .journey-boxes.feed-cols {
+    grid-template-columns: 1fr;
+  }
+  .feed-open-card {
+    flex-direction: column;
+  }
+  .feed-open-card img {
+    max-width: 100%;
+    max-height: 60vh;
+  }
+  .feed-open-text {
+    padding: 0 16px 16px;
+  }
+}
+.make-actions button,
+.caption-foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.make-open img {
+  object-fit: contain;
+}
+@media (max-width: 760px) {
+  /* The inline grid is for wide screens: a phone gets two cards across and scrolls. */
+  .journey-boxes.idea-grid.results {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: minmax(320px, auto) !important;
+    overflow-y: auto;
+  }
+  .make-actions {
+    flex-wrap: wrap;
+  }
 }

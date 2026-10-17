@@ -143,6 +143,10 @@ export interface Post {
   scene?: string;
   /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
   style?: string;
+  /** The image (output key) the caption was written from: a new image makes it old. */
+  captionFrom?: string;
+  /** The designer wrote or edited the caption: a new image never rewrites it by itself. */
+  captionHand?: boolean;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -863,6 +867,65 @@ export function shortCaption(text: string, max = CAPTION_WORDS): string {
     out = next;
   }
   return out || `${words.slice(0, max).join(" ")}…`;
+}
+
+/* ───────────── The caption, written from the finished picture ───────────── */
+
+export const CAPTION_SCHEMA = {
+  type: "object",
+  properties: { caption: { type: "string" }, hashtags: { type: "string" } },
+  required: ["caption", "hashtags"],
+};
+
+export interface CaptionRequest {
+  clientName: string;
+  tone: string;
+  language: "ar" | "en" | "both";
+  dos?: string;
+  donts?: string;
+  post: Post;
+  /** The greeting's occasion: its name and day. */
+  occasion?: { name: string; date: string };
+  /** The post's products with what their photos show. */
+  products: { name: string; note?: string }[];
+}
+
+/** The caption follows the picture: what it really shows, in the client's voice, around the headline. */
+export function captionFromImageInstruction(r: CaptionRequest): string {
+  const p = r.post;
+  const info = POST_TYPE_INFO[p.type];
+  return [
+    `You are the social-media copywriter of a design agency. The attached image is the finished photograph of one Instagram post for "${r.clientName}". Write its caption from what the picture really shows: the moment, the place, the light and the mood, what the people do and how the product appears. Never mention anything the picture does not show.`,
+    `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
+    `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${languageRule(r.language)}`,
+    r.dos ? `ALWAYS: ${r.dos}` : "",
+    r.donts ? `NEVER: ${r.donts}` : "",
+    `THE POST: ${info?.label ?? p.type} (${info?.description ?? ""}).`,
+    p.headline ? `HEADLINE ON THE IMAGE: "${p.headline}"${p.subline ? ` / "${p.subline}"` : ""}. The caption adds to it and never repeats it word for word.` : "",
+    r.occasion ? `OCCASION: ${r.occasion.name} on ${r.occasion.date}; the caption greets the day in the client's tone.` : "",
+    p.date ? `POSTED ON ${p.date}: the words and hashtags fit that season and month, never another season.` : "",
+    p.offer ? `OFFER, exactly as the designer set it: products ${p.offer.products.join(", ")}; price ${p.offer.price}; ${p.offer.details}. State it as given, never anything else.` : "",
+    r.products.length ? `THE PRODUCT${r.products.length > 1 ? "S" : ""}: ${r.products.map((x) => `${x.name}${x.note ? ` (${x.note})` : ""}`).join("; ")}.` : "",
+    p.people?.length ? `The people in the picture are the brand's ambassadors; never write their names.` : "",
+    p.caption.trim() ? `THE IDEA'S FIRST DRAFT (keep its intent, make it fit the picture): "${p.caption.trim()}"` : "",
+    `Write: caption (SHORT: at most ${CAPTION_WORDS} words in all, one or two short lines, warm and to the point, no hashtags inside) and hashtags (8-12, space separated, each starting with #, about the brand and this moment).`,
+    `Return ONLY JSON: {"caption": "...", "hashtags": "..."}.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function parseCaption(text: string): { caption: string; hashtags: string } | null {
+  let d: { caption?: unknown; hashtags?: unknown } = {};
+  try {
+    d = JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as typeof d;
+  } catch {
+    return null;
+  }
+  const caption = shortCaption(String(d.caption ?? "").replace(/#\S+/g, "").trim());
+  if (!caption) return null;
+  const tags = [...new Set(String(d.hashtags ?? "").split(/[\s,]+/).filter(Boolean).map((t) => (t.startsWith("#") ? t : `#${t}`)))];
+  return { caption, hashtags: tags.slice(0, 12).join(" ") };
 }
 
 export function parseIdeas(

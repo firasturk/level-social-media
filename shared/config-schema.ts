@@ -49,6 +49,8 @@ export const postSchema = z.object({
   occasion: z.string().max(80).optional(),
   scene: z.string().max(1500).optional(),
   style: z.string().max(80).optional(),
+  captionFrom: z.string().max(400).optional(),
+  captionHand: z.boolean().optional(),
   offer: z
     .object({
       products: z.array(z.string().max(300)).max(6),

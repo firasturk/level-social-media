@@ -32,6 +32,9 @@ import {
   withoutPaletteText,
   withoutProductNames,
   captionsCsv,
+  CAPTION_SCHEMA,
+  captionFromImageInstruction,
+  parseCaption,
   GRID_SCHEMA,
   gridIdeasInstruction,
   gridNotes,
@@ -1156,7 +1159,21 @@ postRoutes.put("/plan", async (c) => {
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  const before = new Map((config.plan ?? []).map((p) => [p.index, p]));
   config.plan = d.plan.map((p, i) => ({ ...p, index: i + 1 }));
+  // A caption edited by hand is the designer's: the post's task carries it, and a new image keeps it.
+  for (const p of config.plan) {
+    const old = before.get(p.index);
+    if (!old || (old.caption === p.caption && old.hashtags === p.hashtags)) continue;
+    p.captionHand = true;
+    await run(
+      c.env.DB,
+      "UPDATE tasks SET caption = ? WHERE batch = ? AND post = ?",
+      JSON.stringify({ text: p.caption, hashtags: p.hashtags }),
+      b.id,
+      p.index,
+    );
+  }
   // Adding or removing posts by hand sets the month's count, so Regenerate ideas keeps that number.
   if (config.plan.length) config.postCount = config.plan.length;
   await refreshCountNote(c.env, b.id, config);
@@ -1629,9 +1646,96 @@ postRoutes.put("/caption", async (c) => {
   if (p) {
     p.caption = d.text;
     p.hashtags = d.hashtags;
+    p.captionHand = true;
     await saveConfig(c.env, b, config);
   }
   return c.json({ ok: true });
+});
+
+/**
+ * Captions written from the finished pictures: every post whose image is newer than its caption
+ * (a caption edited by hand stays), or the posts asked for again ("force").
+ */
+postRoutes.post("/captions", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+      force: z.boolean().optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const client = await clientRow(c.env, config.client);
+  const tasks = await all<{ id: string; post: number | null; output: string | null }>(
+    c.env.DB,
+    "SELECT id, post, output FROM tasks WHERE batch = ? AND post IS NOT NULL AND output IS NOT NULL",
+    b.id,
+  );
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'",
+    b.id,
+  );
+  const notes = new Map(sources.map((s) => [productName(s).trim().toLowerCase(), s.note ?? undefined]));
+  const occasions = pickedOccasions(config.month ?? "", config.occasions);
+  const due = (config.plan ?? []).flatMap((p) => {
+    const t = tasks.find((x) => x.post === p.index);
+    if (!t?.output) return [];
+    if (d.indexes && !d.indexes.includes(p.index)) return [];
+    if (!(d.force && d.indexes) && (p.captionHand || p.captionFrom === t.output)) return [];
+    return [{ post: p, task: t, output: t.output }];
+  });
+  const language = (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both";
+  const written = new Map<number, { caption: string; hashtags: string; from: string }>();
+  const failed: number[] = [];
+  const write = async ({ post: p, task, output }: (typeof due)[number]) => {
+    const obj = await c.env.BUCKET.get(output);
+    if (!obj) return void failed.push(p.index);
+    const names = [p.product, ...(p.products ?? [])].filter((n): n is string => !!n);
+    const occ = occasions.find((o) => o.id === p.occasion);
+    const instruction = captionFromImageInstruction({
+      clientName: client.name,
+      tone: client.tone,
+      language,
+      dos: photoRules(client.dos),
+      donts: photoRules(client.donts),
+      post: p,
+      occasion: occ ? { name: occ.name, date: occ.date } : undefined,
+      products: names.map((n) => ({ name: n.trim(), note: notes.get(n.trim().toLowerCase()) })),
+    });
+    try {
+      const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" };
+      const r = parseCaption(await askText(c.env, instruction, CAPTION_SCHEMA, [image]));
+      if (!r) return void failed.push(p.index);
+      written.set(p.index, { ...r, from: output });
+      await run(
+        c.env.DB,
+        "UPDATE tasks SET caption = ? WHERE id = ?",
+        JSON.stringify({ text: r.caption, hashtags: r.hashtags }),
+        task.id,
+      );
+    } catch (e) {
+      console.log(`[captions] post ${p.index}: ${errorMessage(e).slice(0, 160)}`);
+      failed.push(p.index);
+    }
+  };
+  // A few at a time: each one reads a full-size picture.
+  for (let i = 0; i < due.length; i += 4) await Promise.all(due.slice(i, i + 4).map(write));
+  // The month is read again before saving: edits made while the captions were written stay.
+  const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+  const latest = JSON.parse(fresh.config) as Config;
+  for (const p of latest.plan ?? []) {
+    const w = written.get(p.index);
+    if (!w) continue;
+    p.caption = w.caption;
+    p.hashtags = w.hashtags;
+    p.captionFrom = w.from;
+    p.captionHand = undefined;
+  }
+  if (written.size) await saveConfig(c.env, fresh, latest);
+  return c.json({ ok: true, plan: latest.plan ?? [], written: [...written.keys()], failed });
 });
 
 /** captions.csv for the month: one row per generated post, file names as the export names them. */

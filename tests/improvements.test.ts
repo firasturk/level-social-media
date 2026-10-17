@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { castLook } from "@shared/cast";
 import { fixNote, parsePostReview, postProblems, postReviewInstruction } from "@shared/qa";
-import { buildPostPrompt, type Post, type PostBrief } from "@shared/posts";
+import { buildPostPrompt, captionFromImageInstruction, parseCaption, type Post, type PostBrief } from "@shared/posts";
 import { briefLines } from "@shared/brief";
 import { testSize } from "@shared/pricing";
 import { alphaFromBackground, composite, coverage, cutout, placement, plainBackground } from "../server/compose";
@@ -140,5 +140,24 @@ describe("the ideas read only the screens before them", () => {
     const at = 1;
     const lines = briefLines({ theme: { summary: "", points: [], logic: "Theme rule", at }, shots: { summary: "", points: [], logic: "Use cyan props", at } }, ["shots"]);
     expect(lines).toEqual(["Theme rule"]);
+  });
+});
+
+describe("captions from the finished picture", () => {
+  const post: Post = { index: 2, type: "lifestyle", title: "Lotus joy", brief: "B", caption: "لوتس ميلك شيك.. السعادة بكاسة.", hashtags: "", headline: "لوتس ميلك شيك", people: ["omar"], product: "Lotus milkshake" };
+  it("asks for what the picture shows, in the client's voice, around the headline", () => {
+    const ins = captionFromImageInstruction({ clientName: "Abu Saleh", tone: "playful Jordanian", language: "ar", post, products: [{ name: "Lotus milkshake", note: "a milkshake with biscuit crumbles" }] });
+    expect(ins).toContain("from what the picture really shows");
+    expect(ins).toContain("playful Jordanian");
+    expect(ins).toContain("Arabic ONLY");
+    expect(ins).toContain('HEADLINE ON THE IMAGE: "لوتس ميلك شيك"');
+    expect(ins).toContain("never write their names");
+    expect(ins).toContain("THE IDEA'S FIRST DRAFT");
+  });
+  it("keeps the caption short and the hashtags clean", () => {
+    const r = parseCaption(JSON.stringify({ caption: "كاسة لوتس باردة بين إيديك #لوتس", hashtags: "لوتس, #ميلك_شيك #لوتس عمان" }));
+    expect(r?.caption).toBe("كاسة لوتس باردة بين إيديك");
+    expect(r?.hashtags).toBe("#لوتس #ميلك_شيك #عمان");
+    expect(parseCaption("not json")).toBeNull();
   });
 });

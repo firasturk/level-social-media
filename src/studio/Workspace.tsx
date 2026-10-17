@@ -28,6 +28,7 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView from "./PlanView";
 import Journey from "./Journey";
+import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StyleScreen from "./StyleGallery";
@@ -62,6 +63,9 @@ function journeyOpen(): boolean {
   }
 }
 const MONTH_KEY = "lsm-month";
+/** The style library has its own address: the team opens it straight from a link or a bookmark. */
+const STYLES_PATH = "/styles";
+const atStyles = () => window.location.pathname.replace(/\/$/, "") === STYLES_PATH;
 
 function remembered(key: string): string {
   try {
@@ -86,7 +90,17 @@ export default function Workspace({
   user: User;
   onSignedOut: () => void;
 }) {
-  const [page, setPage] = useState<Page>("studio");
+  const [page, setPage] = useState<Page>(() => (atStyles() ? "styles" : "studio"));
+  // The address follows the page (and Back returns from the styles), so /styles can be bookmarked.
+  useEffect(() => {
+    const want = page === "styles";
+    if (want !== atStyles()) window.history.pushState(null, "", want ? STYLES_PATH : "/");
+  }, [page]);
+  useEffect(() => {
+    const onPop = () => setPage((p) => (atStyles() ? "styles" : p === "styles" ? "studio" : p));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -114,7 +128,7 @@ export default function Workspace({
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
-  const [journey, setJourney] = useState(() => !journeyDone() || journeyOpen());
+  const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !atStyles());
   // Only "Skip to the studio" or Generate leaves the journey: a refresh keeps the team in it.
   useEffect(() => {
     try {
@@ -615,6 +629,31 @@ export default function Workspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, tasks, plan]);
 
+  /** The journey's last screens: every post's image, its state and what the review found. */
+  const journeyPosts = useMemo<JourneyPost[]>(
+    () =>
+      plan.map((p) => {
+        const t = tasks.find((x) => x.post === p.index);
+        let qa: QA | null = null;
+        try {
+          qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
+        } catch {
+          qa = null;
+        }
+        return {
+          index: p.index,
+          taskId: t?.id ?? null,
+          status: t?.status ?? "none",
+          url: t?.output ? outputUrl(t) : null,
+          output: t?.output ?? null,
+          error: t?.error ?? null,
+          flags: qa?.automated ? (qa.flags ?? []) : null,
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plan, tasks, batch?.id],
+  );
+
   async function testOnePost(index: number) {
     const has = tasks.some((t) => t.post === index && t.output);
     await generatePosts([index], has, false, true);
@@ -1088,6 +1127,22 @@ export default function Workspace({
             }
           }}
           engineReady={engineConnected}
+          posts={journeyPosts}
+          onRetake={(index) => generatePosts([index], true, false)}
+          onFix={async (index, edit) => {
+            const t = tasks.find((x) => x.post === index);
+            if (!t) return;
+            try {
+              await action("revise", { id: t.id, edit });
+              toast.success(`Fixing post ${index}.`);
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          }}
+          onShare={shareMonth}
+          onExport={exportMonth}
+          overlay={overlaySpec}
+          logoSrc={logoSrc}
           onDone={finishJourney}
         />
       )}
