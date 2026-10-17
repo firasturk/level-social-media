@@ -471,13 +471,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   })();
   // Sentences that put a product into a bag or a carrier (older briefs and shots) never reach the
   // engine: the product is held or set down, never packed into something.
-  const unbagged = (t: string) =>
-    b.hasProduct || b.exact
-      ? t
-          .split(/(?<=[.!?])\s+/)
-          .filter((x) => !/\b(bags?|carriers?|baskets?|totes?|shopping)\b/i.test(x))
-          .join(" ")
-      : t;
+  const unbagged = (t: string) => (b.hasProduct || b.exact ? withoutBags(t) : t);
   const clean = (t: string) => unbagged(withoutProductNames(t, names));
   const chosen = !!b.paletteChosen && b.palette.length > 0;
   const styleRef =
@@ -1331,4 +1325,16 @@ export function singleIdeaInstruction(
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/** Bags, carriers and shopping: a product is held or set down, never packed into something. */
+export const BAGS = /\b(bags?|carriers?|baskets?|totes?|shopping)\b/i;
+
+/** The text without its sentences that put something into a bag or a carrier. */
+export function withoutBags(text: string): string {
+  return text
+    .split(/(?<=[.!?؟])\s+/)
+    .filter((x) => !BAGS.test(x))
+    .join(" ")
+    .trim();
 }

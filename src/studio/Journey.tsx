@@ -7,6 +7,7 @@ import {
   Check,
   FlaskConical,
   Grid3x3,
+  HardDrive,
   Images,
   ImagePlus,
   LoaderCircle,
@@ -34,15 +35,19 @@ import {
   offerReady,
   POST_TYPE_INFO,
   POST_TYPES,
+  withoutBags,
   withoutPaletteText,
   type Format,
   type Post,
 } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
-import { fixNote, postProblems } from "@shared/qa";
+import { fixNote, postProblems, type PostProblem } from "@shared/qa";
 import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
+import DrivePicker from "./DrivePicker";
+import ProductSwap from "./ProductSwap";
+import { NO_PRODUCT_TILES } from "@shared/drive";
 import { BrandKit, ThemeSection } from "./BrandPanel";
 import Ambassadors from "./Ambassadors";
 import { displayName } from "./PlanView";
@@ -221,6 +226,9 @@ export default function Journey(p: JourneyProps) {
     return r && r.client === p.clientId && r.month === p.month ? Math.min(r.step, STEPS.length - 1) : 0;
   });
   const [moving, setMoving] = useState(false);
+  /** Next already fixed this screen once by itself; set back on every screen. */
+  const [autoTried, setAutoTried] = useState(false);
+  const [autoNext, setAutoNext] = useState(false);
   const key = STEPS[step].key;
   const last = step === STEPS.length - 1;
 
@@ -437,7 +445,14 @@ export default function Journey(p: JourneyProps) {
   }
 
   /* ── The checklist: Next opens only when the screen is complete and current ── */
-  type Issue = { text: string; how?: string; warn?: boolean; fix?: { label: string; run: () => void | Promise<void> } };
+  type Issue = {
+    text: string;
+    how?: string;
+    warn?: boolean;
+    fix?: { label: string; run: () => void | Promise<void> };
+    /** A post's own problem: fixed with the others in one go, and never holds the journey once tried. */
+    problem?: PostProblem;
+  };
   const go = (k: string) => () => setStep(Math.max(0, STEPS.findIndex((x) => x.key === k)));
   const castPeople = p.ambassadors.filter((a) => p.cast.includes(a.id));
   const productNames = p.products.map((x) => displayName(x.name));
@@ -451,9 +466,23 @@ export default function Journey(p: JourneyProps) {
   );
   const plannedAt = p.config?.plannedAt ?? 0;
 
-  async function rewriteShot(index: number) {
-    if (!p.batchId) return;
-    await post("/api/studio/posts/shots", { batch: p.batchId, indexes: [index] });
+  /**
+   * Fixes posts in one go, each from the stored plan: bag sentences are taken out on the spot, the
+   * posts to write again are written, then every touched shot is written again.
+   */
+  async function fixPosts(list: PostProblem[]) {
+    if (!p.batchId || !list.length) return;
+    const unbag = new Set(list.filter((x) => x.fix === "unbag").map((x) => x.index));
+    if (unbag.size) {
+      const plan = p.plan.map((x) =>
+        unbag.has(x.index) ? { ...x, brief: withoutBags(x.brief) || x.brief, ...(x.scene ? { scene: withoutBags(x.scene) || x.scene } : {}) } : x,
+      );
+      await put("/api/studio/posts/plan", { batch: p.batchId, plan });
+    }
+    const rewrite = [...new Set(list.filter((x) => x.fix === "post").map((x) => x.index))];
+    for (const index of rewrite) await post("/api/studio/posts/reidea", { batch: p.batchId, index });
+    const shots = [...new Set([...list.filter((x) => x.fix === "shot").map((x) => x.index), ...rewrite])];
+    if (shots.length) await post("/api/studio/posts/shots", { batch: p.batchId, indexes: shots });
     await p.refresh();
   }
 
@@ -581,7 +610,17 @@ export default function Journey(p: JourneyProps) {
           if (x.type === "offer" && !offerReady(x.offer))
             out.push({ text: `Post ${x.index} is an offer: pick its products, write the price and what it includes, then "Write the offer post".` });
           if (x.product && !productNames.some((n) => n.toLowerCase() === x.product!.toLowerCase()) && x.type !== "offer")
-            out.push({ warn: true, text: `Post ${x.index} uses ${x.product}, which is not among this month's photos; Generate brings it from the gallery if it is there.` });
+            out.push({
+              warn: true,
+              text: `Post ${x.index} uses ${x.product}, which is not among this month's photos.`,
+              fix: {
+                label: "Find its photo",
+                run: async () => {
+                  await post("/api/studio/posts/products/fill", { batch: p.batchId });
+                  await p.refresh();
+                },
+              },
+            });
         }
         break;
       }
@@ -598,10 +637,13 @@ export default function Journey(p: JourneyProps) {
             for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene }))
               out.push({
                 text: `Post ${pr.index} ${pr.text}.`,
+                problem: pr,
                 fix:
-                  pr.fix === "shot"
-                    ? { label: "Rewrite its shot", run: () => rewriteShot(pr.index) }
-                    : { label: "Write the post again", run: () => p.onRewrite(pr.index, p.plan) },
+                  pr.fix === "unbag"
+                    ? { label: "Take the bag out", run: () => fixPosts([pr]) }
+                    : pr.fix === "shot"
+                      ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
+                      : { label: "Write the post again", run: () => fixPosts([pr]) },
               });
         if (needsScene) out.push(...analysisIssues("shots"));
         break;
@@ -655,10 +697,19 @@ export default function Journey(p: JourneyProps) {
   }
 
   const issues = issuesFor(key);
-  const blocking = issues.filter((i) => !i.warn);
+  // A post's own problems hold the journey until Next has tried to fix them once; then they are
+  // left to the review after each image.
+  const blocking = issues.filter((i) => !i.warn && !(i.problem && autoTried && i.problem.text !== "has no shot yet"));
   useEffect(() => {
     if (!blocking.length) setShowIssues(false);
   }, [blocking.length]);
+  useEffect(() => setAutoTried(false), [key]);
+  // After Next fixed the screen by itself, it goes on (or shows what is left) with the fresh posts.
+  useEffect(() => {
+    if (!autoNext || fixing || moving) return;
+    setAutoNext(false);
+    void next();
+  }, [autoNext, fixing, moving]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runFix(id: string, run: () => void | Promise<void>) {
     setFixing(id);
@@ -671,8 +722,34 @@ export default function Journey(p: JourneyProps) {
     }
   }
 
+  /** Every fix on the screen, one after the other (the posts' own problems in one go). */
+  async function fixAll(list: Issue[]) {
+    setFixing("all");
+    try {
+      await fixPosts(list.flatMap((i) => (i.problem ? [i.problem] : [])));
+      const seenLabels = new Set<string>();
+      for (const i of list)
+        if (!i.problem && i.fix && !seenLabels.has(i.fix.label)) {
+          seenLabels.add(i.fix.label);
+          await i.fix.run();
+        }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setFixing("");
+    }
+  }
+
   async function next() {
     if (blocking.length) {
+      // Next fixes what it can by itself once, then tries again; only what needs a person stays.
+      if (!autoTried && blocking.every((i) => i.fix)) {
+        setAutoTried(true);
+        toast(`Fixing ${blocking.length === 1 ? "1 thing" : `${blocking.length} things`} for you…`);
+        await fixAll(blocking);
+        setAutoNext(true);
+        return;
+      }
       setShowIssues(true);
       return;
     }
@@ -836,7 +913,15 @@ export default function Journey(p: JourneyProps) {
               </StepHead>
               <div className="journey-boxes cols-3">
                 <ProductsBox {...p} client={client} />
-                <GalleryBox client={client} batchId={p.batchId} products={p.products} refresh={p.refresh} onUpload={p.onUpload} uploading={p.uploading} />
+                <GalleryBox
+                  client={client}
+                  batchId={p.batchId}
+                  products={p.products}
+                  refresh={p.refresh}
+                  onUpload={p.onUpload}
+                  uploading={p.uploading}
+                  posts={p.plan.length}
+                />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
             </>
@@ -981,6 +1066,8 @@ export default function Journey(p: JourneyProps) {
                       onRewrite={() => void adaptShots(true)}
                       onReadPins={theme && theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
                       onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene } : x)))}
+                      batchId={p.batchId}
+                      refresh={p.refresh}
                     />
                   </>
                 ) : (
@@ -1088,6 +1175,11 @@ export default function Journey(p: JourneyProps) {
           <div className="journey-issues" role="alert">
             <div className="journey-issues-head">
               <strong>{blocking.length ? `Fix ${blocking.length === 1 ? "this" : `these ${blocking.length}`} before Next` : "Worth a look"}</strong>
+              {issues.filter((i) => i.fix).length > 1 && (
+                <button type="button" className="secondary journey-fix-all" disabled={!!fixing} onClick={() => void fixAll(issues.filter((i) => i.fix))}>
+                  {fixing === "all" ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix all for me
+                </button>
+              )}
               <button type="button" className="icon-button" onClick={() => setShowIssues(false)} aria-label="Close">
                 <X size={14} />
               </button>
@@ -1365,6 +1457,7 @@ function GalleryBox({
   refresh,
   onUpload,
   uploading,
+  posts,
 }: {
   client: Client;
   batchId: string | null;
@@ -1372,8 +1465,11 @@ function GalleryBox({
   refresh: () => Promise<void>;
   onUpload: (files: File[]) => Promise<void>;
   uploading: boolean;
+  /** The month's posts: "Pick for me" picks about as many products from Drive. */
+  posts: number;
 }) {
   const uploadInput = useRef<HTMLInputElement>(null);
+  const [drive, setDrive] = useState(false);
   const [items, setItems] = useState<GalleryItem[] | null>(null);
   const [cat, setCat] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
@@ -1423,6 +1519,9 @@ function GalleryBox({
             >
               {uploading ? <LoaderCircle className="spinning" size={13} /> : <Upload size={13} />} Upload
             </button>
+            <button type="button" className="text-button" onClick={() => setDrive(true)} disabled={uploading} title="Pick photos from the client's Google Drive">
+              <HardDrive size={13} /> Drive
+            </button>
             {offered.length > 0 && (
               <button type="button" className="text-button" onClick={() => void add(picked.length ? picked : shown.map((g) => g.id))} disabled={adding}>
                 {adding ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
@@ -1434,6 +1533,14 @@ function GalleryBox({
       >
         {client.name} gallery
       </BoxTitle>
+      <DrivePicker
+        open={drive}
+        onClose={() => setDrive(false)}
+        client={client}
+        count={Math.min(12, Math.max(4, posts || 6))}
+        batchId={batchId}
+        onAdded={() => refresh().then(loadGallery)}
+      />
       <input
         ref={uploadInput}
         type="file"
@@ -1510,8 +1617,12 @@ function MonthShots({
   onReadPins,
   onSave,
   forClient,
+  batchId,
+  refresh,
 }: {
   forClient: { id: string; name: string };
+  batchId: string | null;
+  refresh: () => Promise<void>;
   plan: Post[];
   products: Source[];
   sourceUrl: (id: string) => string;
@@ -1528,6 +1639,8 @@ function MonthShots({
   // null: closed; "grid": styles for the whole grid; a number: the style of that post.
   const [picking, setPicking] = useState<"grid" | number | null>(null);
   const [styling, setStyling] = useState(false);
+  /** The post whose product is being chosen. */
+  const [swapping, setSwapping] = useState<number | null>(null);
   const styled = plan.filter((x) => x.style).length;
   const gridPosts = plan.filter((x) => x.type !== "greeting");
   async function apply(assign: { index: number; style: string | null }[]) {
@@ -1621,10 +1734,19 @@ function MonthShots({
               onStyle={() => setPicking(x.index)}
               onUnstyle={() => void apply([{ index: x.index, style: null }])}
               onSave={(t) => onSave(x.index, t)}
+              onProduct={() => setSwapping(x.index)}
             />
           ))}
         </ol>
       )}
+      <ProductSwap
+        open={swapping !== null}
+        onClose={() => setSwapping(null)}
+        batchId={batchId}
+        target={plan.find((x) => x.index === swapping) ?? null}
+        sourceUrl={sourceUrl}
+        onChanged={refresh}
+      />
     </div>
   );
 }
@@ -1639,7 +1761,10 @@ function ShotRow({
   onStyle,
   onUnstyle,
   onSave,
+  onProduct,
 }: {
+  /** Choose or replace the post's product. */
+  onProduct: () => void;
   post: Post;
   order: number;
   busy: boolean;
@@ -1661,11 +1786,26 @@ function ShotRow({
         <span className="shot-headline" dir="auto">
           {post.headline}
         </span>
-        {(product || post.product) && (
-          <span className="shot-product" title={post.product}>
+        {product || post.product ? (
+          <button
+            type="button"
+            className={`shot-product ${product ? "" : "missing"}`}
+            onClick={onProduct}
+            disabled={busy}
+            title={product ? `${post.product}: replace it` : `${post.product} has no photo this month: choose one`}
+          >
             {product ? <img src={sourceUrl(product.id)} alt="" loading="lazy" /> : <i />}
             <span dir="auto">{post.product}</span>
-          </span>
+            <Repeat size={11} />
+          </button>
+        ) : (
+          post.type !== "greeting" &&
+          post.type !== "offer" &&
+          !NO_PRODUCT_TILES.has(post.tileSpec?.kind ?? "") && (
+            <button type="button" className="text-button shot-style" onClick={onProduct} disabled={busy} title="Choose the product this post shows">
+              <Plus size={12} /> Product
+            </button>
+          )
         )}
         {!post.style && (
           <button type="button" className="text-button shot-style" onClick={onStyle} disabled={busy} title="Pick a style from the gallery for this post">

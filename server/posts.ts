@@ -24,6 +24,16 @@ import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemOf } from "@shared/naming";
+import { clientDrivePhotos, importDrivePhoto } from "./drive";
+import {
+  NO_PRODUCT_TILES,
+  PRODUCT_MATCH_SCHEMA,
+  parseMatches,
+  productMatchInstruction,
+  type MatchPost,
+  type ProductMatch,
+  type ProductOption,
+} from "@shared/drive";
 import {
   buildPostPrompt,
   colourLabel,
@@ -121,7 +131,7 @@ export async function askText(
   return askVisionOpenAI(openai!, instruction, images);
 }
 
-function parseJson<T>(text: string): T {
+export function parseJson<T>(text: string): T {
   const cleaned = text
     .trim()
     .replace(/^```(?:json)?/i, "")
@@ -161,7 +171,7 @@ function hidesSubline(client: ClientRow): boolean {
 }
 
 /** The client's profile in a few lines (from its Analysis), for the writers; '' before one exists. */
-async function profileOf(env: Env, clientId: string): Promise<string> {
+export async function profileOf(env: Env, clientId: string): Promise<string> {
   const r = await first<{ profile: string | null }>(env.DB, "SELECT profile FROM client_profiles WHERE client = ?", clientId).catch(() => null);
   try {
     return profileBrief(r?.profile ? (JSON.parse(r.profile) as ClientProfile) : null);
@@ -1422,11 +1432,31 @@ postRoutes.post("/generate", async (c) => {
       );
       const galleryNames = gallery.map(productName);
       const have = new Set(sources.map((x) => x.stem));
+      const notInGallery: string[] = [];
       for (const n of [...new Set(named)]) {
         const m = matchProduct(n, galleryNames);
-        if (!m) continue;
+        if (!m) {
+          notInGallery.push(n);
+          continue;
+        }
         const row = await copyGalleryProduct(c.env, user.id, b, config.client, gallery[galleryNames.indexOf(m)].id, have);
         if (row) sources.push(row);
+      }
+      // Then the client's Drive: its newest photo of that product joins the month.
+      const drive = notInGallery.length ? await clientDrivePhotos(c.env, config.client ?? "") : [];
+      if (drive.length) {
+        const newest = [...drive].sort((x, y) => y.modified.localeCompare(x.modified));
+        const driveNames = [...new Set(newest.map((x) => x.name))];
+        for (const n of notInGallery) {
+          const m = matchProduct(n, driveNames);
+          const photo = m ? newest.find((x) => x.name === m) : undefined;
+          if (!photo) continue;
+          try {
+            sources.push(await importDrivePhoto(c.env, user.id, b.id, photo.id, n, have));
+          } catch (e) {
+            console.error("[generate] drive", n, errorMessage(e));
+          }
+        }
       }
     }
   }
@@ -2029,6 +2059,184 @@ postRoutes.post("/gallery/add", async (c) => {
   for (const id of d.ids) if (await copyGalleryProduct(c.env, user.id, b, config.client, id, have)) added++;
   await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
   return c.json({ ok: true, added });
+});
+
+/* ───────────── Products per post: recommended, chosen, replaced ───────────── */
+
+/** Every product photo a post can use: this month's, the client's earlier months', its Drive's. */
+async function productOptions(env: Env, b: BatchRow, client: string): Promise<ProductOption[]> {
+  const month = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name", b.id);
+  const out: ProductOption[] = month.map((s) => ({ source: "month", id: s.id, name: productName(s), note: s.note ?? "" }));
+  const names = out.map((o) => o.name);
+  const gallery = await all<SourceRow>(
+    env.DB,
+    "SELECT s.id, s.name, s.stem, s.key, s.reference_key, s.kind, s.role, s.note FROM sources s JOIN batches bb ON bb.id = s.batch WHERE bb.client = ? AND s.kind = 'product' AND s.batch != ? ORDER BY s.created DESC LIMIT 400",
+    client,
+    b.id,
+  );
+  for (const g of gallery) {
+    const name = productName(g);
+    if (names.some((n) => n.toLowerCase() === name.toLowerCase()) || out.filter((o) => o.source === "gallery").length >= 80) continue;
+    names.push(name);
+    out.push({ source: "gallery", id: g.id, name, note: g.note ?? "" });
+  }
+  // Drive: one option per product name (its newest photo), with how many photos it has.
+  const drive = new Map<string, { id: string; name: string; folder: string; n: number }>();
+  for (const p of (await clientDrivePhotos(env, client)).sort((a, z) => z.modified.localeCompare(a.modified))) {
+    const k = p.name.toLowerCase();
+    const had = drive.get(k);
+    if (had) had.n++;
+    else drive.set(k, { id: p.id, name: p.name, folder: p.folder, n: 1 });
+  }
+  for (const d of drive.values()) {
+    if (names.some((n) => n.toLowerCase() === d.name.toLowerCase()) || out.filter((o) => o.source === "drive").length >= 150) continue;
+    out.push({ source: "drive", id: d.id, name: d.name, note: `${d.n} photo${d.n > 1 ? "s" : ""}${d.folder ? ` in ${d.folder}` : ""}` });
+  }
+  return out;
+}
+
+const matchPost = (p: Post): MatchPost => ({
+  index: p.index,
+  type: p.type,
+  headline: p.headline,
+  brief: p.brief,
+  product: p.product,
+  tile: p.tileSpec ? { kind: p.tileSpec.kind, items: p.tileSpec.items } : undefined,
+});
+
+async function matchProducts(env: Env, b: BatchRow, config: Config, posts: Post[]): Promise<ProductMatch[]> {
+  const client = await clientRow(env, config.client);
+  const options = await productOptions(env, b, client.id);
+  if (!options.length || !posts.length) return posts.map((p) => ({ index: p.index, picks: [] }));
+  const list = posts.map(matchPost);
+  const raw = await askText(env, productMatchInstruction({ client: client.name, posts: list, options }), PRODUCT_MATCH_SCHEMA);
+  return parseMatches(parseJson<unknown>(raw), list, options);
+}
+
+/**
+ * Puts one product on a post: a gallery or Drive photo first joins the month as its own copy. The
+ * post's shot is cleared, so it is written again for the new product.
+ */
+async function useProduct(
+  env: Env,
+  ctx: { waitUntil: (p: Promise<unknown>) => void },
+  user: User,
+  b: BatchRow,
+  config: Config,
+  index: number,
+  option: { source: ProductOption["source"]; id: string; name: string },
+): Promise<Post> {
+  const plan = config.plan ?? [];
+  const current = plan.find((p) => p.index === index);
+  if (!current) throw new StudioError("That post is not in the plan.", 404);
+  const month = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ?", b.id);
+  const taken = new Set(month.map((s) => s.stem));
+  let name: string;
+  if (option.source === "month") {
+    const row = month.find((s) => s.id === option.id && s.kind === "product");
+    if (!row) throw new StudioError("That photo is no longer in this month.", 404);
+    name = productName(row);
+  } else if (option.source === "gallery") {
+    const row = await copyGalleryProduct(env, user.id, b, config.client, option.id, taken);
+    // Already in the month under the same name: that copy is used.
+    name = row ? productName(row) : (matchProduct(option.name, month.filter((s) => s.kind === "product").map(productName)) ?? option.name);
+  } else {
+    const row = await importDrivePhoto(env, user.id, b.id, option.id, option.name, taken);
+    ctx.waitUntil(describeUpload(env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
+    name = productName(row);
+  }
+  const next: Post = { ...current, product: name, products: current.products?.filter((x) => x.toLowerCase() !== name.toLowerCase()), scene: undefined };
+  config.plan = plan.map((p) => (p.index === index ? next : p));
+  await saveConfig(env, b, config);
+  return next;
+}
+
+/** The products that fit each post best (this month, earlier months, Drive), for the team to pick. */
+postRoutes.post("/products/match", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), indexes: z.array(z.number().int()).max(MAX_POST_COUNT).optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const posts = (config.plan ?? []).filter((p) => !d.indexes || d.indexes.includes(p.index));
+  return c.json({ ok: true, matches: await matchProducts(c.env, b, config, posts) });
+});
+
+/** Every product photo the posts can use, for "Choose a product". */
+postRoutes.get("/products/options", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const config = JSON.parse(b.config) as Config;
+  return c.json({ ok: true, options: await productOptions(c.env, b, config.client ?? "") });
+});
+
+/** Drive photos picked by the team join the month as product photos. */
+postRoutes.post("/products/drive", async (c) => {
+  const d = await body(
+    c,
+    z.object({ batch: z.string().min(1), photos: z.array(z.object({ id: z.string().min(1).max(120), name: z.string().max(200) })).min(1).max(40) }),
+  );
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const taken = new Set((await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem));
+  const added: string[] = [];
+  const failed: string[] = [];
+  for (const p of d.photos)
+    try {
+      const row = await importDrivePhoto(c.env, user.id, b.id, p.id, p.name, taken);
+      c.executionCtx.waitUntil(describeUpload(c.env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
+      added.push(productName(row));
+    } catch (e) {
+      failed.push(`${p.name}: ${errorMessage(e)}`);
+    }
+  await run(c.env.DB, "UPDATE batches SET updated = ? WHERE id = ?", now(), b.id);
+  return c.json({ ok: true, added, failed });
+});
+
+/** The team chooses (or replaces) a post's product. */
+postRoutes.post("/products/use", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      index: z.number().int().min(1).max(MAX_POST_COUNT),
+      source: z.enum(["month", "gallery", "drive"]),
+      id: z.string().min(1).max(120),
+      name: z.string().max(200).default(""),
+    }),
+  );
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const post = await useProduct(c.env, c.executionCtx, user, b, JSON.parse(b.config) as Config, d.index, d);
+  return c.json({ ok: true, post });
+});
+
+/**
+ * Every post whose product has no photo this month gets the best fit by itself (from earlier months
+ * or the client's Drive); posts that show no product are left alone. Run after a grid's ideas.
+ */
+postRoutes.post("/products/fill", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  let config = JSON.parse(b.config) as Config;
+  const monthNames = (await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product'", b.id)).map(productName);
+  const missing = (config.plan ?? []).filter(
+    (p) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "") && !matchProduct(p.product, monthNames),
+  );
+  if (!missing.length) return c.json({ ok: true, filled: [] });
+  const matches = await matchProducts(c.env, b, config, missing);
+  const filled: { index: number; product: string; source: string }[] = [];
+  for (const m of matches) {
+    const pick = m.picks[0];
+    if (!pick) continue;
+    try {
+      const fresh = await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
+      config = JSON.parse(fresh!.config) as Config;
+      const post = await useProduct(c.env, c.executionCtx, user, fresh!, config, m.index, pick);
+      filled.push({ index: m.index, product: post.product ?? pick.name, source: pick.source });
+    } catch (e) {
+      console.error("[products] fill", m.index, errorMessage(e));
+    }
+  }
+  return c.json({ ok: true, filled });
 });
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extraProductsIn, postProblems } from "@shared/qa";
-import type { Post } from "@shared/posts";
+import { withoutBags, type Post } from "@shared/posts";
 
 const products = ["عش-البلبل-بالنوتيلا", "عش-البلبل-بالفستق", "كنافة-ناعمة-سوبر", "50 - Pistachio Burma & Ush Al-Bulbul - Pistachio Burma & Ush Al-Bulbul"];
 const base: Post = { index: 3, type: "lifestyle", title: "T", brief: "A hand holds the product.", caption: "", hashtags: "", product: "عش-البلبل-بالنوتيلا", scene: "A hand holds the gift box against a wall." };
@@ -18,7 +18,7 @@ describe("post checks before any image is paid for", () => {
     );
     const texts = pr.map((x) => x.text).join(" | ");
     expect(texts).toContain("has no shot yet");
-    expect(texts).toContain("bag or a carrier in its idea");
+    expect(pr.find((x) => x.text.includes("bag or a carrier"))?.fix).toBe("unbag");
     expect(texts).toContain("which the client does not sell");
     expect(texts).toContain("Khalif (a man)");
   });
@@ -33,5 +33,9 @@ describe("post checks before any image is paid for", () => {
   it("asks an offer for its contents", () => {
     const pr = postProblems({ ...base, type: "offer", offer: { products: [], price: "", details: "" } }, ctx);
     expect(pr.some((x) => x.text.includes("offer without"))).toBe(true);
+  });
+
+  it("takes the bag sentences out without touching the rest", () => {
+    expect(withoutBags("A hand lifts the tray. She carries a paper bag out of the shop. Warm light; soft shadows.")).toBe("A hand lifts the tray. Warm light; soft shadows.");
   });
 });

@@ -76,16 +76,19 @@ function pemToDer(pem: string): ArrayBuffer {
   return out.buffer;
 }
 
+const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+
 /** A signed JWT assertion for the OAuth token endpoint. */
 export async function signAssertion(
   creds: VertexCreds,
   nowSeconds = Math.floor(Date.now() / 1000),
+  scope = CLOUD_SCOPE,
 ): Promise<string> {
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = b64url(
     JSON.stringify({
       iss: creds.clientEmail,
-      scope: "https://www.googleapis.com/auth/cloud-platform",
+      scope,
       aud: "https://oauth2.googleapis.com/token",
       iat: nowSeconds,
       exp: nowSeconds + 3600,
@@ -108,15 +111,18 @@ export async function signAssertion(
 
 const tokens = new Map<string, { token: string; expires: number }>(); // per isolate
 
+/** An access token for the service account: Vertex by default, or another scope (Drive reads). */
 export async function vertexToken(
   creds: VertexCreds,
   fetchImpl: typeof fetch = fetch,
+  scope = CLOUD_SCOPE,
 ): Promise<string> {
-  const cached = tokens.get(creds.clientEmail);
+  const cacheKey = `${creds.clientEmail} ${scope}`;
+  const cached = tokens.get(cacheKey);
   if (cached && cached.expires > Date.now() + 60_000) return cached.token;
   let assertion: string;
   try {
-    assertion = await signAssertion(creds);
+    assertion = await signAssertion(creds, undefined, scope);
   } catch (e) {
     throw new StudioError(
       `The service-account private key could not be used: ${e instanceof Error ? e.message : String(e)}`,
@@ -141,7 +147,7 @@ export async function vertexToken(
     );
   const d = (await r.json()) as { access_token?: string; expires_in?: number };
   if (!d.access_token) throw new StudioError("Google Cloud returned no access token.", 502, true);
-  tokens.set(creds.clientEmail, {
+  tokens.set(cacheKey, {
     token: d.access_token,
     expires: Date.now() + (d.expires_in ?? 3600) * 1000,
   });

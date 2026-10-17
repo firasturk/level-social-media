@@ -9655,3 +9655,131 @@ label.num select {
     display: none;
   }
 }
+
+/* ───────────── Google Drive picker ───────────── */
+.drive-dialog {
+  max-width: min(980px, calc(100vw - 32px)) !important;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  background: var(--surface);
+}
+.drive-dialog [data-slot="dialog-title"] {
+  font-size: 22px;
+}
+.drive-connect {
+  display: grid;
+  gap: 12px;
+}
+.drive-email {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.drive-email code {
+  font-size: 12.5px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--ink-50, rgba(0, 0, 0, 0.05));
+  word-break: break-all;
+}
+.drive-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 13px;
+}
+.drive-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.drive-tools {
+  display: inline-flex;
+  gap: 12px;
+}
+.drive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  max-height: 52dvh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.drive-ai {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  background: linear-gradient(90deg, #d946a8, #7c3aed);
+  color: #fff;
+}
+.drive-more {
+  justify-self: center;
+}
+.drive-actions {
+  justify-content: flex-end;
+}
+
+.journey-fix-all {
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+/* ───────────── A post's product: recommended, chosen, replaced ───────────── */
+button.shot-product {
+  cursor: pointer;
+  border: 1px solid transparent;
+  font: inherit;
+}
+button.shot-product:hover {
+  border-color: var(--ink-300, rgba(0, 0, 0, 0.2));
+}
+.shot-product.missing {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+.swap-section {
+  display: grid;
+  gap: 10px;
+}
+.swap-section > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.swap-recommended {
+  max-height: none;
+}
+.swap-card {
+  position: relative;
+}
+.swap-reason {
+  display: block;
+  padding: 0 6px 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-500);
+  text-align: start;
+}
+.swap-busy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.6);
+}
+.swap-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 200px;
+}
+.swap-search input {
+  flex: 1;
+}

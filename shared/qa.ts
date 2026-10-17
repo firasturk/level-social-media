@@ -2,20 +2,22 @@
  * The checks a month's posts pass before any image is paid for: what the image engine would get
  * wrong if it were sent as it is. Each problem says where it is and how it is fixed.
  */
-import { decodeEntities, offerReady, type Post } from "./posts";
+import { BAGS, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 
-export type FixKind = "shot" | "post";
+export type FixKind = "shot" | "post" | "unbag";
 
 export interface PostProblem {
   index: number;
   /** What is wrong, in plain words. */
   text: string;
-  /** "shot": write this post's shot again; "post": write the post (idea and caption) again. */
+  /**
+   * "shot": write this post's shot again; "post": write the post (idea and caption) again; "unbag":
+   * take out the sentences with a bag or a carrier (no writing needed).
+   */
   fix: FixKind;
 }
 
-const BAGS = /\b(bags?|carriers?|baskets?|totes?|shopping)\b/i;
 const MALE = /\b(man|male|boy|gentleman|husband|father|son)\b|رجل|شاب|ولد/i;
 const FEMALE = /\b(woman|female|girl|lady|wife|mother|daughter)\b|امرأة|بنت|سيدة|فتاة/i;
 const WOMENS_WEAR = /\b(headscarf|head scarf|hijab|veil|dress|skirt|abaya)\b|حجاب|فستان|تنورة/i;
@@ -76,8 +78,7 @@ export function postProblems(
   if (ctx.needsScene && !scene.trim()) out.push({ index: n, text: "has no shot yet", fix: "shot" });
   if (post.type === "offer" && !offerReady(post.offer))
     out.push({ index: n, text: "is an offer without its products, price and contents", fix: "post" });
-  if (BAGS.test(scene)) out.push({ index: n, text: "puts the product in a bag or a carrier in its shot", fix: "shot" });
-  if (BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier in its idea", fix: "post" });
+  if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {
     const drink = (t: string) => {

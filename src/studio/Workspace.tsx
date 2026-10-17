@@ -500,12 +500,28 @@ export default function Workspace({
       });
       await refresh();
       toast.success(`${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
+      if (config?.gridRef) await fillProducts(id);
       return true;
     } catch (e) {
       toast.error((e as Error).message);
       return false;
     } finally {
       setBusy("");
+    }
+  }
+
+  /** A grid's posts get their products by themselves: earlier months' or the client's Drive photos. */
+  async function fillProducts(id: string) {
+    try {
+      const r = await post<{ filled: { index: number; product: string; source: string }[] }>("/api/studio/posts/products/fill", { batch: id });
+      if (r.filled.length) {
+        await refresh();
+        toast.success(
+          `${r.filled.length} post${r.filled.length > 1 ? "s" : ""} got ${r.filled.length > 1 ? "their" : "its"} product by itself (${r.filled.map((f) => `${f.index}: ${f.product}`).join(", ")}). Replace any from its shot.`,
+        );
+      }
+    } catch (e) {
+      toast.error(`Products: ${(e as Error).message}`);
     }
   }
 
@@ -525,6 +541,7 @@ export default function Workspace({
       });
       await refresh();
       toast.success(`${r.plan.length} posts planned from the reference grid.`);
+      await fillProducts(id);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

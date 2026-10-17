@@ -69,6 +69,7 @@ import { styleRoutes } from "./styles";
 import { ambassadorRoutes } from "./ambassadors";
 import { metaRoutes } from "./meta";
 import { profileRoutes } from "./profile";
+import { driveRoutes } from "./drive";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -78,6 +79,7 @@ studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);
 studioRoutes.route("/profiles", profileRoutes);
+studioRoutes.route("/drive", driveRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;
