@@ -7,7 +7,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
-import { all, first, now, run } from "./db";
+import { all, first, now, run, uuid } from "./db";
+import { listClients } from "./clients";
 import { askText } from "./posts";
 import { instagramProfile, type InstagramProfile } from "./meta";
 import { suggestGrids } from "./styles";
@@ -251,6 +252,7 @@ profileRoutes.post("/:client/analyse", async (c) => {
   if (input.status === "running") throw new StudioError("The Analysis is already running for this client.", 409);
   if (!input.instagram && !input.website) throw new StudioError("Give the client's Instagram account or website first.");
   await run(c.env.DB, "UPDATE client_profiles SET status = 'running', error = NULL, updated = ? WHERE client = ?", now(), clientId);
+  let filled: string[] = [];
   try {
     const read = async (handle: string, posts: number) => {
       if (!handle) return null;
@@ -306,12 +308,117 @@ profileRoutes.post("/:client/analyse", async (c) => {
       now(),
       clientId,
     );
+    // What the kit still lacks is filled from what was just read; the designer's own entries stay.
+    filled = await fillKitFromProfile(c.env, clientId, profile, ig?.picture ?? null).catch((e) => {
+      console.error("[profile] kit", errorMessage(e));
+      return [];
+    });
   } catch (e) {
     const message = errorMessage(e).slice(0, 400);
     await run(c.env.DB, "UPDATE client_profiles SET status = 'failed', error = ?, updated = ? WHERE client = ?", message, now(), clientId);
     throw e instanceof StudioError ? e : new StudioError(`The Analysis failed: ${message}`, 502);
   }
-  return c.json({ ok: true, profile: toRecord(clientId, await profileRow(c.env, clientId)) });
+  return c.json({ ok: true, profile: toRecord(clientId, await profileRow(c.env, clientId)), filled, clients: await listClients(c.env) });
+});
+
+/* ───────────── The brand kit filled from the Analysis ───────────── */
+
+const HEX = /#[0-9a-f]{6}\b/i;
+
+/** A headline font that suits the lettering the Analysis saw. */
+function headlineFontFor(lettering: string): string {
+  const t = lettering.toLowerCase();
+  if (/nastaliq|calligraph|thuluth|diwani|خط/.test(t)) return "Aref Ruqaa";
+  if (/naskh|classic|traditional|serif/.test(t)) return "Amiri";
+  if (/kufi|geometric|square/.test(t)) return "Reem Kufi";
+  if (/playful|rounded|hand|script|fun|kids|child/.test(t)) return "Lemonada";
+  if (/heavy|display|bold|strong|impact/.test(t)) return "Lalezar";
+  if (/elegant|modern|luxury|premium|minimal/.test(t)) return "El Messiri";
+  return "Cairo";
+}
+
+/**
+ * The Analysis fills what the brand kit still lacks: colours, tone of voice, rules, the visual
+ * identity text, the fonts and the logo (the Instagram profile picture). Anything the designer
+ * already filled is never touched. Returns the names of the fields filled.
+ */
+export async function fillKitFromProfile(env: Env, clientId: string, profile: ClientProfile, picture: string | null): Promise<string[]> {
+  const row = await first<{ colors: string; fonts: string; tone: string; dos: string; donts: string; style: string; logo_key: string | null }>(
+    env.DB,
+    "SELECT colors, fonts, tone, dos, donts, style, logo_key FROM clients WHERE id = ?",
+    clientId,
+  );
+  if (!row) return [];
+  const sets: string[] = [];
+  const params: unknown[] = [];
+  const filled: string[] = [];
+  const set = (col: string, value: string, label: string) => {
+    sets.push(`${col} = ?`);
+    params.push(value);
+    filled.push(label);
+  };
+  const colours = parse<{ name?: string; hex?: string }[]>(row.colors, []);
+  if (!colours.length) {
+    const seen = new Set<string>();
+    const list = profile.branding.colours
+      .map((c) => {
+        const hex = HEX.exec(c)?.[0]?.toLowerCase();
+        if (!hex || seen.has(hex)) return null;
+        seen.add(hex);
+        const name = c.replace(HEX, "").replace(/[()·:,-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 40) || hex;
+        return { name, hex };
+      })
+      .filter((x): x is { name: string; hex: string } => !!x)
+      .slice(0, 6);
+    if (list.length) set("colors", JSON.stringify(list), "colours");
+  }
+  if (!row.tone.trim()) {
+    const tone = [profile.tone.description, profile.tone.dialect && `Dialect: ${profile.tone.dialect}.`].filter(Boolean).join(" ").trim();
+    if (tone) set("tone", tone.slice(0, 2000), "tone of voice");
+  }
+  const rule = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, 160);
+  if (!row.dos.trim()) {
+    const dos = [...profile.tips.design, ...profile.tips.headlines].map(rule).filter((t) => t && !/\b(never|avoid|no |don't|do not)\b/i.test(t)).slice(0, 6);
+    if (dos.length) set("dos", dos.join("\n"), "always rules");
+  }
+  if (!row.donts.trim()) {
+    const donts = [...profile.tips.design, ...profile.tips.headlines, ...profile.tips.captions, ...profile.tone.improve].map(rule).filter((t) => /\b(never|avoid|no |don't|do not|stop)\b/i.test(t)).slice(0, 5);
+    if (donts.length) set("donts", donts.join("\n"), "never rules");
+  }
+  if (!row.style.trim()) {
+    const style = [profile.branding.photography, profile.branding.packaging && `Packaging: ${profile.branding.packaging}`, profile.branding.type && `Lettering: ${profile.branding.type}`].filter(Boolean).join(" ").trim();
+    if (style) set("style", style.slice(0, 2000), "visual identity");
+  }
+  const fonts = parse<{ headline?: string; body?: string }>(row.fonts, {});
+  if (!fonts.headline) {
+    const corporate = /corporate|insurance|bank|finance|clean|sans/i.test(profile.branding.type);
+    set("fonts", JSON.stringify({ ...fonts, headline: headlineFontFor(profile.branding.type), body: fonts.body ?? (corporate ? "Almarai" : "Tajawal") }), "fonts");
+  }
+  if (!row.logo_key && picture) {
+    try {
+      const r = await fetch(picture, { signal: AbortSignal.timeout(15_000) });
+      const type = r.headers.get("content-type")?.split(";")[0] ?? "";
+      if (r.ok && /^image\/(png|jpeg|webp)$/.test(type)) {
+        const key = `clients/${clientId}/logo-${uuid()}`;
+        await env.BUCKET.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: type } });
+        set("logo_key", key, "logo (the Instagram profile picture)");
+      }
+    } catch (e) {
+      console.error("[profile] logo", errorMessage(e));
+    }
+  }
+  if (!sets.length) return [];
+  await run(env.DB, `UPDATE clients SET ${sets.join(", ")}, updated = ? WHERE id = ?`, ...params, now(), clientId);
+  return filled;
+}
+
+/** Fills the brand kit's empty fields from the stored Analysis (the Analysis does this by itself too). */
+profileRoutes.post("/:client/fill-kit", async (c) => {
+  const clientId = c.req.param("client");
+  const rec = toRecord(clientId, await profileRow(c.env, clientId));
+  if (!rec.profile) throw new StudioError("Run the Analysis first.", 409);
+  const filled = await fillKitFromProfile(c.env, clientId, rec.profile, rec.sources?.instagram?.picture ?? null);
+  return c.json({ ok: true, filled, clients: await listClients(c.env) });
 });
 
 /** Grids suggested for the client, waiting for approval or already on the shelf. */

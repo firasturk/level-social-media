@@ -7,7 +7,7 @@ import type { Client } from "@shared/types";
 import { PROFILE_REF_KINDS, type ProfileRecord, type ProfileRef } from "@shared/profile";
 import { styleThumb } from "./StyleGallery";
 
-type Reply = { profile: ProfileRecord };
+type Reply = { profile: ProfileRecord; filled?: string[]; clients?: Client[] };
 type Grid = { id: string; title: string; status: string; updated: number; tiles: number };
 
 /** The client's profile, loaded once per client and kept in step with the panel. */
@@ -119,7 +119,12 @@ function ProfilePanel({
     try {
       const r = await post<Reply>(`/api/studio/profiles/${encodeURIComponent(client.id)}/analyse`, { instagram, website, refs });
       onRec(r.profile);
-      toast.success(`${client.name}'s profile is written. The ideas and captions follow it now.`);
+      if (r.clients) onClientsChanged(r.clients);
+      toast.success(
+        r.filled?.length
+          ? `${client.name}'s profile is written, and the brand kit got its ${r.filled.join(", ")}.`
+          : `${client.name}'s profile is written. The ideas and captions follow it now.`,
+      );
       void loadGrids();
     } catch (e) {
       toast.error((e as Error).message);
@@ -128,6 +133,15 @@ function ProfilePanel({
     }
   }
 
+  async function fillKit() {
+    try {
+      const r = await post<{ filled: string[]; clients: Client[] }>(`/api/studio/profiles/${encodeURIComponent(client.id)}/fill-kit`, {});
+      onClientsChanged(r.clients);
+      toast.success(r.filled.length ? `The brand kit got its ${r.filled.join(", ")}.` : "The brand kit already has everything the Analysis can give.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   async function applyTone() {
     if (!p) return;
     const tone = [p.tone.description, p.tone.dialect && `Dialect: ${p.tone.dialect}.`, p.tone.improve.length && `Better than now: ${p.tone.improve.join("; ")}.`]
@@ -238,6 +252,9 @@ function ProfilePanel({
                 <List title="Write better" items={p.tone.improve} />
                 <button type="button" className="text-button" onClick={() => void applyTone()} title="Write this into the brand kit's tone of voice">
                   <Check size={13} /> Use as the brand kit's tone
+                </button>
+                <button type="button" className="text-button" onClick={() => void fillKit()} title="Colours, tone, rules, visual identity, fonts and the logo: whatever the kit still lacks is filled from the Analysis">
+                  <Check size={13} /> Fill the brand kit from the Analysis
                 </button>
               </section>
               <section className="profile-card">
