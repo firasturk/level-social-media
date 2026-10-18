@@ -89,7 +89,7 @@ describe("a back print stays on the back", () => {
     const { backPrintRule } = await import("../shared/posts");
     expect(backPrintRule(['A light grey toddler sweatshirt with a cake character and the text "BORN TO PARTY" printed on the back.'])).toContain("BACK PRINT");
     expect(backPrintRule(["A brown sweatshirt with 'born to brunch' across the back", ""])).toContain("seen from behind");
-    expect(backPrintRule(["A red sweatshirt with white 'LET'S GET COZY' text on the chest."])).toBe("");
+    expect(backPrintRule(["A red sweatshirt with white 'LET'S GET COZY' text on the chest."])).toContain("FRONT PRINT");
   });
 });
 
