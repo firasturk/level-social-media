@@ -120,7 +120,7 @@ async function batchPayload(env: Env, b: BatchRow, user?: User) {
     ),
     all<Task>(
       env.DB,
-      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated, t.post, t.caption FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY t.post, s.name, t.card",
+      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated, t.post, t.caption, t.preflight FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY t.post, s.name, t.card",
       b.id,
     ),
   ]);
@@ -1338,7 +1338,7 @@ studioRoutes.post("/revise", async (c) => {
   const b = await ownedBatch(c.env, c.get("user"), batch);
   const changed = await run(
     c.env.DB,
-    "UPDATE tasks SET status = 'queued', edit = ?, fix_rounds = 0, error = NULL, updated = ? WHERE id = ? AND batch = ? AND output IS NOT NULL AND status IN ('ready','review','approved','failed')",
+    "UPDATE tasks SET status = 'queued', edit = ?, preflight = NULL, error = NULL, updated = ? WHERE id = ? AND batch = ? AND output IS NOT NULL AND status IN ('ready','review','approved','failed')",
     edit,
     now(),
     id,

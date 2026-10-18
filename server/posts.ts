@@ -896,6 +896,7 @@ function ideasContext(
   productNotes: Record<string, string>,
   ambassadors: AmbassadorRow[] = [],
   profile = "",
+  lessons: string[] = [],
 ): Omit<IdeasRequest, "count"> {
   // Chosen colours win: the colour words of the references and the brand style give way.
   const chosen = monthPaletteOf(theme).length > 0;
@@ -920,6 +921,7 @@ function ideasContext(
     noSubline: hidesSubline(client),
     monthPalette: monthPaletteOf(theme),
     ambassadors: ambassadors.map((a) => ({ name: a.name, description: a.description })),
+    lessons,
     shots: monthShots(config, theme).map((t) => (chosen ? withoutColourWords(t) : t)),
     products,
     productNotes,
@@ -1044,7 +1046,7 @@ async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: num
   const others = plan.filter((p) => p.index !== index).map((p) => p.title);
   const cast = await monthAmbassadors(env, config);
   const instruction = singleIdeaInstruction(
-    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id)), count: 1 },
+    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id).catch(() => [])), count: 1 },
     current,
     others,
     wish,
@@ -1127,7 +1129,7 @@ postRoutes.post("/ideas", async (c) => {
   const count = d.count ?? config.postCount ?? 12;
   const cast = await monthAmbassadors(c.env, config);
   const instruction = ideasInstruction({
-    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id)),
+    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id).catch(() => [])),
     count,
     notes: d.notes ?? config.notes,
     types: d.types,
@@ -1189,7 +1191,7 @@ async function ensureOccasionPosts(
       scene: undefined,
     };
     const instruction = singleIdeaInstruction(
-      { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id)), count: 1 },
+      { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id).catch(() => [])), count: 1 },
       draft,
       plan.filter((p) => p.index !== target.index).map((p) => p.title),
       `This post is now the greeting for ${o.name} on ${o.date}: a greeting headline and a caption for the day, in the client's tone.`,
@@ -1979,12 +1981,15 @@ postRoutes.post("/generate", async (c) => {
     };
     // The real-people photo only goes with a post that shows the brand's people.
     if (!brief.ambassadors?.length) delete brief.realRef;
+    // With ambassadors in the picture, a reference that shows people is described, not attached:
+    // the engine copies a reference's people (their age, their gender) over the portraits.
+    if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || (brief.tileKey && post.tileSpec?.kind === "person"))) brief.noRefImage = true;
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)
       statements.push(
         c.env.DB.prepare(
-          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, error = NULL, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
+          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
         ).bind(sourceId, prompt, JSON.stringify(brief), caption, now(), existing.id),
       );
     else
@@ -3541,6 +3546,7 @@ postRoutes.post("/shots", async (c) => {
   const tileRule = tileImages.length
     ? `\n\nTILE PICTURES: ${[...tileFor].map(([post, img]) => `image ${img} is the grid tile post ${post} recreates`).join("; ")}. Write each of these posts' shot from its tile picture, not only from its words: the same composition (how the items are arranged, stacked, tilted or scattered, how many and where), camera angle and distance, surface and set, light direction and shadows, with the client's own product in place of the tile's items (several pieces or copies of it when the tile shows several). Never its brand, packaging, bags, cups, cards, text or logos.`
     : "";
+  const shotLessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
   const ask = async (strict: boolean | string) => {
     const raw = parseJson<{ shots?: unknown }>(
       await askText(
@@ -3551,6 +3557,7 @@ postRoutes.post("/shots", async (c) => {
           palette,
           props: theme?.props,
           strict,
+          lessons: shotLessons,
           service: sources.length ? undefined : client.service || undefined,
         }) + tileRule + wardrobeRule,
         SHOTS_SCHEMA,
@@ -3615,6 +3622,7 @@ async function writeStyleScenes(
   const cast = await monthAmbassadors(env, config);
   const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
   const scenes = new Map<number, { style?: string; scene?: string; brief?: string }>();
+  const styleLessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   await Promise.all(
     assign.map(async (a) => {
       const post = plan.find((p) => p.index === a.index);
@@ -3647,6 +3655,7 @@ async function writeStyleScenes(
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
           theme: config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
+          lessons: styleLessons,
         }),
         ADAPT_SCHEMA,
       );

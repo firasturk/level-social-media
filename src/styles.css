@@ -11613,3 +11613,12 @@ button.shot-product:hover {
   border-bottom: 1px solid rgba(22, 101, 52, 0.2);
 }
 .post-prechecks svg { flex: none; margin-top: 1px; }
+
+
+/* The preflight's trace in a card's details: what was written again before the engine was paid. */
+.post-preflight {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-500, #6b6b6b);
+}

@@ -110,6 +110,8 @@ export interface Task {
   post?: number | null;
   /** Caption and hashtags of the post, editable: JSON {text, hashtags}. */
   caption?: string | null;
+  /** What the preflight changed before the engine was paid: JSON {at, notes}. */
+  preflight?: string | null;
 }
 
 /** A theme: a client's visual direction with its reference library (stored as a skill row). */

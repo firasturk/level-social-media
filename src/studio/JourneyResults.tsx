@@ -190,7 +190,7 @@ export function MakeStep({
               <div className="make-actions">
                 {flags.length > 0 && !busy && j?.taskId && (
                   <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))}>
-                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix
+                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make again
                   </button>
                 )}
                 <button
@@ -542,7 +542,7 @@ export function FeedStep({
                         void onFix(x.index, fixNote(x.flags!)).finally(() => setFixingPost(null));
                       }}
                     >
-                      {fixingPost === x.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix it
+                      {fixingPost === x.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make it again
                     </button>
                   </div>
                 ))}

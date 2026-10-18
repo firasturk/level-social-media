@@ -787,7 +787,7 @@ export default function Journey(p: JourneyProps) {
           else if (x.status === "none")
             out.push({ text: `Post ${x.index} has no image.`, fix: { label: "Make it", run: () => p.onRetake(x.index) } });
           else if (x.flags?.length && !MAKING.includes(x.status))
-            out.push({ warn: true, text: `Post ${x.index}: ${x.flags.map((f) => f.text).join("; ")}`, fix: { label: "Fix it", run: () => p.onFix(x.index, fixNote(x.flags!)) } });
+            out.push({ warn: true, text: `Post ${x.index}: ${x.flags.map((f) => f.text).join("; ")}`, fix: { label: "Make it again", run: () => p.onFix(x.index, fixNote(x.flags!)) } });
         }
         break;
       }
@@ -3058,7 +3058,7 @@ function MagicStep({
                         ))}
                       </ul>
                       <button type="button" className="text-button" onClick={() => void onFixTest(fixNote(flags))}>
-                        <Wand2 size={13} /> Fix these on the test
+                        <Wand2 size={13} /> Make the test again
                       </button>
                     </>
                   ) : (

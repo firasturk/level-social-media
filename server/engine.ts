@@ -10,12 +10,7 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { fixNote, parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction, type FlagKind } from "@shared/qa";
-import { FRESH_TAKE } from "@shared/posts";
-
-/** Fix it keeps going by itself while the review still finds these (at most MAX_FIX_ROUNDS more takes). */
-const HARD_FIX_KINDS = new Set<FlagKind>(["product", "invented", "text", "bag", "foreign", "people", "tile", "staging"]);
-const MAX_FIX_ROUNDS = 2;
+import { parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction } from "@shared/qa";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLessons } from "./lessons";
@@ -112,8 +107,8 @@ interface TaskRow {
   edit: string | null;
   attempts: number;
   recenter: number;
-  /** Takes Fix it has already added by itself (see MAX_FIX_ROUNDS). */
-  fix_rounds: number;
+  /** What the preflight changed in the brief before the engine was paid (JSON {at, notes}), null until it ran. */
+  preflight: string | null;
   request_id: string | null;
   leased_at: number | null;
   updated: number;
@@ -486,25 +481,6 @@ async function storeResultBytes(
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
-    }
-    // Fix it does not stop at a report: while the review still finds a hard problem (the product,
-    // the people, writing, a bag, the staging), the post is made again with the new findings, up
-    // to MAX_FIX_ROUNDS more takes. A soft note (AI look, size) is left to the team.
-    const hard = (qa.flags ?? []).filter((f) => HARD_FIX_KINDS.has(f.kind));
-    if ((task.edit ?? "").startsWith(FRESH_TAKE) && qa.automated && hard.length && (task.fix_rounds ?? 0) < MAX_FIX_ROUNDS) {
-      const round = (task.fix_rounds ?? 0) + 1;
-      const again = await run(
-        env.DB,
-        "UPDATE tasks SET status = 'queued', edit = ?, fix_rounds = ?, qa = ?, error = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
-        fixNote(hard),
-        round,
-        JSON.stringify(qa),
-        `Fixing again (take ${round + 1} of ${MAX_FIX_ROUNDS + 1}): ${hard.map((f) => f.text.replace(/\.$/, "")).join("; ").slice(0, 300)}`,
-        now(),
-        task.id,
-        key,
-      );
-      if (again) return;
     }
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)
@@ -1661,6 +1637,64 @@ function sizeOf(config: Config, task: TaskRow): Config["size"] {
   }
 }
 
+/**
+ * The preflight: before the engine is paid, the art director reads the scene, the product notes,
+ * the allowed people and the attached style or tile image, and fixes in writing what the engine
+ * would get wrong (a reference's adults over child ambassadors, words to copy, a garment staged
+ * against its print, an impossible action, a bag). Runs once per brief; never blocks a submission.
+ */
+async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<void> {
+  if (task.preflight !== null && task.preflight !== undefined) return;
+  const pb = postBrief(task);
+  const notes: string[] = [];
+  try {
+    const { askText, parseJson } = await import("./posts");
+    const scene = pb.shot?.trim() || pb.brief.trim();
+    const products = pb.hasProduct ? [pb.product ?? "", ...(pb.extraProducts ?? []).map((e) => e.note ?? e.name)].filter(Boolean) : [];
+    const reference: "style" | "tile" | "" = pb.styleKey && !pb.refIsSource && !pb.noRefImage ? "style" : pb.tileKey && !pb.refIsSource && !pb.noRefImage ? "tile" : "";
+    const images: ImageBytes[] = [];
+    if (reference) {
+      const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
+      if (obj) images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+    }
+    const client = batch.client ? await first<{ name: string }>(env.DB, "SELECT name FROM clients WHERE id = ?", batch.client) : null;
+    const pf = parsePreflight(
+      parseJson<unknown>(
+        await askText(
+          env,
+          preflightInstruction({
+            client: client?.name ?? "the brand",
+            scene,
+            products,
+            people: (pb.ambassadors ?? []).map((a) => `${a.name} (${a.description})`),
+            reference,
+            lessons: pb.lessons ?? [],
+          }),
+          PREFLIGHT_SCHEMA,
+          images,
+        ),
+      ),
+    );
+    if (pf && !pf.ok) {
+      notes.push(...pf.problems);
+      if (pf.scene) {
+        if (pb.shot?.trim()) pb.shot = pf.scene;
+        else pb.brief = pf.scene;
+        notes.push("the shot was written again without them");
+      }
+      if (pf.dropReference && reference) {
+        pb.noRefImage = true;
+        notes.push(`the ${reference} image was left out so the engine copies nothing from it`);
+      }
+    }
+  } catch (e) {
+    console.error("[preflight]", task.id, errorMessage(e));
+  }
+  task.brief = JSON.stringify(pb);
+  task.preflight = JSON.stringify({ at: now(), notes });
+  await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
+}
+
 function postBrief(task: TaskRow): PostBrief {
   if (!task.brief) throw new StudioError("This post has no brief. Generate the posts again.", 500);
   const b = JSON.parse(task.brief) as Partial<PostBrief>;
@@ -1764,6 +1798,7 @@ async function submitTask(
 ): Promise<string> {
   const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", task.source);
   if (!source) throw new StudioError("Original unavailable.", 404);
+  if (config.mode === "post") await preflightPost(env, batch, task);
   const imageUrls = [await sourceEngineUrl(env, client, source)];
   const roles = {
     identity: false,
@@ -1834,7 +1869,7 @@ async function submitTask(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource) {
+    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
       imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
       roles.mood = true;
     } else if (pb.ref && !pb.refIsSource) {
@@ -1949,6 +1984,7 @@ async function submitOpenAITask(
 ): Promise<string> {
   const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", task.source);
   if (!source) throw new StudioError("Original unavailable.", 404);
+  if (config.mode === "post") await preflightPost(env, batch, task);
   const images: ImageBytes[] = [await sourceBytes(env, source)];
   const roles = {
     identity: false,
@@ -2023,7 +2059,7 @@ async function submitOpenAITask(
           mime: obj.httpMetadata?.contentType || "image/jpeg",
         });
     }
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource) {
+    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
       const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
       if (obj) {
         images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
@@ -2104,6 +2140,7 @@ async function submitGoogleBackgroundTask(
   config: Config,
   task: TaskRow,
 ): Promise<string> {
+  if (config.mode === "post") await preflightPost(env, batch, task);
   const { images, roles, source } = await collectReferenceBytes(env, batch, config, task);
   const edit = task.edit?.trim() ?? "";
   const prompt = await promptFor(env, batch, config, task, source, edit, roles);
@@ -2438,7 +2475,7 @@ async function collectReferenceKeys(
   if (config.mode === "post") {
     const pb = postBrief(task);
     for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) keys.push(extra.key);
-    if (pb.styleKey && !pb.refIsSource) {
+    if (pb.styleKey && !pb.refIsSource && !pb.noRefImage) {
       keys.push(pb.styleKey);
       roles.mood = true;
     } else if (pb.ref && !pb.refIsSource) {

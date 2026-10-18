@@ -270,7 +270,6 @@ export default function PlanView({
   /** The making state in words: a realism pass has its own. */
   const makingLabel = (t: Task | null) => {
     const edit = (t as { edit?: string | null } | null)?.edit ?? "";
-    if (/^Fixing again/.test(t?.error ?? "")) return t!.error!.replace(/:.*$/, "") + "…";
     if (/photographed, not generated/.test(edit)) return "Making the people look real…";
     if (edit.startsWith("FRESH TAKE:")) return "Making it again without the problems…";
     return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";
@@ -777,7 +776,7 @@ export default function PlanView({
                               void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
                             }}
                           >
-                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix it
+                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make it again
                           </button>
                           {onAccept && (
                             <button
@@ -1027,6 +1026,15 @@ export default function PlanView({
                         <h4>
                           <FileText size={13} /> Details
                         </h4>
+                        {(() => {
+                          let notes: string[] = [];
+                          try {
+                            notes = (t?.preflight ? (JSON.parse(t.preflight) as { notes?: string[] }).notes : undefined) ?? [];
+                          } catch {
+                            notes = [];
+                          }
+                          return notes.length ? <p className="post-preflight">Written again before paying: {notes.join("; ")}.</p> : null;
+                        })()}
                         <label className="post-date">
                           <span>Posting day</span>
                           <input

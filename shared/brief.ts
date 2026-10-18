@@ -119,6 +119,8 @@ export function adaptShotsInstruction(r: {
   strict?: boolean | string;
   /** A client with no products: the service it offers. */
   service?: string;
+  /** Mistakes the review found in this client's earlier pictures: no shot leads to them again. */
+  lessons?: string[];
 }): string {
   return [
     `You are the photographer planning this month's shoot. The month has ${r.posts.length} posts (below, with their type, product, occasion and people). The look comes from ${r.shots.length} reference shots read from Pinterest, which show other brands' items. Write ONE shot per post: 2-4 sentences that a camera crew can shoot.`,
@@ -135,6 +137,9 @@ export function adaptShotsInstruction(r: {
     r.props?.trim() ? `PROPS this month (place them where they fit): ${r.props.trim()}.` : NO_PROPS_RULE,
     r.service?.trim()
       ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. The hands hold something of the service's moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
+      : "",
+    r.lessons?.length
+      ? `MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES (the review rejected them; write no shot that leads to them again):\n${r.lessons.map((l) => `- ${l}`).join("\n")}`
       : "",
     r.strict
       ? `Your previous answer still named ${typeof r.strict === "string" ? `food, drink or toppings the brand's products do not have (${r.strict})` : "a drink, glass, cup or other item the brand does not sell"}. Remove every such item: the product stands there by itself.`

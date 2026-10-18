@@ -396,3 +396,79 @@ export function videoIdeaInstruction(r: { client: string; type: string; title: s
     'Return ONLY JSON: {"idea": "...", "reason": "a few words"}.',
   ].join("\n\n");
 }
+
+
+/* ───────────── The preflight: the prompt is read before the engine is paid ───────────── */
+
+export const PREFLIGHT_SCHEMA = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean" },
+    problems: { type: "array", items: { type: "string" } },
+    scene: { type: "string" },
+    dropReference: { type: "boolean" },
+    note: { type: "string" },
+  },
+  required: ["ok", "problems", "scene", "dropReference", "note"],
+};
+
+export interface Preflight {
+  ok: boolean;
+  problems: string[];
+  /** The scene paragraph written again without the problems ("" to keep it). */
+  scene: string;
+  /** The attached style or tile image would be copied wrongly (its people, its words): leave it out. */
+  dropReference: boolean;
+  note: string;
+}
+
+export function preflightInstruction(r: {
+  client: string;
+  /** The paragraph the engine makes the picture from (the shot or the brief). */
+  scene: string;
+  /** What each product photo shows. */
+  products: string[];
+  /** The people the picture may show, with their look ("" for nobody). */
+  people: string[];
+  /** A style or tile image is attached: the engine will copy what it sees in it. */
+  reference: "style" | "tile" | "";
+  /** The client's lessons: what went wrong before. */
+  lessons: string[];
+}): string {
+  return [
+    `You are the art director of "${r.client}" reading what an image engine is about to be paid to make. Nothing has been generated yet: your job is to catch, in the words and in the attached reference, what the engine would get wrong, and to fix it in writing now.`,
+    `THE SCENE THE ENGINE WILL MAKE:\n${r.scene}`,
+    r.products.length ? `THE PRODUCTS (as photographed; they are reproduced exactly):\n${r.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}` : "THE POST HAS NO PRODUCT PHOTO.",
+    r.people.length ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.` : "NO PEOPLE are allowed (a hand at most).",
+    r.reference
+      ? `THE ATTACHED IMAGE is the ${r.reference === "style" ? "style the designer picked" : "grid tile this post recreates"}; the engine sees it too and tends to copy everything in it: its people (their age and gender), its words, its bags, its products.`
+      : "No style or tile image is attached.",
+    r.lessons.length ? `WHAT WENT WRONG IN THIS CLIENT'S EARLIER PICTURES:\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
+    [
+      "Check, strictly:",
+      "- people: the scene and the reference agree with the allowed people (children stay children, a girl stays a girl, nobody extra); a reference showing adults when the people are children, or people when none are allowed, is a problem;",
+      "- words: nothing in the scene asks for a headline, slogan, sign, label or arrow, and the reference carries no big words the engine would copy;",
+      "- product: each product is staged as its photo shows it (a garment printed on the back is seen from behind; a box stays closed; nothing added, recoloured or invented; no plain item is described as a second product);",
+      "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
+      "- foreign: no food, drink, cup or glass the brand does not sell.",
+      'Return JSON: ok (true when nothing is wrong); problems (one short sentence each, "" none); scene: when any problem lives in the words, THE SCENE WRITTEN AGAIN in full (same length and style, same set, camera and idea) with the problems removed, else ""; dropReference: true when the attached image itself would make the engine copy wrong people or words, else false; note: one sentence for the designer.',
+    ].join("\n"),
+    "Return ONLY the JSON.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function parsePreflight(raw: unknown): Preflight | null {
+  const d = (raw && typeof raw === "object" ? raw : null) as Record<string, unknown> | null;
+  if (!d) return null;
+  const problems = Array.isArray(d.problems) ? (d.problems as unknown[]).map((x) => String(x ?? "").trim()).filter((x) => x && !/^(none|no|-)\.?$/i.test(x)) : [];
+  const scene = String(d.scene ?? "").replace(/\s+/g, " ").trim();
+  return {
+    ok: d.ok === true && !problems.length,
+    problems,
+    scene: scene.length > 40 ? scene.slice(0, 1600) : "",
+    dropReference: d.dropReference === true,
+    note: String(d.note ?? "").trim().slice(0, 300),
+  };
+}

@@ -110,3 +110,34 @@ describe("a fresh take puts its findings first and keeps the children", () => {
     expect(prompt.indexOf("NEW TAKE:")).toBeLessThan(prompt.indexOf("PRODUCT TRUTH"));
   });
 });
+
+describe("the preflight before paying", () => {
+  it("reads the art director's answer and keeps only a real rewrite", async () => {
+    const { parsePreflight, preflightInstruction } = await import("../shared/qa");
+    const pf = parsePreflight({ ok: false, problems: ["The reference shows adults; the ambassadors are children.", "none"], scene: "short", dropReference: true, note: "Leave the reference out." });
+    expect(pf).toMatchObject({ ok: false, problems: ["The reference shows adults; the ambassadors are children."], scene: "", dropReference: true });
+    expect(parsePreflight({ ok: true, problems: [], scene: "", dropReference: false, note: "" })?.ok).toBe(true);
+    const text = preflightInstruction({ client: "Qamari", scene: "Kinan stands in a plush garden.", products: ["grey sweatshirt, print on the back"], people: ["kinan (a little boy)"], reference: "style", lessons: ["No bags"] });
+    expect(text).toContain("children stay children");
+    expect(text).toContain("THE ATTACHED IMAGE is the style the designer picked");
+  });
+  it("leaves the style image out of the prompt's numbering when it is not attached", async () => {
+    const { buildPostPrompt } = await import("../shared/posts");
+    const base = { post: true, take: 1, index: 1, type: "lifestyle", title: "T", brief: "A child in a garden.", palette: [], style: "", theme: "", format: "4:5", hasProduct: true, styleKey: "styles/x.jpg", shot: "A plush garden set, eye level, soft light.", ambassadors: [{ name: "kinan", description: "a little boy (child model)", key: "k" }] };
+    const withImage = buildPostPrompt(base as never);
+    const without = buildPostPrompt({ ...base, noRefImage: true } as never);
+    expect(withImage).toContain("Image 3 is the style the designer picked");
+    expect(without).not.toContain("Image 3 is the style");
+    expect(without).toContain("THE PHOTOGRAPH (the picked style written for this product");
+  });
+  it("tells every writer the client's lessons", async () => {
+    const { ideasInstruction } = await import("../shared/posts");
+    const { adaptShotsInstruction } = await import("../shared/brief");
+    const { adaptStyleInstruction } = await import("../shared/styles");
+    const lessons = ["No bags: an earlier picture put the product in a bag."];
+    expect(adaptShotsInstruction({ shots: ["a"], posts: [], palette: [], lessons })).toContain("MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES");
+    expect(adaptStyleInstruction({ style: { title: "Pour", kind: "product", prompt: "x" }, product: "sweatshirt", post: { type: "Lifestyle", headline: "", brief: "" }, brand: { name: "Q" }, palette: [], people: [], lessons })).toContain("No bags");
+    expect(adaptStyleInstruction({ style: { title: "Pour", kind: "product", prompt: "x" }, product: "sweatshirt", post: { type: "Lifestyle", headline: "", brief: "" }, brand: { name: "Q" }, palette: [], people: [] })).toContain("CANNOT HAPPEN WITH THIS PRODUCT");
+    expect(ideasInstruction({ clientName: "Q", tone: "", dos: "", donts: "", language: "en", palette: [], style: "", themeTitle: "", themeDirection: "", themeLibrary: "", props: "", products: [], productNotes: {}, month: "2026-10", count: 1, lessons } as never)).toContain("No bags");
+  });
+});

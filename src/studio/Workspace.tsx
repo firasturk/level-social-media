@@ -995,7 +995,7 @@ export default function Workspace({
     if (!t) return;
     try {
       await action("revise", { id: t.id, edit });
-      toast.success(`Fixing post ${index}.`);
+      toast.success(`Making post ${index} again.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1442,7 +1442,7 @@ export default function Workspace({
             if (!t) return;
             try {
               await action("revise", { id: t.id, edit });
-              toast.success(`Fixing post ${index}.`);
+              toast.success(`Making post ${index} again.`);
             } catch (e) {
               toast.error((e as Error).message);
             }

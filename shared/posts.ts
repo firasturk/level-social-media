@@ -210,6 +210,11 @@ export interface PostBrief {
   never?: string;
   /** Mistakes the review found in this client's earlier pictures, worded as rules (see server/lessons). */
   lessons?: string[];
+  /**
+   * The style or tile image is NOT attached: its people or its words would be copied over the
+   * ambassadors or into the picture, so the words of the shot describe it instead.
+   */
+  noRefImage?: boolean;
   /** Which take of this post this is; takes after the first ask for a different picture. */
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
@@ -596,7 +601,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     n += 1;
     parts.push(realRefLine(n));
   }
-  if (b.hasProduct && (b.ref || b.styleKey || b.tileKey) && !b.refIsSource) {
+  if (b.hasProduct && (b.ref || b.styleKey || b.tileKey) && !b.refIsSource && !b.noRefImage) {
     n += 1;
     parts.push(`Image ${n} is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
   }
@@ -816,6 +821,8 @@ export interface IdeasRequest {
   monthPalette?: string[];
   /** The month's brand ambassadors: the only people the posts may show. */
   ambassadors?: { name: string; description: string }[];
+  /** Mistakes the review found in this client's earlier pictures: no idea leads to them again. */
+  lessons?: string[];
   /** One shot per reference picture, written by Analyse theme; the month is planned over them. */
   shots?: string[];
   products: string[];
@@ -904,6 +911,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.profile ? `CLIENT PROFILE (the Analysis of their Instagram and website; write for this audience, in this voice, by these rules for headlines and captions; other brands are never copied):\n${r.profile}` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
+    r.lessons?.length ? `MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES (the review rejected them; write nothing that leads to them again):\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
     r.monthPalette?.length
       ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. The background of every brief (wall, backdrop, main surface) is ${r.monthPalette[0]}; the other colours go to ${r.props?.trim() ? "props, fabrics and accents" : "surfaces, light and the people's clothes"}. Every colour a brief names comes from this list: a car, a cloth, a wall or a cup in the brief is described in one of these colours, never in a colour of the reference (no red car or crimson velvet unless red is in this list).${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
       : r.palette.length
@@ -1408,7 +1416,7 @@ export const PRODUCT_NOTE_SCHEMA = {
 
 /** Reads one product photo: what the item is, in one line, for the ideas writer and the prompt. */
 export function productNoteInstruction(name: string): string {
-  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, its approximate real-world size (for example "about 25 cm wide"), and any readable brand or flavour text on it. Describe the product itself only: not the surface, props, other food, pastries, people, logos or text around it in the photo. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
+  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is (for a garment: its type and cut, its colour, and its print or graphic with WHERE it sits: "on the chest", "on the back", "on the sleeve"): the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, its approximate real-world size (for example "about 25 cm wide"), and any readable brand or flavour text on it. Describe the product itself only: not the surface, props, other food, pastries, people, logos or text around it in the photo. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
 }
 
 /** One fresh idea for a single post of a month that is already planned. */
