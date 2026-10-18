@@ -50,8 +50,18 @@ export const postSchema = z.object({
         })
         .optional(),
       typoFor: z.string().max(400).optional(),
+      typoOff: z
+        .object({
+          style: z.enum(["behind", "overlap", "repeat", "outline"]),
+          word: z.string().max(80),
+          font: z.string().max(60),
+          color: z.string().max(12).optional(),
+          subject: z.string().max(400).optional(),
+        })
+        .optional(),
     })
     .optional(),
+  briefBeforeStyle: z.string().max(4000).optional(),
   tile: z.string().max(400).optional(),
   tileSpec: z
     .object({

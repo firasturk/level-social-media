@@ -146,6 +146,8 @@ export interface Post {
   scene?: string;
   /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
   style?: string;
+  /** The idea the post had before a style replaced it (it comes back when the style is taken off). */
+  briefBeforeStyle?: string;
   /** The image (output key) the caption was written from: a new image makes it old. */
   captionFrom?: string;
   /** The designer wrote or edited the caption: a new image never rewrites it by itself. */

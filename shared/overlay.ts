@@ -182,6 +182,8 @@ export interface PostOverlayPatch {
   typo?: PostTypography;
   /** The picture the typography was chosen for (it is chosen again for a new picture). */
   typoFor?: string;
+  /** The typography kept aside while the month's typography is switched off. */
+  typoOff?: PostTypography;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import TypographyControls from "./TypographyControls";
+import type { TypographyProps } from "./TypographyControls";
 import {
   Clapperboard,
   Download,
@@ -78,7 +80,7 @@ export default function PlanView({
   onOpen,
   onExport,
   onExportPdf,
-  onTypography,
+  typography,
   onDeletePlan,
   paused,
   onResume,
@@ -145,11 +147,10 @@ export default function PlanView({
   onExport: () => void;
   /** The month as one long PDF page: cover, Instagram-style feed, a note per post, thank-you. */
   onExportPdf: () => void;
-  /** Each finished post's words set as typography (behind or across the product, repeated, outlined). */
-  onTypography?: () => Promise<void>;
+  /** The month's typography: its style menu and its on/off switch. */
+  typography?: TypographyProps;
   onDeletePlan: () => void;
 }) {
-  const [setting, setSetting] = useState(false);
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
   const occasions = occasionsOf(month);
   const occasionOn = (date?: string) => occasions.filter((o) => o.date === date).map((o) => o.name).join(", ");
@@ -364,20 +365,7 @@ export default function PlanView({
             {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />}
             Export
           </button>
-          {onTypography && (
-            <button
-              className="secondary"
-              onClick={() => {
-                setSetting(true);
-                void onTypography().finally(() => setSetting(false));
-              }}
-              disabled={!generated || setting}
-              title="The AI sets each post's words as typography: a big word behind or across the product, repeated or outlined, in a second font"
-            >
-              {setting ? <LoaderCircle className="spinning" size={15} /> : <Type size={15} />}
-              Typography for me
-            </button>
-          )}
+          {typography && <TypographyControls {...typography} disabled={!generated} />}
           <button
             className="secondary"
             onClick={onExportPdf}

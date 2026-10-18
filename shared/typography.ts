@@ -62,6 +62,8 @@ export function typographyInstruction(r: {
   palette: string[];
   /** Styles already given to the posts before it, for variety across the feed. */
   used: string[];
+  /** The style the team chose for the month; the typographer only answers "none" when it cannot work here. */
+  force?: TypoStyle;
 }): string {
   return [
     `You are the typographer of the brand "${r.client}" on Instagram. The image is a finished post (${r.kind}) whose headline is "${r.headline}"${r.subline ? ` and second line "${r.subline}"` : ""}. Decide how its words are set as typography that is part of the design, the way top food and fashion brands do it.`,
@@ -76,7 +78,11 @@ export function typographyInstruction(r: {
     `word: the strongest one or two words of the headline, copied EXACTLY as written there (same language, same letters); never a new word.`,
     `font: one of ${TYPO_FONTS.join(", ")}. A second font that suits this post and sits well with the headline font ${r.headlineFont}: a contrast (a calligraphic or display face against a clean one), and it must write the word's script (an Arabic word takes an Arabic font; Montserrat and Inter are Latin only).`,
     `color: one #rrggbb that reads on the picture where the word sits, from the month's colours when one fits: ${r.palette.join(", ") || "white #ffffff, black #111111"}.`,
-    r.used.length ? `The posts before it use: ${r.used.join(", ")}. Vary across the feed; the same style twice in a row only when it is clearly best.` : "",
+    r.force
+      ? `THE TEAM CHOSE THE STYLE "${r.force}" for the month: use it, and answer "none" only when it cannot work on this picture (it would cover a face, or the picture is too busy for letters to read).`
+      : r.used.length
+        ? `The posts before it use: ${r.used.join(", ")}. Vary across the feed; the same style twice in a row only when it is clearly best.`
+        : "",
     "Return the JSON with a short reason.",
   ]
     .filter(Boolean)
@@ -84,12 +90,13 @@ export function typographyInstruction(r: {
 }
 
 /** The typographer's answer, kept only when its word comes from the headline and its font is known. */
-export function parseTypography(raw: unknown, headline: string, fallbackFont: string): PostTypography | null {
+export function parseTypography(raw: unknown, headline: string, fallbackFont: string, force?: TypoStyle): PostTypography | null {
   const x = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const style = String(x.style ?? "");
+  const said = String(x.style ?? "");
+  const style = force && said !== "none" ? force : said;
   if (!(TYPO_STYLES as readonly string[]).includes(style)) return null;
-  const said = String(x.word ?? "").replace(/\s+/g, " ").trim();
-  const word = said && headline.includes(said) ? said : headline.split(/\s+/).slice(0, 2).join(" ");
+  const asked = String(x.word ?? "").replace(/\s+/g, " ").trim();
+  const word = asked && headline.includes(asked) ? asked : headline.split(/\s+/).slice(0, 2).join(" ");
   if (!word) return null;
   const arabic = /[؀-ۿ]/.test(word);
   const named = TYPO_FONTS.find((f) => f.toLowerCase() === String(x.font ?? "").trim().toLowerCase());

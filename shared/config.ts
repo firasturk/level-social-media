@@ -111,6 +111,8 @@ export interface Config {
   shareToken?: string;
   /** The client's answers on the approval link, by post index. */
   approvals?: Record<string, Approval>;
+  /** The month's typography is switched off: every post shows its plain headline. */
+  typographyOff?: boolean;
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;

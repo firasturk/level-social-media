@@ -17,3 +17,11 @@ describe("typography", () => {
     expect(parseTypography({ style: "none", word: "x", font: "Cairo", color: "" }, "x", "Gulzar")).toBeNull();
   });
 });
+
+describe("typography styles chosen by the team", () => {
+  it("keeps the team's style unless the typographer says it cannot work", () => {
+    expect(parseTypography({ style: "outline", word: "كنافة", font: "Cairo", color: "" }, "كنافة حبيبة", "Gulzar", "repeat")?.style).toBe("repeat");
+    expect(parseTypography({ style: "none", word: "كنافة", font: "Cairo", color: "" }, "كنافة حبيبة", "Gulzar", "repeat")).toBeNull();
+    expect(typographyInstruction({ client: "H", headline: "x", kind: "product", headlineFont: "Gulzar", palette: [], used: [], force: "behind" })).toMatch(/THE TEAM CHOSE THE STYLE "behind"/);
+  });
+});

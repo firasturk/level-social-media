@@ -429,6 +429,31 @@ function drawSubject(ctx: CanvasRenderingContext2D, base: HTMLCanvasElement, mat
   ctx.drawImage(layer, 0, 0, ctx.canvas.width, ctx.canvas.height);
 }
 
+/**
+ * A word drawn as one clean outline: its filled shape grown in every direction, then the shape cut
+ * out. Stroking the letters instead traces every glyph on its own, so joined Arabic letters show
+ * lines where they meet.
+ */
+function outlineText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, width: number) {
+  const c = document.createElement("canvas");
+  c.width = ctx.canvas.width;
+  c.height = ctx.canvas.height;
+  const o = c.getContext("2d")!;
+  o.font = ctx.font;
+  o.direction = ctx.direction;
+  o.textAlign = ctx.textAlign;
+  o.textBaseline = ctx.textBaseline;
+  o.fillStyle = color;
+  const steps = Math.max(12, Math.round(width * 4));
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    o.fillText(text, x + Math.cos(a) * width, y + Math.sin(a) * width);
+  }
+  o.globalCompositeOperation = "destination-out";
+  o.fillText(text, x, y);
+  ctx.drawImage(c, 0, 0);
+}
+
 const typoWeight = (font: string) => [...HEADLINE_FONTS, ...LATIN_FONTS].find((f) => f.family === font)?.weight ?? 700;
 
 /**
@@ -505,7 +530,7 @@ async function drawTypography(
   for (let i = 0; i < rows; i++) {
     const y = blockTop + lineH * (i + 0.5) + shift;
     // Repeated rows: outlined, with one filled row; an outline word is only its edge.
-    if (typo.style === "outline" || (typo.style === "repeat" && i !== 1)) ctx.strokeText(word, W / 2, y);
+    if (typo.style === "outline" || (typo.style === "repeat" && i !== 1)) outlineText(ctx, word, W / 2, y, color, ctx.lineWidth);
     else ctx.fillText(word, W / 2, y);
   }
   ctx.textBaseline = "middle";
@@ -517,10 +542,14 @@ async function drawTypography(
     const sSize = Math.max(spec.subline.size, 0.034) * W * scale;
     ctx.font = `${spec.subline.weight} ${sSize}px ${fontStack(spec.subline.font || spec.headline.font)}`;
     ctx.direction = ARABIC.test(rest) ? "rtl" : "ltr";
-    // Under the big word, but never across the product: below it, or above the big word.
-    let ry = blockTop + rows * lineH + sSize * 0.9;
-    if (box && ry + sSize / 2 > box.y && ry - sSize / 2 < box.y + box.h) ry = box.y + box.h + sSize * 0.9;
-    if (ry + sSize > H - margin) ry = blockTop - sSize * 0.9;
+    // Under the big word, never across the product or the logo: the first place that is free.
+    const free = (y: number) =>
+      y - sSize / 2 >= margin &&
+      y + sSize / 2 <= H - margin &&
+      !(box && y + sSize / 2 > box.y && y - sSize / 2 < box.y + box.h) &&
+      !(logo && y + sSize / 2 > logo.y && y - sSize / 2 < logo.y + logo.h);
+    const places = [blockTop + rows * lineH + sSize * 0.9, box ? box.y + box.h + sSize * 0.9 : -1, blockTop - sSize * 0.9, H - margin - sSize];
+    const ry = places.find(free) ?? places[0];
     const under = averageLuminance(ctx, margin, ry - sSize / 2, W - margin * 2, sSize);
     ctx.fillStyle = under !== null ? readableOn(spec.subline.color, under) : spec.subline.color;
     ctx.fillText(rest, W / 2, ry, W - margin * 2);

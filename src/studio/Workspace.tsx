@@ -1,4 +1,6 @@
 import { lazyScreen } from "@/lib/lazy";
+import MonthVersions from "./MonthVersions";
+import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -873,7 +875,7 @@ export default function Workspace({
 
   /** The client's approval link: copied to the clipboard. */
   /** Each finished post's words set as typography by the AI (behind or across the product, repeated, outlined). */
-  async function typographyMonth(indexes?: number[]) {
+  async function typographyMonth(style?: TypoStyle, indexes?: number[]) {
     if (!batch) return;
     const t = toast.loading("Setting the typography: reading each picture and its product's outline…");
     try {
@@ -881,6 +883,7 @@ export default function Workspace({
         batch: batch.id,
         indexes,
         force: !!indexes || undefined,
+        style,
       });
       await refresh();
       toast.success(
@@ -894,6 +897,24 @@ export default function Workspace({
       toast.error((e as Error).message, { id: t });
     }
   }
+
+  /** The month's typography on or off: off shows every post's plain headline again. */
+  async function switchTypography(on: boolean) {
+    if (!batch) return;
+    try {
+      await post("/api/studio/posts/typography/switch", { batch: batch.id, on });
+      await refresh();
+      toast.success(on ? "Typography on." : "Typography off: every post shows its plain headline.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  const typography = {
+    on: !config?.typographyOff,
+    set: plan.some((p) => p.ov?.typo || p.ov?.typoOff),
+    onSet: (style?: TypoStyle) => typographyMonth(style),
+    onSwitch: switchTypography,
+  };
 
   async function shareMonth() {
     if (!batch) return;
@@ -1100,7 +1121,8 @@ export default function Workspace({
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
-              <PlanView
+{batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} />}
+                            <PlanView
                 onStyles={assignStyles}
                 client={client}
                 month={month}
@@ -1136,7 +1158,7 @@ export default function Workspace({
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
-                onTypography={() => typographyMonth()}
+                typography={typography}
                 onDeletePlan={() => void deletePlan()}
                 paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
                 themeChanged={(() => {
@@ -1228,7 +1250,7 @@ export default function Workspace({
             }
           }}
           onShare={shareMonth}
-          onTypography={() => typographyMonth()}
+          typography={typography}
           onExport={exportMonth}
           overlay={overlaySpec}
           logoSrc={logoSrc}

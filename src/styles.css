@@ -10181,3 +10181,173 @@ button.shot-product:hover {
   display: inline-flex;
   gap: 10px;
 }
+
+/* Typography styles: the menu and its on/off switch. */
+.typo-controls {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.typo-controls > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.typo-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 280px;
+  display: grid;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 14px 40px rgba(20, 16, 40, 0.18);
+}
+.typo-menu button {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.typo-menu button:hover {
+  background: var(--surface-2);
+}
+.typo-menu small {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.typo-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.typo-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.typo-switch-track {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  position: relative;
+  transition: background 160ms;
+}
+.typo-switch-track span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 160ms;
+}
+.typo-switch.on .typo-switch-track {
+  background: #7c3aed;
+}
+.typo-switch.on .typo-switch-track span {
+  transform: translateX(14px);
+}
+.typo-switch input:focus-visible + .typo-switch-track {
+  outline: 2px solid #7c3aed;
+  outline-offset: 2px;
+}
+
+/* Earlier versions of a month (the grids made before new ideas replaced them). */
+.month-versions {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.month-versions-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-500);
+}
+.month-versions-list {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.month-version {
+  flex: none;
+  width: 168px;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.month-version:hover {
+  border-color: var(--line-strong);
+}
+.month-version-mosaic {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.month-version-mosaic img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  display: block;
+}
+.month-version strong {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.month-version small {
+  font-size: 11.5px;
+  color: var(--ink-500);
+}
+.month-version-dialog {
+  max-width: min(720px, calc(100vw - 32px));
+}
+.month-version-feed {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.month-version-feed img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  display: block;
+}
+.month-version-feed .feed-empty {
+  aspect-ratio: 4 / 5;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--ink-500);
+}

@@ -179,8 +179,8 @@ export function gridPostCount(tiles: number, fallback: number): number {
 
 export const ADAPT_SCHEMA = {
   type: "object",
-  properties: { prompt: { type: "string" } },
-  required: ["prompt"],
+  properties: { prompt: { type: "string" }, brief: { type: "string" } },
+  required: ["prompt", "brief"],
 };
 
 export interface AdaptRequest {
@@ -197,6 +197,8 @@ export interface AdaptRequest {
   sellsDrinks?: boolean;
   /** The brand sells a service, not products. */
   service?: string;
+  /** The month's theme (its world and mood), for the feel of the set only. */
+  theme?: string;
 }
 
 /** The style rewritten for one post's real product: its ingredients, packaging, colours and people. */
@@ -207,8 +209,10 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
     r.service?.trim()
       ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. Replace 'the product' with an object of the service's moment (keys, a phone, a folder), never a drink or food.`
       : `THE PRODUCT (as photographed): ${r.product || "the brand's product"}${r.category ? ` (kind: ${r.category})` : ""}.`,
-    `THE POST (${r.post.type}): headline "${r.post.headline}"; idea: ${r.post.brief}`,
+    `THE POST (${r.post.type}): headline "${r.post.headline}". Its earlier idea (for its message only, never its picture): ${r.post.brief}`,
+    "THE STYLE'S OWN IDEA REPLACES THE EARLIER ONE: the picture is the style's concept, done with this brand's product. Nothing of the earlier idea's staging is carried over: none of its gestures, props, objects or poses (no cups held to the eyes, no extra cups, bags or boxes); the product appears only the way the style shows it, once unless the style itself repeats it.",
     "KEEP the style's camera angle, composition, set, effects and light: the picture must read as this style.",
+    r.theme?.trim() ? `THE MONTH'S THEME (its mood for the set, never more products): ${r.theme.trim().slice(0, 400)}` : "",
     "INGREDIENTS: replace 'the product's own key ingredients' and every generic ingredient with this product's real ingredients and flavours as its description shows them (for example pistachios, kunafa threads, sesame, rose petals, dates), never ones it does not have. An effect built on an ingredient keeps working with the real one (raspberries frozen in ice become pistachios frozen in ice).",
     "THE PRODUCT keeps its real packaging, shape, label and colours, never recoloured; a closed box stays closed and an open one open; real size against hands and furniture; held level or set on a surface; never put into a bag or onto another object.",
     r.palette.length
@@ -222,7 +226,7 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
     r.brand.always?.trim() ? `ALWAYS: ${r.brand.always.trim().slice(0, 400)}` : "",
     r.brand.never?.trim() ? `NEVER: ${r.brand.never.trim().slice(0, 400)}` : "",
     "No text, letters or logos in the picture except the product's own printed packaging. Never use the product's file name.",
-    'Return ONLY JSON: {"prompt": "..."}.',
+    'Return ONLY JSON: {"prompt": "the shot", "brief": "the post\'s new idea in one sentence: the style\'s concept with this product and the headline\'s message"}.',
   ]
     .filter(Boolean)
     .join("\n\n");

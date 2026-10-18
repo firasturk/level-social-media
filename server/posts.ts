@@ -21,7 +21,7 @@ import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec } from "@shared/overlay";
-import { parseTypography, TYPO_SCHEMA, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
+import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
@@ -1049,6 +1049,7 @@ postRoutes.post("/ideas", async (c) => {
   config.postCount = count;
   await refreshCountNote(c.env, b.id, config);
   if (d.notes !== undefined) config.notes = d.notes;
+  await keepMonthVersion(c.env, b);
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan });
 });
@@ -1261,6 +1262,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     config.gridFonts = { headline: f.headline, body: f.body && HOSTED_FONTS.includes(f.body) ? f.body : f.headline, why: String(f.why ?? "").slice(0, 400) };
   else delete config.gridFonts;
   if (d.notes !== undefined) config.notes = d.notes;
+  await keepMonthVersion(c.env, b);
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan, grid });
 });
@@ -2051,6 +2053,116 @@ postRoutes.post("/captions", async (c) => {
   return c.json({ ok: true, plan: latest.plan ?? [], written: [...written.keys()], failed });
 });
 
+/* ───────────── Earlier versions of a month ───────────── */
+
+/**
+ * Before new ideas replace a month that has pictures, its plan and pictures are kept as a version
+ * (the pictures stay in the bucket: a new take never deletes the old one).
+ */
+async function keepMonthVersion(env: Env, b: BatchRow): Promise<void> {
+  const old = JSON.parse(b.config) as Config;
+  const tasks = await all<{ post: number | null; output: string | null }>(env.DB, "SELECT post, output FROM tasks WHERE batch = ? AND post IS NOT NULL AND output IS NOT NULL", b.id);
+  if (!tasks.length || !old.plan?.length) return;
+  const outputs = Object.fromEntries(tasks.map((t) => [String(t.post), t.output!]));
+  const grid = old.gridRef?.startsWith("style:") ? await first<{ title: string }>(env.DB, "SELECT title FROM styles WHERE id = ?", old.gridRef.slice(6)) : null;
+  const label = grid?.title ? `Grid “${grid.title}”` : old.gridRef ? "Grid" : "Ideas";
+  await run(
+    env.DB,
+    "INSERT INTO month_versions (id, batch, kind, label, grid, plan, outputs, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?, ?)",
+    uuid(),
+    b.id,
+    label,
+    old.gridRef ?? null,
+    JSON.stringify(old.plan),
+    JSON.stringify(outputs),
+    old.plannedAt ?? now(),
+  );
+}
+
+/**
+ * The months made before versions were kept: their earlier pictures, read from the bucket and
+ * grouped by when they were made (a pause of half an hour or more starts another version).
+ */
+async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
+  const tasks = await all<{ id: string; post: number | null; output: string | null }>(env.DB, "SELECT id, post, output FROM tasks WHERE batch = ? AND post IS NOT NULL", b.id);
+  const postOf = new Map(tasks.map((t) => [t.id, t.post!]));
+  const current = new Set(tasks.map((t) => t.output).filter(Boolean));
+  const kept = new Set(
+    (await all<{ outputs: string }>(env.DB, "SELECT outputs FROM month_versions WHERE batch = ?", b.id)).flatMap((v) => Object.values(JSON.parse(v.outputs) as Record<string, string>)),
+  );
+  const old: { key: string; post: number; at: number }[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.BUCKET.list({ prefix: `${b.owner}/${b.id}/output/`, cursor, limit: 1000 });
+    for (const o of page.objects) {
+      if (!/\.(png|jpe?g|webp)$/i.test(o.key) || current.has(o.key) || kept.has(o.key)) continue;
+      const post = postOf.get(o.key.split("/")[3] ?? "");
+      if (post) old.push({ key: o.key, post, at: o.uploaded.getTime() });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  old.sort((x, y) => x.at - y.at);
+  const groups: (typeof old)[] = [];
+  for (const o of old) {
+    const g = groups.at(-1);
+    if (g && o.at - g[g.length - 1].at < 30 * 60_000) g.push(o);
+    else groups.push([o]);
+  }
+  // A retake or two is not a grid of its own: it joins the version before it.
+  for (let i = groups.length - 1; i > 0; i--)
+    if (groups[i].length < 3) {
+      groups[i - 1].push(...groups[i]);
+      groups.splice(i, 1);
+    }
+  for (const g of groups) {
+    // The latest picture of each post in the group.
+    const outputs: Record<string, string> = {};
+    for (const o of g) outputs[String(o.post)] = o.key;
+    const day = new Date(g[0].at).toISOString().slice(0, 10);
+    await run(env.DB, "INSERT INTO month_versions (id, batch, kind, label, outputs, created) VALUES (?, ?, 'backfill', ?, ?, ?)", uuid(), b.id, `Earlier pictures · ${day}`, JSON.stringify(outputs), g[0].at);
+  }
+  await run(env.DB, "INSERT INTO month_versions (id, batch, kind, created) VALUES (?, ?, 'scanned', ?)", uuid(), b.id, now());
+}
+
+/** The month's earlier versions, newest first: their grid, their posts and pictures. */
+postRoutes.get("/versions", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  if (!(await first(c.env.DB, "SELECT 1 AS x FROM month_versions WHERE batch = ? AND kind = 'scanned'", b.id))) await rebuildMonthVersions(c.env, b);
+  const rows = await all<{ id: string; label: string; grid: string | null; plan: string | null; outputs: string; created: number }>(
+    c.env.DB,
+    "SELECT id, label, grid, plan, outputs, created FROM month_versions WHERE batch = ? AND kind != 'scanned' ORDER BY created DESC",
+    b.id,
+  );
+  return c.json({
+    ok: true,
+    versions: rows.map((v) => {
+      const plan = v.plan ? (JSON.parse(v.plan) as Post[]) : [];
+      const outputs = JSON.parse(v.outputs) as Record<string, string>;
+      const indexes = [...new Set([...plan.map((p) => p.index), ...Object.keys(outputs).map(Number)])].sort((x, y) => y - x);
+      return {
+        id: v.id,
+        label: v.label,
+        grid: v.grid,
+        created: v.created,
+        posts: indexes.map((i) => {
+          const p = plan.find((x) => x.index === i);
+          return { index: i, headline: p?.headline ?? "", subline: p?.subline ?? "", ov: p?.ov, image: outputs[String(i)] ? `/api/studio/posts/versions/image?batch=${b.id}&key=${encodeURIComponent(outputs[String(i)])}` : null };
+        }),
+      };
+    }),
+  });
+});
+
+/** One picture of an earlier version (only the month's own pictures). */
+postRoutes.get("/versions/image", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const key = c.req.query("key") ?? "";
+  if (!key.startsWith(`${b.owner}/${b.id}/output/`)) throw new StudioError("Not found.", 404);
+  const obj = await c.env.BUCKET.get(key);
+  if (!obj) throw new StudioError("Not found.", 404);
+  return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=604800" } });
+});
+
 /* ───────────── Typography: words set as part of the picture ───────────── */
 
 /** A copy of a picture small enough for a quick reading (the long side at most `max`). */
@@ -2095,6 +2207,8 @@ postRoutes.post("/typography", async (c) => {
       batch: z.string().min(1),
       indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
       force: z.boolean().optional(),
+      /** The style the team chose for every post; none lets the typographer pick per post. */
+      style: z.enum(TYPO_STYLES).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -2114,7 +2228,7 @@ postRoutes.post("/typography", async (c) => {
     const t = tasks.find((x) => x.post === p.index);
     if (!t?.output || !p.headline?.trim() || p.overlay === false) return false;
     if (d.indexes && !d.indexes.includes(p.index)) return false;
-    return d.force || !p.ov?.typo || p.ov.typoFor !== t.output;
+    return d.force || d.style || !p.ov?.typo || p.ov.typoFor !== t.output;
   });
   const chosen = new Map<number, { typo: PostTypography | null; for: string }>();
   const used: string[] = plan.flatMap((p) => (p.ov?.typo ? [`post ${p.index}: ${p.ov.typo.style}`] : []));
@@ -2128,11 +2242,11 @@ postRoutes.post("/typography", async (c) => {
       const kind = p.tileSpec ? `${p.tileSpec.kind} tile, ${p.type} post` : `${p.type} post`;
       const raw = await askText(
         c.env,
-        typographyInstruction({ client: client.name, headline: p.headline!, subline: p.subline, kind, headlineFont, palette, used: used.slice(-4) }),
+        typographyInstruction({ client: client.name, headline: p.headline!, subline: p.subline, kind, headlineFont, palette, used: used.slice(-4), force: d.style }),
         TYPO_SCHEMA,
         [image],
       );
-      const typo = parseTypography(parseJson<unknown>(raw), p.headline!, headlineFont);
+      const typo = parseTypography(parseJson<unknown>(raw), p.headline!, headlineFont, d.style);
       if (typo) {
         used.push(`post ${p.index}: ${typo.style}`);
         // The product's outline: the letters go behind it, or the repeated word stops at it.
@@ -2164,8 +2278,11 @@ postRoutes.post("/typography", async (c) => {
     if (!ch) continue;
     const rest = { ...p.ov };
     delete rest.typo;
+    delete rest.typoOff;
     p.ov = ch.typo ? { ...rest, typo: ch.typo, typoFor: ch.for } : { ...rest, typoFor: ch.for };
   }
+  // Setting the typography switches it on.
+  latest.typographyOff = undefined;
   if (chosen.size) await saveConfig(c.env, fresh, latest);
   return c.json({
     ok: true,
@@ -2174,6 +2291,26 @@ postRoutes.post("/typography", async (c) => {
     plain: [...chosen.entries()].filter(([, v]) => !v.typo).map(([k]) => k),
     failed,
   });
+});
+
+/**
+ * The month's typography on or off: off keeps each post's typography aside and shows the plain
+ * headline (the layout as it was before), on brings it back.
+ */
+postRoutes.post("/typography/switch", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), on: z.boolean() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  config.plan = (config.plan ?? []).map((p) => {
+    if (!p.ov) return p;
+    const { typo, typoOff, ...rest } = p.ov;
+    const kept = typo ?? typoOff;
+    if (!kept) return p;
+    return { ...p, ov: d.on ? { ...rest, typo: kept } : { ...rest, typoOff: kept } };
+  });
+  config.typographyOff = d.on ? undefined : true;
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true, plan: config.plan });
 });
 
 /** The outline of a post's product, read for its current picture; 404 once the picture changed. */
@@ -3003,7 +3140,7 @@ async function writeStyleScenes(
   b: BatchRow,
   config: Config,
   assign: { index: number; style: string | null }[],
-): Promise<Map<number, { style?: string; scene?: string }>> {
+): Promise<Map<number, { style?: string; scene?: string; brief?: string }>> {
   const plan = config.plan ?? [];
   const client = await clientRow(env, config.client);
   const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
@@ -3017,7 +3154,7 @@ async function writeStyleScenes(
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const cast = await monthAmbassadors(env, config);
   const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
-  const scenes = new Map<number, { style?: string; scene?: string }>();
+  const scenes = new Map<number, { style?: string; scene?: string; brief?: string }>();
   await Promise.all(
     assign.map(async (a) => {
       const post = plan.find((p) => p.index === a.index);
@@ -3042,12 +3179,16 @@ async function writeStyleScenes(
             .map((x) => `${x.name} (${x.description})`),
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
+          theme: theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
         }),
         ADAPT_SCHEMA,
       );
-      const scene = withoutProductNames(String(parseJson<{ prompt?: unknown }>(text).prompt ?? "").trim(), names).slice(0, 1500);
+      const answer = parseJson<{ prompt?: unknown; brief?: unknown }>(text);
+      const scene = withoutProductNames(String(answer.prompt ?? "").trim(), names).slice(0, 1500);
       if (!scene) throw new StudioError("The model returned no shot. Try again.", 502);
-      scenes.set(a.index, { style: style.id, scene });
+      // The post's idea becomes the style's own, so the old idea's staging never joins the picture.
+      const brief = String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
+      scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}) });
     }),
   );
   return scenes;
@@ -3077,10 +3218,12 @@ postRoutes.post("/style", async (c) => {
   cfg.plan = (cfg.plan ?? []).map((p) => {
     const s = scenes.get(p.index);
     if (!s) return p;
-    const { style: _style, scene: _scene, ...rest } = p;
+    const { style: _style, scene: _scene, briefBeforeStyle: before, ...rest } = p;
     void _style;
     void _scene;
-    return s.style ? { ...rest, style: s.style, scene: s.scene } : rest;
+    // A style's own idea replaces the post's; taking the style off brings the post's idea back.
+    if (s.style) return { ...rest, style: s.style, scene: s.scene, ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
+    return { ...rest, ...(before ? { brief: before } : {}) };
   });
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, plan: cfg.plan });
