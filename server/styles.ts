@@ -38,7 +38,7 @@ export const styleRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 /** Pins read at once (each is one vision call). */
 const READ_AT_ONCE = 6;
 /** New pins read a day by the cron, a few each minute. */
-const DAILY_READS = 40;
+const DAILY_READS = 160;
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
 
@@ -351,13 +351,30 @@ async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> 
 }
 
 /** Reads up to `budget` pins from the pool (refilling it from Pinterest when it runs low). */
-export async function readSome(env: Env, budget = READ_AT_ONCE): Promise<number> {
-  const left = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
-  if (left < budget) await collect(env, 2);
+export async function readSome(env: Env, budget = READ_AT_ONCE, only?: "grid" | "photo"): Promise<number> {
+  const where = only === "grid" ? "status = 'pool' AND category = 'grid'" : only === "photo" ? "status = 'pool' AND category != 'grid'" : "status = 'pool'";
+  const left = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where}`))?.n ?? 0;
+  if (left < budget) await (only === "grid" ? collectGrids(env, 3) : collect(env, 2));
   // The newest pins first: what was collected today is read before older leftovers.
-  const pool = await all<StyleRow>(env.DB, "SELECT * FROM styles WHERE status = 'pool' ORDER BY created DESC LIMIT ?", budget);
+  const pool = await all<StyleRow>(env.DB, `SELECT * FROM styles WHERE ${where} ORDER BY created DESC LIMIT ?`, budget);
   const done = await Promise.all(pool.map((r) => readPin(env, r)));
   return done.filter((x) => x === "review").length;
+}
+
+/** Feed grids for the Grids shelf: a few of the grid searches, each with the season's words now and then. */
+export async function collectGrids(env: Env, searches: number): Promise<number> {
+  let added = 0;
+  const season = seasonWords(new Date());
+  const list = [...STYLE_QUERIES.grid].sort(() => Math.random() - 0.5).slice(0, Math.max(1, searches));
+  for (const base of list) {
+    const query = Math.random() < 0.2 ? `${season[Math.floor(Math.random() * season.length)]} ${base}` : base;
+    try {
+      added += await addToPool(env, await searchPins(query), "product", "grid");
+    } catch (e) {
+      console.error("[styles] grid search failed", query, errorMessage(e));
+    }
+  }
+  return added;
 }
 
 /** New pins for the pool: "more like this" of the library's best styles and the day's searches. */
@@ -376,8 +393,8 @@ async function collect(env: Env, searches: number): Promise<number> {
   }
   const season = seasonWords(new Date());
   for (let i = 0; i < searches; i++) {
-    // The day's first search brings feeds for the Grids shelf; the others, photo styles.
-    const cat = i === 0 && searches >= 4 ? "grid" : PHOTO_CATEGORY_IDS[Math.floor(Math.random() * PHOTO_CATEGORY_IDS.length)];
+    // The day's first two searches bring feeds for the Grids shelf; the others, photo styles.
+    const cat = i < 2 && searches >= 4 ? "grid" : PHOTO_CATEGORY_IDS[Math.floor(Math.random() * PHOTO_CATEGORY_IDS.length)];
     const list = STYLE_QUERIES[cat];
     let query = list[Math.floor(Math.random() * list.length)];
     if (cat === "seasonal" || Math.random() < 0.25) query = `${season[Math.floor(Math.random() * season.length)]} ${query}`;
@@ -610,11 +627,22 @@ styleRoutes.post("/upload", async (c) => {
   return c.json({ ...(await list(c.env, c.get("user"), { tab: admin ? (grid ? "grid" : "trends") : "all" })), added: added.length, failed });
 });
 
-/** Reads a few more pins into the library now (admins may read more at once). */
+/** Reads a few more pins into the library now (admins may read more at once, and grids or photos only). */
 styleRoutes.post("/fill", async (c) => {
   const asked = Number(c.req.query("budget") ?? READ_AT_ONCE) || READ_AT_ONCE;
-  const added = await readSome(c.env, c.get("user").role === "admin" ? Math.min(12, Math.max(1, asked)) : READ_AT_ONCE);
+  const admin = c.get("user").role === "admin";
+  const only = admin && (c.req.query("only") === "grid" || c.req.query("only") === "photo") ? (c.req.query("only") as "grid" | "photo") : undefined;
+  const added = await readSome(c.env, admin ? Math.min(12, Math.max(1, asked)) : READ_AT_ONCE, only);
   return c.json({ ...(await list(c.env, c.get("user"), listQuery(c))), added });
+});
+
+/** Admins: more pins for the pool now (feed grids or photo styles), read on the cron and by "fill". */
+styleRoutes.post("/collect", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
+  const d = await body(c, z.object({ only: z.enum(["grid", "photo"]), searches: z.number().int().min(1).max(12).default(4) }));
+  const added = d.only === "grid" ? await collectGrids(c.env, d.searches) : await collect(c.env, d.searches);
+  const pool = (await first<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM styles WHERE status = 'pool' AND category ${d.only === "grid" ? "=" : "!="} 'grid'`))?.n ?? 0;
+  return c.json({ ok: true, added, pool });
 });
 
 /** Takes styles out of the library. */

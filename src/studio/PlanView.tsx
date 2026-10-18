@@ -9,8 +9,12 @@ import {
   Clapperboard,
   Download,
   AlertTriangle,
+  CalendarDays,
   Check,
+  Package,
+  Palette,
   RotateCcw,
+  Users,
   Images,
   Eye,
   FileText,
@@ -192,7 +196,10 @@ export default function PlanView({
       });
     });
   }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const styles = useStyleInfo(draft.map((x) => x.style));
+  /** A style chosen in the gallery for a post, shown on the card until "Apply style" writes it for the product. */
+  const [pendingStyle, setPendingStyle] = useState<Map<number, string>>(new Map());
+  const [applying, setApplying] = useState<number | null>(null);
+  const styles = useStyleInfo([...draft.map((x) => x.style), ...pendingStyle.values()]);
   const styleOf = (id: string) => styles.get(id);
   const [picking, setPicking] = useState<number | null>(null);
   const dirty = JSON.stringify(draft) !== planKey;
@@ -320,7 +327,12 @@ export default function PlanView({
           mode: "post",
           label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,
           tab: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "lifestyle" : undefined,
-          onPick: (ids: string[]) => (picking !== null ? onStyles([{ index: picking, style: ids[0] }]) : undefined),
+          onPick: (ids: string[]) => {
+            if (picking === null || !ids[0]) return;
+            const [index, id] = [picking, ids[0]];
+            setPendingStyle((m) => new Map(m).set(index, id));
+            setPicking(null);
+          },
         }}
       />
       <input
@@ -587,7 +599,7 @@ export default function PlanView({
             <button type="button" className="text-button posts-details-all" onClick={() => setAllDetails((v) => !v)} aria-pressed={allDetails}>
               {allDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {allDetails ? "Hide details" : "Show all details"}
             </button>
-            <span>Edit any text; it saves when you click out. New idea rewrites a post, Regenerate makes a different take of it.</span>
+            <span>Three posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => onSavePlan(draft)}>
@@ -608,23 +620,108 @@ export default function PlanView({
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
               return (
-                <article key={p.index} id={`post-card-${p.index}`} className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""}`}>
+                <article
+                  key={p.index}
+                  id={`post-card-${p.index}`}
+                  className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type}`}
+                >
+                  {(() => {
+                    const flags = t?.output && !inFlight ? reviewFlags(t) : null;
+                    const state = inFlight
+                      ? { cls: "making", icon: <LoaderCircle className="spinning" size={12} />, text: makingLabel(t) }
+                      : t?.status === "failed"
+                        ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
+                        : flags && flags.length
+                          ? { cls: "warn", icon: <AlertTriangle size={12} />, text: `${flags.length} to check` }
+                          : flags
+                            ? { cls: "ok", icon: <Check size={12} />, text: "Checked" }
+                            : t?.output
+                              ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
+                              : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
+                    return (
+                      <header className="post-head">
+                        <span className="post-num">{String(p.index).padStart(2, "0")}</span>
+                        <span className="post-type-pill">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
+                        {p.date && (
+                          <span className="post-day" title={occasionOn(p.date) || "Posting day"}>
+                            <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}
+                          </span>
+                        )}
+                        <span className={`post-state ${state.cls}`} title={flags?.length ? flags.map((f) => f.text).join("\n") : undefined}>
+                          {state.icon} {state.text}
+                        </span>
+                      </header>
+                    );
+                  })()}
                   {p.type !== "greeting" && (
-                    <div className={`post-style-banner ${p.style ? "" : "empty"}`}>
-                      {p.style ? (
+                    <div className={`post-style-row ${p.style ? "on" : ""} ${pendingStyle.has(p.index) ? "pending" : ""}`}>
+                      <Palette size={14} />
+                      {pendingStyle.has(p.index) ? (
+                        <>
+                          {styleOf(pendingStyle.get(p.index)!) && <img src={styleThumb(styleOf(pendingStyle.get(p.index)!)!)} alt="" />}
+                          <span className="post-style-text">
+                            <strong>{styleOf(pendingStyle.get(p.index)!)?.title ?? "Style chosen"}</strong>
+                            <small>Not applied yet</small>
+                          </span>
+                          <button
+                            type="button"
+                            className="primary post-style-apply"
+                            disabled={!!busy || applying === p.index}
+                            onClick={() => {
+                              const id = pendingStyle.get(p.index)!;
+                              setApplying(p.index);
+                              void onStyles([{ index: p.index, style: id }]).finally(() => {
+                                setApplying(null);
+                                setPendingStyle((m) => {
+                                  const n = new Map(m);
+                                  n.delete(p.index);
+                                  return n;
+                                });
+                              });
+                            }}
+                          >
+                            {applying === p.index ? <LoaderCircle className="spinning" size={13} /> : <Check size={13} />} Apply style
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Cancel"
+                            title="Keep the post as it is"
+                            onClick={() =>
+                              setPendingStyle((m) => {
+                                const n = new Map(m);
+                                n.delete(p.index);
+                                return n;
+                              })
+                            }
+                          >
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : p.style ? (
                         <>
                           {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
-                          <button type="button" className="post-style-name" onClick={() => setPicking(p.index)} disabled={!!busy} title="Change the style">
-                            <strong>Style</strong> · {styleOf(p.style)?.title ?? "from the gallery"}
+                          <span className="post-style-text">
+                            <strong>{styleOf(p.style)?.title ?? "Gallery style"}</strong>
+                            <small>Style applied · the post follows it</small>
+                          </span>
+                          <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
+                            Change
                           </button>
                           <button type="button" className="icon-button" onClick={() => void onStyles([{ index: p.index, style: null }])} aria-label="Take the style off" title="Take the style off">
                             <X size={12} />
                           </button>
                         </>
                       ) : (
-                        <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
-                          <Images size={12} /> Pick a style
-                        </button>
+                        <>
+                          <span className="post-style-text">
+                            <strong>No style</strong>
+                            <small>The post follows the month's theme</small>
+                          </span>
+                          <button type="button" className="secondary post-style-pick" onClick={() => setPicking(p.index)} disabled={!!busy}>
+                            <Images size={13} /> Pick a style
+                          </button>
+                        </>
                       )}
                     </div>
                   )}
@@ -656,22 +753,9 @@ export default function PlanView({
                       </span>
                     )}
                     {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
-                    {t?.output && !inFlight && (() => {
-                      const flags = reviewFlags(t);
-                      if (!flags) return null;
-                      return (
-                        <span
-                          className={`post-review-chip ${flags.length ? "warn" : "pass"}`}
-                          title={flags.length ? flags.map((f) => f.text).join("\n") : "Automatic review passed"}
-                        >
-                          {flags.length ? <><AlertTriangle size={12} /> {flags.length} to check</> : <><Check size={12} /> Checked</>}
-                        </span>
-                      );
-                    })()}
                     {product && !img && (
                       <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />
                     )}
-                    <span className="post-index">{String(p.index).padStart(2, "0")}</span>
                     {approvals[String(p.index)] && (
                       <span
                         className={`post-approval ${approvals[String(p.index)].status}`}
@@ -728,240 +812,304 @@ export default function PlanView({
                         “{approvals[String(p.index)].note}”
                       </p>
                     )}
-                    {showDetails(p.index) && (<>
-                    <label className="post-date">
-                      <span>Posting day</span>
-                      <input
-                        type="date"
-                        value={p.date ?? ""}
-                        min={`${month}-01`}
-                        max={`${month}-31`}
-                        onChange={(e) => patch(p.index, { date: e.target.value || undefined })}
-                      />
-                      {occasionOn(p.date) && <em>{occasionOn(p.date)}</em>}
-                    </label>
-                    {p.type === "offer" && (
-                      <OfferForm
-                        post={p}
-                        products={products.map((x) => displayName(x.name))}
-                        onChange={(offer) => patch(p.index, { offer })}
-                        onWrite={() => onRewrite(p.index, draft)}
-                        busy={busy === "reidea"}
-                      />
-                    )}
-                    {p.type === "greeting" && (
-                      <OccasionNote post={p} month={month} sel={monthOccasions} />
-                    )}
                     {p.product && !product && p.type !== "offer" && (
                       <p className="occasion-note warn">
                         <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's
                         gallery; if it is not there, upload it or pick another product.
                       </p>
                     )}
-                    {cast.length > 0 && (
-                      <div className="post-extras post-people">
-                        <span>people</span>
-                        {(p.people ?? []).map((n) => {
-                          const a = cast.find((x) => x.name === n);
-                          return (
+                    <section className="post-section">
+                      <h4>
+                        <Package size={13} /> Product
+                      </h4>
+                      <div className="post-row">
+                        <select
+                          value={p.type}
+                          onChange={(e) => {
+                            const type = e.target.value as PostType;
+                            if (type === "offer") {
+                              // An offer waits for its products, price and contents before anything is written.
+                              patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
+                              return;
+                            }
+                            const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
+                            setDraft(next);
+                            onRewrite(p.index, next);
+                          }}
+                          aria-label="Post type"
+                          title="Changing the type writes this post again for that type"
+                        >
+                          {POST_TYPES.map((k) => (
+                            <option key={k} value={k}>
+                              {POST_TYPE_INFO[k].label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={product ? displayName(product.name) : ""}
+                          onChange={(e) => patch(p.index, { product: e.target.value || undefined })}
+                          aria-label="Product"
+                          className={product ? "" : "empty"}
+                        >
+                          <option value="">No product</option>
+                          {products.map((s) => (
+                            <option key={s.id} value={displayName(s.name)}>
+                              {displayName(s.name)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {p.product && (
+                        <div className="post-extras">
+                          <span>with</span>
+                          {(p.products ?? []).map((n) => (
                             <button
                               key={n}
                               type="button"
                               className="chip"
-                              title="Take this ambassador out of the picture"
+                              title="Remove this product from the picture"
                               onClick={() =>
-                                patch(p.index, {
-                                  people: (p.people ?? []).filter((x) => x !== n),
-                                })
+                                patch(p.index, { products: (p.products ?? []).filter((x) => x !== n) })
                               }
                             >
-                              {a?.image && (
-                                <img src={`/api/studio/ambassadors/${a.id}/image?v=${a.updated}`} alt="" />
-                              )}
                               {n} ×
                             </button>
-                          );
-                        })}
-                        {(p.people ?? []).length < 3 && (
-                          <select
-                            value=""
-                            aria-label="Add an ambassador to the picture"
-                            onChange={(e) => {
-                              const n = e.target.value;
-                              if (!n) return;
-                              patch(p.index, { people: [...new Set([...(p.people ?? []), n])] });
-                            }}
-                          >
-                            <option value="">+ ambassador</option>
-                            {cast
-                              .filter((a) => !(p.people ?? []).includes(a.name))
-                              .map((a) => (
-                                <option key={a.id} value={a.name}>
-                                  {a.name}
-                                </option>
-                              ))}
-                          </select>
-                        )}
-                      </div>
+                          ))}
+                          {(p.products ?? []).length < 3 && (
+                            <select
+                              value=""
+                              aria-label="Add a product to the picture"
+                              onChange={(e) => {
+                                const n = e.target.value;
+                                if (!n) return;
+                                patch(p.index, { products: [...new Set([...(p.products ?? []), n])] });
+                              }}
+                            >
+                              <option value="">+ product</option>
+                              {products
+                                .map((s) => displayName(s.name))
+                                .filter((n) => n !== (p.product ?? "") && !(p.products ?? []).includes(n))
+                                .map((n) => (
+                                  <option key={n} value={n}>
+                                    {n}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+                        </div>
+                      )}
+                      {p.type === "offer" && (
+                        <OfferForm
+                          post={p}
+                          products={products.map((x) => displayName(x.name))}
+                          onChange={(offer) => patch(p.index, { offer })}
+                          onWrite={() => onRewrite(p.index, draft)}
+                          busy={busy === "reidea"}
+                        />
+                      )}
+                      {p.type === "greeting" && (
+                        <OccasionNote post={p} month={month} sel={monthOccasions} />
+                      )}
+                    </section>
+                    {cast.length > 0 && (
+                      <section className="post-section">
+                        <h4>
+                          <Users size={13} /> People
+                        </h4>
+                        <div className="post-extras post-people">
+                          {(p.people ?? []).map((n) => {
+                            const a = cast.find((x) => x.name === n);
+                            return (
+                              <button
+                                key={n}
+                                type="button"
+                                className="chip"
+                                title="Take this ambassador out of the picture"
+                                onClick={() =>
+                                  patch(p.index, {
+                                    people: (p.people ?? []).filter((x) => x !== n),
+                                  })
+                                }
+                              >
+                                {a?.image && (
+                                  <img src={`/api/studio/ambassadors/${a.id}/image?v=${a.updated}`} alt="" />
+                                )}
+                                {n} ×
+                              </button>
+                            );
+                          })}
+                          {(p.people ?? []).length < 3 && (
+                            <select
+                              value=""
+                              aria-label="Add an ambassador to the picture"
+                              onChange={(e) => {
+                                const n = e.target.value;
+                                if (!n) return;
+                                patch(p.index, { people: [...new Set([...(p.people ?? []), n])] });
+                              }}
+                            >
+                              <option value="">+ ambassador</option>
+                              {cast
+                                .filter((a) => !(p.people ?? []).includes(a.name))
+                                .map((a) => (
+                                  <option key={a.id} value={a.name}>
+                                    {a.name}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+                          {!(p.people ?? []).length && <small>No one in the picture</small>}
+                        </div>
+                      </section>
                     )}
-                    <input
-                      className="post-title"
-                      value={p.title}
-                      onChange={(e) => patch(p.index, { title: e.target.value })}
-                      placeholder="Title"
-                      aria-label="Title"
-                    />
-                    </>)}
-                    <div className="post-row">
-                      <select
-                        value={p.type}
-                        onChange={(e) => {
-                          const type = e.target.value as PostType;
-                          if (type === "offer") {
-                            // An offer waits for its products, price and contents before anything is written.
-                            patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
-                            return;
-                          }
-                          const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
-                          setDraft(next);
-                          onRewrite(p.index, next);
-                        }}
-                        aria-label="Post type"
-                        title="Changing the type writes this post again for that type"
-                      >
-                        {POST_TYPES.map((k) => (
-                          <option key={k} value={k}>
-                            {POST_TYPE_INFO[k].label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={product ? displayName(product.name) : ""}
-                        onChange={(e) => patch(p.index, { product: e.target.value || undefined })}
-                        aria-label="Product"
-                      >
-                        <option value="">No product</option>
-                        {products.map((s) => (
-                          <option key={s.id} value={displayName(s.name)}>
-                            {displayName(s.name)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    {p.product && (
-                      <div className="post-extras">
-                        <span>with</span>
-                        {(p.products ?? []).map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            className="chip"
-                            title="Remove this product from the picture"
-                            onClick={() =>
-                              patch(p.index, { products: (p.products ?? []).filter((x) => x !== n) })
-                            }
-                          >
-                            {n} ×
-                          </button>
-                        ))}
-                        {(p.products ?? []).length < 3 && (
-                          <select
-                            value=""
-                            aria-label="Add a product to the picture"
-                            onChange={(e) => {
-                              const n = e.target.value;
-                              if (!n) return;
-                              patch(p.index, { products: [...new Set([...(p.products ?? []), n])] });
-                            }}
-                          >
-                            <option value="">+ product</option>
-                            {products
-                              .map((s) => displayName(s.name))
-                              .filter((n) => n !== (p.product ?? "") && !(p.products ?? []).includes(n))
-                              .map((n) => (
-                                <option key={n} value={n}>
-                                  {n}
-                                </option>
-                              ))}
-                          </select>
-                        )}
-                      </div>
-                    )}
-                    <div className="post-overlay-fields">
-                      <input
-                        value={p.headline ?? ""}
-                        dir="auto"
-                        onChange={(e) => patch(p.index, { headline: e.target.value })}
-                        placeholder="Headline on the image"
-                        aria-label="Headline"
-                        disabled={p.overlay === false}
-                      />
-                      {overlay.subline.show !== false && (
+                    <section className="post-section">
+                      <h4>
+                        <Type size={13} /> Words
+                        <span className="post-section-tools">
+                          <label className="post-overlay-toggle" title="Draw the headline and logo on this post">
+                            <input
+                              type="checkbox"
+                              checked={p.overlay !== false}
+                              onChange={(e) => patch(p.index, { overlay: e.target.checked ? undefined : false })}
+                            />
+                            Text on image
+                          </label>
+                          {overlay.scrim > 0 && (
+                            <label className="post-overlay-toggle" title="The dark fade behind the headline">
+                              <input
+                                type="checkbox"
+                                checked={p.ov?.fade !== false}
+                                disabled={p.overlay === false}
+                                onChange={(e) => patch(p.index, { ov: { ...(p.ov ?? {}), fade: e.target.checked ? undefined : false } })}
+                              />
+                              Fade
+                            </label>
+                          )}
+                          {t?.output && p.overlay !== false && (
+                            <>
+                              <button
+                                type="button"
+                                className="icon-button"
+                                aria-label="Edit text on the image"
+                                title="Move, colour and size the text on the picture"
+                                onClick={() => setEditing(p.index)}
+                              >
+                                <PenLine size={13} />
+                              </button>
+                              <button
+                                type="button"
+                                className="icon-button"
+                                aria-label="Animate this text"
+                                title="Animate this text"
+                                onClick={() => setAnimating(p.index)}
+                                disabled={!(p.headline || p.subline)}
+                              >
+                                <Clapperboard size={13} />
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </h4>
+                      <div className="post-overlay-fields">
                         <input
-                          value={p.subline ?? ""}
+                          value={p.headline ?? ""}
                           dir="auto"
-                          onChange={(e) => patch(p.index, { subline: e.target.value })}
-                          placeholder="Second line"
-                          aria-label="Second line"
+                          onChange={(e) => patch(p.index, { headline: e.target.value })}
+                          placeholder="Headline on the image"
+                          aria-label="Headline"
                           disabled={p.overlay === false}
                         />
-                      )}
-                      <label className="post-overlay-toggle" title="Draw the headline and logo on this post">
-                        <input
-                          type="checkbox"
-                          checked={p.overlay !== false}
-                          onChange={(e) => patch(p.index, { overlay: e.target.checked ? undefined : false })}
-                        />
-                        Text on image
-                      </label>
-                      {overlay.scrim > 0 && (
-                        <label className="post-overlay-toggle" title="The dark fade behind the headline">
+                        {overlay.subline.show !== false && (
                           <input
-                            type="checkbox"
-                            checked={p.ov?.fade !== false}
+                            value={p.subline ?? ""}
+                            dir="auto"
+                            onChange={(e) => patch(p.index, { subline: e.target.value })}
+                            placeholder="Second line"
+                            aria-label="Second line"
                             disabled={p.overlay === false}
-                            onChange={(e) => patch(p.index, { ov: { ...(p.ov ?? {}), fade: e.target.checked ? undefined : false } })}
                           />
-                          Fade under text
+                        )}
+                      </div>
+                    </section>
+                    {showDetails(p.index) && (
+                      <section className="post-section post-details">
+                        <h4>
+                          <FileText size={13} /> Details
+                        </h4>
+                        <label className="post-date">
+                          <span>Posting day</span>
+                          <input
+                            type="date"
+                            value={p.date ?? ""}
+                            min={`${month}-01`}
+                            max={`${month}-31`}
+                            onChange={(e) => patch(p.index, { date: e.target.value || undefined })}
+                          />
+                          {occasionOn(p.date) && <em>{occasionOn(p.date)}</em>}
                         </label>
-                      )}
-                    </div>
-                    {showDetails(p.index) && (<>
-                    <textarea
-                      rows={3}
-                      value={p.brief}
-                      onChange={(e) => patch(p.index, { brief: e.target.value })}
-                      placeholder="What the photograph shows: place, subject, light, mood, where the product is."
-                      aria-label="Visual brief"
-                    />
-                    <details>
-                      <summary>Caption</summary>
-                      <textarea
-                        rows={4}
-                        value={p.caption}
-                        dir="auto"
-                        onChange={(e) => patch(p.index, { caption: e.target.value })}
-                        aria-label="Caption"
-                      />
-                      <input
-                        value={p.hashtags}
-                        onChange={(e) => patch(p.index, { hashtags: e.target.value })}
-                        placeholder="#hashtags"
-                        aria-label="Hashtags"
-                      />
-                    </details>
-                    </>)}
-                    {!showDetails(p.index) && (
-                      <p className="post-summary">
-                        {p.date ? <span>{p.date.slice(5).replace("-", "/")}</span> : null}
-                        <span>{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                        {(p.people ?? []).length > 0 && <span>{(p.people ?? []).join(", ")}</span>}
-                      </p>
+                        <input
+                          className="post-title"
+                          value={p.title}
+                          onChange={(e) => patch(p.index, { title: e.target.value })}
+                          placeholder="Title"
+                          aria-label="Title"
+                        />
+                        <textarea
+                          rows={3}
+                          value={p.brief}
+                          onChange={(e) => patch(p.index, { brief: e.target.value })}
+                          placeholder="What the photograph shows: place, subject, light, mood, where the product is."
+                          aria-label="Visual brief"
+                        />
+                        <details>
+                          <summary>Caption and hashtags</summary>
+                          <textarea
+                            rows={4}
+                            value={p.caption}
+                            dir="auto"
+                            onChange={(e) => patch(p.index, { caption: e.target.value })}
+                            aria-label="Caption"
+                          />
+                          <input
+                            value={p.hashtags}
+                            onChange={(e) => patch(p.index, { hashtags: e.target.value })}
+                            placeholder="#hashtags"
+                            aria-label="Hashtags"
+                          />
+                        </details>
+                      </section>
                     )}
                     <div className="post-actions">
-                      <span className={`pill ${t?.status ?? "idea"}`}>
-                        {t ? STATUS_LABEL[t.status] ?? t.status : "Idea"}
-                      </span>
+                      {t?.output ? (
+                        <button
+                          type="button"
+                          className="primary post-main-action"
+                          onClick={() => regenerate(t, p.index)}
+                          disabled={inFlight || running || (p.type === "offer" && !offerReady(p.offer))}
+                          title="A clearly different take on the same brief: new angle, set and placement"
+                        >
+                          <RefreshCw size={14} /> Regenerate
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="primary post-main-action"
+                          onClick={() => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"))}
+                          disabled={inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
+                          title={p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
+                        >
+                          <Sparkles size={14} /> Generate
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => onNewIdea(p.index)}
+                        disabled={inFlight || running || busy === "reidea"}
+                        title="Write a different idea for this post (new scene, action and headline; same type and product), then generate it"
+                      >
+                        {busy === "reidea" ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} New idea
+                      </button>
                       <button
                         type="button"
                         className="text-button post-details-toggle"
@@ -971,64 +1119,12 @@ export default function PlanView({
                         {showDetails(p.index) ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Details
                       </button>
                       <span className="spacer" />
-                      {t?.output && p.overlay !== false && (
-                        <>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label="Edit text on the image"
-                            title="Edit text on the image"
-                            onClick={() => setEditing(p.index)}
-                          >
-                            <PenLine size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label="Animate this text"
-                            title="Animate this text"
-                            onClick={() => setAnimating(p.index)}
-                            disabled={!(p.headline || p.subline)}
-                          >
-                            <Clapperboard size={14} />
-                          </button>
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => onNewIdea(p.index)}
-                        disabled={inFlight || running || busy === "reidea"}
-                        title="Write a different idea for this post (new scene, action and headline; same type and product), then generate it"
-                      >
-                        {busy === "reidea" ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} New idea
-                      </button>
-                      {t?.output ? (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => regenerate(t, p.index)}
-                          disabled={inFlight || running || (p.type === "offer" && !offerReady(p.offer))}
-                          title="A clearly different take on the same brief: new angle, set and placement"
-                        >
-                          <RefreshCw size={13} /> Regenerate
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"))}
-                          disabled={inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
-                          title={p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
-                        >
-                          <Sparkles size={13} /> Generate
-                        </button>
-                      )}
                       {onRestorePicture && !inFlight && prevOf(t) && (
                         <button
                           type="button"
-                          className="text-button"
+                          className="icon-button"
                           disabled={restoring !== null || running}
+                          aria-label="Previous picture"
                           title="Put the picture from before the last Regenerate back (the current one stays in Earlier versions)"
                           onClick={() => {
                             const was = t!.output!;
@@ -1038,13 +1134,14 @@ export default function PlanView({
                               .finally(() => setRestoring(null));
                           }}
                         >
-                          {restoring === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />} Previous picture
+                          {restoring === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />}
                         </button>
                       )}
                       <button
                         type="button"
-                        className="icon-button"
+                        className="icon-button danger"
                         aria-label="Remove post"
+                        title="Remove this post from the month"
                         onClick={() => removePost(p.index)}
                         disabled={inFlight}
                       >

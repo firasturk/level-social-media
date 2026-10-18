@@ -10940,3 +10940,249 @@ button.shot-product:hover {
 .post-style-banner .icon-button {
   margin-left: auto;
 }
+
+
+/* ───────────── Posts: three a row, a clear work area per card ───────────── */
+.post-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 1180px) {
+  .post-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .post-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.post-card {
+  --type: #6b7280;
+  --type-soft: #eef0f3;
+  border-radius: 18px;
+  border-color: var(--line);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+.post-card.type-product { --type: #0e8f7e; --type-soft: #dff5f1; }
+.post-card.type-lifestyle { --type: #7c5cff; --type-soft: #ece7ff; }
+.post-card.type-offer { --type: #e8641b; --type-soft: #ffe8d9; }
+.post-card.type-tip { --type: #b7860b; --type-soft: #fff1cc; }
+.post-card.type-quote { --type: #d8407a; --type-soft: #ffe1ec; }
+.post-card.type-announcement { --type: #2f6fe4; --type-soft: #dfe9ff; }
+.post-card.type-behind { --type: #4f5bd5; --type-soft: #e3e5ff; }
+.post-card.type-testimonial { --type: #c2409e; --type-soft: #fbe0f3; }
+.post-card.type-greeting { --type: #2e9e5b; --type-soft: #dff5e7; }
+.post-card.styled {
+  outline: none;
+  border-color: #b9a4ff;
+}
+.post-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  border-top: 3px solid var(--type);
+}
+.post-num {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ink-900);
+}
+.post-type-pill {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--type-soft);
+  color: var(--type);
+}
+.post-day {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.post-state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-500);
+}
+.post-state.ok { background: var(--success-soft); color: var(--success); }
+.post-state.warn { background: var(--warning-soft); color: var(--warning); }
+.post-state.failed { background: var(--danger-soft); color: var(--danger); }
+.post-state.making { background: var(--info-soft); color: var(--ink-900); }
+.post-style-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.post-style-row.on {
+  background: #f0ebff;
+  color: #3b2a85;
+}
+.post-style-row.pending {
+  background: #fff6db;
+  color: #6b4a00;
+}
+.post-style-row img {
+  width: 34px;
+  height: 42px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+}
+.post-style-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.post-style-text strong {
+  font-size: 13px;
+  color: var(--ink-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.post-style-text small {
+  font-size: 11.5px;
+}
+.post-style-row .post-style-apply,
+.post-style-row .post-style-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 6px 12px;
+  white-space: nowrap;
+  flex: none;
+}
+.post-style-row .icon-button {
+  margin-left: 0;
+}
+.post-style-banner { display: none; }
+.post-card .post-media .post-index,
+.post-card .post-media .post-review-chip { display: none; }
+.post-fields {
+  gap: 10px;
+  padding: 12px;
+}
+.post-section {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.post-section h4 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-500);
+}
+.post-section h4 svg {
+  color: var(--type);
+}
+.post-section-tools {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.post-section-tools .icon-button {
+  margin-left: 0;
+  padding: 4px;
+}
+.post-section .post-overlay-toggle {
+  grid-column: auto;
+  margin: 0;
+}
+.post-section .post-overlay-fields {
+  grid-template-columns: 1fr;
+}
+.post-section .post-overlay-fields input[dir] {
+  font-size: 15px;
+  padding: 10px 12px;
+}
+.post-section .post-extras {
+  margin-top: 0;
+}
+.post-section .post-extras small {
+  color: var(--ink-400);
+}
+.post-fields select.empty {
+  color: var(--ink-400);
+}
+.post-details .post-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.post-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+.post-actions .post-main-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  padding: 9px 16px;
+}
+.post-actions .secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 8px 12px;
+}
+.post-actions .icon-button {
+  margin-left: 0;
+}
+.post-actions .icon-button.danger {
+  color: var(--danger);
+}
+:root[data-theme="dark"] .post-card.type-product { --type: #3fd1bd; --type-soft: #113b36; }
+:root[data-theme="dark"] .post-card.type-lifestyle { --type: #b4a2ff; --type-soft: #2b2442; }
+:root[data-theme="dark"] .post-card.type-offer { --type: #ff9b5c; --type-soft: #44291a; }
+:root[data-theme="dark"] .post-card.type-tip { --type: #ffd166; --type-soft: #3f3414; }
+:root[data-theme="dark"] .post-card.type-quote { --type: #ff7fae; --type-soft: #44202f; }
+:root[data-theme="dark"] .post-card.type-announcement { --type: #7fa8ff; --type-soft: #1f2d4d; }
+:root[data-theme="dark"] .post-card.type-behind { --type: #9ea6ff; --type-soft: #26294d; }
+:root[data-theme="dark"] .post-card.type-testimonial { --type: #f28ad4; --type-soft: #3f1f36; }
+:root[data-theme="dark"] .post-card.type-greeting { --type: #6fd79a; --type-soft: #173926; }
+:root[data-theme="dark"] .post-style-row.on { background: #2b2442; color: #ddd2ff; }
+:root[data-theme="dark"] .post-style-row.pending { background: #3f3414; color: #ffe08a; }
+:root[data-theme="dark"] .post-style-text strong { color: inherit; }
