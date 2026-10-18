@@ -11525,3 +11525,25 @@ button.shot-product:hover {
   color: var(--ink-900);
   border-bottom: 1px solid var(--line);
 }
+
+.post-save-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--line));
+  font-size: 12.5px;
+}
+.post-save-row span {
+  flex: 1;
+  color: var(--ink-700);
+}
+.post-save-row .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 7px 12px;
+}

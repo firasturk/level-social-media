@@ -1063,6 +1063,22 @@ export default function PlanView({
                         </div>
                       </section>
                     )}
+                    {(() => {
+                      const saved = plan.find((x) => x.index === p.index);
+                      const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
+                      if (!cardDirty) return null;
+                      return (
+                        <div className="post-save-row">
+                          <span>Unsaved changes on this post</span>
+                          <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved : x)))}>
+                            Discard
+                          </button>
+                          <button type="button" className="primary" onClick={() => void Promise.resolve(onSavePlan(draftRef.current)).then(() => refitPending())}>
+                            <Check size={13} /> Save changes
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <div className="post-actions">
                       {t?.output ? (
                         <button
