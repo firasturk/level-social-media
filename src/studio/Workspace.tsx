@@ -993,8 +993,9 @@ export default function Workspace({
     const left = tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length;
     if (!left) return null;
     const times = finishedAt.current;
-    const pace = times.length >= 2 ? (times[times.length - 1] - times[0]) / (times.length - 1) : 75_000;
-    return Math.max(1, Math.round((left * pace) / 60_000));
+    // Six posts are made at once, about 45 s each, until the real pace is seen.
+    const ms = times.length >= 2 ? left * ((times[times.length - 1] - times[0]) / (times.length - 1)) : Math.ceil(left / 6) * 45_000;
+    return Math.max(1, Math.round(ms / 60_000));
   })();
 
   const typography = {

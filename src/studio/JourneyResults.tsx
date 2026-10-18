@@ -340,8 +340,9 @@ function useEta(done: number, making: number): number | null {
   }, [done]);
   if (!making) return null;
   const t = finished.current;
-  const pace = t.length >= 2 ? (t[t.length - 1] - t[0]) / (t.length - 1) : 75_000;
-  return Math.max(1, Math.round((making * pace) / 60_000));
+  // Six posts are made at once, about 45 s each, until the real pace is seen.
+  const ms = t.length >= 2 ? making * ((t[t.length - 1] - t[0]) / (t.length - 1)) : Math.ceil(making / 6) * 45_000;
+  return Math.max(1, Math.round(ms / 60_000));
 }
 
 /* ───────────── The feed: the month as the client's grid will look ───────────── */

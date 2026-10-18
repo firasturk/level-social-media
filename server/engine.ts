@@ -793,7 +793,9 @@ async function submitNext(
   if (SKILL_MODES.has(config.mode)) candidates = candidates.filter((t) => !!t.brief);
   const client = openai || google || fal ? null : await makeClient(env, undefined, config.model);
 
-  for (const task of candidates) {
+  // The images are submitted side by side: reading each one's references and writing its prompt
+  // takes seconds, and six in a row would delay the last one by most of a minute.
+  const submitOne = async (task: TaskRow): Promise<void> => {
     // An image moved to another engine after a refusal runs on that engine, with that engine's rules.
     const cfg = taskConfig(config, task);
     const tFal = isFalModel(cfg.model);
@@ -801,7 +803,7 @@ async function submitNext(
     const tOpenai = isOpenAIModel(cfg.model);
     // Economy (Flex, background) exists on the AI Studio path only; Vertex always runs synchronously.
     const economy = !!cfg.economy && !vertexActive;
-    if (deferSync && (tOpenai || (tGoogle && !economy))) continue;
+    if (deferSync && (tOpenai || (tGoogle && !economy))) return;
     const token = uuid();
     const claimed = await run(
       env.DB,
@@ -811,7 +813,7 @@ async function submitNext(
       now(),
       task.id,
     );
-    if (!claimed) continue;
+    if (!claimed) return;
     const attemptCost =
       estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card])
         .total + (task.edit || task.recenter ? 0.008 : 0);
@@ -846,9 +848,9 @@ async function submitNext(
         { ...task, status: "processing", attempts: task.attempts + 1 },
         e,
       );
-      if (isFatalEngineError(e)) return;
     }
-  }
+  };
+  await Promise.all(candidates.map(submitOne));
 }
 
 /** The batch config with the image's own engine when a refusal moved it to another one. */
