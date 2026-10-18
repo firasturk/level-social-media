@@ -1166,7 +1166,7 @@ export function overlayFromTile(t: TileText, kind: TileKind): { overlay?: false;
       position: t.position === "none" ? "center" : t.position,
       align: t.align,
       scale: kind === "text" ? Math.max(scale, 1.35) : scale,
-      ...(/^#[0-9a-f]{6}$/i.test(t.color) ? { color: t.color } : {}),
+      // The tile's text colour is not copied: the text is white for every client unless changed by hand.
       // A grid's tiles carry their words without a dark fade behind them.
       fade: false,
     },

@@ -971,10 +971,31 @@ async function refitWords(env: Env, b: BatchRow, config: Config, index: number):
     return src?.note ? `${n} (${src.note})` : n;
   };
   const all_ = [post.product, ...(post.products ?? [])].filter((x): x is string => !!x);
+  // A styled post stays in its style: the style is written again for the products and people it
+  // has now, and only the words follow; the idea is never written from scratch.
+  if (post.style) {
+    const scenes = await writeStyleScenes(env, b, config, [{ index, style: post.style }]);
+    const s = scenes.get(index);
+    const fresh = await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
+    const cfg = JSON.parse((fresh ?? b).config) as Config;
+    if (s?.scene) {
+      cfg.plan = (cfg.plan ?? []).map((p) => (p.index === index ? { ...p, scene: s.scene, ...(s.brief ? { brief: s.brief } : {}) } : p));
+      await saveConfig(env, fresh ?? b, cfg);
+    }
+    return rewritePostIdea(
+      env,
+      fresh ?? b,
+      cfg,
+      index,
+      `The picture of this post is its style: ${(s?.scene ?? post.scene ?? "").slice(0, 700)}${all_.length ? ` It shows ${all_.map(describe).join(" and ")}.` : ""} Write the title, headline, second line and caption for this picture and these products.`,
+      { wordsOnly: true },
+    );
+  }
   const wish = [
     all_.length
       ? `The post now shows exactly ${all_.length === 1 ? "this product" : `these ${all_.length} products together in one picture`}: ${all_.map(describe).join("; ")}. The title, headline, second line, idea and caption are about ${all_.length === 1 ? "it" : "them, naming each"}, as the photos show them; no other product.`
       : "The post has no product now: a moment of the brand without a packaged product.",
+    post.tile ? `It still follows ${post.tile} of the month's grid: the same staging, place and props as that tile, now with these products.` : "",
     post.people?.length ? `The people in the picture are ${post.people.join(" and ")}; the idea gives them a natural action with the product.` : "No people in the picture.",
     "Keep the post's type and date.",
   ].join(" ");
@@ -2502,7 +2523,8 @@ postRoutes.post("/accept", async (c) => {
 /**
  * Text on design: the finished post, with its words and logo drawn on by the studio, is looked at
  * by the art director. What it finds goes on the post (note), and its corrections into the post's
- * text layout (position, colour, fade, size), so the words move off the product and stay readable.
+ * text layout (position, fade, size), so the words move off the product and stay readable. The colour
+ * is never touched: the text is white for every client unless the designer changes it by hand.
  */
 postRoutes.post("/text-check", async (c) => {
   const d = await body(
@@ -2539,8 +2561,7 @@ postRoutes.post("/text-check", async (c) => {
   // The corrections go into the post's text layout; a designer's own placement (dx/dy) is kept.
   const ov: PostOverlayPatch = { ...(post.ov ?? {}) };
   if (check.position !== "keep" && ov.dx === undefined && ov.dy === undefined) ov.position = check.position;
-  if (check.color) ov.color = check.color;
-  else if (!check.ok && !check.readable && !ov.color) ov.color = "#ffffff";
+  // The text is white for every client; only the designer changes its colour, by hand.
   if (check.fade === "on") delete ov.fade;
   if (check.fade === "off") ov.fade = false;
   if (Math.abs(check.scale - 1) >= 0.05) ov.scale = Math.round((ov.scale ?? 1) * check.scale * 100) / 100;

@@ -2,7 +2,6 @@
  * Draws a post's overlay (logo, headline, sub-line, scrim) on a canvas over the generated image,
  * using the client's fonts and the overlay spec. Used for previews and for the export.
  */
-import { readableOn } from "@shared/contrast";
 import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } from "@shared/overlay";
 import { HEADLINE_FONTS, HOSTED_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
@@ -260,8 +259,8 @@ export async function drawOverlay(
   const dx = (patch.dx ?? 0) * W;
   const dy = (patch.dy ?? 0) * W;
   const x = (align === "center" ? W / 2 : align === "left" ? margin : W - margin) + dx;
-  let headColor = patch.color ?? h.color;
-  let subColor = patch.subColor ?? spec.subline.color;
+  const headColor = patch.color ?? h.color;
+  const subColor = patch.subColor ?? spec.subline.color;
 
   ctx.font = `${h.weight} ${hSize}px ${fontStack(h.font)}`;
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${h.letterSpacing * hSize}px`;
@@ -302,14 +301,9 @@ export async function drawOverlay(
     w: maxWidth,
     h: blockH,
   };
-  // Words that would vanish into the picture behind them (white on cream, navy on navy) take the
-  // colour that reads on it.
-  const behind = averageLuminance(ctx, layout.text.x, y, maxWidth, blockH);
-  // A colour the designer picked stays; only the layout's own colour switches to read.
-  if (behind !== null) {
-    if (!patch.color) headColor = readableOn(headColor, behind);
-    if (!patch.subColor) subColor = readableOn(subColor, behind);
-  }
+  // The words keep their colour whatever is behind them: white for every client, or the colour the
+  // designer chose by hand. Readability comes from the fade and the placement, never from a colour
+  // switch the designer did not ask for.
 
   // Entry animation: fade, rise from below, or zoom in around the block's centre.
   ctx.save();
@@ -533,9 +527,8 @@ async function drawTypography(
   } else cy = rows > 1 ? H * 0.42 : H * 0.36;
   cy = Math.max(top + (rows * lineH) / 2, Math.min(H - margin - (rows * lineH) / 2 - size * 0.4, cy));
   const blockTop = cy - (rows * lineH) / 2;
-  let color = typo.color || spec.headline.color;
-  const behind = averageLuminance(ctx, margin, blockTop, W - margin * 2, rows * lineH);
-  if (behind !== null && !typo.color) color = readableOn(color, behind);
+  const color = typo.color || spec.headline.color;
+  // The colour never changes by itself: the text stays white unless the designer chose a colour.
   ctx.font = `${weight} ${size}px ${family}`;
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
@@ -567,8 +560,7 @@ async function drawTypography(
       !(logo && y + sSize / 2 > logo.y && y - sSize / 2 < logo.y + logo.h);
     const places = [blockTop + rows * lineH + sSize * 0.9, box ? box.y + box.h + sSize * 0.9 : -1, blockTop - sSize * 0.9, H - margin - sSize];
     const ry = places.find(free) ?? places[0];
-    const under = averageLuminance(ctx, margin, ry - sSize / 2, W - margin * 2, sSize);
-    ctx.fillStyle = under !== null ? readableOn(spec.subline.color, under) : spec.subline.color;
+    ctx.fillStyle = spec.subline.color;
     ctx.fillText(rest, W / 2, ry, W - margin * 2);
     const y0 = Math.min(blockTop, ry - sSize / 2);
     textRect = { x: margin, y: y0, w: W - margin * 2, h: Math.max(blockTop + rows * lineH, ry + sSize / 2) - y0 };
@@ -602,28 +594,6 @@ function detailEnergy(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
     return n ? sum / n : Infinity;
   } catch {
     return Infinity;
-  }
-}
-
-/** The picture's mean luminance under a block, or null when it cannot be read. */
-function averageLuminance(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): number | null {
-  try {
-    const sx = Math.max(0, Math.round(x));
-    const sy = Math.max(0, Math.round(y));
-    const sw = Math.max(1, Math.min(ctx.canvas.width - sx, Math.round(w)));
-    const sh = Math.max(1, Math.min(ctx.canvas.height - sy, Math.round(h)));
-    const data = ctx.getImageData(sx, sy, sw, sh).data;
-    const step = Math.max(4, Math.floor(data.length / 4 / 4000) * 4);
-    let sum = 0;
-    let n = 0;
-    for (let i = 0; i < data.length; i += step) {
-      const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-      sum += 0.2126 * lin(data[i]) + 0.7152 * lin(data[i + 1]) + 0.0722 * lin(data[i + 2]);
-      n++;
-    }
-    return n ? sum / n : null;
-  } catch {
-    return null;
   }
 }
 

@@ -202,6 +202,13 @@ export interface AdaptRequest {
 }
 
 /** The style rewritten for one post's real product: its ingredients, packaging, colours and people. */
+/** A garment: worn in the picture, never handled like a box or a plate. */
+export const CLOTHING =
+  /\b(sweatshirt|sweater|hoodie|t-?shirt|tee|shirt|blouse|top|dress|skirt|jeans|trousers|pants|shorts|leggings|jacket|coat|abaya|kaftan|thobe|jumpsuit|romper|onesie|pyjamas?|pajamas?|activewear|sportswear|tracksuit|socks|sneakers|shoes|boots|cap|beanie|scarf|outfit|garment|clothing|clothes|wear)\b/i;
+export function isClothing(text: string): boolean {
+  return CLOTHING.test(text);
+}
+
 export function adaptStyleInstruction(r: AdaptRequest): string {
   return [
     `You are the photographer of ${r.brand.name}, shooting one post in a style picked from the library. Write the final shot for the image engine: 3-6 concrete sentences.`,
@@ -214,6 +221,9 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
     "KEEP the style's camera angle, composition, set, effects and light: the picture must read as this style.",
     r.theme?.trim() ? `THE MONTH'S THEME (its mood for the set, never more products): ${r.theme.trim().slice(0, 400)}` : "",
     "INGREDIENTS: replace 'the product's own key ingredients' and every generic ingredient with this product's real ingredients and flavours as its description shows them (for example pistachios, kunafa threads, sesame, rose petals, dates), never ones it does not have. An effect built on an ingredient keeps working with the real one (raspberries frozen in ice become pistachios frozen in ice).",
+    isClothing(`${r.product} ${r.category ?? ""}`)
+      ? "THE PRODUCT IS CLOTHING: it is WORN by the post's person (the style's person, replaced by this brand's ambassador) with its exact print, graphic, colours and cut as photographed, the printed side facing the camera; it is folded or laid flat only when the style shows nobody. Its print is never redrawn, and no shopping bag, carrier or packaging is added around it."
+      : "",
     "THE PRODUCT keeps its real packaging, shape, label and colours, never recoloured; a closed box stays closed and an open one open; real size against hands and furniture; held level or set on a surface; never put into a bag or onto another object.",
     r.palette.length
       ? `COLOURS: name only these: ${r.palette.join(", ")}. The background is ${r.palette[0]}; props and fabrics take the others.`

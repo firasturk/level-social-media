@@ -328,7 +328,7 @@ export function textCheckInstruction(r: { client: string; headline: string; subl
       "- readable: every letter reads at a glance on a phone (enough contrast with what is behind it, no busy texture under it, not too small, not cut by the edge);",
       "- covers: the words never sit on the product, the food, a face, a hand holding the product, or the logo; name what they cover, or write nothing;",
       "- position: keep when the words are well placed; otherwise where they should move (top, center, bottom) to the calmest area away from the product and the logo;",
-      `- color: an empty string to keep. The brand's text is white${r.shadow ? ` with a ${r.shadow} drop under it` : ""}; white stays on every coloured, dark or mid-tone background (cyan, turquoise, pink, orange, yellow, blue, wood, food) and changes only when the words sit on a white or very light area (a white product, pale cloth, white wall) where white cannot read; then one dark colour of the brand: ${r.palette.join(", ") || "black #111111"} (as #rrggbb);`,
+      "- color: always an empty string. The text is white for every client and only the designer changes it by hand; when white cannot read, ask for the fade or a new position instead;",
       "- fade: keep, or on when a soft dark fade under the words is the only way to read them, or off when the fade is there but darkens a clean picture for nothing;",
       "- scale: 1 to keep the size; between 0.75 and 1.3 when the words should be smaller or bigger;",
       "- ok: true only when readable is true, nothing is covered and position, color and fade can all be kept;",

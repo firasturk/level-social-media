@@ -22,7 +22,7 @@ export interface PostTypography {
   word: string;
   /** The second font, for the big word. */
   font: string;
-  /** Its colour (#rrggbb); empty picks what reads on the picture. */
+  /** Its colour (#rrggbb), set by the designer by hand; empty is the headline colour (white by default). */
   color?: string;
   /** Where the outline of the product is served (studio or share link); none when it was not read. */
   subject?: string;
@@ -81,7 +81,7 @@ export function typographyInstruction(r: {
     r.tile ? `THE GRID TILE this post follows sets its words ${r.tile.size ? `${r.tile.size} ` : ""}${r.tile.position ? `at the ${r.tile.position}` : ""}: match that scale and place (small or medium tile words mean none; huge tile words mean behind, outline or repeat at that place).` : "",
     `word: the strongest one or two words of the headline, copied EXACTLY as written there (same language, same letters); never a new word.`,
     `font: one of ${TYPO_FONTS.join(", ")}. A second font that suits this post and sits well with the headline font ${r.headlineFont}: a contrast (a calligraphic or display face against a clean one), and it must write the word's script (an Arabic word takes an Arabic font; Montserrat and Inter are Latin only).`,
-    `color: white #ffffff, always, unless the word sits on a white or very light area (a white product, pale cloth, bright sky) where white cannot read; only then one dark colour of the month: ${r.palette.join(", ") || "black #111111"}.`,
+    "color: white #ffffff, always: the text is white for every client and only the designer changes it by hand. When white cannot read where the word would sit, pick another place or answer none.",
     r.force
       ? `THE TEAM CHOSE THE STYLE "${r.force}" for the month: use it, and answer "none" only when it cannot work on this picture (it would cover a face, or the picture is too busy for letters to read).`
       : r.used.length
@@ -106,6 +106,6 @@ export function parseTypography(raw: unknown, headline: string, fallbackFont: st
   const named = TYPO_FONTS.find((f) => f.toLowerCase() === String(x.font ?? "").trim().toLowerCase());
   const latinOnly = (f: string) => LATIN_FONTS.some((l) => l.family === f);
   const font = named && !(arabic && latinOnly(named)) ? named : fallbackFont;
-  const color = /^#[0-9a-f]{6}$/i.test(String(x.color ?? "").trim()) ? String(x.color).trim() : undefined;
-  return { style: style as TypoStyle, word, font, ...(color ? { color } : {}) };
+  // The colour is the designer's alone: the writer's answer never sets it (white by default).
+  return { style: style as TypoStyle, word, font };
 }

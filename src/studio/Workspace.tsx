@@ -657,7 +657,10 @@ export default function Workspace({
     try {
       await post("/api/studio/posts/style", { batch: batch.id, assign });
       await refresh();
-      toast.success(assign.some((a) => a.style) ? "Style written for the product." : "Style taken off.", { id: t });
+      const styled = assign.filter((a) => a.style).map((a) => a.index);
+      toast.success(styled.length ? "Style written for the product. Generating…" : "Style taken off.", { id: t });
+      // A style applied is a picture asked for: the post is made again in the style right away.
+      if (styled.length) await generatePosts(styled, true, false);
     } catch (e) {
       toast.error((e as Error).message, { id: t });
     }

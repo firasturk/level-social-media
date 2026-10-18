@@ -132,7 +132,7 @@ describe("following a grid tile by tile", () => {
     const spec = tileSpecOf({ kind: "text", items: "", background: "cream paper #f3ece0", text: { position: "center", align: "left", size: "huge", color: "#1a1a1a", style: "bold serif" } })!;
     expect(spec.kind).toBe("text");
     const o = overlayFromTile(spec.text, spec.kind);
-    expect(o.ov).toMatchObject({ position: "center", align: "left", scale: 1.8, color: "#1a1a1a", fade: false });
+    expect(o.ov).toMatchObject({ position: "center", align: "left", scale: 1.8, fade: false });
     expect(tileSpecOf({ kind: "nonsense" as never })).toBeUndefined();
     expect(overlayFromTile({ position: "none", align: "center", size: "small", color: "", style: "" }, "product")).toEqual({ overlay: false });
   });

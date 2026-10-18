@@ -11,7 +11,7 @@ describe("typography", () => {
   });
 
   it("keeps a word only from the headline and an Arabic font for an Arabic word", () => {
-    expect(parseTypography({ style: "behind", word: "كنافة", font: "Reem Kufi", color: "#8c6b44" }, "كنافة حبيبة", "Gulzar")).toEqual({ style: "behind", word: "كنافة", font: "Reem Kufi", color: "#8c6b44" });
+    expect(parseTypography({ style: "behind", word: "كنافة", font: "Reem Kufi", color: "#8c6b44" }, "كنافة حبيبة", "Gulzar")).toEqual({ style: "behind", word: "كنافة", font: "Reem Kufi" });
     // A word that is not in the headline becomes its first words; a Latin font for Arabic falls back.
     expect(parseTypography({ style: "repeat", word: "حلويات", font: "Montserrat", color: "white" }, "طعم الموسم", "Gulzar")).toEqual({ style: "repeat", word: "طعم الموسم", font: "Gulzar" });
     expect(parseTypography({ style: "none", word: "x", font: "Cairo", color: "" }, "x", "Gulzar")).toBeNull();
