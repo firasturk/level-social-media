@@ -13,6 +13,7 @@ import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
+import { rememberLessons } from "./lessons";
 import {
   StudioError,
   errorMessage,
@@ -87,6 +88,7 @@ import { OPENAI_MODELS, OpenAIImageClient, isOpenAIModel, type ImageBytes } from
 interface BatchRow {
   id: string;
   owner: string;
+  client: string | null;
   config: string;
   state: string;
 }
@@ -261,7 +263,7 @@ export async function advanceBatch(
 ): Promise<void> {
   const batch = await first<BatchRow>(
     env.DB,
-    "SELECT id, owner, config, state FROM batches WHERE id = ?",
+    "SELECT id, owner, client, config, state FROM batches WHERE id = ?",
     batchId,
   );
   if (!batch) return;
@@ -472,6 +474,8 @@ async function storeResultBytes(
     // A post is checked against the real product photo: what changed, writing, bags, drinks, people.
     try {
       qa = await reviewPostImage(env, task, result);
+      // Every finding is kept as a lesson: the client's next prompts forbid it explicitly.
+      if (qa.automated) await rememberLessons(env, batch.client, batch.id, qa.flags).catch((e) => console.error("[lessons]", e));
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);

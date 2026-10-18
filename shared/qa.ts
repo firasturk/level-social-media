@@ -204,7 +204,7 @@ export function postReviewInstruction(r: ReviewContext): string {
       : k
       ? "sizeRight: true when each product has its real size next to hands and furniture (a gift box about a forearm wide, one sweet between two fingers) and is held naturally (level, from below, or set on a surface); false when it is giant or tiny, balanced on fingertips or hanging from a finger."
       : "sizeRight: always true.",
-    `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "".${r.style ? " Extra copies of the same photographed product are part of the picked style, never invented." : ""} Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
+    `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "". Plain unprinted garments and shoes worn to complete an outfit around a clothing product (a plain t-shirt or top, trousers, socks, sneakers) are NOT invented products; only printed, branded or packaged items are.${r.style ? " Extra copies of the same photographed product are part of the picked style, never invented." : ""} Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
     "text: quote or describe any letters, words, numbers, logos or labels anywhere in the post that are NOT the product's own printed packaging from its photo (signs, invented brand names, gibberish lettering, price tags), else \"\".",
     "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
     r.sellsDrinks || r.coffeeDay
@@ -244,6 +244,37 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
 }
 
 /** The revision note that asks the engine to fix exactly what the review found. */
+/**
+ * One remembered mistake, worded as a rule for the next prompt: "the review found X in an earlier
+ * picture of this client; it never happens again".
+ */
+export function lessonLine(kind: FlagKind, text: string): string {
+  const t = text.replace(/\.$/, "").trim();
+  const strip = (prefix: RegExp) => t.replace(prefix, "").trim();
+  switch (kind) {
+    case "text":
+      return `No writing: an earlier picture carried ${strip(/^Writing in the picture:\s*/i)}. Nothing is written, lettered or drawn as a word, arrow or sign anywhere in the picture.`;
+    case "people":
+      return `People: an earlier picture went wrong this way: ${t}. The people are exactly the ambassadors described, with correct hands and faces.`;
+    case "ailook":
+      return `Realism: an earlier picture ${strip(/^Looks AI-made:\s*/i).replace(/^The\b/, "the")}. Real skin texture, real hair, a candid moment, no CGI smoothness.`;
+    case "product":
+      return `Product truth: an earlier picture had this fault: ${t}. The product is reproduced exactly as photographed.`;
+    case "invented":
+      return `Nothing invented: an earlier picture added ${strip(/^Invented product:\s*/i)}. Only the photographed products appear; anything else worn or shown is plain and unbranded.`;
+    case "tile":
+      return `Grid tile: an earlier picture drifted from its tile (${strip(/^Not like its grid tile:\s*/i)}). Follow the tile's staging and props exactly.`;
+    case "foreign":
+      return `Only the brand's product: an earlier picture ${strip(/^Shows what the brand does not sell:\s*/i) ? `showed ${strip(/^Shows what the brand does not sell:\s*/i)}` : "showed other food or drinks"}. No other food, drink, cup or glass appears.`;
+    case "bag":
+      return "No bags: an earlier picture put the product in or next to a bag. The product is held or set on a surface, never bagged.";
+    case "size":
+      return "True size: an earlier picture gave the product a wrong size or an unreal hold. Real-world size against hands and furniture, held level or set down.";
+    case "staging":
+      return `Staging: an earlier picture was ${strip(/^Not how it is served:\s*/i)}. Everything rests where it really would.`;
+  }
+}
+
 export function fixNote(flags: PostFlag[]): string {
   const ask: Record<FlagKind, string> = {
     product: "Make the product exactly as in its photo: the same shape, colours, packaging, lid and label",

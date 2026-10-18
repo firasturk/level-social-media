@@ -91,6 +91,7 @@ import {
   productKeyOf,
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
+import { lessonsFor } from "./lessons";
 
 type Variables = { user: User };
 export const postRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -1704,6 +1705,8 @@ postRoutes.post("/generate", async (c) => {
   const skipped: number[] = [];
   const missingProduct: { index: number; product: string }[] = [];
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
+  // What went wrong in this client's earlier pictures: the prompt forbids it by name.
+  const lessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
   for (const post of plan) {
     if (!wanted.has(post.index)) continue;
     // An offer is generated only once the designer filled it: products, price and contents.
@@ -1894,6 +1897,7 @@ postRoutes.post("/generate", async (c) => {
       })(),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
+      lessons: lessons.length ? lessons : undefined,
       // A post with a style follows the style alone: the grid gives it only the month's colours.
       grid: config.gridRef && !styled ? config.gridNotes || undefined : undefined,
       tile: config.gridRef && !styled ? post.tile : undefined,

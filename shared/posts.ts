@@ -206,6 +206,8 @@ export interface PostBrief {
   /** The client's ALWAYS and NEVER rules from the brand kit. */
   always?: string;
   never?: string;
+  /** Mistakes the review found in this client's earlier pictures, worded as rules (see server/lessons). */
+  lessons?: string[];
   /** Which take of this post this is; takes after the first ask for a different picture. */
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
@@ -343,7 +345,23 @@ export function withoutProductNames(text: string, names: string[]): string {
 }
 
 /** Client rules about the layout (logo, marks, bands, type) are the designer's, never drawn in the photo. */
-const LAYOUT_RULE = /\b(logo|logos|mark|marks|band|ornament|ornaments|kufic|typeset|typography|lettering|font|fonts|corner|ground|frame|border)\b/i;
+const LAYOUT_RULE =
+  /\b(logo|logos|mark|marks|band|ornament|ornaments|kufic|typeset|typography|lettering|font|fonts|corner|ground|frame|border|caption|captions|headline|headlines|swipe|hashtag|hashtags|emoji|emojis|cta|call[- ]to[- ]action|slogan|slogans|tagline|taglines|carousel|carousels|arabic|english|levantine|msa|dialect|language|wording|copywriting|post copy|sticker|stickers|watermark|overlay)\b/i;
+
+/**
+ * Sentences about the words to be set on the picture (headline placement, a reference's slogan,
+ * a swipe arrow): the designer adds words later, so the engine never reads them as things to draw.
+ */
+const WORDS_SENTENCE =
+  /\b(headline|headlines|caption|captions|lettering|typography|typeset|swipe|slogan|tagline|wordmark|subtitle|hashtag|call[- ]to[- ]action|cta)\b|\b(text|words?|title|copy)\s+(reads?|says?|is|are|sits|goes)\b|\b(reads?|says?)\s*["'“‘]/i;
+export function withoutWordsSentences(text: string): string {
+  if (!text.trim()) return text;
+  return text
+    .split(/(?<=[.!?؟])\s+/)
+    .filter((x) => !WORDS_SENTENCE.test(x))
+    .join(" ")
+    .trim();
+}
 
 export function photoRules(text: string | undefined): string {
   return (text ?? "")
@@ -485,6 +503,8 @@ export function withoutSentencesNaming(text: string, words: string[]): string {
     .trim();
 }
 
+const CHILD_WORDS = /\b(child|kid|toddler|baby|girl|boy|little|years? old|\d{1,2}\s*(years?|yrs?))\b/i;
+
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImages = {}): string {
   // A fix note makes the picture again from the brief with the review's lessons; a plain edit revises the picture.
@@ -588,9 +608,9 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // A picked style replaces the post's own idea of the photograph: the style, written for this product, is the picture.
   if (b.styleKey && b.shot?.trim())
     parts.push(
-      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}`,
+      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
-  else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(b.brief.trim())}`);
+  else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
   const typeRule = postTypeRule(b);
   if (typeRule) parts.push(typeRule);
   // The month's theme (its pins' world, visual language and props) steps back for a picked style.
@@ -615,7 +635,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim() && !b.styleKey)
     parts.push(
-      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.${b.hasProduct ? " Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it." : ""}`,
+      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(withoutWordsSentences(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.${b.hasProduct ? " Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it." : ""}`,
     );
   if (b.hasProduct && b.notInPicture?.length)
     parts.push(
@@ -669,6 +689,12 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   parts.push(POST_SHADOW_RULE);
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
   if (people.length) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
+  if (people.some((p) => CHILD_WORDS.test(p.description)))
+    parts.push(
+      "CHILDREN: the child looks like a real photographed child, never a doll or a render: real child skin with its natural unevenness and a faint flush, slightly messy real hair, a genuine expression caught mid-play or mid-laugh, natural child proportions, real small hands with five fingers each resting naturally. Any garment worn with the product is plain and unprinted.",
+    );
+  if (b.lessons?.length)
+    parts.push(`MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):\n${b.lessons.map((l) => `- ${l}`).join("\n")}`);
   parts.push(NO_DESIGN_RULE);
   if (edit.trim() && fresh)
     parts.push(

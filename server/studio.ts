@@ -71,6 +71,7 @@ import { metaRoutes } from "./meta";
 import { profileRoutes } from "./profile";
 import { driveRoutes } from "./drive";
 import { autopilotRoutes } from "./autopilot";
+import { lessonRoutes } from "./lessons";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -82,6 +83,7 @@ studioRoutes.route("/meta", metaRoutes);
 studioRoutes.route("/profiles", profileRoutes);
 studioRoutes.route("/drive", driveRoutes);
 studioRoutes.route("/autopilot", autopilotRoutes);
+studioRoutes.route("/lessons", lessonRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

@@ -113,6 +113,7 @@ export default function BrandPanel({
         onThemesChanged={onThemesChanged}
       />
       <OverlaySection client={client} onClientsChanged={onClientsChanged} />
+      <LessonsSection client={client} />
       <Section kit="output" title="Output" subtitle="Engine, size and count" defaultOpen={false}>
         <label className="field-label">Image engine</label>
         <Select
@@ -1688,6 +1689,90 @@ function OverlaySection({
           <div className="prompt-tip">Sizes are in pixels on a 1080-wide post and scale with the export resolution.</div>
           </Group>
         </>
+      )}
+    </Section>
+  );
+}
+
+
+interface Lesson {
+  id: string;
+  kind: string;
+  text: string;
+  seen: number;
+  last: number;
+  rule: string;
+}
+
+/**
+ * Lessons: what the automatic review found wrong in this client's pictures. Each one is written into
+ * the client's next prompts as a rule; a false alarm is forgotten with its ×.
+ */
+function LessonsSection({ client }: { client: Client }) {
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    get<Lesson[]>(`/api/studio/lessons?client=${encodeURIComponent(client.id)}`)
+      .then((l) => live && setLessons(l))
+      .catch(() => live && setLessons([]));
+    return () => {
+      live = false;
+    };
+  }, [client.id]);
+  async function forget(id: string) {
+    setBusy(true);
+    try {
+      await del(`/api/studio/lessons/${id}`);
+      setLessons((l) => l.filter((x) => x.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not forget it.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function forgetAll() {
+    if (!(await askConfirm("Forget every lesson for this client? The next pictures will not carry these rules.", { ok: "Forget all" }))) return;
+    setBusy(true);
+    try {
+      await del(`/api/studio/lessons?client=${encodeURIComponent(client.id)}`);
+      setLessons([]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not forget them.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Section
+      title="Lessons learned"
+      subtitle={lessons.length ? `${lessons.length} mistake${lessons.length > 1 ? "s" : ""} the next pictures avoid` : "Mistakes found in earlier pictures become rules"}
+      defaultOpen={false}
+      actions={
+        lessons.length ? (
+          <button type="button" className="ghost small" disabled={busy} onClick={forgetAll}>
+            Forget all
+          </button>
+        ) : undefined
+      }
+    >
+      {lessons.length === 0 ? (
+        <p className="muted small">Nothing yet. Every problem the review finds in a finished picture is kept here and written into the next prompts for {client.name}.</p>
+      ) : (
+        <ul className="lesson-list">
+          {lessons.map((l) => (
+            <li key={l.id} data-kind={l.kind}>
+              <span className="lesson-kind">{l.kind === "ailook" ? "AI look" : l.kind}</span>
+              <span className="lesson-text" title={l.rule}>
+                {l.text}
+              </span>
+              {l.seen > 1 && <span className="lesson-seen">×{l.seen}</span>}
+              <button type="button" className="lesson-forget" aria-label="Forget this lesson" disabled={busy} onClick={() => forget(l.id)}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </Section>
   );
