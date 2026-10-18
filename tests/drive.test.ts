@@ -99,7 +99,7 @@ describe("Drive folders", () => {
 
   it("asks for Drive photos first when filling from Drive", () => {
     const text = productMatchInstruction({ client: "Habibah", posts: [{ index: 1, type: "product", brief: "A tray" }], options: [{ source: "drive", id: "d", name: "Tray", note: "" }], preferDrive: true });
-    expect(text).toMatch(/Drive photo first/);
+    expect(text).toMatch(/FILL FROM DRIVE/);
   });
 });
 

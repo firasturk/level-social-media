@@ -955,11 +955,16 @@ postRoutes.post("/reidea", async (c) => {
 postRoutes.post("/refit", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
-  const config = JSON.parse(b.config) as Config;
-  const post = (config.plan ?? []).find((p) => p.index === d.index);
+  const next = await refitWords(c.env, b, JSON.parse(b.config) as Config, d.index);
+  return c.json({ ok: true, post: next });
+});
+
+/** The post's words and idea written again for exactly the products and people it has now. */
+async function refitWords(env: Env, b: BatchRow, config: Config, index: number): Promise<Post> {
+  const post = (config.plan ?? []).find((p) => p.index === index);
   if (!post) throw new StudioError("That post is not in the plan.", 404);
-  const sources = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id);
-  await describeProducts(c.env, sources);
+  const sources = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id);
+  await describeProducts(env, sources);
   const describe = (n: string) => {
     const src = sources.find((x) => productName(x) === n);
     return src?.note ? `${n} (${src.note})` : n;
@@ -972,9 +977,8 @@ postRoutes.post("/refit", async (c) => {
     post.people?.length ? `The people in the picture are ${post.people.join(" and ")}; the idea gives them a natural action with the product.` : "No people in the picture.",
     "Keep the post's type and date.",
   ].join(" ");
-  const next = await rewritePostIdea(c.env, b, config, d.index, wish, { keepProducts: true });
-  return c.json({ ok: true, post: next });
-});
+  return rewritePostIdea(env, b, config, index, wish, { keepProducts: true });
+}
 
 /** One post written again (its words, idea and shot) for the month as it is now; the plan is saved. */
 interface RewriteOptions {
@@ -3130,17 +3134,16 @@ postRoutes.post("/products/fill", async (c) => {
   if (d.drive) {
     // From Drive: each post's best Drive photo, the photos brought in four at a time under names
     // reserved first; a post whose Drive picks do not fit keeps its product.
-    const sameName = (a: string | undefined, b: string) => {
-      const [x, y] = [productKeyOf(a ?? ""), productKeyOf(b)];
-      return !!x && !!y && (x === y || x.startsWith(y) || y.startsWith(x));
-    };
+    // Every post takes the Drive photo that fits its tile best, spread across the Drive's products:
+    // a photo already given to another post goes to the next pick, so the month is shuffled, not
+    // the same product everywhere. The words are written again for whatever product is chosen.
+    const given = new Set<string>();
     const chosen = matches.flatMap((m) => {
-      const post = missing.find((p) => p.index === m.index);
-      const has = !!matchProduct(post?.product, monthNames);
-      // A post that has its product takes a Drive photo of that same product (the matcher says so,
-      // or the names say so: "Mojito" for "Mojito_"); a post without one takes the best Drive photo.
-      const pick = m.picks.find((x) => x.source === "drive" && (!has || x.same || sameName(post?.product, x.name)));
-      return pick ? [{ index: m.index, pick }] : [];
+      const drivePicks = m.picks.filter((x) => x.source === "drive");
+      const pick = drivePicks.find((x) => !given.has(x.id)) ?? drivePicks[0];
+      if (!pick) return [];
+      given.add(pick.id);
+      return [{ index: m.index, pick }];
     });
     const taken = new Set((await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem));
     const named = chosen.map((x) => {
@@ -3163,9 +3166,22 @@ postRoutes.post("/products/fill", async (c) => {
       );
     const fresh = await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
     config = JSON.parse(fresh!.config) as Config;
+    const was = new Map((config.plan ?? []).map((p) => [p.index, p.product]));
     config.plan = (config.plan ?? []).map((p) => (names.has(p.index) ? withProduct(p, names.get(p.index)!) : p));
     await saveConfig(c.env, fresh!, config);
     for (const [index, product] of names) filled.push({ index, product, source: "drive" });
+    // A different product than before: the post's words and idea follow it.
+    for (const [index, product] of names) {
+      const before = was.get(index);
+      const same = !!before && (productKeyOf(before) === productKeyOf(product) || productKeyOf(before).startsWith(productKeyOf(product)) || productKeyOf(product).startsWith(productKeyOf(before)));
+      if (same) continue;
+      try {
+        const latest = await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
+        await refitWords(c.env, latest!, JSON.parse(latest!.config) as Config, index);
+      } catch (e) {
+        console.error("[products] drive refit", index, errorMessage(e));
+      }
+    }
     return c.json({ ok: true, filled });
   }
   for (const m of matches) {
