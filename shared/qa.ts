@@ -144,7 +144,7 @@ export function postProblems(
 
 /* ───────────── The automatic review of a finished post image ───────────── */
 
-export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook";
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging";
 
 /** One thing the review found wrong in a generated post. */
 export interface PostFlag {
@@ -165,8 +165,9 @@ export const POST_REVIEW_SCHEMA = {
     people: { type: "string" },
     tile: { type: "string" },
     aiLook: { type: "string" },
+    staging: { type: "string" },
   },
-  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook"],
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging"],
 };
 
 /** What the reviewer is told about the post it checks. */
@@ -216,6 +217,7 @@ export function postReviewInstruction(r: ReviewContext): string {
       ? `tile: this post recreates one tile of a reference feed grid: "${r.tile.slice(0, 500)}". Describe in one sentence how the post drifts from that tile's role and staging (a drink tile showing a box, a close-up shot from far away, a place tile with no room), else "". Colours, products and people are the client's own and never count as drift.`
       : 'tile: "".',
     r.people.length ? AI_LOOK_CHECK : 'aiLook: "".',
+    'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".',
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }
@@ -237,6 +239,7 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
   if (!none(str(d.people))) out.push({ kind: "people", text: str(d.people) });
   if (r.tile && !none(str(d.tile))) out.push({ kind: "tile", text: `Not like its grid tile: ${str(d.tile)}` });
   if (!none(str(d.aiLook))) out.push({ kind: "ailook", text: `Looks AI-made: ${str(d.aiLook)}` });
+  if (!none(str(d.staging))) out.push({ kind: "staging", text: `Not how it is served: ${str(d.staging)}` });
   return out;
 }
 
@@ -252,6 +255,7 @@ export function fixNote(flags: PostFlag[]): string {
     people: "Fix the people as described",
     tile: "Stage it like its tile of the reference grid",
     ailook: AI_LOOK_FIX,
+    staging: "Stage it as it is really served: a drink stays in its cup on the table or in a hand, never inside a plate, bowl or saucer; every object rests where it really would",
   };
   return flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }

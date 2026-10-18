@@ -10895,3 +10895,48 @@ button.shot-product:hover {
     width: 100%;
   }
 }
+
+/* Fixes: the Autopilot card's option stays inside the card; checklist rows line up. */
+.journey-autopilot-actions {
+  flex: 0 0 auto;
+  max-width: 260px;
+}
+.journey-autopilot-option {
+  width: 100%;
+  justify-content: flex-end;
+  text-align: right;
+  white-space: normal;
+}
+.journey-autopilot-option input {
+  flex: none;
+}
+.setup-checklist ul {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+}
+.setup-checklist li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.setup-checklist li > span {
+  min-width: 0;
+}
+.setup-checklist li button {
+  margin-left: 0;
+  white-space: normal;
+  text-align: right;
+}
+.post-style-banner.empty {
+  justify-content: flex-start;
+}
+.post-style-name {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.post-style-banner .icon-button {
+  margin-left: auto;
+}

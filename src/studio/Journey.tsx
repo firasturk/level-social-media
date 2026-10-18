@@ -1183,6 +1183,27 @@ export default function Journey(p: JourneyProps) {
                   </button>
                 ))}
               </div>
+              {client && p.posts.some((x) => x.url) && (
+                <div className="journey-continue journey-made">
+                  <span className="journey-made-thumbs">
+                    {p.posts
+                      .filter((x) => x.url)
+                      .slice(0, 3)
+                      .map((x) => (
+                        <img key={x.index} src={x.url!} alt="" />
+                      ))}
+                  </span>
+                  <span>
+                    <strong>
+                      {monthLabel(p.month)} is made: {p.posts.filter((x) => x.url).length} posts
+                    </strong>
+                    <small>Open its feed to see the grid, set the typography and send the client link; or go through the steps to change it.</small>
+                  </span>
+                  <button type="button" className="primary" onClick={() => setStep(STEPS.findIndex((x) => x.key === "feed"))}>
+                    <Grid3x3 size={14} /> Open the feed
+                  </button>
+                </div>
+              )}
               {client && <ProfileBar key={client.id} client={client} onClientsChanged={p.onClientsChanged} />}
               {client && p.user.role === "admin" && (
                 <div className="journey-autopilot">
@@ -1229,27 +1250,6 @@ export default function Journey(p: JourneyProps) {
                   </span>
                   <button type="button" className="primary" disabled={p.continuing} onClick={() => void p.onContinue().then(() => setStep(1))}>
                     {p.continuing ? <LoaderCircle className="spinning" size={14} /> : <Repeat size={14} />} Continue from {monthLabel(p.previousMonth)}
-                  </button>
-                </div>
-              )}
-              {client && p.posts.some((x) => x.url) && (
-                <div className="journey-continue journey-made">
-                  <span className="journey-made-thumbs">
-                    {p.posts
-                      .filter((x) => x.url)
-                      .slice(0, 3)
-                      .map((x) => (
-                        <img key={x.index} src={x.url!} alt="" />
-                      ))}
-                  </span>
-                  <span>
-                    <strong>
-                      {monthLabel(p.month)} is made: {p.posts.filter((x) => x.url).length} posts
-                    </strong>
-                    <small>Open its feed to see the grid, set the typography and send the client link; or go through the steps to change it.</small>
-                  </span>
-                  <button type="button" className="primary" onClick={() => setStep(STEPS.findIndex((x) => x.key === "feed"))}>
-                    <Grid3x3 size={14} /> Open the feed
                   </button>
                 </div>
               )}

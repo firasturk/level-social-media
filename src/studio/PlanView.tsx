@@ -88,6 +88,7 @@ export default function PlanView({
   typography,
   onFix,
   onRestorePicture,
+  onAccept,
   onDeletePlan,
   paused,
   onResume,
@@ -148,7 +149,7 @@ export default function PlanView({
   cast: Ambassador[];
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
-  onSavePlan: (plan: Post[]) => void;
+  onSavePlan: (plan: Post[]) => void | Promise<void>;
   onGeneratePosts: (indexes?: number[], regenerate?: boolean) => void;
   onOpen: (t: Task) => void;
   onExport: () => void;
@@ -160,6 +161,8 @@ export default function PlanView({
   onFix?: (index: number, edit: string) => Promise<void>;
   /** Puts an earlier picture back on a post (after a Regenerate). */
   onRestorePicture?: (index: number, key: string) => Promise<void>;
+  /** The team accepts a flagged post as it is. */
+  onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
 }) {
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
@@ -233,6 +236,11 @@ export default function PlanView({
       return null;
     }
   };
+  /** Unsaved edits are saved first, so a Regenerate right after an edit uses the edit. */
+  async function saveThen(run: () => void) {
+    if (dirtyRef.current) await onSavePlan(draftRef.current);
+    run();
+  }
   /** Regenerate keeps the picture it replaces one click away. */
   function regenerate(t: Task | null, index: number) {
     try {
@@ -240,9 +248,16 @@ export default function PlanView({
     } catch {
       /* private mode */
     }
-    onGeneratePosts([index], true);
+    void saveThen(() => onGeneratePosts([index], true));
     toast("Regenerating", { description: `Post ${index}: the previous picture stays one click away on the card (Previous picture).`, duration: 6000 });
   }
+  const [accepting, setAccepting] = useState<number | null>(null);
+  /** The making state in words: a realism pass has its own. */
+  const makingLabel = (t: Task | null) => {
+    const edit = (t as { edit?: string | null } | null)?.edit ?? "";
+    if (/photographed, not generated/.test(edit)) return "Making the people look real…";
+    return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";
+  };
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
   // A post is due when it has no image, failed, or was generated before the plan was rewritten
@@ -593,12 +608,23 @@ export default function PlanView({
               );
               return (
                 <article key={p.index} id={`post-card-${p.index}`} className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""}`}>
-                  {p.style && (
-                    <div className="post-style-banner">
-                      {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
-                      <span>
-                        <strong>Style applied</strong> · {styleOf(p.style)?.title ?? "from the gallery"}
-                      </span>
+                  {p.type !== "greeting" && (
+                    <div className={`post-style-banner ${p.style ? "" : "empty"}`}>
+                      {p.style ? (
+                        <>
+                          {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
+                          <button type="button" className="post-style-name" onClick={() => setPicking(p.index)} disabled={!!busy} title="Change the style">
+                            <strong>Style</strong> · {styleOf(p.style)?.title ?? "from the gallery"}
+                          </button>
+                          <button type="button" className="icon-button" onClick={() => void onStyles([{ index: p.index, style: null }])} aria-label="Take the style off" title="Take the style off">
+                            <X size={12} />
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
+                          <Images size={12} /> Pick a style
+                        </button>
+                      )}
                     </div>
                   )}
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>
@@ -625,7 +651,7 @@ export default function PlanView({
                     {inFlight && (
                       <span className="post-progress">
                         <LoaderCircle className="spinning" size={18} />
-                        {t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued"}
+                        {makingLabel(t)}
                       </span>
                     )}
                     {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
@@ -677,6 +703,20 @@ export default function PlanView({
                           >
                             {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix it
                           </button>
+                          {onAccept && (
+                            <button
+                              type="button"
+                              className="text-button"
+                              disabled={accepting !== null}
+                              title="Keep the picture as it is: the review's notes are cleared"
+                              onClick={() => {
+                                setAccepting(p.index);
+                                void onAccept(p.index).finally(() => setAccepting(null));
+                              }}
+                            >
+                              {accepting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Check size={13} />} Accept as is
+                            </button>
+                          )}
                         </li>
                       )}
                     </ul>
@@ -699,42 +739,6 @@ export default function PlanView({
                       />
                       {occasionOn(p.date) && <em>{occasionOn(p.date)}</em>}
                     </label>
-                    <div className="post-row">
-                      <select
-                        value={p.type}
-                        onChange={(e) => {
-                          const type = e.target.value as PostType;
-                          if (type === "offer") {
-                            // An offer waits for its products, price and contents before anything is written.
-                            patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
-                            return;
-                          }
-                          const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
-                          setDraft(next);
-                          onRewrite(p.index, next);
-                        }}
-                        aria-label="Post type"
-                        title="Changing the type writes this post again for that type"
-                      >
-                        {POST_TYPES.map((k) => (
-                          <option key={k} value={k}>
-                            {POST_TYPE_INFO[k].label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={product ? displayName(product.name) : ""}
-                        onChange={(e) => patch(p.index, { product: e.target.value || undefined })}
-                        aria-label="Product"
-                      >
-                        <option value="">No product</option>
-                        {products.map((s) => (
-                          <option key={s.id} value={displayName(s.name)}>
-                            {displayName(s.name)}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
                     {p.type === "offer" && (
                       <OfferForm
                         post={p}
@@ -752,26 +756,6 @@ export default function PlanView({
                         <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's
                         gallery; if it is not there, upload it or pick another product.
                       </p>
-                    )}
-                    {p.type !== "greeting" && (
-                      <div className="post-extras post-style">
-                        <span>style</span>
-                        {p.style ? (
-                          <span className="style-chip" title="This post's style from the gallery: click to change">
-                            <button type="button" className="style-chip-main" onClick={() => setPicking(p.index)} disabled={!!busy}>
-                              {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
-                              <span>{styleOf(p.style)?.title ?? "Style"}</span>
-                            </button>
-                            <button type="button" className="style-chip-x" onClick={() => void onStyles([{ index: p.index, style: null }])} aria-label="Take the style off">
-                              <X size={11} />
-                            </button>
-                          </span>
-                        ) : (
-                          <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
-                            <Images size={12} /> Pick a style
-                          </button>
-                        )}
-                      </div>
                     )}
                     {cast.length > 0 && (
                       <div className="post-extras post-people">
@@ -819,6 +803,50 @@ export default function PlanView({
                         )}
                       </div>
                     )}
+                    <input
+                      className="post-title"
+                      value={p.title}
+                      onChange={(e) => patch(p.index, { title: e.target.value })}
+                      placeholder="Title"
+                      aria-label="Title"
+                    />
+                    </>)}
+                    <div className="post-row">
+                      <select
+                        value={p.type}
+                        onChange={(e) => {
+                          const type = e.target.value as PostType;
+                          if (type === "offer") {
+                            // An offer waits for its products, price and contents before anything is written.
+                            patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
+                            return;
+                          }
+                          const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
+                          setDraft(next);
+                          onRewrite(p.index, next);
+                        }}
+                        aria-label="Post type"
+                        title="Changing the type writes this post again for that type"
+                      >
+                        {POST_TYPES.map((k) => (
+                          <option key={k} value={k}>
+                            {POST_TYPE_INFO[k].label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={product ? displayName(product.name) : ""}
+                        onChange={(e) => patch(p.index, { product: e.target.value || undefined })}
+                        aria-label="Product"
+                      >
+                        <option value="">No product</option>
+                        {products.map((s) => (
+                          <option key={s.id} value={displayName(s.name)}>
+                            {displayName(s.name)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     {p.product && (
                       <div className="post-extras">
                         <span>with</span>
@@ -858,14 +886,6 @@ export default function PlanView({
                         )}
                       </div>
                     )}
-                    <input
-                      className="post-title"
-                      value={p.title}
-                      onChange={(e) => patch(p.index, { title: e.target.value })}
-                      placeholder="Title"
-                      aria-label="Title"
-                    />
-                    </>)}
                     <div className="post-overlay-fields">
                       <input
                         value={p.headline ?? ""}
@@ -934,9 +954,7 @@ export default function PlanView({
                       <p className="post-summary">
                         {p.date ? <span>{p.date.slice(5).replace("-", "/")}</span> : null}
                         <span>{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                        {p.product && <span dir="auto">{p.product}</span>}
                         {(p.people ?? []).length > 0 && <span>{(p.people ?? []).join(", ")}</span>}
-                        {p.style && styleOf(p.style) && <span>{styleOf(p.style)!.title}</span>}
                       </p>
                     )}
                     <div className="post-actions">
@@ -989,8 +1007,8 @@ export default function PlanView({
                           type="button"
                           className="text-button"
                           onClick={() => regenerate(t, p.index)}
-                          disabled={inFlight || running || dirty || (p.type === "offer" && !offerReady(p.offer))}
-                          title={dirty ? "Save changes first" : "A clearly different take on the same brief: new angle, set and placement"}
+                          disabled={inFlight || running || (p.type === "offer" && !offerReady(p.offer))}
+                          title="A clearly different take on the same brief: new angle, set and placement"
                         >
                           <RefreshCw size={13} /> Regenerate
                         </button>
@@ -998,9 +1016,9 @@ export default function PlanView({
                         <button
                           type="button"
                           className="text-button"
-                          onClick={() => onGeneratePosts([p.index], t?.status === "failed")}
-                          disabled={inFlight || running || dirty || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
-                          title={dirty ? "Save changes first" : p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
+                          onClick={() => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"))}
+                          disabled={inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
+                          title={p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
                         >
                           <Sparkles size={13} /> Generate
                         </button>

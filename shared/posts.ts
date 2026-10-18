@@ -164,6 +164,8 @@ export interface PostBrief {
   place?: { key: string; /** What the photo shows: "shop" or "kitchen or factory". */ what?: string };
   /** A real photograph of a person, attached only for realism (skin, light, lens) when the post shows people. */
   realRef?: { key: string };
+  /** A text tile with a product: the picture keeps a calm area for the words. */
+  wordsSpace?: boolean;
   /** A test post made smaller than the month's size: it is made again with the rest. */
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
@@ -421,11 +423,11 @@ export const ONLY_AMBASSADORS_RULE =
 /** The product is photographed, never invented: nothing is added to it, nothing else is food. */
 /** Real size, real colours, a real grip: the three ways a product still looked wrong. */
 export const HANDLING_RULE =
-  "TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it.";
+  "TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it. A cup, glass or drink stands on the table or in a hand, NEVER inside a plate, bowl, saucer or tray as if it were food.";
 
 /** A picked style may stage the product big or several times: its size follows the style, its look never changes. */
 export const STYLED_HANDLING_RULE =
-  "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo.";
+  "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.";
 
 /** Every copy of the product in a styled picture is the photographed product, never the style's own. */
 export function styledProductRule(styleImage: number): string {
@@ -440,7 +442,7 @@ export const NO_DESIGN_RULE =
   "PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.";
 
 const AVOID =
-  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
+  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
 
 /** What the picture must be for the post's type: a greeting, a text-led tip or quote, an offer. */
 function postTypeRule(b: PostBrief): string {
@@ -491,8 +493,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   const tileRef =
     "the tile of the month's reference grid that this post recreates: recreate its composition, camera angle and distance, arrangement, set, surface and light closely, with this brand's product in place of its products; never its products, packaging, bags, cups, cards, text, logo, brand or the identity of its people";
   // A style picked from the gallery is the picture to make, not just a mood.
-  const picked =
-    "the style the designer picked: recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people";
+  const picked = `the style the designer picked: recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
   let n = 0;
   if (b.hasProduct && extras.length) {
@@ -594,7 +595,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
     );
   parts.push(socialFrameRule(b.format));
-  if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial")
+  if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial" || b.wordsSpace)
     parts.push(HEADLINE_SPACE_RULE);
   const palette = paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);

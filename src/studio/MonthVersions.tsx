@@ -64,10 +64,10 @@ export default function MonthVersions({
     setBusy(take ? take.key : v.id);
     try {
       const r = await post<{ restored: number }>("/api/studio/posts/versions/restore", { batch: batchId, version: v.id, ...(take ?? {}) });
-      await onRestored();
-      await load();
-      toast.success(take ? `Post ${take.index} uses this picture now.` : `${r.restored} picture${r.restored === 1 ? "" : "s"} back in the studio.`);
       if (!take) setOpen(null);
+      toast.success(take ? `Post ${take.index} uses this picture now.` : `${r.restored} picture${r.restored === 1 ? "" : "s"} back in the studio.`);
+      await onRestored().catch(() => undefined);
+      void load();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

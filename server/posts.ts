@@ -1650,7 +1650,8 @@ postRoutes.post("/generate", async (c) => {
         : undefined;
     // A royal day shows the official portrait (added on the design), never a product or a person.
     const portraitDay = !!occasion?.portrait;
-    const typographic = config.gridRef && post.tileSpec?.kind === "text";
+    // A text tile stands alone only when the post names no product; with one, the product is in it.
+    const typographic = config.gridRef && post.tileSpec?.kind === "text" && !post.product;
     const leadName = post.type === "offer" ? post.offer!.products[0] : portraitDay || typographic ? undefined : post.product;
     const extraNames = post.type === "offer" ? post.offer!.products.slice(1) : portraitDay || typographic ? [] : (post.products ?? []);
     const existing = byPost.get(post.index);
@@ -1685,7 +1686,8 @@ postRoutes.post("/generate", async (c) => {
       continue;
     }
     // A textured one (paper, marble…) is painted by the engine: its background only.
-    const textured = spec?.kind === "text";
+    // A text tile with no product; one with a product is a real picture with calm room for the words.
+    const textured = spec?.kind === "text" && !leadName;
     const productSources = sources.filter((s) => s.kind === "product");
     const productNames = productSources.map(productName);
     const productMatch = matchProduct(leadName, productNames);
@@ -1804,6 +1806,7 @@ postRoutes.post("/generate", async (c) => {
       library: theme?.library || undefined,
       props: theme?.props?.trim() || undefined,
       design: textured ? "background" : undefined,
+      wordsSpace: spec?.kind === "text" && !textured ? true : undefined,
       place: post.type !== "greeting" && (spec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${post.scene ?? ""}`)) ? await placeFor(post) : undefined,
       shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       always: client.dos?.trim() || undefined,
@@ -2321,7 +2324,7 @@ postRoutes.post("/typography", async (c) => {
       const kind = p.tileSpec ? `${p.tileSpec.kind} tile, ${p.type} post` : `${p.type} post`;
       const raw = await askText(
         c.env,
-        typographyInstruction({ client: client.name, headline: p.headline!, subline: p.subline, kind, headlineFont, palette, used: used.slice(-4), force: d.style }),
+        typographyInstruction({ client: client.name, headline: p.headline!, subline: p.subline, kind, headlineFont, palette, used: used.slice(-4), force: d.style, tile: p.tileSpec?.text ? { position: p.tileSpec.text.position, size: p.tileSpec.text.size } : undefined }),
         TYPO_SCHEMA,
         [image],
       );
@@ -2390,6 +2393,22 @@ postRoutes.post("/typography/switch", async (c) => {
   config.typographyOff = d.on ? undefined : true;
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan });
+});
+
+/** The team accepts a post as it is: the review's flags are cleared and the post counts as ready. */
+postRoutes.post("/accept", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const t = await first<{ id: string; qa: string | null }>(c.env.DB, "SELECT id, qa FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+  if (!t) throw new StudioError("That post has no picture.", 404);
+  let qa: Record<string, unknown> = {};
+  try {
+    qa = t.qa ? (JSON.parse(t.qa) as Record<string, unknown>) : {};
+  } catch {
+    qa = {};
+  }
+  await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: "Accepted by the team." }), now(), t.id);
+  return c.json({ ok: true });
 });
 
 /** The outline of a post's product, read for its current picture; 404 once the picture changed. */

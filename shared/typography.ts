@@ -64,6 +64,8 @@ export function typographyInstruction(r: {
   used: string[];
   /** The style the team chose for the month; the typographer only answers "none" when it cannot work here. */
   force?: TypoStyle;
+  /** The grid tile's own lettering: where its words sit and how big. */
+  tile?: { position?: string; size?: string };
 }): string {
   return [
     `You are the typographer of the brand "${r.client}" on Instagram. The image is a finished post (${r.kind}) whose headline is "${r.headline}"${r.subline ? ` and second line "${r.subline}"` : ""}. Decide how its words are set as typography that is part of the design, the way top food and fashion brands do it.`,
@@ -75,6 +77,8 @@ export function typographyInstruction(r: {
       "- outline: one big outlined word in a calm, even area (a plain wall, sky, cloth or empty surface) away from the product.",
       "- none: the plain headline is best: a face would be covered, the picture is busy (many pieces, patterns, strong texture), or there is no calm space. Letters over a busy picture never read.",
     ].join("\n"),
+    "THE WORDS NEVER COVER the product, the food, a face or the logo, and never sit under the logo at the top: the big word goes where the picture is calm (sky, wall, cloth, empty surface) or deliberately behind the product. When no such place exists, answer none.",
+    r.tile ? `THE GRID TILE this post follows sets its words ${r.tile.size ? `${r.tile.size} ` : ""}${r.tile.position ? `at the ${r.tile.position}` : ""}: match that scale and place (small or medium tile words mean none; huge tile words mean behind, outline or repeat at that place).` : "",
     `word: the strongest one or two words of the headline, copied EXACTLY as written there (same language, same letters); never a new word.`,
     `font: one of ${TYPO_FONTS.join(", ")}. A second font that suits this post and sits well with the headline font ${r.headlineFont}: a contrast (a calligraphic or display face against a clean one), and it must write the word's script (an Arabic word takes an Arabic font; Montserrat and Inter are Latin only).`,
     `color: one #rrggbb that reads on the picture where the word sits, from the month's colours when one fits: ${r.palette.join(", ") || "white #ffffff, black #111111"}.`,

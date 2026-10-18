@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { renderOverlay, type OverlayText } from "@/lib/overlay";
 
@@ -23,8 +23,22 @@ export default function OverlayPreview({
   className?: string;
 }) {
   const [url, setUrl] = useState<string | null>(null);
-  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width, patch]);
+  const [seen, setSeen] = useState(false);
+  const ref = useRef<HTMLImageElement>(null);
+  // Drawn only once it comes near the screen: a month of cards would otherwise draw all at once.
   useEffect(() => {
+    const el = ref.current;
+    if (!el || seen || typeof IntersectionObserver === "undefined") {
+      if (!seen && typeof IntersectionObserver === "undefined") setSeen(true);
+      return;
+    }
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setSeen(true), { rootMargin: "600px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen]);
+  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width, patch, seen]);
+  useEffect(() => {
+    if (!seen) return;
     let alive = true;
     renderOverlay(src, spec, text, logoSrc, width, { patch })
       .then((canvas) => alive && setUrl(canvas.toDataURL("image/jpeg", 0.86)))
@@ -34,5 +48,5 @@ export default function OverlayPreview({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
-  return <img src={url ?? src} alt={alt} className={className} loading="lazy" />;
+  return <img ref={ref} src={url ?? src} alt={alt} className={className} loading="lazy" />;
 }

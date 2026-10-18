@@ -957,6 +957,17 @@ export default function Workspace({
       toast.error((e as Error).message);
     }
   };
+  /** The team accepts a flagged post as it is. */
+  const acceptPost = async (index: number) => {
+    if (!batch) return;
+    try {
+      await post("/api/studio/posts/accept", { batch: batch.id, index });
+      await refresh();
+      toast.success(`Post ${index} accepted.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
   /** An earlier picture back on its post. */
   const restorePicture = async (index: number, key: string) => {
     if (!batch) return;
@@ -1277,7 +1288,8 @@ export default function Workspace({
                 onNewIdea={(i) => void newIdea(i)}
                 cast={ambassadors.filter((a) => castIds.includes(a.id))}
                 onPostCount={(n) => void updateSettings({ postCount: n })}
-                onSavePlan={(p) => void savePlan(p)}
+                onSavePlan={(p) => savePlan(p)}
+                onAccept={acceptPost}
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}

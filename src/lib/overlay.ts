@@ -3,7 +3,7 @@
  * using the client's fonts and the overlay spec. Used for previews and for the export.
  */
 import { readableOn } from "@shared/contrast";
-import type { AnimationPreset, OverlaySpec, PostOverlayPatch } from "@shared/overlay";
+import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } from "@shared/overlay";
 import { HEADLINE_FONTS, HOSTED_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
 
@@ -247,8 +247,10 @@ export async function drawOverlay(
     return layout;
   }
   const h = spec.headline;
-  const hSize = h.size * W * scale;
-  const sSize = spec.subline.size * W * scale;
+  // The words never take more than a third of the picture, whatever a tile's "huge" asks.
+  const cap = Math.min(scale, (0.34 * H) / Math.max(1, h.size * W * 2.4));
+  const hSize = h.size * W * Math.max(0.5, cap);
+  const sSize = spec.subline.size * W * Math.max(0.5, cap);
   const maxWidth = W - margin * 2;
   const rtl = ARABIC.test(headline + subline);
   ctx.textBaseline = "alphabetic";
@@ -271,11 +273,18 @@ export async function drawOverlay(
   const sLineH = sSize * 1.3;
   const gap = hLines.length && sLines.length ? spec.subline.gap * W : 0;
   const blockH = hLines.length * hLineH + gap + sLines.length * sLineH;
-  let y: number;
-  if (h.position === "top") y = h.inset * W;
-  else if (h.position === "center") y = (H - blockH) / 2;
-  else y = H - h.inset * W - blockH;
-  y += dy;
+  const yFor = (pos: TextPosition) => (pos === "top" ? h.inset * W : pos === "center" ? (H - blockH) / 2 : H - h.inset * W - blockH);
+  let y = yFor(h.position) + dy;
+  const bx0 = align === "center" ? x - maxWidth / 2 : align === "left" ? x : x - maxWidth;
+  // Unless the designer moved the words by hand, they go where the picture is calm: a block set
+  // over the product (busy detail) moves to the calmest of the three places.
+  if (!patch.dx && !patch.dy && headline) {
+    const energy = (yy: number) => detailEnergy(ctx, bx0, yy, maxWidth, blockH);
+    const here = energy(y);
+    const options: TextPosition[] = ["bottom", "top", "center"];
+    const best = options.map((pos) => ({ pos, e: energy(yFor(pos)) })).sort((a, b) => a.e - b.e)[0];
+    if (best && best.pos !== h.position && here > best.e * 1.6) y = yFor(best.pos);
+  }
   // The words never sit on the logo: a block that meets it moves below it (or above a bottom logo).
   const lg = layout.logo;
   if (lg) {
@@ -296,9 +305,10 @@ export async function drawOverlay(
   // Words that would vanish into the picture behind them (white on cream, navy on navy) take the
   // colour that reads on it.
   const behind = averageLuminance(ctx, layout.text.x, y, maxWidth, blockH);
+  // A colour the designer picked stays; only the layout's own colour switches to read.
   if (behind !== null) {
-    headColor = readableOn(headColor, behind);
-    subColor = readableOn(subColor, behind);
+    if (!patch.color) headColor = readableOn(headColor, behind);
+    if (!patch.subColor) subColor = readableOn(subColor, behind);
   }
 
   // Entry animation: fade, rise from below, or zoom in around the block's centre.
@@ -481,6 +491,8 @@ async function drawTypography(
   // Letters behind or across the product need one clear product with room around it: scattered
   // pieces filling the picture, or a missing outline, keep the plain headline.
   if ((typo.style === "behind" || typo.style === "overlap") && (!subject || subject.box.w * subject.box.h > W * H * 0.5)) return null;
+  // An outlined or repeated word needs a band free of the product: above it or below it.
+  if ((typo.style === "outline" || typo.style === "repeat") && subject && subject.box.h > H * 0.72) return null;
   const margin = spec.margin * W;
   const rtl = ARABIC.test(word + headline);
   ctx.save();
@@ -512,8 +524,13 @@ async function drawTypography(
   let cy: number;
   if (typo.style === "behind" && box) cy = box.y + box.h * 0.3;
   else if (typo.style === "overlap" && box) cy = box.y + box.h * 0.66;
-  else if (box && box.y > H * 0.42) cy = top + (rows * lineH) / 2;
-  else cy = rows > 1 ? H * 0.42 : H * 0.36;
+  else if (box) {
+    // The bigger free band, above or below the product.
+    const above = box.y - top;
+    const below = H - margin - (box.y + box.h);
+    if (above < rows * lineH && below < rows * lineH) return null;
+    cy = above >= below ? top + (rows * lineH) / 2 : box.y + box.h + (rows * lineH) / 2;
+  } else cy = rows > 1 ? H * 0.42 : H * 0.36;
   cy = Math.max(top + (rows * lineH) / 2, Math.min(H - margin - (rows * lineH) / 2 - size * 0.4, cy));
   const blockTop = cy - (rows * lineH) / 2;
   let color = typo.color || spec.headline.color;
@@ -558,6 +575,34 @@ async function drawTypography(
   }
   ctx.restore();
   return textRect;
+}
+
+/**
+ * How busy the picture is under a block (the sum of brightness steps between neighbouring
+ * samples): a product, food or a face scores high, a wall, sky or cloth low.
+ */
+function detailEnergy(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): number {
+  try {
+    const sx = Math.max(0, Math.round(x));
+    const sy = Math.max(0, Math.round(y));
+    const sw = Math.max(2, Math.min(ctx.canvas.width - sx, Math.round(w)));
+    const sh = Math.max(2, Math.min(ctx.canvas.height - sy, Math.round(h)));
+    if (sw < 2 || sh < 2) return Infinity;
+    const data = ctx.getImageData(sx, sy, sw, sh).data;
+    const step = Math.max(2, Math.round(Math.sqrt((sw * sh) / 3000)));
+    let sum = 0;
+    let n = 0;
+    const lum = (i: number) => data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+    for (let yy = 0; yy < sh - step; yy += step)
+      for (let xx = 0; xx < sw - step; xx += step) {
+        const i = (yy * sw + xx) * 4;
+        sum += Math.abs(lum(i) - lum(i + step * 4)) + Math.abs(lum(i) - lum(i + step * sw * 4));
+        n++;
+      }
+    return n ? sum / n : Infinity;
+  } catch {
+    return Infinity;
+  }
 }
 
 /** The picture's mean luminance under a block, or null when it cannot be read. */
