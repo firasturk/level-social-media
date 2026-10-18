@@ -3130,11 +3130,16 @@ postRoutes.post("/products/fill", async (c) => {
   if (d.drive) {
     // From Drive: each post's best Drive photo, the photos brought in four at a time under names
     // reserved first; a post whose Drive picks do not fit keeps its product.
+    const sameName = (a: string | undefined, b: string) => {
+      const [x, y] = [productKeyOf(a ?? ""), productKeyOf(b)];
+      return !!x && !!y && (x === y || x.startsWith(y) || y.startsWith(x));
+    };
     const chosen = matches.flatMap((m) => {
       const post = missing.find((p) => p.index === m.index);
       const has = !!matchProduct(post?.product, monthNames);
-      // A post that has its product takes a Drive photo of that same product only.
-      const pick = m.picks.find((x) => x.source === "drive" && (!has || x.same));
+      // A post that has its product takes a Drive photo of that same product (the matcher says so,
+      // or the names say so: "Mojito" for "Mojito_"); a post without one takes the best Drive photo.
+      const pick = m.picks.find((x) => x.source === "drive" && (!has || x.same || sameName(post?.product, x.name)));
       return pick ? [{ index: m.index, pick }] : [];
     });
     const taken = new Set((await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem));
