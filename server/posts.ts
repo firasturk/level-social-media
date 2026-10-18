@@ -947,8 +947,47 @@ postRoutes.post("/reidea", async (c) => {
   return c.json({ ok: true, post: next });
 });
 
+/**
+ * The card's logic: the designer changed the post's product, added a second one or changed its
+ * people. The words and the idea are written again for exactly what is on the card now, and the
+ * old shot is dropped, so Generate makes the post the card describes.
+ */
+postRoutes.post("/refit", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === d.index);
+  if (!post) throw new StudioError("That post is not in the plan.", 404);
+  const sources = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id);
+  await describeProducts(c.env, sources);
+  const describe = (n: string) => {
+    const src = sources.find((x) => productName(x) === n);
+    return src?.note ? `${n} (${src.note})` : n;
+  };
+  const all_ = [post.product, ...(post.products ?? [])].filter((x): x is string => !!x);
+  const wish = [
+    all_.length
+      ? `The post now shows exactly ${all_.length === 1 ? "this product" : `these ${all_.length} products together in one picture`}: ${all_.map(describe).join("; ")}. The title, headline, second line, idea and caption are about ${all_.length === 1 ? "it" : "them, naming each"}, as the photos show them; no other product.`
+      : "The post has no product now: a moment of the brand without a packaged product.",
+    post.people?.length ? `The people in the picture are ${post.people.join(" and ")}; the idea gives them a natural action with the product.` : "No people in the picture.",
+    "Keep the post's type and date.",
+  ].join(" ");
+  const next = await rewritePostIdea(c.env, b, config, d.index, wish, { keepProducts: true });
+  return c.json({ ok: true, post: next });
+});
+
 /** One post written again (its words, idea and shot) for the month as it is now; the plan is saved. */
-async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: number, wish: string, noPlace = false): Promise<Post> {
+interface RewriteOptions {
+  /** A place tile without photos of the shop becomes a food tile. */
+  noPlace?: boolean;
+  /** Only the words change (title, headline, second line, caption, hashtags): the picture's idea, shot, products and people stay. */
+  wordsOnly?: boolean;
+  /** The designer's product picks stay exactly (the model never drops a second product). */
+  keepProducts?: boolean;
+}
+
+async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: number, wish: string, opts: RewriteOptions | boolean = {}): Promise<Post> {
+  const { noPlace = false, wordsOnly = false, keepProducts = false } = typeof opts === "boolean" ? { noPlace: opts } : opts;
   const plan = config.plan ?? [];
   const current = plan.find((p) => p.index === index);
   if (!current) throw new StudioError("That post is not in the plan.", 404);
@@ -981,25 +1020,38 @@ async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: num
     cast.map((a) => a.name),
   );
   if (!fresh) throw new StudioError("The model returned no usable idea. Try again.", 502);
-  const next: Post = {
-    ...current,
-    type: current.type,
-    product: current.product ?? fresh.product,
-    title: fresh.title,
-    brief: fresh.brief,
-    caption: fresh.caption,
-    hashtags: fresh.hashtags,
-    headline: fresh.headline,
-    subline: hidesSubline(client) ? undefined : fresh.subline,
-    shot: fresh.shot ?? current.shot,
-    products: fresh.products ?? current.products,
-    people: fresh.people,
-    occasion: current.occasion ?? fresh.occasion,
-    // The post changed: its shot is written again on the shots screen.
-    scene: undefined,
-    // A place tile without photos of the shop becomes a food tile.
-    tileSpec: noPlace && current.tileSpec?.kind === "place" ? { ...current.tileSpec, kind: "food" } : current.tileSpec,
-  };
+  const next: Post = wordsOnly
+    ? {
+        ...current,
+        title: fresh.title,
+        caption: fresh.caption,
+        hashtags: fresh.hashtags,
+        headline: fresh.headline,
+        subline: hidesSubline(client) ? undefined : fresh.subline,
+        captionHand: undefined,
+        captionFrom: undefined,
+      }
+    : {
+        ...current,
+        type: current.type,
+        product: current.product ?? fresh.product,
+        title: fresh.title,
+        brief: fresh.brief,
+        caption: fresh.caption,
+        hashtags: fresh.hashtags,
+        headline: fresh.headline,
+        subline: hidesSubline(client) ? undefined : fresh.subline,
+        shot: fresh.shot ?? current.shot,
+        products: keepProducts ? current.products : (fresh.products ?? current.products),
+        people: keepProducts ? current.people : fresh.people,
+        occasion: current.occasion ?? fresh.occasion,
+        captionHand: undefined,
+        captionFrom: undefined,
+        // The post changed: its shot is written again on the shots screen.
+        scene: undefined,
+        // A place tile without photos of the shop becomes a food tile.
+        tileSpec: noPlace && current.tileSpec?.kind === "place" ? { ...current.tileSpec, kind: "food" } : current.tileSpec,
+      };
   // An offer shows exactly the designer's products.
   if (next.type === "offer" && next.offer?.products.length) {
     next.product = next.offer.products[0];
@@ -3506,11 +3558,18 @@ async function writeStyleScenes(
       if (!style || !style.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
       const m = matchProduct(post.type === "offer" ? post.offer?.products[0] : post.product, names);
       const src = m ? sources.find((x) => productName(x) === m) : undefined;
+      // A post with more products shows them all together: the style is written for the set.
+      const extras = (post.type === "offer" ? post.offer?.products.slice(1) ?? [] : post.products ?? [])
+        .map((n) => matchProduct(n, names))
+        .filter((n): n is string => !!n && n !== m)
+        .map((n) => sources.find((x) => productName(x) === n))
+        .filter((x): x is SourceRow => !!x);
+      const productText = [src?.note?.trim() || "", ...extras.map((x) => x.note?.trim() || "")].filter(Boolean);
       const text = await askText(
         env,
         adaptStyleInstruction({
           style: { title: style.title, kind: style.kind, prompt: style.prompt },
-          product: src?.note?.trim() || "",
+          product: productText.length > 1 ? `${productText.length} products TOGETHER in the one picture, each shown once: ${productText.map((t, i) => `(${i + 1}) ${t}`).join("; ")}` : productText[0] || "",
           category: src?.category || undefined,
           post: { type: POST_TYPE_INFO[post.type]?.label ?? post.type, headline: post.headline ?? "", brief: withoutProductNames(post.brief, names).slice(0, 500) },
           brand: { name: client.name, style: client.style, always: photoRules(client.dos), never: photoRules(client.donts) },
@@ -3572,7 +3631,31 @@ postRoutes.post("/style", async (c) => {
     return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo }, ...(before ? { brief: before } : {}) };
   });
   await saveConfig(c.env, fresh, cfg);
-  return c.json({ ok: true, plan: cfg.plan });
+  // The words follow the style: the headline and caption are written for the picture the style
+  // describes, with the post's own products. The idea (brief) and the scene stay the style's.
+  for (const a of d.assign) {
+    const s = scenes.get(a.index);
+    if (!s?.style || !s.scene) continue;
+    try {
+      const latest = await ownedPlan(c.env, user, d.batch);
+      const latestCfg = JSON.parse(latest.config) as Config;
+      const post = (latestCfg.plan ?? []).find((p) => p.index === a.index);
+      if (!post) continue;
+      const names = [post.product, ...(post.products ?? [])].filter(Boolean);
+      await rewritePostIdea(
+        c.env,
+        latest,
+        latestCfg,
+        a.index,
+        `The picture of this post is now this style: ${s.scene.slice(0, 700)}${names.length ? ` It shows ${names.join(" and ")}.` : ""} Write the title, headline, second line and caption for THIS picture and what it shows; keep the product names exact.`,
+        { wordsOnly: true },
+      );
+    } catch (e) {
+      console.error("[style] words", a.index, errorMessage(e));
+    }
+  }
+  const done = await ownedPlan(c.env, user, d.batch);
+  return c.json({ ok: true, plan: (JSON.parse(done.config) as Config).plan });
 });
 
 /** The official portrait of a royal day: uploaded by the team, framed on the post exactly as it is. */

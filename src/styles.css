@@ -11514,3 +11514,14 @@ button.shot-product:hover {
   font-size: 12px;
   padding: 7px 10px;
 }
+
+.post-rewriting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  background: var(--info-soft);
+  color: var(--ink-900);
+  border-bottom: 1px solid var(--line);
+}

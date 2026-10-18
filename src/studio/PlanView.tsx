@@ -99,6 +99,8 @@ export default function PlanView({
   onRewrite,
   onStyles,
   monthOccasions,
+  onRefit,
+  rewriting = [],
   notes = "",
   batchId = null,
 }: {
@@ -140,6 +142,10 @@ export default function PlanView({
   approvals?: Record<string, Approval>;
   /** Saves the plan, then writes this post's idea again for its (new) type; no image is made. */
   onRewrite: (index: number, plan: Post[]) => void;
+  /** The card's product or people changed: the post's words and idea are written again for what is on the card. */
+  onRefit?: (indexes: number[]) => Promise<void>;
+  /** The posts whose words are being written again now. */
+  rewriting?: number[];
   /** Gallery styles for posts, each written for its post's product (null takes it off). */
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   /** The occasions the month posts (names, custom ones, uploaded portraits). */
@@ -216,7 +222,7 @@ export default function PlanView({
     if (!dirtyRef.current) return;
     const before = planRef.current;
     const next = draftRef.current;
-    onSavePlan(next);
+    void Promise.resolve(onSavePlan(next)).then(() => refitPending());
     const texts: (keyof Post)[] = ["headline", "subline", "caption", "hashtags", "title", "brief"];
     const changed = next.filter((p) => {
       const was = before.find((x) => x.index === p.index);
@@ -247,6 +253,8 @@ export default function PlanView({
   /** Unsaved edits are saved first, so a Regenerate right after an edit uses the edit. */
   async function saveThen(run: () => void) {
     if (dirtyRef.current) await onSavePlan(draftRef.current);
+    // A product changed and Regenerate was clicked at once: the words are written first, then the picture.
+    await refitPending();
     run();
   }
   /** Regenerate keeps the picture it replaces one click away. */
@@ -280,8 +288,28 @@ export default function PlanView({
   const pending = due.length;
   const stale = due.some((p) => !!taskOf(p.index)?.output);
 
+  /** The posts whose product or people changed on the card since the last save: their words are rewritten on save. */
+  const refitDue = useRef<Set<number>>(new Set());
   function patch(index: number, p: Partial<Post>) {
-    setDraft((d) => d.map((x) => (x.index === index ? { ...x, ...p } : x)));
+    setDraft((d) =>
+      d.map((x) => {
+        if (x.index !== index) return x;
+        const next = { ...x, ...p };
+        const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+        const productChanged = ("product" in p && !same(x.product, p.product)) || ("products" in p && !same(x.products, p.products)) || ("people" in p && !same(x.people, p.people));
+        const briefChanged = "brief" in p && !same(x.brief, p.brief);
+        // A new product, a new cast or a new idea: the old shot no longer describes the post.
+        if (productChanged || briefChanged) next.scene = undefined;
+        if (productChanged) refitDue.current.add(index);
+        return next;
+      }),
+    );
+  }
+  /** Saves the draft, then writes the words again for the cards whose product or people changed. */
+  async function refitPending() {
+    const due = [...refitDue.current];
+    refitDue.current.clear();
+    if (due.length && onRefit) await onRefit(due);
   }
   function removePost(index: number) {
     const next = draft.filter((x) => x.index !== index).map((x, i) => ({ ...x, index: i + 1 }));
@@ -553,7 +581,7 @@ export default function PlanView({
             <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
             {dirty && (
               <span className="posts-save">
-                <button className="primary" onClick={() => onSavePlan(draft)}>
+                <button className="primary" onClick={() => void Promise.resolve(onSavePlan(draft)).then(() => refitPending())}>
                   Save changes
                 </button>
                 <button className="text-button" onClick={() => setDraft(plan)}>
@@ -674,6 +702,11 @@ export default function PlanView({
                           </button>
                         </>
                       )}
+                    </div>
+                  )}
+                  {rewriting.includes(p.index) && (
+                    <div className="post-rewriting">
+                      <LoaderCircle className="spinning" size={13} /> Writing the words and the idea again for what is on the card…
                     </div>
                   )}
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>

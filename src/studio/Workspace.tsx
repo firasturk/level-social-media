@@ -503,6 +503,43 @@ export default function Workspace({
   }
 
   /** A post whose type changed (or whose offer was filled) is written again for it; no image yet. */
+  /** The card's product or people changed: the post's words and idea follow what is on the card now. */
+  const [rewriting, setRewriting] = useState<number[]>([]);
+  async function refitPosts(indexes: number[]) {
+    if (!batch || !indexes.length) return;
+    setRewriting((r) => [...new Set([...r, ...indexes])]);
+    try {
+      for (const index of indexes) {
+        try {
+          const r = await post<{ post: Post }>("/api/studio/posts/refit", { batch: batch.id, index });
+          toast.success(`Post ${index} rewritten for ${[r.post.product, ...(r.post.products ?? [])].filter(Boolean).join(" + ") || "no product"}: "${r.post.title}".`);
+        } catch (e) {
+          toast.error(`Post ${index}: ${(e as Error).message}`);
+        }
+      }
+      await refresh();
+    } finally {
+      setRewriting((r) => r.filter((i) => !indexes.includes(i)));
+    }
+  }
+  // A picture made or remade in the studio gets its caption written from it, unless the caption is the designer's.
+  const captionsAsked = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!batch) return;
+    const due = plan.filter((p) => {
+      const t = tasks.find((x) => x.post === p.index);
+      if (!t?.output || ["queued", "processing", "finalizing"].includes(t.status) || p.captionHand || p.captionFrom === t.output) return false;
+      const key = `${t.id}:${t.output}`;
+      if (captionsAsked.current.has(key)) return false;
+      captionsAsked.current.add(key);
+      return true;
+    });
+    if (!due.length) return;
+    void post("/api/studio/posts/captions", { batch: batch.id, indexes: due.map((p) => p.index) })
+      .then(() => refresh())
+      .catch((e) => console.error("[captions]", (e as Error).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, tasks, plan]);
   async function rewritePost(index: number, next: Post[]) {
     if (!batch) return;
     setBusy("reidea");
@@ -1324,6 +1361,8 @@ export default function Workspace({
                 approvals={config?.approvals}
                 monthOccasions={config?.occasions}
                 onRewrite={(i, next) => void rewritePost(i, next)}
+                onRefit={refitPosts}
+                rewriting={rewriting}
                 />
               </div>
             </div>
