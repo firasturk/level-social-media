@@ -222,7 +222,7 @@ export default function PlanView({
     if (!dirtyRef.current) return;
     const before = planRef.current;
     const next = draftRef.current;
-    void Promise.resolve(onSavePlan(next)).then(() => refitPending());
+    void saveDraft().then(() => refitPending());
     const texts: (keyof Post)[] = ["headline", "subline", "caption", "hashtags", "title", "brief"];
     const changed = next.filter((p) => {
       const was = before.find((x) => x.index === p.index);
@@ -252,7 +252,7 @@ export default function PlanView({
   };
   /** Unsaved edits are saved first, so a Regenerate right after an edit uses the edit. */
   async function saveThen(run: () => void) {
-    if (dirtyRef.current) await onSavePlan(draftRef.current);
+    if (dirtyRef.current) await saveDraft();
     // A product changed and Regenerate was clicked at once: the words are written first, then the picture.
     await refitPending();
     run();
@@ -304,6 +304,13 @@ export default function PlanView({
         return next;
       }),
     );
+  }
+  /** Saves the draft; the posts sent then take the server's copy, so a field the server adds never keeps a card "unsaved". */
+  async function saveDraft(): Promise<void> {
+    const sent = draftRef.current;
+    await onSavePlan(sent);
+    const saved = planRef.current;
+    setDraft((d) => d.map((x, i) => (JSON.stringify(x) === JSON.stringify(sent[i]) && saved[i]?.index === x.index ? saved[i] : x)));
   }
   /** Saves the draft, then writes the words again for the cards whose product or people changed. */
   async function refitPending() {
@@ -581,7 +588,7 @@ export default function PlanView({
             <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
             {dirty && (
               <span className="posts-save">
-                <button className="primary" onClick={() => void Promise.resolve(onSavePlan(draft)).then(() => refitPending())}>
+                <button className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
                   Save changes
                 </button>
                 <button className="text-button" onClick={() => setDraft(plan)}>
@@ -1073,7 +1080,7 @@ export default function PlanView({
                           <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved : x)))}>
                             Discard
                           </button>
-                          <button type="button" className="primary" onClick={() => void Promise.resolve(onSavePlan(draftRef.current)).then(() => refitPending())}>
+                          <button type="button" className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
                             <Check size={13} /> Save changes
                           </button>
                         </div>

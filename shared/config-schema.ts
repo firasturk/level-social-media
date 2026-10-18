@@ -86,6 +86,7 @@ export const postSchema = z.object({
   style: z.string().max(80).optional(),
   captionFrom: z.string().max(400).optional(),
   captionHand: z.boolean().optional(),
+  textCheck: z.object({ ok: z.boolean(), note: z.string().max(400), for: z.string().max(400), at: z.number() }).optional(),
   offer: z
     .object({
       products: z.array(z.string().max(300)).max(6),
