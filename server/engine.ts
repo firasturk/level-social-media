@@ -203,7 +203,16 @@ export type Background = (p: Promise<unknown>) => void;
 export interface DriveOptions {
   background?: Background;
   deferSync?: boolean;
+  /**
+   * Until when a finished synchronous image refills its slot with the next queued one, so the
+   * engine runs as a rolling pipeline (six in flight) instead of rounds that wait for the slowest.
+   * Set by advanceBatch on the first call; the next tick or cron carries on after it.
+   */
+  refillUntil?: number;
 }
+
+/** How long one tick or cron pass keeps refilling slots as images finish. */
+const REFILL_BUDGET_MS = 4 * 60 * 1000;
 
 /** Either Google path: Vertex (the Cloud project's credits) when connected, else the AI Studio key. */
 export type GoogleEngine = GoogleImageClient | VertexImageClient;
@@ -265,7 +274,7 @@ export async function advanceBatch(
   await finalizeInFlight(env, batch, config);
 
   if (batch.state === "running") {
-    await submitNext(env, batch, config, options);
+    await submitNext(env, batch, config, { ...options, refillUntil: options.refillUntil ?? now() + REFILL_BUDGET_MS });
     await settleIdle(env, batch, config);
   }
 }
@@ -616,12 +625,12 @@ async function settleFailedAttempt(
 }
 
 let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
-let vertexThrottledUntil = 0; // after a Vertex rate limit, only a couple of images at a time for a while
-/** Images in flight at once on Vertex while its quota is being hit (a trial project allows ~2 a minute). */
-const VERTEX_THROTTLED_PARALLEL = 2;
-const VERTEX_THROTTLE_MS = 10 * 60 * 1000;
+let vertexThrottledUntil = 0; // after a Vertex rate limit, fewer images at a time for a while
+/** Images in flight at once on Vertex while its shared capacity is being hit. */
+const VERTEX_THROTTLED_PARALLEL = 3;
+const VERTEX_THROTTLE_MS = 5 * 60 * 1000;
 
-/** Vertex runs at full width until Google throttles it, then narrows for ten minutes. */
+/** Vertex runs at full width until Google throttles it, then narrows to three for five minutes. */
 function vertexParallel(env: Env): number {
   return now() < vertexThrottledUntil ? VERTEX_THROTTLED_PARALLEL : concurrency(env);
 }
@@ -703,8 +712,14 @@ async function submitNext(
   env: Env,
   batch: BatchRow,
   config: Config,
-  { background, deferSync }: DriveOptions,
+  options: DriveOptions,
 ): Promise<void> {
+  const { background, deferSync, refillUntil = 0 } = options;
+  // A finished synchronous image hands its slot to the next queued one while the budget lasts.
+  const refill = async () => {
+    if (deferSync || !background || now() > refillUntil) return;
+    await advanceBatch(env, batch.id, options).catch((e) => console.error("[refill]", batch.id, errorMessage(e)));
+  };
   // A month planned before the right engine was connected keeps an unusable model: move it to the
   // connected one instead of pausing on "not connected".
   const usable = await connectedModel(env, config.model);
@@ -807,7 +822,7 @@ async function submitNext(
         : tGoogle && economy
           ? await submitGoogleBackgroundTask(env, batch, cfg, task)
           : tOpenai || tGoogle
-            ? await submitOpenAITask(env, batch, cfg, task, token, background)
+            ? await submitOpenAITask(env, batch, cfg, task, token, background, refill)
             : await submitTask(
                 env,
                 client ?? (await makeClient(env, undefined, cfg.model)),
@@ -1892,6 +1907,8 @@ async function submitOpenAITask(
   task: TaskRow,
   lease: string,
   background?: Background,
+  /** Runs once the image is saved or has failed: the engine's chance to start the next one. */
+  onSettled?: () => Promise<void>,
 ): Promise<string> {
   const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", task.source);
   if (!source) throw new StudioError("Original unavailable.", 404);
@@ -2036,6 +2053,7 @@ async function submitOpenAITask(
         e,
       );
     }
+    if (onSettled) await onSettled();
   })();
   if (background) background(job);
   else await job;

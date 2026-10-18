@@ -135,7 +135,10 @@ export default {
     // The system check runs once a day and tells the admin when something fails.
     ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
     const ids = await activeBatchIds(env);
+    // Synchronous images run in the background of the cron pass (six at once, refilled as they
+    // finish) instead of one after another.
+    const background = (p: Promise<unknown>) => ctx.waitUntil(p.catch(() => {}));
     for (const id of ids)
-      ctx.waitUntil(advanceBatch(env, id).catch((e) => console.error("[cron]", id, e)));
+      ctx.waitUntil(advanceBatch(env, id, { background }).catch((e) => console.error("[cron]", id, e)));
   },
 } satisfies ExportedHandler<Env>;

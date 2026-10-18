@@ -1300,7 +1300,8 @@ studioRoutes.post("/tick", async (c) => {
       c.executionCtx.waitUntil(p.catch(() => {}));
     },
   });
-  await Promise.allSettled(jobs);
+  // Finished images refill their slots with new jobs while the tick is held, so wait for those too.
+  for (let i = 0; i < jobs.length; i++) await jobs[i].catch(() => {});
   return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
 });
 
