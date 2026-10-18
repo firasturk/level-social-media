@@ -10,8 +10,7 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { fixNote, parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
-import { AI_LOOK_FIX } from "@shared/realism";
+import { parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import {
@@ -477,24 +476,8 @@ async function storeResultBytes(
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
     }
-    // People that look generated get one realism pass by themselves (with the other fixes the
-    // review asked for) before the team sees them; the pass's own result is never sent again.
-    const realism = qa.automated && qa.flags?.some((f) => f.kind === "ailook") && !(task.edit ?? "").includes(AI_LOOK_FIX);
-    if (realism) {
-      const sent = await run(
-        env.DB,
-        "UPDATE tasks SET status = 'queued', edit = ?, qa = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
-        fixNote(qa.flags!),
-        JSON.stringify(qa),
-        now(),
-        task.id,
-        key,
-      );
-      if (sent) {
-        await run(env.DB, "UPDATE batches SET state = 'running', last_error = NULL, updated = ? WHERE id = ?", now(), batch.id);
-        return;
-      }
-    }
+    // A person that looks generated is a review note like any other: the team decides with Fix it.
+    // (An automatic second take doubled the time and the cost of every post with people.)
     await run(
       env.DB,
       "UPDATE tasks SET status = ?, qa = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
@@ -608,14 +591,16 @@ async function settleFailedAttempt(
   }
   if (isContentPolicyError(message) && (await retryAfterRefusal(env, config, task, message)))
     return;
-  // A vendor rate limit is not the image's fault: wait as asked (at least 30 s), keep the image
-  // queued and give the attempt back, so a throttled project never fails images one by one.
+  // A vendor rate limit is not the image's fault: new submissions wait as long as the vendor
+  // asked, the engine narrows (two fewer at once, never under two) and widens again step by
+  // step while the vendor stays quiet; the image keeps its place and gets its attempt back.
   if (isRateLimit(e)) {
-    const wait = Math.max(30_000, retryAfterMs(e));
+    const wait = Math.max(5_000, retryAfterMs(e));
     enginePausedUntil = Math.max(enginePausedUntil, now() + wait);
-    if (/vertex/i.test(message)) vertexThrottledUntil = now() + VERTEX_THROTTLE_MS;
+    narrowAfterRateLimit(env);
     await run(env.DB, "UPDATE tasks SET attempts = MAX(0, attempts - 1) WHERE id = ?", task.id);
-    await requeue(env, task, `Engine rate limited; retrying in ${Math.round(wait / 1000)} s.`);
+    const detail = message.replace(/^.*?\(429\):?\s*/, "").replace(/\s+/g, " ").trim().slice(0, 160);
+    await requeue(env, task, `Engine rate limited; retrying in ${Math.round(wait / 1000)} s.${detail ? ` ${detail}` : ""}`);
     return;
   }
   if (isTransientEngineError(e) && task.attempts < MAX_AUTO_ATTEMPTS)
@@ -625,14 +610,34 @@ async function settleFailedAttempt(
 }
 
 let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
-let vertexThrottledUntil = 0; // after a Vertex rate limit, fewer images at a time for a while
-/** Images in flight at once on Vertex while its shared capacity is being hit. */
-const VERTEX_THROTTLED_PARALLEL = 3;
-const VERTEX_THROTTLE_MS = 5 * 60 * 1000;
+/** Images in flight at once on Google after its rate limits: 0 = the full width. */
+let googleWidth = 0;
+let lastRateLimitAt = 0;
+let lastWidenAt = 0;
+/** A quiet stretch this long widens the engine by one image. */
+const WIDEN_AFTER_MS = 45_000;
+const MIN_WIDTH = 2;
 
-/** Vertex runs at full width until Google throttles it, then narrows to three for five minutes. */
-function vertexParallel(env: Env): number {
-  return now() < vertexThrottledUntil ? VERTEX_THROTTLED_PARALLEL : concurrency(env);
+function narrowAfterRateLimit(env: Env): void {
+  const current = googleWidth || concurrency(env);
+  googleWidth = Math.max(MIN_WIDTH, current - 2);
+  lastRateLimitAt = now();
+}
+
+/**
+ * Google runs at full width until it throttles; then two fewer images at once, and one more
+ * again for every quiet stretch, back up to the full width. The width follows the quota
+ * instead of collapsing to one image at a time.
+ */
+function googleParallel(env: Env): number {
+  const full = concurrency(env);
+  if (!googleWidth) return full;
+  if (googleWidth < full && now() - Math.max(lastRateLimitAt, lastWidenAt) > WIDEN_AFTER_MS) {
+    googleWidth += 1;
+    lastWidenAt = now();
+  }
+  if (googleWidth >= full) googleWidth = 0;
+  return googleWidth || full;
 }
 
 async function requeue(env: Env, task: TaskRow, message: string): Promise<void> {
@@ -782,7 +787,7 @@ async function submitNext(
   const vertexActive = google ? !!(await resolveGoogleAuth(env)).vertex : false;
   // Synchronous engines hold a connection per image, so they are capped; fal.ai queues on its side.
   const slots =
-    (fal ? FAL_PARALLEL : vertexActive ? vertexParallel(env) : concurrency(env)) -
+    (fal ? FAL_PARALLEL : google ? googleParallel(env) : concurrency(env)) -
     (processing?.n ?? 0);
   if (slots <= 0) return;
   // Prompts are written ahead of submission: every set leader first, then the followers whose
