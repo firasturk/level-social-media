@@ -78,7 +78,7 @@ export function Group({
   children: ReactNode;
 }) {
   return (
-    <div className="kit-group" style={{ "--kit": KIT[kit].color } as React.CSSProperties}>
+    <div className="kit-group" data-kit={kit} style={{ "--kit": KIT[kit].color } as React.CSSProperties}>
       <div className="kit-group-head">
         <KitIcon kit={kit} />
         <strong>{title ?? KIT[kit].label}</strong>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
 import { ArrowUpRight, Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
@@ -100,6 +100,9 @@ export function MakeStep({
   const [open, setOpen] = useState<number | null>(null);
   const done = posts.filter((x) => x.url && !MAKING.includes(x.status)).length;
   const making = posts.filter((x) => MAKING.includes(x.status)).length;
+  const waiting = posts.filter((x) => x.status === "queued").length;
+  const failed = posts.filter((x) => x.status === "failed").length;
+  const eta = useEta(done, making);
   const grid = gridOf(plan.length);
   const act = async (index: number, run: () => Promise<void>) => {
     setActing(index);
@@ -120,6 +123,15 @@ export function MakeStep({
       <div className="make-progress" aria-hidden>
         <i style={{ width: `${plan.length ? (done / plan.length) * 100 : 0}%` }} />
       </div>
+      {making > 0 && (
+        <p className="make-status" aria-live="polite">
+          <b>{done}</b> of {plan.length} made
+          {making - waiting > 0 ? ` · ${making - waiting} being made` : ""}
+          {waiting ? ` · ${waiting} waiting` : ""}
+          {failed ? ` · ${failed} failed` : ""}
+          {eta ? ` · about ${eta} min left` : ""}
+        </p>
+      )}
       <div className={`journey-boxes idea-grid results ${grid.rows > 2 ? "scrolls" : ""}`} style={grid.style}>
         {plan.map((p, i) => {
           const j = posts.find((x) => x.index === p.index);
@@ -316,6 +328,20 @@ function CaptionCard({
       </div>
     </article>
   );
+}
+
+/** Minutes the posts still being made need, from the pace of the ones finished while watching. */
+function useEta(done: number, making: number): number | null {
+  const finished = useRef<number[]>([]);
+  const before = useRef(done);
+  useEffect(() => {
+    if (done > before.current) finished.current.push(Date.now());
+    before.current = done;
+  }, [done]);
+  if (!making) return null;
+  const t = finished.current;
+  const pace = t.length >= 2 ? (t[t.length - 1] - t[0]) / (t.length - 1) : 75_000;
+  return Math.max(1, Math.round((making * pace) / 60_000));
 }
 
 /* ───────────── The feed: the month as the client's grid will look ───────────── */

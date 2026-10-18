@@ -47,6 +47,7 @@ interface ProfileRow {
   error: string | null;
   analysed: number | null;
   updated: number;
+  drive?: string | null;
 }
 
 function parse<T>(raw: string | null, fallback: T): T {
@@ -70,6 +71,7 @@ function toRecord(client: string, r: ProfileRow | null): ProfileRecord {
     error: r?.error ?? null,
     analysed: r?.analysed ?? null,
     updated: r?.updated ?? 0,
+    drive: r?.drive ?? "",
   };
 }
 

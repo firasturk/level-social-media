@@ -19,8 +19,10 @@ export const GRID_PICK_SCHEMA = {
   properties: {
     grid: { type: "integer" },
     reason: { type: "string" },
+    /** The next best grids, when the team wants a choice. */
+    others: { type: "array", items: { type: "object", properties: { grid: { type: "integer" }, reason: { type: "string" } }, required: ["grid", "reason"] } },
   },
-  required: ["grid", "reason"],
+  required: ["grid", "reason", "others"],
 };
 
 export function gridPickInstruction(r: {
@@ -31,6 +33,8 @@ export function gridPickInstruction(r: {
   places: string;
   count: number;
   grids: GridCandidate[];
+  /** How many grids to offer in all (the best first, then the next best, each with its reason). */
+  choices?: number;
 }): string {
   return [
     `You are the art director of a social media studio in Jordan. Pick the ONE feed grid from the library that the brand "${r.client}" should follow for its next month of ${r.count} Instagram posts.`,
@@ -49,15 +53,22 @@ export function gridPickInstruction(r: {
       `- about ${r.count} tiles, or more;`,
       "- a grid suggested by the Analysis is a good sign, not a must.",
     ].join("\n"),
-    "Return the grid's number and one short sentence on why, in English.",
+    r.choices && r.choices > 1
+      ? `Return the best grid's number and one short sentence on why, in English, and in "others" the next ${r.choices - 1} best grids (different from the first and from each other, each with its own reason).`
+      : 'Return the grid\'s number and one short sentence on why, in English; "others" stays [].',
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function parseGridPick(raw: unknown, grids: GridCandidate[]): { grid: GridCandidate; reason: string } | null {
-  const x = raw && typeof raw === "object" ? (raw as { grid?: unknown; reason?: unknown }) : {};
+export function parseGridPick(raw: unknown, grids: GridCandidate[]): { grid: GridCandidate; reason: string; others: { grid: GridCandidate; reason: string }[] } | null {
+  const x = raw && typeof raw === "object" ? (raw as { grid?: unknown; reason?: unknown; others?: unknown }) : {};
   const i = Math.round(Number(x.grid)) - 1;
   const grid = grids[i];
-  return grid ? { grid, reason: String(x.reason ?? "").trim().slice(0, 300) } : null;
+  if (!grid) return null;
+  const seen = new Set([grid.id]);
+  const others = (Array.isArray(x.others) ? x.others : [])
+    .map((o) => ({ grid: grids[Math.round(Number((o as { grid?: unknown })?.grid)) - 1], reason: String((o as { reason?: unknown })?.reason ?? "").trim().slice(0, 300) }))
+    .filter((o) => o.grid && !seen.has(o.grid.id) && seen.add(o.grid.id));
+  return { grid, reason: String(x.reason ?? "").trim().slice(0, 300), others };
 }

@@ -16,7 +16,10 @@ describe("Autopilot's grid", () => {
   });
 
   it("keeps only a grid it was shown", () => {
-    expect(parseGridPick({ grid: 2, reason: "Desserts in cream." }, grids)).toEqual({ grid: grids[1], reason: "Desserts in cream." });
+    expect(parseGridPick({ grid: 2, reason: "Desserts in cream." }, grids)).toEqual({ grid: grids[1], reason: "Desserts in cream.", others: [] });
+    // Other choices: known grids only, never the first one twice.
+    expect(parseGridPick({ grid: 2, reason: "a", others: [{ grid: 2, reason: "x" }, { grid: 1, reason: "Street." }, { grid: 9, reason: "?" }] }, grids)?.others).toEqual([{ grid: grids[0], reason: "Street." }]);
+    expect(gridPickInstruction({ client: "H", profile: "", brand: "", products: [], places: "", count: 9, grids, choices: 3 })).toMatch(/next 2 best grids/);
     expect(parseGridPick({ grid: 7 }, grids)).toBeNull();
     expect(parseGridPick(null, grids)).toBeNull();
   });

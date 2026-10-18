@@ -83,6 +83,12 @@ const MAGIC = STEPS.findIndex((s) => s.key === "magic");
 
 const RESUME_KEY = "lsm-journey-step";
 
+interface GridChoice {
+  id: string;
+  title: string;
+  reason: string;
+  tiles: number;
+}
 interface AutoLine {
   step: string;
   text: string;
@@ -825,6 +831,15 @@ export default function Journey(p: JourneyProps) {
 
   /* ── Autopilot (admins): the journey walks itself, deciding what a person would ── */
   const [auto, setAuto] = useState<AutoRun | null>(null);
+  /** The team wants to choose the grid from the AI's best three before Autopilot carries on. */
+  const [chooseGrid, setChooseGrid] = useState(() => {
+    try {
+      return localStorage.getItem("lsm-autopilot-choose-grid") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [gridChoice, setGridChoice] = useState<{ options: GridChoice[]; resolve: (g: GridChoice | null) => void } | null>(null);
   const autoDecided = useRef(new Set<string>());
   const autoTries = useRef<Record<string, number>>({});
   const autoBusy = useRef(false);
@@ -915,11 +930,19 @@ export default function Journey(p: JourneyProps) {
         }
         let gridRef = p.config?.gridRef ?? null;
         if (!gridRef) {
-          log("Picking the grid that fits the brand…", "run");
-          const g = await post<{ id: string; title: string; reason: string }>("/api/studio/autopilot/grid", { client: client.id, count: p.postCount });
-          gridRef = `style:${g.id}`;
+          log(chooseGrid ? "Finding the three grids that fit the brand best…" : "Picking the grid that fits the brand…", "run");
+          const g = await post<{ id: string; title: string; reason: string; choices: GridChoice[] }>("/api/studio/autopilot/grid", { client: client.id, count: p.postCount, choices: chooseGrid ? 3 : 1 });
+          let picked: GridChoice = { id: g.id, title: g.title, reason: g.reason, tiles: 0 };
+          if (chooseGrid && g.choices?.length > 1) {
+            log("Waiting for you to choose the grid.", "run");
+            const chosen = await new Promise<GridChoice | null>((resolve) => setGridChoice({ options: g.choices, resolve }));
+            setGridChoice(null);
+            if (!chosen) throw new Error("No grid chosen.");
+            picked = chosen;
+          }
+          gridRef = `style:${picked.id}`;
           p.onSettings({ gridRef });
-          log(`Grid: “${g.title}”. ${g.reason}`);
+          log(`Grid: “${picked.title}”. ${picked.reason}`);
         } else log("The month already follows a grid.");
         const r = await post<ThemesReply>(`/api/studio/posts/themes/${themeId}/palette`, { grid: gridRef });
         p.onThemesChanged(r.themes);
@@ -1173,9 +1196,26 @@ export default function Journey(p: JourneyProps) {
                       shots, fixes what it finds and generates the month. You land on the finished feed.
                     </small>
                   </span>
-                  <button type="button" className="primary" disabled={!!auto?.on || !p.engineReady} onClick={() => void startAutopilot()} title={p.engineReady ? undefined : "Connect an image engine first"}>
-                    <Rocket size={14} /> Run Autopilot
-                  </button>
+                  <span className="journey-autopilot-actions">
+                    <label className="journey-autopilot-option" title="Autopilot shows the three grids that fit best, with its reasons, and waits for your pick">
+                      <input
+                        type="checkbox"
+                        checked={chooseGrid}
+                        onChange={(e) => {
+                          setChooseGrid(e.target.checked);
+                          try {
+                            localStorage.setItem("lsm-autopilot-choose-grid", e.target.checked ? "1" : "0");
+                          } catch {
+                            /* private mode */
+                          }
+                        }}
+                      />
+                      Let me choose the grid from its best three
+                    </label>
+                    <button type="button" className="primary" disabled={!!auto?.on || !p.engineReady} onClick={() => void startAutopilot()} title={p.engineReady ? undefined : "Connect an image engine first"}>
+                      <Rocket size={14} /> Run Autopilot
+                    </button>
+                  </span>
                 </div>
               )}
               {client && p.previousMonth && !p.batchId && (
@@ -1504,6 +1544,29 @@ export default function Journey(p: JourneyProps) {
         </div>
       </div>
 
+      {gridChoice && (
+        <div className="overlay-screen" role="dialog" aria-modal="true" aria-label="Choose the grid">
+          <div className="grid-choice">
+            <h2>Which grid should {client?.name} follow?</h2>
+            <p className="field-hint">The three that fit the brand best, with why. Autopilot carries on with the one you pick.</p>
+            <div className="grid-choice-list">
+              {gridChoice.options.map((g, i) => (
+                <button key={g.id} type="button" className="grid-choice-card" onClick={() => gridChoice.resolve(g)}>
+                  <img src={styleThumb({ id: g.id, updated: 0 })} alt="" />
+                  <strong>
+                    {i === 0 ? "Best fit · " : ""}
+                    {g.title}
+                  </strong>
+                  <small>{g.reason}</small>
+                </button>
+              ))}
+            </div>
+            <button type="button" className="text-button" onClick={() => gridChoice.resolve(null)}>
+              Stop Autopilot
+            </button>
+          </div>
+        </div>
+      )}
       {auto && (
         <aside className={`autopilot-panel ${auto.on ? "on" : ""}`} aria-live="polite">
           <div className="autopilot-head">

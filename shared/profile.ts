@@ -49,6 +49,8 @@ export interface ProfileRecord {
   error: string | null;
   analysed: number | null;
   updated: number;
+  /** The client's Drive folder link, when one is connected. */
+  drive?: string;
 }
 
 const list = { type: "array", items: { type: "string" } };

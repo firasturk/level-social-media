@@ -229,7 +229,7 @@ function Section({
       </div>
     );
   return (
-    <section className={`bp-section ${open ? "open" : ""}`}>
+    <section className={`bp-section ${open ? "open" : ""}`} data-kit={kit}>
       <button type="button" className="bp-head" onClick={() => setOpen((v) => !v)}>
         <span>
           {kit && <KitIcon kit={kit} size={16} />}

@@ -22,7 +22,7 @@ autopilotRoutes.use("*", async (c, next) => {
 
 /** The grid from the library that fits the client best, with why. */
 autopilotRoutes.post("/grid", async (c) => {
-  const d = z.object({ client: z.string().min(1), count: z.number().int().min(1).max(30).default(9) }).parse(await c.req.json().catch(() => ({})));
+  const d = z.object({ client: z.string().min(1), count: z.number().int().min(1).max(30).default(9), choices: z.number().int().min(1).max(5).default(1) }).parse(await c.req.json().catch(() => ({})));
   const client = await first<{ id: string; name: string; tone: string; style: string; colors: string; service: string | null }>(
     c.env.DB,
     "SELECT id, name, tone, style, colors, service FROM clients WHERE id = ?",
@@ -66,10 +66,18 @@ autopilotRoutes.post("/grid", async (c) => {
       places: places.map((p) => `${p.kind === "factory" ? "its kitchen or factory" : "its shop"} (${p.n})`).join(", "),
       count: d.count,
       grids,
+      choices: d.choices,
     }),
     GRID_PICK_SCHEMA,
   );
   const pick = parseGridPick(JSON.parse(raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()), grids);
   if (!pick) throw new StudioError("The model picked no grid. Try again.", 502);
-  return c.json({ ok: true, id: pick.grid.id, title: pick.grid.title, reason: pick.reason });
+  const titleOf = (g: GridCandidate) => ({ id: g.id, title: g.title, tiles: g.tiles });
+  return c.json({
+    ok: true,
+    id: pick.grid.id,
+    title: pick.grid.title,
+    reason: pick.reason,
+    choices: [{ ...titleOf(pick.grid), reason: pick.reason }, ...pick.others.slice(0, d.choices - 1).map((o) => ({ ...titleOf(o.grid), reason: o.reason }))],
+  });
 });

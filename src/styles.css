@@ -10711,3 +10711,187 @@ button.shot-product:hover {
     box-shadow: none;
   }
 }
+
+/* The client's setup checklist and the making progress. */
+.setup-checklist {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.setup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.setup-bar {
+  flex: 1 1 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.setup-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #7c3aed, #ec4899);
+  border-radius: inherit;
+}
+.setup-checklist ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 4px 16px;
+}
+.setup-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  min-height: 26px;
+}
+.setup-checklist li.done {
+  color: var(--ink-500);
+}
+.setup-checklist li.done > svg {
+  color: #1f8a4c;
+}
+.setup-checklist li button {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.make-status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+/* The client's approval page: reasons to tap, and the thank-you. */
+.share-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.share-reason {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.share-reason.on {
+  background: var(--ink-900);
+  color: var(--surface);
+  border-color: var(--ink-900);
+}
+.share-thanks {
+  max-width: 1200px;
+  margin: 16px auto 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(31, 138, 76, 0.12);
+  color: #1f8a4c;
+}
+.share-thanks.pending {
+  background: rgba(181, 71, 8, 0.12);
+  color: #b54708;
+}
+.share-thanks div {
+  display: grid;
+  gap: 2px;
+}
+.share-thanks span {
+  font-size: 13px;
+  color: var(--ink-700, inherit);
+}
+
+/* Autopilot: the option and the grid choice. */
+.journey-autopilot-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex: none;
+}
+.journey-autopilot-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.overlay-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 16, 40, 0.55);
+}
+.grid-choice {
+  width: min(960px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--surface);
+}
+.grid-choice h2 {
+  margin: 0;
+}
+.grid-choice-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.grid-choice-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.grid-choice-card:hover {
+  border-color: #7c3aed;
+}
+.grid-choice-card img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.grid-choice-card small {
+  color: var(--ink-500);
+  font-size: 12.5px;
+}
+@media (max-width: 760px) {
+  .grid-choice-list {
+    grid-template-columns: 1fr;
+  }
+  .journey-autopilot-actions {
+    align-items: stretch;
+    width: 100%;
+  }
+}

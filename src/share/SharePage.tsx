@@ -79,8 +79,28 @@ export default function SharePage({ token }: { token: string }) {
     );
   const ready = data.posts.filter((p) => p.image);
   const approved = data.posts.filter((p) => p.approval?.status === "approved").length;
+  const changes = data.posts.filter((p) => p.approval?.status === "changes").length;
+  const allDone = ready.length > 0 && approved === ready.length;
   return (
     <div className="share-page">
+      {allDone && (
+        <div className="share-thanks" role="status">
+          <Check size={18} />
+          <div>
+            <strong>Everything is approved. Thank you!</strong>
+            <span>The team schedules the posts now; you will see them on {data.client.name}'s page on their days.</span>
+          </div>
+        </div>
+      )}
+      {!allDone && approved + changes > 0 && approved + changes === ready.length && (
+        <div className="share-thanks pending" role="status">
+          <MessageSquare size={18} />
+          <div>
+            <strong>Thank you! {changes} post{changes > 1 ? "s" : ""} will be changed.</strong>
+            <span>The team makes the changes and sends you this link again.</span>
+          </div>
+        </div>
+      )}
       <header className="share-head">
         {data.client.logo ? <img className="share-logo" src={`${base}/logo?v=${data.client.updated}`} alt="" /> : null}
         <div>
@@ -153,6 +173,8 @@ function SharedCard({
 }) {
   const [asking, setAsking] = useState(false);
   const [note, setNote] = useState(post.approval?.note ?? "");
+  const reasons = ["Change the words", "Change the picture", "The colours", "The product looks wrong", "Another date"];
+  const toggleReason = (r: string) => setNote((n) => (n.includes(r) ? n.replace(new RegExp(`${r}\\.?\\s*`), "").trim() : `${r}. ${n}`.trim()));
   const [sending, setSending] = useState(false);
   const src = post.image ? `${base}/image/${post.index}?v=${post.image}` : null;
 
@@ -199,7 +221,14 @@ function SharedCard({
         </p>
         {asking ? (
           <div className="share-ask">
-            <textarea dir="auto" rows={3} value={note} placeholder="What would you like changed?" onChange={(e) => setNote(e.target.value)} />
+            <div className="share-reasons" aria-label="What to change">
+              {reasons.map((r) => (
+                <button key={r} type="button" className={`share-reason ${note.includes(r) ? "on" : ""}`} onClick={() => toggleReason(r)}>
+                  {r}
+                </button>
+              ))}
+            </div>
+            <textarea dir="auto" rows={3} value={note} placeholder="Tap a reason above, or write what you would like changed" onChange={(e) => setNote(e.target.value)} />
             <div className="share-actions">
               <button type="button" className="secondary" onClick={() => setAsking(false)} disabled={sending}>
                 Cancel

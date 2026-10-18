@@ -1,4 +1,5 @@
 import { lazyScreen } from "@/lib/lazy";
+import SetupChecklist from "./SetupChecklist";
 import MonthVersions from "./MonthVersions";
 import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
@@ -1184,6 +1185,25 @@ export default function Workspace({
                 <Compass size={15} /> Start journey
               </button>
             </div>
+            <SetupChecklist
+              client={client}
+              ambassadors={ambassadors}
+              onOpenKit={(kit) => {
+                setKitOpen(true);
+                setTimeout(() => {
+                  const el = (kit && document.querySelector(`[data-kit="${kit}"]`)) || document.querySelector(".brand-panel");
+                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }, 150);
+              }}
+              onOpenJourney={(step) => {
+                try {
+                  localStorage.setItem("lsm-journey-step", JSON.stringify({ client: clientId, month, step }));
+                } catch {
+                  /* private mode */
+                }
+                setJourney(true);
+              }}
+            />
             {config && (
               <BriefCard
                 config={config}
