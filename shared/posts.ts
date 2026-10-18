@@ -718,6 +718,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   parts.push(POST_SHADOW_RULE);
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
   if (people.length) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
+  if (people.length && b.hasProduct && sellsClothing([productText, ...extras.map((e) => e.note ?? "")]))
+    parts.push(
+      `DRESSED IN THE BRAND: ${people.length === 1 ? "the ambassador wears" : `the ${people.length} ambassadors each wear one of`} the attached product garment${extras.length ? "s" : ""}, exactly as photographed (print, colours, cut), with the printed side in view; nobody wears a plain tee or another garment in its place, and the attached products are never shown only held or laid aside while a person wears something else. ${people.length > extras.length + 1 ? `There are more people than garments: the ${extras.length + 1 === 1 ? "one garment" : `${extras.length + 1} garments`} go to ${extras.length + 1 === 1 ? "one ambassador" : "the first ambassadors"} and the other${people.length - extras.length - 1 > 1 ? "s" : ""} wear plain unprinted clothes in the month's colours.` : ""}`,
+    );
   if (people.some((p) => CHILD_WORDS.test(p.description)))
     parts.push(
       "CHILDREN: the child looks like a real photographed child, never a doll or a render: real child skin with its natural unevenness and a faint flush, slightly messy real hair, a genuine expression caught mid-play or mid-laugh, natural child proportions, real small hands with five fingers each resting naturally. Any garment worn with the product is plain and unprinted.",
@@ -883,10 +887,21 @@ function peopleRule(r: IdeasRequest): string {
 const PRODUCT_ONLY_IDEAS =
   "PRODUCTS ONLY: the client's products are the only food or drink in any brief. Never write other dishes, drinks, juices, coffee, tea, glasses of liquid, fruit or ingredients into a scene, even when the references show them: where a reference has a drink or fruit, use a non-food prop in the month's colours instead. In briefs, refer to a product as \"the product\" (or by what it looks like), never by its file name or number. Show each product at its real size, held level with both hands or set on a surface; never put a product into a bag, a basket or another container. Describe each product exactly as its photo note says and never add toppings, garnish, nuts, pine nuts, sauces, syrup or decorations to it. The posts must read as a very realistic product photoshoot of these exact products.";
 
+/** A garment: worn in the picture, never handled like a box or a plate (same words as the style writer's). */
+const CLOTHING_WORDS =
+  /\b(sweatshirt|sweater|hoodie|t-?shirt|tee|shirt|blouse|top|dress|skirt|jeans|trousers|pants|shorts|leggings|jacket|coat|abaya|kaftan|thobe|jumpsuit|romper|onesie|pyjamas?|pajamas?|activewear|sportswear|tracksuit|socks|sneakers|shoes|boots|cap|beanie|scarf|outfit|garment|clothing|clothes|wear)\b/i;
+export function sellsClothing(notes: string[]): boolean {
+  return notes.some((n) => CLOTHING_WORDS.test(n));
+}
+
+/** A clothing brand's people wear its products: nobody stands there in a plain tee from nowhere. */
+export const DRESSED_RULE =
+  "A CLOTHING BRAND: every person in a picture wears one of the month's products (one garment per person, each named in the product fields); a person for whom no product is in the post does not appear, so a post never shows more people than garments to wear. The rest of the outfit is plain and unprinted.";
+
 /** The month's ambassadors as an instruction block for the ideas writer (empty when none). */
 function ambassadorsBlock(r: IdeasRequest): string {
   if (!r.ambassadors?.length) return "";
-  return `BRAND AMBASSADORS THIS MONTH (the brand's recurring people; their portraits keep the same faces in every post): ${r.ambassadors.map((a) => `${a.name}${a.description ? ` (${a.description})` : ""}`).join("; ")}. Whenever a post shows a person, cast one or more of these ambassadors by name in the field "people" (1-3 names, exact spelling) and name them in the brief with what they do; they are the only people who appear. Cast by fit: a shot whose person is a woman gets a woman ambassador and a man's gets a man; when no cast ambassador fits, rewrite the person and their clothes to fit the ambassador (a man never wears a headscarf, a hijab or a dress) or show hands only. Spread them across the month so each appears, and leave "people" empty for product-only posts. The client's ALWAYS and NEVER rules still apply.`;
+  return `${sellsClothing(Object.values(r.productNotes ?? {})) ? `${DRESSED_RULE} ` : ""}BRAND AMBASSADORS THIS MONTH (the brand's recurring people; their portraits keep the same faces in every post): ${r.ambassadors.map((a) => `${a.name}${a.description ? ` (${a.description})` : ""}`).join("; ")}. Whenever a post shows a person, cast one or more of these ambassadors by name in the field "people" (1-3 names, exact spelling) and name them in the brief with what they do; they are the only people who appear. Cast by fit: a shot whose person is a woman gets a woman ambassador and a man's gets a man; when no cast ambassador fits, rewrite the person and their clothes to fit the ambassador (a man never wears a headscarf, a hijab or a dress) or show hands only. Spread them across the month so each appears, and leave "people" empty for product-only posts. The client's ALWAYS and NEVER rules still apply.`;
 }
 
 /** What language the caption, headline and subline are written in. */

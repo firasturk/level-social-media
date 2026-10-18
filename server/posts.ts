@@ -1603,6 +1603,8 @@ postRoutes.post("/generate", async (c) => {
       test: z.boolean().optional(),
       /** The designer asked for another take of this post (the take count goes up). */
       retake: z.boolean().optional(),
+      /** "Make it again": the review's findings, carried into the fresh take of a brief rebuilt from the plan as it is now. */
+      note: z.string().trim().max(3000).optional(),
     }),
   );
   const user = c.get("user");
@@ -1989,8 +1991,8 @@ postRoutes.post("/generate", async (c) => {
     if (existing)
       statements.push(
         c.env.DB.prepare(
-          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
-        ).bind(sourceId, prompt, JSON.stringify(brief), caption, now(), existing.id),
+          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
+        ).bind(sourceId, prompt, JSON.stringify(brief), caption, d.note?.trim() || null, now(), existing.id),
       );
     else
       statements.push(

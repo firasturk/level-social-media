@@ -141,3 +141,22 @@ describe("the preflight before paying", () => {
     expect(ideasInstruction({ clientName: "Q", tone: "", dos: "", donts: "", language: "en", palette: [], style: "", themeTitle: "", themeDirection: "", themeLibrary: "", props: "", products: [], productNotes: {}, month: "2026-10", count: 1, lessons } as never)).toContain("No bags");
   });
 });
+
+describe("a clothing brand dresses its people", () => {
+  it("tells the engine that every ambassador wears a product, and the idea writer too", async () => {
+    const { buildPostPrompt, ideasInstruction, sellsClothing } = await import("../shared/posts");
+    expect(sellsClothing(["Off-white toddler sweatshirt with red text"])).toBe(true);
+    expect(sellsClothing(["A box of baklava"])).toBe(false);
+    const b = {
+      post: true, take: 1, index: 2, type: "lifestyle", title: "T", brief: "Three friends.", palette: [], style: "", theme: "", format: "4:5", hasProduct: true,
+      product: "Off-white toddler sweatshirt with red 'Mini MAMA' text on the chest",
+      extraProducts: [{ name: "jeans", note: "pale blue cargo jeans", key: "j" }],
+      ambassadors: [{ name: "kinan", description: "a little boy", key: "k" }, { name: "tulay", description: "a little girl", key: "t" }, { name: "ahmad", description: "a little girl", key: "a" }],
+    };
+    const prompt = buildPostPrompt(b as never);
+    expect(prompt).toContain("DRESSED IN THE BRAND");
+    expect(prompt).toContain("There are more people than garments");
+    const ideas = ideasInstruction({ clientName: "Q", tone: "", dos: "", donts: "", language: "en", palette: [], style: "", themeTitle: "", themeDirection: "", themeLibrary: "", props: "", products: ["s"], productNotes: { s: "grey sweatshirt" }, month: "2026-10", count: 1, ambassadors: [{ name: "kinan", description: "a boy" }] } as never);
+    expect(ideas).toContain("A CLOTHING BRAND: every person in a picture wears one of the month's products");
+  });
+});

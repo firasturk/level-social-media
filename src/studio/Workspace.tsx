@@ -991,10 +991,16 @@ export default function Workspace({
   };
   /** One post's picture changed as the review asks. */
   const fixPost = async (index: number, edit: string) => {
-    const t = tasks.find((x) => x.post === index);
-    if (!t) return;
+    if (!batch) return;
+    if (!engineConnected) {
+      setConnection(true);
+      return;
+    }
+    // The brief is built again from the plan as it is now (its people, products, idea and lessons),
+    // and the review's findings ride along as the fresh take's note.
     try {
-      await action("revise", { id: t.id, edit });
+      await post("/api/studio/posts/generate", { batch: batch.id, indexes: [index], regenerate: true, note: edit });
+      await refresh();
       toast.success(`Making post ${index} again.`);
     } catch (e) {
       toast.error((e as Error).message);
@@ -1437,16 +1443,7 @@ export default function Workspace({
           engineReady={engineConnected}
           posts={journeyPosts}
           onRetake={(index) => generatePosts([index], true, false, false, true)}
-          onFix={async (index, edit) => {
-            const t = tasks.find((x) => x.post === index);
-            if (!t) return;
-            try {
-              await action("revise", { id: t.id, edit });
-              toast.success(`Making post ${index} again.`);
-            } catch (e) {
-              toast.error((e as Error).message);
-            }
-          }}
+          onFix={fixPost}
           onShare={shareMonth}
           typography={typography}
           onExport={exportMonth}
