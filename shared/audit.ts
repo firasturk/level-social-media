@@ -59,19 +59,19 @@ export function writingReviewInstruction(r: {
   client: string;
   tone: string;
   language: string;
-  posts: { index: number; type: string; headline?: string; subline?: string; caption?: string; hashtags?: string }[];
+  posts: { index: number; type: string; headline?: string; subline?: string; caption?: string; hashtags?: string; product?: string }[];
 }): string {
   return [
     `You are the senior Arabic copy editor of a social media agency in Jordan, reviewing one month of Instagram posts written for the brand "${r.client}" before they go out. Tone of voice the brand asked for: ${r.tone || "not given"}. Language: ${r.language}.`,
     `THE POSTS:\n${r.posts
-      .map((p) => `Post ${p.index} (${p.type}): headline "${p.headline ?? ""}"${p.subline ? `; second line "${p.subline}"` : ""}${p.caption ? `; caption: ${p.caption.replace(/\s+/g, " ").slice(0, 400)}` : "; no caption yet"}${p.hashtags ? `; hashtags: ${p.hashtags.slice(0, 160)}` : ""}`)
+      .map((p) => `Post ${p.index} (${p.type}${p.product ? `, product: ${p.product}` : ""}): headline "${p.headline ?? ""}"${p.subline ? `; second line "${p.subline}"` : ""}${p.caption ? `; caption: ${p.caption.replace(/\s+/g, " ").slice(0, 400)}` : "; no caption yet"}${p.hashtags ? `; hashtags: ${p.hashtags.slice(0, 160)}` : ""}`)
       .join("\n")}`,
     [
       "Check, strictly:",
       "- spelling and grammar in Arabic (a misspelt word, a wrong hamza, a broken plural, Latin letters inside Arabic);",
       "- the dialect and tone the brand asked for (Jordanian colloquial stays colloquial; formal Fusha stays formal), consistent across the month;",
       "- headlines: short, one idea, no repetition of the same headline or the same opening across posts, no empty filler;",
-      "- captions: speak to the reader, name the product, end with one clear call to action, hashtags relevant and not spammy;",
+      "- captions: speak to the reader, name the post's own product and fit it (a caption about a tin under a kunafa post, or about a 'selection' under one product, is wrong), end with one clear call to action that varies across the month (never the same ending on every post), hashtags relevant and not spammy;",
       "- anything that would embarrass the brand (a wrong claim, a word with a bad second meaning, a competitor's name).",
       "Report only real problems, one per line, with the post number. Give score 1-10 for the month's writing and a two-sentence summary in English.",
     ].join("\n"),

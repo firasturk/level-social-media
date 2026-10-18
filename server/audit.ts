@@ -253,7 +253,13 @@ async function checkMonths(env: Env, add: (f: AuditFinding) => void) {
     const tasks = await all<{ post: number | null; status: string; output: string | null; qa: string | null; caption: string | null; error: string | null }>(env.DB, "SELECT post, status, output, qa, caption, error FROM tasks WHERE batch = ? AND post IS NOT NULL", b.id);
     const sources = await all<{ name: string }>(env.DB, "SELECT name FROM sources WHERE batch = ? AND kind = 'product'", b.id);
     const productNames = new Set(sources.map((s) => decodeEntities(stemOf(s.name).split("/").pop() ?? s.name).toLowerCase()));
-    const made = tasks.filter((t) => t.output).length;
+    const made = tasks.filter((t) => t.output && plan.some((p) => p.index === t.post)).length;
+    // Pictures left from a longer plan: they are not in the month any more but still show in exports and the link.
+    const orphans = tasks.filter((t) => t.output && !plan.some((p) => p.index === t.post)).map((t) => t.post);
+    if (orphans.length) add({ area: "months", severity: "warn", title: `${orphans.length} picture${orphans.length > 1 ? "s" : ""} for posts that are no longer in the plan`, detail: `Post${orphans.length > 1 ? "s" : ""} ${orphans.join(", ")}: the plan now has ${plan.length} posts.`, fix: "Open the month and remove the extra posts, or add posts back to the plan.", about });
+    // A product named after a camera file or a catalogue number reads badly in captions and prompts.
+    const badNames = plan.filter((p) => p.product && /^(whatsapp image|img[_ -]|dsc|screenshot|^\d{1,3}\s*[-.])/i.test(p.product.trim()));
+    if (badNames.length) add({ area: "months", severity: "warn", title: `${badNames.length} post${badNames.length > 1 ? "s use" : " uses"} a product named after a file`, detail: badNames.map((p) => `post ${p.index}: ${p.product!.slice(0, 50)}`).join("; "), fix: "Rename the product photo in the month's products (click its name), then rewrite its caption.", about });
     const failed = tasks.filter((t) => t.error && !["queued", "processing", "finalizing"].includes(t.status));
     if (failed.length) add({ area: "months", severity: "warn", title: `${failed.length} post${failed.length > 1 ? "s" : ""} failed`, detail: failed.map((t) => `post ${t.post}: ${(t.error ?? "").slice(0, 90)}`).join("; "), fix: "Open the month and press Make it again on each.", about });
     if (made && made < plan.length) add({ area: "months", severity: "info", title: `${plan.length - made} of ${plan.length} posts not generated yet`, fix: "Journey → Test grid → Generate.", about });
@@ -340,7 +346,7 @@ async function checkWriting(env: Env, add: (f: AuditFinding) => void) {
     } catch {
       /* the plan's caption */
     }
-    return { index: p.index, type: p.type, headline: p.headline, subline: p.subline, caption, hashtags };
+    return { index: p.index, type: p.type, headline: p.headline, subline: p.subline, caption, hashtags, product: p.product };
   });
   const about = `${client.name} · ${b.month}`;
   const raw = await askText(env, writingReviewInstruction({ client: client.name, tone: client.tone, language: client.language, posts }), WRITING_REVIEW_SCHEMA);
