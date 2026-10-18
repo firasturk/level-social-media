@@ -519,9 +519,16 @@ export const BACK_PRINT = /\b(?:printed |graphic |print |design |artwork |text |
  */
 export function backPrintRule(notes: string[]): string {
   const printed = notes.filter((t) => t && BACK_PRINT.test(t));
-  if (!printed.length) return "";
-  return "BACK PRINT: the graphic of this garment is on its BACK, as photographed. It stays on the back: the wearer is seen from behind or turned three-quarter away so the back print is in view, or the garment is shown folded or laid with its back up. The front of the garment is plain, as in its photo; the graphic is never moved, copied or mirrored onto the front or the chest.";
+  if (printed.length)
+    return "BACK PRINT: the graphic of this garment is on its BACK, as photographed. It stays on the back: the wearer is seen from behind or turned three-quarter away so the back print is in view, or the garment is shown folded or laid with its back up. The front of the garment is plain, as in its photo; the graphic is never moved, copied or mirrored onto the front or the chest.";
+  const front = notes.filter((t) => t && FRONT_PRINT.test(t));
+  if (front.length)
+    return "FRONT PRINT: the graphic of this garment is on its CHEST, as photographed. The wearer faces the camera or stands three-quarter to it so the chest print is in view; the back of the garment is plain, as in its photo, and the graphic is never moved, copied or mirrored onto the back.";
+  return "";
 }
+
+/** A garment whose print or graphic is on its chest or front, as its photo and description show. */
+export const FRONT_PRINT = /\b(?:on|across|at) (?:the |its )?(?:chest|front)\b|\b(?:chest|front) (?:print|graphic|design|artwork|text)\b/i;
 
 const CHILD_WORDS = /\b(child|kid|toddler|baby|girl|boy|little|years? old|\d{1,2}\s*(years?|yrs?))\b/i;
 
@@ -948,7 +955,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     r.products.length ? PRODUCT_ONLY_IDEAS : "",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product. NOTHING IS ADDED TO A PRODUCT: no biscuit, cookie, fruit, sauce, syrup, drizzle, sprinkles, cream or topping its description does not name, nothing dipped into it or poured over it, and no other food or pastry beside it; its colours stay its own. A GARMENT PRINTED ON THE BACK is worn by a person seen from behind or turned away so the back print shows; the brief says so, and never puts the graphic on the front:
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product. NOTHING IS ADDED TO A PRODUCT: no biscuit, cookie, fruit, sauce, syrup, drizzle, sprinkles, cream or topping its description does not name, nothing dipped into it or poured over it, and no other food or pastry beside it; its colours stay its own. A GARMENT'S PRINT SITS WHERE ITS DESCRIPTION SAYS, and nowhere else: when the description puts the graphic on the back, the person is seen from behind so it shows; when it is on the chest, the person faces the camera; when the description does not say, the brief never names a side and never writes "on the back" or "on the front". A client rule about showing the backs of sweatshirts applies only to garments whose description puts the graphic on the back:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : r.service?.trim()
         ? serviceBlock(r)

@@ -775,9 +775,17 @@ const MAX_NOTE_BYTES = 6 * 1024 * 1024;
  */
 /** A note written before the describer was told to leave out the photo's surroundings: described again. */
 const STALE_NOTE = /\b(?:surrounded by|next to|beside|alongside|on a (?:wooden |serving |marble |white )?(?:tray|plate|board|table)|social media handles?)\b/i;
+/** A garment with a print or words whose note does not say where they sit: the writers then invent a side. */
+const PRINT_WORDS = /\b(print|printed|graphic|text|lettering|slogan|embroider\w*|logo|artwork|design)\b/i;
+const PLACEMENT_WORDS = /\b(chest|front|back|sleeve|sleeves|hem|collar|pocket)\b/i;
+function needsPlacement(note: string | null | undefined): boolean {
+  return !!note && CLOTHING_NOTE.test(note) && PRINT_WORDS.test(note) && !PLACEMENT_WORDS.test(note);
+}
+const CLOTHING_NOTE =
+  /\b(sweatshirt|sweater|hoodie|t-?shirt|tee|shirt|blouse|top|dress|skirt|jeans|trousers|pants|shorts|leggings|jacket|coat|abaya|kaftan|thobe|jumpsuit|romper|onesie|pyjamas?|pajamas?|tracksuit|cap|beanie)\b/i;
 
 export async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
-  const pending = sources.filter((s) => s.kind === "product" && (!s.note || STALE_NOTE.test(s.note)));
+  const pending = sources.filter((s) => s.kind === "product" && (!s.note || STALE_NOTE.test(s.note) || needsPlacement(s.note)));
   const describe = async (s: SourceRow) => {
     try {
       // Another request (the upload's background read) may have finished it meanwhile.
@@ -786,7 +794,7 @@ export async function describeProducts(env: Env, sources: SourceRow[]): Promise<
         "SELECT note FROM sources WHERE id = ?",
         s.id,
       );
-      if (row?.note && !STALE_NOTE.test(row.note)) {
+      if (row?.note && !STALE_NOTE.test(row.note) && !needsPlacement(row.note)) {
         s.note = row.note;
         return;
       }

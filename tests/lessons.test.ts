@@ -160,3 +160,11 @@ describe("a clothing brand dresses its people", () => {
     expect(ideas).toContain("A CLOTHING BRAND: every person in a picture wears one of the month's products");
   });
 });
+
+describe("a print stays on the side its photo shows", () => {
+  it("mirrors the rule for a chest print and says nothing when the side is unknown", async () => {
+    const { backPrintRule } = await import("../shared/posts");
+    expect(backPrintRule(['Off-white toddler sweatshirt with red "Mini MAMA" text on the chest.'])).toContain("FRONT PRINT");
+    expect(backPrintRule(['Off-white toddler sweatshirt featuring red "Mini MAMA" text, about 40 cm long.'])).toBe("");
+  });
+});
