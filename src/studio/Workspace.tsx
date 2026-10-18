@@ -1135,8 +1135,9 @@ export default function Workspace({
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
-{batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />}
-                            <PlanView
+              <div className="plan-column">
+                {batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />}
+                <PlanView
                 onStyles={assignStyles}
                 client={client}
                 month={month}
@@ -1183,7 +1184,8 @@ export default function Workspace({
                 approvals={config?.approvals}
                 monthOccasions={config?.occasions}
                 onRewrite={(i, next) => void rewritePost(i, next)}
-              />
+                />
+              </div>
             </div>
           </>
         )}

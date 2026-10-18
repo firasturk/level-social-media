@@ -10426,3 +10426,9 @@ button.shot-product:hover {
   outline-offset: 3px;
   transition: outline-color 400ms;
 }
+/* The month's column: its earlier versions above its posts, never a column of their own. */
+.plan-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
