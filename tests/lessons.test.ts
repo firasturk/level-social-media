@@ -69,3 +69,17 @@ describe("lessons from earlier pictures", () => {
     expect(prompt).not.toContain("The headline is centered");
   });
 });
+
+describe("the gate before paying", () => {
+  it("takes the words to draw, the bag and the card out of the idea and the shot, and says so", async () => {
+    const { gatePostText } = await import("../shared/posts");
+    const g = gatePostText({
+      brief: "Kinan stands by a white wall. The headline is centered over the sweatshirt graphic.",
+      scene: "Kinan leans forward in the grey sweatshirt. The headline 'Be Silly.' is centered over the graphic. A paper bag stands beside him.",
+    });
+    expect(g.brief).toBe("Kinan stands by a white wall.");
+    expect(g.scene).toBe("Kinan leans forward in the grey sweatshirt.");
+    expect(g.notes).toEqual(['took the words to draw out of the idea', 'took the words to draw out of the shot ("Be Silly.")', "took the bag or carrier out of the shot"]);
+    expect(gatePostText({ brief: "A girl holds the box level with both hands." }).notes).toEqual([]);
+  });
+});

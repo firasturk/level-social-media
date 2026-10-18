@@ -89,6 +89,7 @@ import {
   type Post,
   type PostBrief,
   productKeyOf,
+  gatePostText,
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
 import { lessonsFor } from "./lessons";
@@ -1728,7 +1729,22 @@ postRoutes.post("/generate", async (c) => {
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
   // What went wrong in this client's earlier pictures: the prompt forbids it by name.
   const lessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
+  let gated = false;
   for (const post of plan) {
+    // The gate before paying: what the review would flag and the words already show is taken out
+    // of the idea and the shot here, so no credit is spent on a picture that would be rejected.
+    {
+      const g = gatePostText(post);
+      if (g.notes.length) {
+        post.brief = g.brief;
+        if (g.scene !== undefined) post.scene = g.scene;
+        post.prechecks = { at: now(), notes: g.notes };
+        gated = true;
+      } else if (post.prechecks) {
+        delete post.prechecks;
+        gated = true;
+      }
+    }
     if (!wanted.has(post.index)) continue;
     // An offer is generated only once the designer filled it: products, price and contents.
     if (post.type === "offer" && !offerReady(post.offer)) {
@@ -1985,12 +2001,11 @@ postRoutes.post("/generate", async (c) => {
     planned++;
   }
   if (!planned) throw new StudioError("Nothing to generate: every post already has an image.");
-  if (d.test) {
-    config.testPost = d.indexes![0];
+  if (d.test) config.testPost = d.indexes![0];
+  if (d.test || gated)
     statements.push(
       c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
     );
-  }
   statements.push(
     c.env.DB
       .prepare(

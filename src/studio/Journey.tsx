@@ -44,8 +44,7 @@ import {
   withoutLettering,
   withoutPaletteText,
   type Format,
-  type Post,
-} from "@shared/posts";
+  type Post, withoutWordsSentences } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
 import { fixNote, postProblems, type PostProblem } from "@shared/qa";
@@ -563,13 +562,15 @@ export default function Journey(p: JourneyProps) {
     // Fixes that need no writing: bag sentences out, named products into the picture.
     const unbag = new Set(list.filter((x) => x.fix === "unbag").map((x) => x.index));
     const blank = new Set(list.filter((x) => x.fix === "blank").map((x) => x.index));
+    const words = new Set(list.filter((x) => x.fix === "words").map((x) => x.index));
     const include = new Map<number, string[]>();
     for (const x of list) if (x.fix === "include" && x.products) include.set(x.index, [...(include.get(x.index) ?? []), ...x.products]);
-    if (unbag.size || include.size || blank.size) {
+    if (unbag.size || include.size || blank.size || words.size) {
       const plan = p.plan.map((x) => {
         let y = x;
         if (unbag.has(x.index)) y = { ...y, brief: withoutBags(y.brief) || y.brief, ...(y.scene ? { scene: withoutBags(y.scene) || y.scene } : {}) };
         if (blank.has(x.index)) y = { ...y, brief: withoutLettering(y.brief), ...(y.scene ? { scene: withoutLettering(y.scene) } : {}) };
+        if (words.has(x.index)) y = { ...y, brief: withoutWordsSentences(y.brief) || y.brief, ...(y.scene ? { scene: withoutWordsSentences(y.scene) || y.scene } : {}) };
         const add = include.get(x.index);
         if (add) y = { ...y, products: [...new Set([...(y.products ?? []), ...add])] };
         return y;
@@ -744,7 +745,7 @@ export default function Journey(p: JourneyProps) {
                 fix:
                   pr.fix === "unbag"
                     ? { label: "Take the bag out", run: () => fixPosts([pr]) }
-                    : pr.fix === "blank"
+                    : pr.fix === "blank" || pr.fix === "words"
                       ? { label: "Take it out", run: () => fixPosts([pr]) }
                       : pr.fix === "product"
                         ? { label: "Give it a product", run: () => fixPosts([pr]) }

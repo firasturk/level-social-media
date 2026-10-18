@@ -132,6 +132,8 @@ export interface Post {
   ov?: PostOverlayPatch;
   /** The text-on-design check of the finished post (the words drawn on the picture): for which picture, and what it found. */
   textCheck?: { ok: boolean; note: string; for: string; at: number };
+  /** What the gate took out of the idea or the shot before the last Generate, so no credit was spent on it. */
+  prechecks?: { at: number; notes: string[] };
   /** Which tile of a reference grid this post follows (grid mode). */
   tile?: string;
   /** That tile read in detail: what it shows, its background and how its text is set. */
@@ -1540,3 +1542,39 @@ export function wardrobeInstruction(r: {
     .join("\n\n");
 }
 
+
+
+/**
+ * The gate before paying: the mistakes the review would flag that can be read from the words of the
+ * idea and the shot are taken out here, deterministically, before any image is bought. A sentence
+ * that describes words to draw (a headline, a swipe arrow), a bag or a carrier, a card or a menu
+ * never reaches the engine. Returns the cleaned texts and a note for each thing taken out.
+ */
+export function gatePostText(post: Pick<Post, "brief" | "scene">): { brief: string; scene?: string; notes: string[] } {
+  const notes: string[] = [];
+  const quoted = (t: string) => (t.match(/["'“”‘’]([^"'“”‘’]{1,40})["'“”‘’]/g) ?? []).map((q) => q.slice(1, -1)).slice(0, 3);
+  const pass = (label: string, text: string | undefined): string | undefined => {
+    if (!text?.trim()) return text;
+    let out = text;
+    const w = withoutWordsSentences(out);
+    if (w !== out.trim()) {
+      const q = quoted(out).filter((x) => !quoted(w).includes(x));
+      notes.push(`took the words to draw out of the ${label}${q.length ? ` (${q.map((x) => `"${x}"`).join(", ")})` : ""}`);
+      out = w;
+    }
+    const bagless = withoutBags(out);
+    if (bagless && bagless !== out.trim()) {
+      notes.push(`took the bag or carrier out of the ${label}`);
+      out = bagless;
+    }
+    const lettered = withoutLettering(out);
+    if (lettered && lettered !== out.trim()) {
+      notes.push(`took the card, tag, menu or logo out of the ${label}`);
+      out = lettered;
+    }
+    return out;
+  };
+  const brief = pass("idea", post.brief) ?? post.brief;
+  const scene = pass("shot", post.scene);
+  return { brief, scene, notes: [...new Set(notes)] };
+}

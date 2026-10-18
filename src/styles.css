@@ -11597,3 +11597,19 @@ button.shot-product:hover {
   cursor: pointer;
 }
 .lesson-forget:hover { color: #9b1c1c; }
+
+
+/* The gate before paying: what was taken out of a post's idea or shot before Generate. */
+.post-prechecks {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 7px 12px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #166534;
+  background: rgba(22, 101, 52, 0.08);
+  border-bottom: 1px solid rgba(22, 101, 52, 0.2);
+}
+.post-prechecks svg { flex: none; margin-top: 1px; }

@@ -2,11 +2,11 @@
  * The checks a month's posts pass before any image is paid for: what the image engine would get
  * wrong if it were sent as it is. Each problem says where it is and how it is fixed.
  */
-import { BAGS, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post } from "./posts";
+import { BAGS, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post, withoutWordsSentences } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 import { AI_LOOK_CHECK, AI_LOOK_FIX } from "./realism";
 
-export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank" | "product";
+export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank" | "product" | "words";
 
 export interface PostProblem {
   index: number;
@@ -99,6 +99,8 @@ export function postProblems(
   if (LETTERED.test(scene) || LETTERED.test(post.brief))
     out.push({ index: n, text: "puts a card, a tag or a menu in its picture: the engine would write invented words on it, so it is taken out", fix: "blank" });
   if (BAGS.test(scene) || BAGS.test(post.brief)) out.push({ index: n, text: "puts the product in a bag or a carrier", fix: "unbag" });
+  if (withoutWordsSentences(scene) !== scene.trim() || withoutWordsSentences(post.brief) !== post.brief.trim())
+    out.push({ index: n, text: "describes words to draw in its picture (a headline, a slogan, a swipe arrow): the engine would paint them, so they are taken out", fix: "words" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {
     const drink = (t: string) => {

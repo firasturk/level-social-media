@@ -27,8 +27,7 @@ import {
   Trash2,
   Type,
   Wand2,
-  X,
-} from "lucide-react";
+  X, ShieldCheck } from "lucide-react";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
@@ -761,6 +760,11 @@ export default function PlanView({
                       </span>
                     )}
                   </div>
+                  {p.prechecks?.notes.length ? (
+                    <p className="post-prechecks" title="Taken out of the idea or the shot before any credit was spent">
+                      <ShieldCheck size={13} /> Before paying: {p.prechecks.notes.join("; ")}.
+                    </p>
+                  ) : null}
                   {t?.output && !inFlight && (reviewFlags(t)?.length ?? 0) > 0 && (
                     <ul className="post-flags">
                       {reviewFlags(t)!.map((f, n) => (
