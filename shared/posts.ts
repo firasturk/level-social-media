@@ -564,7 +564,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   const tileRef =
     "the tile of the month's reference grid that this post recreates: recreate its composition, camera angle and distance, arrangement, set, surface and light closely, with this brand's product in place of its products; never its products, packaging, bags, cups, cards, text, logo, brand or the identity of its people";
   // A style picked from the gallery is the picture to make, not just a mood.
-  const picked = `the style the designer picked: recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
+  const picked = `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
   let n = 0;
   if (b.hasProduct && extras.length) {
@@ -583,7 +583,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     const first = n + 1;
     n += people.length;
     parts.push(
-      `${people.length > 1 ? `Images ${first} to ${n} are portraits of the brand's ambassadors` : `Image ${first} is the portrait of the brand's ambassador`}: ${people.map((p, i) => `Image ${first + i}: ${p.name}${p.description ? ` (${p.description})` : ""}.`).join(" ")} Every ambassador in the picture is exactly this person: the same face, features, hair, skin tone and build as the portrait, in a new pose, expression and outfit that fit the scene; the portrait's background, framing and clothes are not copied. No other people appear unless the post asks for them.`,
+      `${people.length > 1 ? `Images ${first} to ${n} are portraits of the brand's ambassadors` : `Image ${first} is the portrait of the brand's ambassador`}: ${people.map((p, i) => `Image ${first + i}: ${p.name}${p.description ? ` (${p.description})` : ""}.`).join(" ")} ${people.every((p) => CHILD_WORDS.test(p.description)) ? "ALL THE AMBASSADORS ARE CHILDREN: every person in the picture is one of these children; no adult man or woman appears anywhere, whatever the style or the reference shows, and the style's grown-ups are replaced by these children at their own age and size. " : ""}Every ambassador in the picture is exactly this person: the same face, features, hair, skin tone and build as the portrait, in a new pose, expression and outfit that fit the scene; the portrait's background, framing and clothes are not copied. No other people appear unless the post asks for them.`,
     );
   }
   if (b.place) {
@@ -630,6 +630,11 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
+  // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
+  if (edit.trim() && fresh)
+    parts.push(
+      `NEW TAKE: the earlier picture of this post was rejected by the review for the problems below. Make the picture again from the brief, and make sure none of these problems is in it: ${edit.trim()}`,
+    );
   const typeRule = postTypeRule(b);
   if (typeRule) parts.push(typeRule);
   // The month's theme (its pins' world, visual language and props) steps back for a picked style.
@@ -715,11 +720,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   if (b.lessons?.length)
     parts.push(`MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):\n${b.lessons.map((l) => `- ${l}`).join("\n")}`);
   parts.push(NO_DESIGN_RULE);
-  if (edit.trim() && fresh)
-    parts.push(
-      `NEW TAKE: the earlier picture of this post was rejected by the review for the problems below. Make the picture again from the brief, and make sure none of these problems is in it: ${edit.trim()}`,
-    );
-  else if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
+  if (edit.trim() && !fresh) parts.push(`REVISION: ${edit.trim()}`);
   if (b.exact && !images.revision)
     parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
   parts.push(b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID);

@@ -92,3 +92,21 @@ describe("a back print stays on the back", () => {
     expect(backPrintRule(["A red sweatshirt with white 'LET'S GET COZY' text on the chest."])).toBe("");
   });
 });
+
+describe("a fresh take puts its findings first and keeps the children", () => {
+  it("places NEW TAKE right after the brief and forbids adults when every ambassador is a child", async () => {
+    const { buildPostPrompt, FRESH_TAKE } = await import("../shared/posts");
+    const b = {
+      post: true, take: 1, index: 8, type: "lifestyle", title: "Garden", brief: "Kinan and Tulay stand in a plush garden.",
+      palette: [], style: "", theme: "", format: "4:5", hasProduct: true,
+      ambassadors: [
+        { name: "kinan", description: "a little boy (child model); 8 years boy", key: "k" },
+        { name: "tulay", description: "a little girl (child model); 6 years old", key: "t" },
+      ],
+    } as unknown as import("../shared/posts").PostBrief;
+    const prompt = buildPostPrompt(b, `${FRESH_TAKE}Make the product exactly as in its photo (the print moved to the front).`);
+    expect(prompt).toContain("ALL THE AMBASSADORS ARE CHILDREN");
+    expect(prompt.indexOf("NEW TAKE:")).toBeGreaterThan(prompt.indexOf("POST (Lifestyle)"));
+    expect(prompt.indexOf("NEW TAKE:")).toBeLessThan(prompt.indexOf("PRODUCT TRUTH"));
+  });
+});

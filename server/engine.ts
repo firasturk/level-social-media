@@ -10,7 +10,12 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
+import { fixNote, parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction, type FlagKind } from "@shared/qa";
+import { FRESH_TAKE } from "@shared/posts";
+
+/** Fix it keeps going by itself while the review still finds these (at most MAX_FIX_ROUNDS more takes). */
+const HARD_FIX_KINDS = new Set<FlagKind>(["product", "invented", "text", "bag", "foreign", "people", "tile", "staging"]);
+const MAX_FIX_ROUNDS = 2;
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLessons } from "./lessons";
@@ -107,6 +112,8 @@ interface TaskRow {
   edit: string | null;
   attempts: number;
   recenter: number;
+  /** Takes Fix it has already added by itself (see MAX_FIX_ROUNDS). */
+  fix_rounds: number;
   request_id: string | null;
   leased_at: number | null;
   updated: number;
@@ -479,6 +486,25 @@ async function storeResultBytes(
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
+    }
+    // Fix it does not stop at a report: while the review still finds a hard problem (the product,
+    // the people, writing, a bag, the staging), the post is made again with the new findings, up
+    // to MAX_FIX_ROUNDS more takes. A soft note (AI look, size) is left to the team.
+    const hard = (qa.flags ?? []).filter((f) => HARD_FIX_KINDS.has(f.kind));
+    if ((task.edit ?? "").startsWith(FRESH_TAKE) && qa.automated && hard.length && (task.fix_rounds ?? 0) < MAX_FIX_ROUNDS) {
+      const round = (task.fix_rounds ?? 0) + 1;
+      const again = await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', edit = ?, fix_rounds = ?, qa = ?, error = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        fixNote(hard),
+        round,
+        JSON.stringify(qa),
+        `Fixing again (take ${round + 1} of ${MAX_FIX_ROUNDS + 1}): ${hard.map((f) => f.text.replace(/\.$/, "")).join("; ").slice(0, 300)}`,
+        now(),
+        task.id,
+        key,
+      );
+      if (again) return;
     }
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)

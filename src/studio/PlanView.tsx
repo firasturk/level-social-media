@@ -270,6 +270,7 @@ export default function PlanView({
   /** The making state in words: a realism pass has its own. */
   const makingLabel = (t: Task | null) => {
     const edit = (t as { edit?: string | null } | null)?.edit ?? "";
+    if (/^Fixing again/.test(t?.error ?? "")) return t!.error!.replace(/:.*$/, "") + "…";
     if (/photographed, not generated/.test(edit)) return "Making the people look real…";
     if (edit.startsWith("FRESH TAKE:")) return "Making it again without the problems…";
     return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";

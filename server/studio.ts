@@ -1338,7 +1338,7 @@ studioRoutes.post("/revise", async (c) => {
   const b = await ownedBatch(c.env, c.get("user"), batch);
   const changed = await run(
     c.env.DB,
-    "UPDATE tasks SET status = 'queued', edit = ?, error = NULL, updated = ? WHERE id = ? AND batch = ? AND output IS NOT NULL AND status IN ('ready','review','approved','failed')",
+    "UPDATE tasks SET status = 'queued', edit = ?, fix_rounds = 0, error = NULL, updated = ? WHERE id = ? AND batch = ? AND output IS NOT NULL AND status IN ('ready','review','approved','failed')",
     edit,
     now(),
     id,
