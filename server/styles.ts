@@ -639,8 +639,24 @@ styleRoutes.post("/fill", async (c) => {
 /** Admins: more pins for the pool now (feed grids or photo styles), read on the cron and by "fill". */
 styleRoutes.post("/collect", async (c) => {
   if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
-  const d = await body(c, z.object({ only: z.enum(["grid", "photo"]), searches: z.number().int().min(1).max(12).default(4) }));
-  const added = d.only === "grid" ? await collectGrids(c.env, d.searches) : await collect(c.env, d.searches);
+  const d = await body(
+    c,
+    z.object({
+      only: z.enum(["grid", "photo"]),
+      searches: z.number().int().min(1).max(12).default(4),
+      /** Exact searches to run instead of the library's own (a client's kind, a season). */
+      queries: z.array(z.string().min(3).max(120)).max(12).optional(),
+    }),
+  );
+  let added = 0;
+  if (d.queries?.length)
+    for (const query of d.queries)
+      try {
+        added += await addToPool(c.env, await searchPins(query), "product", d.only === "grid" ? "grid" : "");
+      } catch (e) {
+        console.error("[styles] search failed", query, errorMessage(e));
+      }
+  else added = d.only === "grid" ? await collectGrids(c.env, d.searches) : await collect(c.env, d.searches);
   const pool = (await first<{ n: number }>(c.env.DB, `SELECT COUNT(*) AS n FROM styles WHERE status = 'pool' AND category ${d.only === "grid" ? "=" : "!="} 'grid'`))?.n ?? 0;
   return c.json({ ok: true, added, pool });
 });

@@ -240,11 +240,13 @@ export const STYLE_QUERIES: Record<StyleCategory, string[]> = {
     "creative bank advertising campaign surreal",
     "telecom creative ad concept 3d",
     "corporate creative advertising poster concept",
+    "exhibition booth design creative 3d render",
+    "trade show stand design modern saudi",
   ],
-  fashion: ["creative fashion advertising concept surreal", "shoes creative advertising set design", "handbag creative campaign surreal", "fashion product cgi campaign"],
+  fashion: ["creative fashion advertising concept surreal", "shoes creative advertising set design", "handbag creative campaign surreal", "fashion product cgi campaign", "kids fashion creative advertising campaign", "activewear creative advertising campaign"],
   food: ["creative food advertising concept surreal", "burger creative advertising cgi", "snack packaging creative campaign", "food product giant scale advertising"],
   drinks: ["creative drink advertising concept", "coffee creative advertising surreal", "juice bottle creative campaign splash", "soft drink can creative cgi ad", "boba tea creative advertising"],
-  sweets: ["creative dessert advertising concept", "chocolate box creative ad campaign", "pastry creative advertising surreal", "ice cream creative campaign cgi", "sweets packaging creative photography"],
+  sweets: ["creative dessert advertising concept", "chocolate box creative ad campaign", "pastry creative advertising surreal", "ice cream creative campaign cgi", "sweets packaging creative photography", "arabic sweets creative advertising", "baklava kunafa product photography premium"],
   lifestyle: ["creative lifestyle product advertising concept", "surreal advertising model holding oversized product", "product in everyday scene surreal ad", "playful product set design advertising"],
   beauty: ["creative skincare advertising concept 3d", "surreal cosmetics product ad", "perfume creative campaign surreal"],
   seasonal: ["ramadan product advertising creative", "eid gift box advertising concept", "winter product advertising surreal", "summer product advertising creative"],
@@ -280,8 +282,51 @@ export const STYLE_QUERIES: Record<StyleCategory, string[]> = {
     "social media feed design brand grid",
     "instagram feed color palette brand aesthetic",
     "product brand instagram feed 9 posts",
+    "kids clothing brand instagram feed",
+    "insurance company instagram feed design",
+    "arabic sweets instagram feed design",
+    "juice bar instagram feed aesthetic",
+    "exhibition company instagram feed design",
+    "activewear brand instagram feed",
   ],
 };
+
+/**
+ * The agency's own clients, by kind: the searches that bring photo styles and feed grids for
+ * them. The daily refresh draws from these too, so the library keeps growing where it is used.
+ */
+export const CLIENT_QUERIES: { kind: string; photo: string[]; grid: string[] }[] = [
+  {
+    kind: "kids fashion",
+    photo: ["kids fashion creative advertising campaign", "children clothing brand editorial photography playful", "kids wear surreal ad concept colorful", "toddler outfit product photography studio pastel"],
+    grid: ["kids clothing brand instagram feed", "children fashion instagram grid aesthetic", "baby clothes brand instagram feed design"],
+  },
+  {
+    kind: "insurance",
+    photo: ["creative insurance advertising concept", "insurance company campaign surreal protection", "family protection ad concept 3d", "car insurance creative ad visual", "health insurance creative campaign poster"],
+    grid: ["insurance company instagram feed design", "financial services instagram grid corporate", "insurance brand social media feed layout"],
+  },
+  {
+    kind: "arabic sweets",
+    photo: ["arabic sweets creative advertising", "baklava kunafa product photography premium", "oriental sweets box campaign surreal", "middle eastern dessert brand editorial photo", "ramadan sweets gift box advertising"],
+    grid: ["arabic sweets instagram feed design", "baklava shop instagram grid", "dessert brand instagram feed arabic", "kunafa shop social media feed"],
+  },
+  {
+    kind: "drinks and juices",
+    photo: ["fresh juice creative advertising splash", "coffee creative campaign surreal", "iced coffee product photography bold color", "smoothie brand creative ad fruit explosion", "juice bar advertising concept summer"],
+    grid: ["juice bar instagram feed aesthetic", "coffee shop instagram feed design", "fresh juice brand instagram grid", "cafe instagram feed layout colorful"],
+  },
+  {
+    kind: "exhibitions and booths",
+    photo: ["exhibition booth design creative 3d render", "trade show stand design modern saudi", "exhibition stand concept premium lighting", "event booth design visualization", "expo pavilion design concept"],
+    grid: ["exhibition company instagram feed design", "event agency instagram grid", "booth design studio instagram feed", "architecture visualization instagram feed"],
+  },
+  {
+    kind: "activewear",
+    photo: ["activewear creative advertising campaign", "sportswear brand editorial photography studio", "gym wear surreal ad concept", "athleisure product photography bold", "running apparel campaign dynamic motion"],
+    grid: ["activewear brand instagram feed", "sportswear instagram grid aesthetic", "fitness apparel instagram feed design", "gym brand instagram feed layout"],
+  },
+];
 
 /** Words of the season for the daily search (a Jordanian brand's calendar). */
 export function seasonWords(date: Date): string[] {
