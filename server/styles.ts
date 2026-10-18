@@ -646,10 +646,19 @@ styleRoutes.post("/collect", async (c) => {
       searches: z.number().int().min(1).max(12).default(4),
       /** Exact searches to run instead of the library's own (a client's kind, a season). */
       queries: z.array(z.string().min(3).max(120)).max(12).optional(),
+      /** Pins whose "more like this" fills the pool: the team's own picks set the taste. */
+      related: z.array(z.string().regex(/^\d{6,}$/)).max(30).optional(),
     }),
   );
   let added = 0;
-  if (d.queries?.length)
+  if (d.related?.length)
+    for (const pin of d.related)
+      try {
+        added += await addToPool(c.env, await relatedPins(pin), "product", d.only === "grid" ? "grid" : "");
+      } catch (e) {
+        console.error("[styles] related failed", pin, errorMessage(e));
+      }
+  else if (d.queries?.length)
     for (const query of d.queries)
       try {
         added += await addToPool(c.env, await searchPins(query), "product", d.only === "grid" ? "grid" : "");
