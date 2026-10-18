@@ -830,6 +830,15 @@ function productName(s: SourceRow): string {
 }
 
 async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> {
+  // Whatever wrote the plan (ideas, shots, a style, a refit, the designer's card), the words to
+  // draw, bags and lettered items leave the idea and the shot here, quietly, before anything else
+  // reads them.
+  for (const post of config.plan ?? []) {
+    const g = gatePostText(post);
+    if (!g.notes.length) continue;
+    post.brief = g.brief;
+    if (g.scene !== undefined) post.scene = g.scene;
+  }
   await run(
     env.DB,
     "UPDATE batches SET config = ?, theme = ?, updated = ? WHERE id = ?",
@@ -1738,10 +1747,6 @@ postRoutes.post("/generate", async (c) => {
       if (g.notes.length) {
         post.brief = g.brief;
         if (g.scene !== undefined) post.scene = g.scene;
-        post.prechecks = { at: now(), notes: g.notes };
-        gated = true;
-      } else if (post.prechecks) {
-        delete post.prechecks;
         gated = true;
       }
     }
