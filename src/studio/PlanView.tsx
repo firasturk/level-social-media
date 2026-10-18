@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
+import { toast } from "sonner";
+import { fixNote } from "@shared/qa";
 import {
+  ChevronDown,
+  ChevronUp,
   Clapperboard,
   Download,
   AlertTriangle,
   Check,
+  RotateCcw,
   Images,
   Eye,
   FileText,
@@ -81,6 +86,8 @@ export default function PlanView({
   onExport,
   onExportPdf,
   typography,
+  onFix,
+  onRestorePicture,
   onDeletePlan,
   paused,
   onResume,
@@ -149,6 +156,10 @@ export default function PlanView({
   onExportPdf: () => void;
   /** The month's typography: its style menu and its on/off switch. */
   typography?: TypographyProps;
+  /** Changes one post's picture as the review's note asks. */
+  onFix?: (index: number, edit: string) => Promise<void>;
+  /** Puts an earlier picture back on a post (after a Regenerate). */
+  onRestorePicture?: (index: number, key: string) => Promise<void>;
   onDeletePlan: () => void;
 }) {
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
@@ -186,9 +197,51 @@ export default function PlanView({
   draftRef.current = draft;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
-  /** Edits save themselves when the designer clicks out of a field. */
+  const planRef = useRef(plan);
+  planRef.current = plan;
+  /** Edits save themselves when the designer clicks out of a field; a text edit can be undone from the toast. */
   function autosave() {
-    if (dirtyRef.current) onSavePlan(draftRef.current);
+    if (!dirtyRef.current) return;
+    const before = planRef.current;
+    const next = draftRef.current;
+    onSavePlan(next);
+    const texts: (keyof Post)[] = ["headline", "subline", "caption", "hashtags", "title", "brief"];
+    const changed = next.filter((p) => {
+      const was = before.find((x) => x.index === p.index);
+      return was && texts.some((k) => (was[k] ?? "") !== (p[k] ?? ""));
+    });
+    if (changed.length)
+      toast("Saved", {
+        description: `Post ${changed.map((p) => p.index).join(", ")} text changed.`,
+        action: { label: "Undo", onClick: () => { setDraft(before); onSavePlan(before); } },
+        duration: 6000,
+      });
+  }
+  /** Which cards show every field (the picture, the words and the status show always). */
+  const [detailsOn, setDetailsOn] = useState<Set<number>>(new Set());
+  const [allDetails, setAllDetails] = useState(false);
+  const showDetails = (index: number) => allDetails || detailsOn.has(index);
+  const [fixing, setFixing] = useState<number | null>(null);
+  const [restoring, setRestoring] = useState<number | null>(null);
+  const prevKey = (t: Task) => `lsm-prev-output:${t.id}`;
+  const prevOf = (t: Task | null): string | null => {
+    if (!t?.output) return null;
+    try {
+      const k = localStorage.getItem(prevKey(t));
+      return k && k !== t.output ? k : null;
+    } catch {
+      return null;
+    }
+  };
+  /** Regenerate keeps the picture it replaces one click away. */
+  function regenerate(t: Task | null, index: number) {
+    try {
+      if (t?.output) localStorage.setItem(prevKey(t), t.output);
+    } catch {
+      /* private mode */
+    }
+    onGeneratePosts([index], true);
+    toast("Regenerating", { description: `Post ${index}: the previous picture stays one click away on the card (Previous picture).`, duration: 6000 });
   }
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
@@ -515,6 +568,9 @@ export default function PlanView({
         <>
           <div className="posts-head" id="month-posts">
             <strong>Posts</strong>
+            <button type="button" className="text-button posts-details-all" onClick={() => setAllDetails((v) => !v)} aria-pressed={allDetails}>
+              {allDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {allDetails ? "Hide details" : "Show all details"}
+            </button>
             <span>Edit any text; it saves when you click out. New idea rewrites a post, Regenerate makes a different take of it.</span>
             {dirty && (
               <span className="posts-save">
@@ -603,12 +659,35 @@ export default function PlanView({
                       </span>
                     )}
                   </div>
+                  {t?.output && !inFlight && (reviewFlags(t)?.length ?? 0) > 0 && (
+                    <ul className="post-flags">
+                      {reviewFlags(t)!.map((f, n) => (
+                        <li key={n}>{f.text}</li>
+                      ))}
+                      {onFix && (
+                        <li className="post-flags-fix">
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={fixing !== null || running}
+                            onClick={() => {
+                              setFixing(p.index);
+                              void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
+                            }}
+                          >
+                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix it
+                          </button>
+                        </li>
+                      )}
+                    </ul>
+                  )}
                   <div className="post-fields">
                     {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
                       <p className="post-approval-note" dir="auto">
                         “{approvals[String(p.index)].note}”
                       </p>
                     )}
+                    {showDetails(p.index) && (<>
                     <label className="post-date">
                       <span>Posting day</span>
                       <input
@@ -786,6 +865,7 @@ export default function PlanView({
                       placeholder="Title"
                       aria-label="Title"
                     />
+                    </>)}
                     <div className="post-overlay-fields">
                       <input
                         value={p.headline ?? ""}
@@ -825,6 +905,7 @@ export default function PlanView({
                         </label>
                       )}
                     </div>
+                    {showDetails(p.index) && (<>
                     <textarea
                       rows={3}
                       value={p.brief}
@@ -848,10 +929,28 @@ export default function PlanView({
                         aria-label="Hashtags"
                       />
                     </details>
+                    </>)}
+                    {!showDetails(p.index) && (
+                      <p className="post-summary">
+                        {p.date ? <span>{p.date.slice(5).replace("-", "/")}</span> : null}
+                        <span>{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
+                        {p.product && <span dir="auto">{p.product}</span>}
+                        {(p.people ?? []).length > 0 && <span>{(p.people ?? []).join(", ")}</span>}
+                        {p.style && styleOf(p.style) && <span>{styleOf(p.style)!.title}</span>}
+                      </p>
+                    )}
                     <div className="post-actions">
                       <span className={`pill ${t?.status ?? "idea"}`}>
                         {t ? STATUS_LABEL[t.status] ?? t.status : "Idea"}
                       </span>
+                      <button
+                        type="button"
+                        className="text-button post-details-toggle"
+                        aria-expanded={showDetails(p.index)}
+                        onClick={() => setDetailsOn((set) => { const n = new Set(set); if (n.has(p.index)) n.delete(p.index); else n.add(p.index); return n; })}
+                      >
+                        {showDetails(p.index) ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Details
+                      </button>
                       <span className="spacer" />
                       {t?.output && p.overlay !== false && (
                         <>
@@ -889,7 +988,7 @@ export default function PlanView({
                         <button
                           type="button"
                           className="text-button"
-                          onClick={() => onGeneratePosts([p.index], true)}
+                          onClick={() => regenerate(t, p.index)}
                           disabled={inFlight || running || dirty || (p.type === "offer" && !offerReady(p.offer))}
                           title={dirty ? "Save changes first" : "A clearly different take on the same brief: new angle, set and placement"}
                         >
@@ -904,6 +1003,23 @@ export default function PlanView({
                           title={dirty ? "Save changes first" : p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
                         >
                           <Sparkles size={13} /> Generate
+                        </button>
+                      )}
+                      {onRestorePicture && !inFlight && prevOf(t) && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          disabled={restoring !== null || running}
+                          title="Put the picture from before the last Regenerate back (the current one stays in Earlier versions)"
+                          onClick={() => {
+                            const was = t!.output!;
+                            setRestoring(p.index);
+                            void onRestorePicture(p.index, prevOf(t)!)
+                              .then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } })
+                              .finally(() => setRestoring(null));
+                          }}
+                        >
+                          {restoring === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />} Previous picture
                         </button>
                       )}
                       <button

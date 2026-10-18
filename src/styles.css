@@ -10550,3 +10550,164 @@ button.shot-product:hover {
   font-size: 11px;
   color: var(--ink-500);
 }
+
+/* ───────── UX: posts first, the brand kit folded away, the month bar sticky ───────── */
+.brief-card {
+  position: sticky;
+  top: 8px;
+  z-index: 6;
+  box-shadow: 0 6px 24px rgba(20, 16, 40, 0.08);
+}
+.brief-card-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.brief-card-state em {
+  font-style: normal;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.brief-card-state em.ok {
+  color: #1f8a4c;
+  background: rgba(31, 138, 76, 0.12);
+}
+.brief-card-state em.warn {
+  color: #b54708;
+  background: rgba(181, 71, 8, 0.12);
+}
+.brief-card-state em.busy {
+  color: #6d28d9;
+  background: rgba(124, 58, 237, 0.12);
+}
+.posts-workbench.kit-closed {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+.kit-rail {
+  position: sticky;
+  top: 76px;
+  height: 180px;
+  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.kit-rail span {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.kit-rail:hover {
+  color: var(--ink-900);
+  border-color: var(--ink-500);
+}
+/* The post card: the picture, the words and the status first; the rest under Details. */
+.post-flags {
+  list-style: none;
+  margin: 0;
+  padding: 8px 12px;
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  background: rgba(181, 71, 8, 0.1);
+  border-bottom: 1px solid rgba(181, 71, 8, 0.25);
+}
+.post-flags li::before {
+  content: "• ";
+  color: #b54708;
+}
+.post-flags li.post-flags-fix::before {
+  content: "";
+}
+.post-flags-fix button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.post-summary {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.post-summary span {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.post-details-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+.posts-details-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 12px;
+}
+/* The feed step: what the review flagged, with the fix, beside the feed. */
+.feed-check {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(181, 71, 8, 0.1);
+  text-align: start;
+  font-size: 12.5px;
+}
+.feed-check-item {
+  display: grid;
+  gap: 4px;
+}
+.feed-check-item button {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.feed-phone .month-versions {
+  margin: 12px 0 0;
+}
+@media (max-width: 900px) {
+  .posts-workbench.kit-closed {
+    grid-template-columns: 1fr;
+  }
+  .kit-rail {
+    position: static;
+    height: auto;
+    width: 100%;
+    flex-direction: row;
+    justify-content: center;
+    padding: 8px;
+  }
+  .kit-rail span {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+  .brief-card {
+    position: static;
+    box-shadow: none;
+  }
+}

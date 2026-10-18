@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import MonthVersions from "./MonthVersions";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import {
@@ -1479,6 +1480,7 @@ export default function Journey(p: JourneyProps) {
               onShare={p.onShare}
               onExport={p.onExport}
               typography={p.typography}
+              versions={p.batchId ? <MonthVersions batchId={p.batchId} plannedAt={p.config?.plannedAt} overlay={p.overlay} logoSrc={p.logoSrc} onRestored={p.refresh} /> : null}
               onOpenStudio={(i) => {
                 try {
                   localStorage.removeItem(RESUME_KEY);

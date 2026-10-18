@@ -332,6 +332,7 @@ export function FeedStep({
   onExport,
   typography,
   onOpenStudio,
+  versions,
   reference,
   onRetake,
   approvals = {},
@@ -349,6 +350,8 @@ export function FeedStep({
   typography: TypographyProps;
   /** Opens the studio on one post. */
   onOpenStudio: (index: number) => void;
+  /** The month's earlier versions, shown under the feed. */
+  versions?: React.ReactNode;
   /** The reference grid the month follows (its picture), shown beside the feed. */
   reference?: string;
   onRetake: (index: number) => Promise<void>;
@@ -359,6 +362,7 @@ export function FeedStep({
 }) {
   const [sharing, setSharing] = useState(false);
   const [fixing, setFixing] = useState<number | null>(null);
+  const [fixingPost, setFixingPost] = useState<number | null>(null);
   const comments = plan.filter((p) => approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note);
   const approvedCount = plan.filter((p) => approvals[String(p.index)]?.status === "approved").length;
   const [exporting, setExporting] = useState(false);
@@ -418,6 +422,7 @@ export function FeedStep({
               );
             })}
           </div>
+          {versions}
         </div>
         <div className="journey-box feed-side">
           {reference && (
@@ -427,6 +432,31 @@ export function FeedStep({
                 The grid you picked. {drifted ? `${drifted} post${drifted > 1 ? "s" : ""} drift from their tile (marked in orange): open one to make it again.` : "Every post follows its tile."}
               </figcaption>
             </figure>
+          )}
+          {posts.some((x) => x.flags?.length && !MAKING.includes(x.status)) && (
+            <div className="feed-check">
+              <strong>To check</strong>
+              {posts
+                .filter((x) => x.flags?.length && !MAKING.includes(x.status))
+                .map((x) => (
+                  <div key={x.index} className="feed-check-item">
+                    <span>
+                      <b>Post {x.index}</b> {x.flags!.map((f) => f.text).join("; ")}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={fixingPost !== null}
+                      onClick={() => {
+                        setFixingPost(x.index);
+                        void onFix(x.index, fixNote(x.flags!)).finally(() => setFixingPost(null));
+                      }}
+                    >
+                      {fixingPost === x.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix it
+                    </button>
+                  </div>
+                ))}
+            </div>
           )}
           <p className="magic-big">{ready}</p>
           <p className="field-hint">

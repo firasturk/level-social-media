@@ -35,7 +35,7 @@ import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
-import { Compass } from "lucide-react";
+import { Compass, PanelLeft } from "lucide-react";
 import { useBatch } from "./useBatch";
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
 import type { EngineInfo } from "./ConnectionDialog";
@@ -136,6 +136,8 @@ export default function Workspace({
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
+  /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
+  const [kitOpen, setKitOpen] = useState<boolean | null>(null);
   // Only "Skip to the studio" or Generate leaves the journey: a refresh keeps the team in it.
   useEffect(() => {
     try {
@@ -145,6 +147,16 @@ export default function Workspace({
       /* private mode */
     }
   }, [journey]);
+  /** Opens the journey straight on the month's feed. */
+  const openFeed = useCallback(() => {
+    try {
+      localStorage.setItem("lsm-journey-step", JSON.stringify({ client: clientId, month, step: 11 }));
+    } catch {
+      /* private mode */
+    }
+    setJourney(true);
+  }, [clientId, month]);
+
   /** Leaves the journey for the studio, scrolled to the month's posts (or to one post). */
   const finishJourney = useCallback((focus?: number) => {
     try {
@@ -174,6 +186,7 @@ export default function Workspace({
     return () => clearTimeout(t);
   }, []);
   useEffect(() => remember(CLIENT_KEY, clientId), [clientId]);
+  useEffect(() => setKitOpen(null), [clientId, month]);
   useEffect(() => remember(MONTH_KEY, month), [month]);
 
   const loadState = useCallback(async () => {
@@ -923,12 +936,73 @@ export default function Workspace({
       toast.error((e as Error).message);
     }
   }
+  /** The review's flags on a task, or none. */
+  const flagsOf = (t: Task) => {
+    try {
+      const qa = t.qa ? (JSON.parse(t.qa) as QA) : null;
+      return qa?.automated ? (qa.flags ?? []) : [];
+    } catch {
+      return [];
+    }
+  };
+  /** One post's picture changed as the review asks. */
+  const fixPost = async (index: number, edit: string) => {
+    const t = tasks.find((x) => x.post === index);
+    if (!t) return;
+    try {
+      await action("revise", { id: t.id, edit });
+      toast.success(`Fixing post ${index}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  /** An earlier picture back on its post. */
+  const restorePicture = async (index: number, key: string) => {
+    if (!batch) return;
+    try {
+      await post("/api/studio/posts/versions/restore", { batch: batch.id, index, key });
+      await refresh();
+      toast.success(`Post ${index}: the previous picture is back.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  // The brand kit folds away once the month has pictures, unless the team opened it.
+  const kitShown = kitOpen ?? !tasks.some((t) => t.post && t.output);
+  // How long the posts being made still need: from the pace of the ones finished this session.
+  const finishedAt = useRef<number[]>([]);
+  const madeNow = tasks.filter((t) => t.post && t.output && !["queued", "processing", "finalizing"].includes(t.status)).length;
+  const madeBefore = useRef(madeNow);
+  useEffect(() => {
+    if (madeNow > madeBefore.current) finishedAt.current.push(Date.now());
+    madeBefore.current = madeNow;
+  }, [madeNow]);
+  const etaMinutes = (() => {
+    const left = tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length;
+    if (!left) return null;
+    const times = finishedAt.current;
+    const pace = times.length >= 2 ? (times[times.length - 1] - times[0]) / (times.length - 1) : 75_000;
+    return Math.max(1, Math.round((left * pace) / 60_000));
+  })();
+
   const typography = {
     on: !config?.typographyOff,
     set: plan.some((p) => p.ov?.typo || p.ov?.typoOff),
     onSet: (style?: TypoStyle) => typographyMonth(style),
     onSwitch: switchTypography,
   };
+
+  /** The client's link, straight into WhatsApp. */
+  async function whatsAppMonth() {
+    if (!batch) return;
+    try {
+      const r = await post<{ url: string }>("/api/studio/posts/share", { batch: batch.id });
+      const text = `${client?.name ?? ""} · ${monthLabel(month)}: the month's posts are ready for your approval. Open the link, approve each post or ask for a change: ${r.url}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
 
   async function shareMonth() {
     if (!batch) return;
@@ -1116,9 +1190,18 @@ export default function Workspace({
                 theme={themes.find((t) => t.id === themeId) ?? null}
                 plan={plan}
                 onShare={() => void shareMonth()}
+                onWhatsApp={() => void whatsAppMonth()}
+                made={plan.filter((p) => tasks.some((t) => t.post === p.index && t.output)).length}
+                toCheck={tasks.filter((t) => t.post && t.output && !["queued", "processing", "finalizing"].includes(t.status) && flagsOf(t).length).length}
+                making={tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length}
+                eta={etaMinutes}
+                onFeed={openFeed}
+                kitOpen={kitShown}
+                onKit={() => setKitOpen(!kitShown)}
               />
             )}
-            <div className="workbench posts-workbench">
+            <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>
+              {kitShown ? (
               <BrandPanel
                 client={client}
                 onClientsChanged={setClients}
@@ -1135,6 +1218,12 @@ export default function Workspace({
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
+              ) : (
+                <button type="button" className="kit-rail" onClick={() => setKitOpen(true)} title="Open the brand kit: logos, colours, fonts, tone, rules, theme, ambassadors">
+                  <PanelLeft size={16} />
+                  <span>Brand kit</span>
+                </button>
+              )}
               <div className="plan-column">
                 {batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />}
                 <PlanView
@@ -1174,6 +1263,8 @@ export default function Workspace({
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
                 typography={typography}
+                onFix={fixPost}
+                onRestorePicture={restorePicture}
                 onDeletePlan={() => void deletePlan()}
                 paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
                 themeChanged={(() => {

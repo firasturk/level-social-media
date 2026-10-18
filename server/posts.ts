@@ -2178,10 +2178,11 @@ postRoutes.get("/versions", async (c) => {
  * alone can also come back to its post.
  */
 postRoutes.post("/versions/restore", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), version: z.string().min(1), index: z.number().int().min(1).optional(), key: z.string().max(400).optional() }));
+  const d = await body(c, z.object({ batch: z.string().min(1), version: z.string().min(1).optional(), index: z.number().int().min(1).optional(), key: z.string().max(400).optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
-  const v = await first<{ plan: string | null; grid: string | null; outputs: string }>(c.env.DB, "SELECT plan, grid, outputs FROM month_versions WHERE id = ? AND batch = ?", d.version, b.id);
-  if (!v) throw new StudioError("That version is gone.", 404);
+  if (!d.version && !(d.index && d.key)) throw new StudioError("Say which version, or which picture for which post.");
+  const v = d.version ? await first<{ plan: string | null; grid: string | null; outputs: string }>(c.env.DB, "SELECT plan, grid, outputs FROM month_versions WHERE id = ? AND batch = ?", d.version, b.id) : null;
+  if (d.version && !v) throw new StudioError("That version is gone.", 404);
   const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND status IN ('queued','processing','finalizing') LIMIT 1", b.id);
   if (busy) throw new StudioError("Posts are being made: wait for them, then bring the version back.", 409);
   const config = JSON.parse(b.config) as Config;
@@ -2201,6 +2202,7 @@ postRoutes.post("/versions/restore", async (c) => {
   };
   // One picture back to its post: the picture it replaces is kept with the month's earlier pictures.
   if (d.index && d.key) {
+    if (!(await c.env.BUCKET.head(d.key))) throw new StudioError("That picture is no longer in storage.", 404);
     const was = tasks.find((x) => x.post === d.index)?.output;
     if (!(await put(d.index, d.key))) throw new StudioError(`Post ${d.index} is not in the month any more.`, 409);
     if (was)
@@ -2217,10 +2219,10 @@ postRoutes.post("/versions/restore", async (c) => {
     return c.json({ ok: true, restored: 1 });
   }
   await keepMonthVersion(c.env, b);
-  const outputs = JSON.parse(v.outputs) as Record<string, string>;
-  if (v.plan) {
-    config.plan = JSON.parse(v.plan) as Post[];
-    config.gridRef = v.grid ?? undefined;
+  const outputs = JSON.parse(v!.outputs) as Record<string, string>;
+  if (v!.plan) {
+    config.plan = JSON.parse(v!.plan) as Post[];
+    config.gridRef = v!.grid ?? undefined;
     config.plannedAt = now();
     config.postCount = config.plan.length;
     await saveConfig(c.env, b, config);

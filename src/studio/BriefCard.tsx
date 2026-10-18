@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Link2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Grid3x3, Link2, LoaderCircle, PanelLeft, Share2 } from "lucide-react";
 import type { Config } from "@shared/config";
 import type { Theme } from "@shared/types";
 import { briefLines } from "@shared/brief";
@@ -16,11 +16,32 @@ export default function BriefCard({
   theme,
   plan,
   onShare,
+  made = 0,
+  toCheck = 0,
+  making = 0,
+  eta,
+  onFeed,
+  kitOpen,
+  onKit,
+  onWhatsApp,
 }: {
   config: Config;
   theme: Theme | null;
   plan: Post[];
   onShare: () => void;
+  /** Posts with a picture, posts the review flagged, posts being made now. */
+  made?: number;
+  toCheck?: number;
+  making?: number;
+  /** Minutes left while posts are being made. */
+  eta?: number | null;
+  /** Opens the month's feed. */
+  onFeed?: () => void;
+  /** The brand kit panel: open or folded away. */
+  kitOpen?: boolean;
+  onKit?: () => void;
+  /** Sends the client's link on WhatsApp. */
+  onWhatsApp?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const lines = briefLines(config.brief);
@@ -37,6 +58,21 @@ export default function BriefCard({
             <strong>{plan.length || config.postCount || 12}</strong> posts · {monthLabel(config.month ?? "")}
             {dates.length ? ` · ${shortDate(dates[0])} to ${shortDate(dates[dates.length - 1])}` : ""}
           </span>
+          {plan.length > 0 && (
+            <span className="brief-card-state">
+              {making ? (
+                <em className="busy">
+                  <LoaderCircle className="spinning" size={12} /> making {made}/{plan.length}
+                  {eta ? ` · about ${eta} min left` : ""}
+                </em>
+              ) : (
+                <em className={made === plan.length ? "ok" : ""}>
+                  {made}/{plan.length} made
+                </em>
+              )}
+              {toCheck > 0 && <em className="warn">{toCheck} to check</em>}
+            </span>
+          )}
           <span>
             Theme <strong>{theme?.title ?? "brand identity"}</strong>
           </span>
@@ -54,9 +90,24 @@ export default function BriefCard({
             </span>
           )}
         </div>
+        {onKit && (
+          <button type="button" className="text-button" onClick={onKit} aria-pressed={kitOpen} title="Logos, colours, fonts, tone, rules, theme and ambassadors">
+            <PanelLeft size={14} /> {kitOpen ? "Hide brand kit" : "Brand kit"}
+          </button>
+        )}
+        {onFeed && made > 0 && (
+          <button type="button" className="secondary" onClick={onFeed} title="The month as the client's grid will look">
+            <Grid3x3 size={14} /> Open the feed
+          </button>
+        )}
         <button type="button" className="secondary" onClick={onShare} title="Copy a link the client opens to approve the posts">
           <Link2 size={14} /> Client link
         </button>
+        {onWhatsApp && made > 0 && (
+          <button type="button" className="secondary" onClick={onWhatsApp} title="Send the client's link on WhatsApp">
+            <Share2 size={14} /> WhatsApp
+          </button>
+        )}
         {(lines.length > 0 || plan.some((x) => x.scene)) && (
           <button type="button" className="text-button" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
             The logic {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
