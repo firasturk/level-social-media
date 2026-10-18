@@ -332,3 +332,34 @@ export function parseTextCheck(raw: unknown): TextCheck | null {
   const ok = x.ok === true && readable && !covers && position === "keep" && !color && fade === "keep" && Math.abs(scale - 1) < 0.05;
   return { ok, readable, covers, position, color, fade, scale, note: str(x.note).slice(0, 300) };
 }
+
+
+/* ───────────── Video: a finished post set in motion ───────────── */
+
+/** The image-to-video engines on Higgsfield Cloud, by their API paths. */
+export const VIDEO_MODELS: { slug: string; name: string; note: string; resolution?: string }[] = [
+  { slug: "bytedance/seedance-2.5/image-to-video", name: "Seedance 2.5", note: "Natural motion, keeps the product exact; the default", resolution: "720p" },
+  { slug: "kling-video/v3.0/std/image-to-video", name: "Kling 3.0", note: "Cinematic camera moves and people" },
+];
+export const VIDEO_SECONDS = 5;
+
+export const VIDEO_IDEA_SCHEMA = {
+  type: "object",
+  properties: { idea: { type: "string" }, reason: { type: "string" } },
+  required: ["idea", "reason"],
+};
+
+export function videoIdeaInstruction(r: { client: string; type: string; title: string; brief: string; headline?: string; product?: string; people?: string[] }): string {
+  return [
+    `You are the motion director of the brand "${r.client}". The attached image is a finished Instagram post (${r.type}: ${r.title}) that will become a ${VIDEO_SECONDS}-second ad clip with an image-to-video model: the picture is the first frame and everything in it starts to move.`,
+    `THE POST'S IDEA: ${r.brief}${r.headline ? `\nHEADLINE (drawn on later, not part of the picture): ${r.headline}` : ""}${r.product ? `\nTHE PRODUCT: ${r.product}` : ""}${r.people?.length ? `\nPEOPLE: ${r.people.join(", ")} (the brand's ambassadors)` : ""}`,
+    [
+      "Write ONE motion idea (2-3 sentences, English, for the video model) that sells the product in five seconds:",
+      "- what moves and how: the person lifts, sips, turns, smiles or hands the product to camera; steam, condensation, splashes, crumbs or pouring that fit the product; a slow push-in or orbit of the camera;",
+      "- the product stays exactly as in the picture (shape, colours, label, size): it is never swapped, duplicated, opened or melted away;",
+      "- the frame stays the same composition and light; no cuts, no text, no logos, no new people;",
+      "- gentle and premium, never frantic.",
+    ].join("\n"),
+    'Return ONLY JSON: {"idea": "...", "reason": "a few words"}.',
+  ].join("\n\n");
+}

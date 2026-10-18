@@ -202,6 +202,45 @@ export class HiggsfieldClient {
     };
   }
 
+  /**
+   * A short video from one finished picture (Seedance, Kling): the model's path on the Cloud API,
+   * the first frame by public URL and the motion written as a prompt. Returns the request id.
+   */
+  async submitVideo(job: { model: string; prompt: string; imageUrl: string; duration: number; resolution?: string }): Promise<string> {
+    const input: Record<string, unknown> = { prompt: job.prompt, image_url: job.imageUrl, duration: job.duration };
+    if (job.resolution) input.resolution = job.resolution;
+    const r = await this.fetchImpl(this.url(job.model), {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!r.ok) throw await engineError(r);
+    const d = (await r.json()) as { request_id?: string };
+    if (!d.request_id) throw new StudioError("Higgsfield did not return a request id.", 502);
+    return d.request_id;
+  }
+
+  /** The state of a video request: pending, the video's URL, or why it failed. */
+  async videoStatus(requestId: string): Promise<EngineStatus> {
+    const r = await this.fetchImpl(this.url(`requests/${encodeURIComponent(requestId)}/status`), {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (r.status === 404) return { state: "failed", message: "Engine request no longer exists.", retryable: true };
+    if (!r.ok) throw await engineError(r);
+    const d = (await r.json()) as { status?: string; video?: { url?: string }; videos?: { url?: string }[]; error?: unknown; detail?: unknown };
+    const status = String(d.status ?? "").toLowerCase();
+    if (status === "completed") {
+      const url = d.video?.url ?? d.videos?.find((v) => v?.url)?.url;
+      return url ? { state: "done", url } : { state: "failed", message: "Generation completed without a video.", retryable: true };
+    }
+    if (status === "queued" || status === "in_progress" || status === "pending" || status === "") return { state: "pending", raw: status || "unknown" };
+    if (status === "nsfw") return { state: "failed", message: "Rejected by content moderation. Change the idea.", retryable: false };
+    const detail = typeof d.error === "string" ? d.error : typeof d.detail === "string" ? d.detail : "";
+    return { state: "failed", message: `Generation failed on the engine. ${detail}`.trim(), retryable: true };
+  }
+
   /** Upload bytes to Higgsfield's storage and return a public URL usable as an image reference. */
   async upload(bytes: ArrayBuffer, contentType: string): Promise<string> {
     const link = await this.fetchImpl(this.url("files/generate-upload-url"), {

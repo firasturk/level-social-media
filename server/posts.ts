@@ -10,7 +10,8 @@ import { all, first, run, now, uuid } from "./db";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
-import { advanceBatch, makeGoogleClient } from "./engine";
+import { advanceBatch, makeClient, makeGoogleClient } from "./engine";
+import { signObjectUrl } from "./signed";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
@@ -29,7 +30,7 @@ import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
 import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
-import { renameProduct, SHOP_INSIDE, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction } from "@shared/qa";
+import { renameProduct, SHOP_INSIDE, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -2489,6 +2490,144 @@ postRoutes.post("/text-check", async (c) => {
   cfg.plan = (cfg.plan ?? []).map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, post: next, check });
+});
+
+/* ───────────── Video: a finished post set in motion on Higgsfield ───────────── */
+
+interface VideoRow {
+  id: string;
+  batch: string;
+  post: number;
+  task: string;
+  owner: string;
+  model: string;
+  prompt: string;
+  status: string;
+  request_id: string | null;
+  key: string | null;
+  error: string | null;
+  created: number;
+  updated: number;
+}
+
+function videoItem(v: VideoRow) {
+  return { id: v.id, post: v.post, model: v.model, prompt: v.prompt, status: v.status, error: v.error, created: v.created, url: v.key ? `/api/studio/posts/video/file?batch=${encodeURIComponent(v.batch)}&id=${encodeURIComponent(v.id)}` : null };
+}
+
+/** The motion idea for one finished post, written from its picture and its brief. */
+postRoutes.post("/video/idea", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === d.index);
+  if (!post) throw new StudioError("That post is not in the plan.", 404);
+  const t = await first<{ output: string | null }>(c.env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  const obj = await c.env.BUCKET.get(t.output);
+  if (!obj) throw new StudioError("The picture is missing.", 404);
+  const client = await clientRow(c.env, config.client);
+  const sources = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id);
+  const product = sources.find((x) => productName(x) === post.product);
+  const raw = parseJson<{ idea?: unknown }>(
+    await askText(
+      c.env,
+      videoIdeaInstruction({ client: client.name, type: POST_TYPE_INFO[post.type]?.label ?? post.type, title: post.title, brief: post.brief, headline: post.headline, product: product ? `${productName(product)}${product.note ? ` (${product.note})` : ""}` : post.product, people: post.people }),
+      VIDEO_IDEA_SCHEMA,
+      [{ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" }],
+    ),
+  );
+  const idea = String(raw.idea ?? "").trim().slice(0, 1200);
+  if (!idea) throw new StudioError("No idea came back. Try again.", 502);
+  return c.json({ ok: true, idea });
+});
+
+/** Makes the video: the post's picture is the first frame, the idea is the motion. */
+postRoutes.post("/video", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      index: z.number().int().min(1).max(MAX_POST_COUNT),
+      prompt: z.string().trim().min(5).max(1500),
+      model: z.string().refine((m) => VIDEO_MODELS.some((x) => x.slug === m), "Unknown video engine."),
+    }),
+  );
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const t = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  const engine = await makeClient(c.env);
+  const model = VIDEO_MODELS.find((x) => x.slug === d.model)!;
+  const id = uuid();
+  const requestId = await engine.submitVideo({ model: model.slug, prompt: d.prompt, imageUrl: await signObjectUrl(c.env, t.output, 6 * 60 * 60 * 1000), duration: VIDEO_SECONDS, resolution: model.resolution });
+  await run(
+    c.env.DB,
+    "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)",
+    id,
+    b.id,
+    d.index,
+    t.id,
+    user.id,
+    model.slug,
+    d.prompt,
+    requestId,
+    now(),
+    now(),
+  );
+  const row = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ?", id);
+  return c.json({ ok: true, video: videoItem(row!) });
+});
+
+/** A post's videos, newest first; the ones still running are asked about and stored when done. */
+postRoutes.get("/video/list", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const index = Number(c.req.query("index"));
+  const rows = await all<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 12", b.id, index);
+  const pending = rows.filter((v) => v.status === "queued" && v.request_id);
+  if (pending.length) {
+    const engine = await makeClient(c.env).catch(() => null);
+    if (engine)
+      for (const v of pending) {
+        try {
+          const st = await engine.videoStatus(v.request_id!);
+          if (st.state === "done") {
+            const r = await fetch(st.url, { signal: AbortSignal.timeout(120_000) });
+            if (!r.ok) throw new StudioError(`The video could not be fetched (${r.status}).`, 502);
+            const key = `${b.owner}/${b.id}/video/${v.task}/${v.id}.mp4`;
+            await c.env.BUCKET.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: r.headers.get("content-type")?.split(";")[0] || "video/mp4" } });
+            await run(c.env.DB, "UPDATE videos SET status = 'done', key = ?, error = NULL, updated = ? WHERE id = ?", key, now(), v.id);
+            v.status = "done";
+            v.key = key;
+          } else if (st.state === "failed") {
+            await run(c.env.DB, "UPDATE videos SET status = 'failed', error = ?, updated = ? WHERE id = ?", st.message.slice(0, 400), now(), v.id);
+            v.status = "failed";
+            v.error = st.message;
+          } else if (now() - v.created > 30 * 60 * 1000) {
+            await run(c.env.DB, "UPDATE videos SET status = 'failed', error = 'The engine did not finish in half an hour.', updated = ? WHERE id = ?", now(), v.id);
+            v.status = "failed";
+            v.error = "The engine did not finish in half an hour.";
+          }
+        } catch (e) {
+          console.error("[video] status", v.id, errorMessage(e));
+        }
+      }
+  }
+  return c.json({ ok: true, videos: rows.map(videoItem), engines: VIDEO_MODELS });
+});
+
+/** The stored video. */
+postRoutes.get("/video/file", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", c.req.query("id") ?? "", b.id);
+  const obj = v?.key ? await c.env.BUCKET.get(v.key) : null;
+  if (!obj) throw new StudioError("Video not found.", 404);
+  return new Response(obj.body, {
+    headers: {
+      "Content-Type": obj.httpMetadata?.contentType || "video/mp4",
+      "Cache-Control": "private, max-age=86400",
+      "Content-Disposition": `inline; filename="post-${v!.post}.mp4"`,
+    },
+  });
 });
 
 /** The outline of a post's product, read for its current picture; 404 once the picture changed. */

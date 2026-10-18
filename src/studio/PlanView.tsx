@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Clapperboard,
   Download,
+  Film,
   AlertTriangle,
   CalendarDays,
   Check,
@@ -32,6 +33,7 @@ import {
 } from "lucide-react";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
+import VideoDialog from "./VideoDialog";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
@@ -100,9 +102,12 @@ export default function PlanView({
   onStyles,
   monthOccasions,
   notes = "",
+  batchId = null,
 }: {
   /** The month's notes for the ideas writer (kept in the side panel). */
   notes?: string;
+  /** The month's batch id (the video dialog talks to its routes). */
+  batchId?: string | null;
   client: Client;
   month: string;
   onMonth: (m: string) => void;
@@ -177,6 +182,7 @@ export default function PlanView({
   const [gridPicker, setGridPicker] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [animating, setAnimating] = useState<number | null>(null);
+  const [videoFor, setVideoFor] = useState<number | null>(null);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
@@ -1061,6 +1067,17 @@ export default function PlanView({
                       >
                         {busy === "reidea" ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} New idea
                       </button>
+                      {t?.output && (
+                        <button
+                          type="button"
+                          className="secondary post-video"
+                          onClick={() => setVideoFor(p.index)}
+                          disabled={inFlight}
+                          title="Turn this post into a 5-second ad clip on Higgsfield: an idea for the motion is written first"
+                        >
+                          <Film size={13} /> Video
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="text-button post-details-toggle"
@@ -1136,6 +1153,12 @@ export default function PlanView({
             }}
           />
         );
+      })()}
+      {(() => {
+        const p = videoFor !== null ? draft.find((x) => x.index === videoFor) : null;
+        const t = p ? taskOf(p.index) : null;
+        if (!p || !t?.output || !batchId) return null;
+        return <VideoDialog open batchId={batchId} post={p} src={outputUrl(t)} fileBase={fileBase} onClose={() => setVideoFor(null)} />;
       })()}
       {(() => {
         const p = animating !== null ? draft.find((x) => x.index === animating) : null;

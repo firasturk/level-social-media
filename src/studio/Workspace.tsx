@@ -1276,6 +1276,7 @@ export default function Workspace({
               <div className="plan-column">
                 <PlanView
                 notes={monthNotes}
+                batchId={batch?.id ?? null}
                 onStyles={assignStyles}
                 client={client}
                 month={month}
