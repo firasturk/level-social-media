@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,8 @@ function sharedImports(dir: string, out = new Set<string>()): Set<string> {
 describe("worker aliases", () => {
   it("lists every shared module the worker imports in both wrangler configs", () => {
     const used = [...sharedImports("server"), ...sharedImports("shared")];
-    for (const f of ["wrangler.deploy.json", "wrangler.jsonc"]) {
+    // The deploy config stays out of git (it is written per deployment), so it is checked where it exists.
+    for (const f of ["wrangler.deploy.json", "wrangler.jsonc"].filter((f) => existsSync(f))) {
       const text = readFileSync(f, "utf8");
       const missing = [...new Set(used)].filter((m) => !text.includes(`"@shared/${m}"`));
       expect(missing, `${f} lacks aliases for: ${missing.join(", ")}`).toEqual([]);
