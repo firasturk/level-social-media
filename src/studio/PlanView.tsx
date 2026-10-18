@@ -256,6 +256,7 @@ export default function PlanView({
   const makingLabel = (t: Task | null) => {
     const edit = (t as { edit?: string | null } | null)?.edit ?? "";
     if (/photographed, not generated/.test(edit)) return "Making the people look real…";
+    if (edit.startsWith("FRESH TAKE:")) return "Making it again without the problems…";
     return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";
   };
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;

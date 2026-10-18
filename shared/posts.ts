@@ -208,6 +208,8 @@ export interface PostBrief {
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
   shot?: string;
+  /** Food, drink or toppings the shot names that the product photo does not show: named so the engine leaves them out. */
+  notInPicture?: string[];
   /** Every product name of the month, so the prompt can keep file names away from the model. */
   productNames?: string[];
   /** A greeting post's occasion: what it is built from; royal days leave room for the portrait. */
@@ -457,8 +459,40 @@ function postTypeRule(b: PostBrief): string {
   return "";
 }
 
+/**
+ * A fix note starts with this mark: the picture is made again from the brief with the review's
+ * lessons, instead of patching the rejected picture (which keeps its faults: a generated-looking
+ * face, a toy-sized product, an invented topping).
+ */
+export const FRESH_TAKE = "FRESH TAKE: ";
+
+/** The edit text with its fresh-take mark read off. */
+export function splitEdit(edit: string | null | undefined): { fresh: boolean; text: string } {
+  const t = (edit ?? "").trim();
+  return t.startsWith(FRESH_TAKE) ? { fresh: true, text: t.slice(FRESH_TAKE.length).trim() } : { fresh: false, text: t };
+}
+
+/** The text without the sentences that name any of the words (a biscuit dipped in, syrup poured over). */
+export function withoutSentencesNaming(text: string, words: string[]): string {
+  if (!words.length || !text.trim()) return text;
+  const pattern = new RegExp(`\\b(?:${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[\s-]+/g, "[\\s-]*")).join("|")})`, "i");
+  return text
+    .split(/(?<=[.!?؟])\s+/)
+    .filter((x) => !pattern.test(x))
+    .join(" ")
+    .trim();
+}
+
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
-export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = {}): string {
+export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImages = {}): string {
+  // A fix note makes the picture again from the brief with the review's lessons; a plain edit revises the picture.
+  const { fresh, text: edit } = splitEdit(rawEdit);
+  // What the idea or the shot added to the product (a biscuit, syrup, rolls) leaves their text: the
+  // engine follows a concrete sentence over any rule against it.
+  const b: PostBrief =
+    raw.hasProduct && raw.notInPicture?.length
+      ? { ...raw, brief: withoutSentencesNaming(raw.brief, raw.notInPicture) || raw.title, shot: raw.shot ? withoutSentencesNaming(raw.shot, raw.notInPicture) || undefined : raw.shot }
+      : raw;
   // A typographic tile: only its background is painted; the words go on it afterwards.
   if (b.design === "background")
     return [
@@ -579,7 +613,11 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim() && !b.styleKey)
     parts.push(
-      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.`,
+      `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim())}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.${b.hasProduct ? " Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it." : ""}`,
+    );
+  if (b.hasProduct && b.notInPicture?.length)
+    parts.push(
+      `NOT IN THE PICTURE: ${b.notInPicture.join(", ")}. The shot or the idea names them, but the product photo does not have them: nothing is dipped into, poured over, sprinkled on or set beside the product. The product appears exactly as photographed, by itself, with its own toppings and colours only.`,
     );
   if (b.props?.trim() && !b.styleKey)
     parts.push(
@@ -592,7 +630,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
     );
   if (b.grid)
     parts.push(
-      `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim())}`,
+      `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim(), !!b.hasProduct)}`,
     );
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial" || b.wordsSpace)
@@ -630,7 +668,11 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
   if (people.length) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
   parts.push(NO_DESIGN_RULE);
-  if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
+  if (edit.trim() && fresh)
+    parts.push(
+      `NEW TAKE: the earlier picture of this post was rejected by the review for the problems below. Make the picture again from the brief, and make sure none of these problems is in it: ${edit.trim()}`,
+    );
+  else if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
   if (b.exact && !images.revision)
     parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
   parts.push(b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID);
@@ -835,7 +877,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     r.products.length ? PRODUCT_ONLY_IDEAS : "",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product:
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product. NOTHING IS ADDED TO A PRODUCT: no biscuit, cookie, fruit, sauce, syrup, drizzle, sprinkles, cream or topping its description does not name, nothing dipped into it or poured over it, and no other food or pastry beside it; its colours stay its own:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : r.service?.trim()
         ? serviceBlock(r)
@@ -1318,7 +1360,7 @@ export const PRODUCT_NOTE_SCHEMA = {
 
 /** Reads one product photo: what the item is, in one line, for the ideas writer and the prompt. */
 export function productNoteInstruction(name: string): string {
-  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, its approximate real-world size (for example "about 25 cm wide"), and any readable brand or flavour text on it. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
+  return `The attached image is a product photo uploaded under the name "${name}". In one line (at most 30 words, English) say what the item is: the kind of product (drink, dessert, dish, package, device...), its colours, container or packaging, its approximate real-world size (for example "about 25 cm wide"), and any readable brand or flavour text on it. Describe the product itself only: not the surface, props, other food, pastries, people, logos or text around it in the photo. Describe only what is visible; no marketing words. Return ONLY JSON: {"note": "..."}.`;
 }
 
 /** One fresh idea for a single post of a month that is already planned. */
@@ -1397,6 +1439,7 @@ const BAG_PHRASE = /\b(?:an?\s+|the\s+)?(?:(?:large|small|big|paper|brand(?:ed)?
 export function tileWithoutBags(tile: string, hasProduct: boolean): string {
   // Cards carry words: they leave the tile ("A container and a branded card" → "A container").
   tile = tile.replace(/,?\s*(?:and\s+)?(?:an?\s+)?(?:(?:branded|business|name|gift|greeting)\s+)?cards?\b/gi, "");
+  if (hasProduct) tile = withoutEdibleItems(tile);
   if (!BAGS.test(tile)) return tile;
   if (hasProduct) return tile.replace(BAG_PHRASE, "the product");
   return tile
@@ -1406,12 +1449,32 @@ export function tileWithoutBags(tile: string, hasProduct: boolean): string {
 }
 
 /** The grid's reading without the tiles that hold bags or logos (the engine copies them). */
-export function gridWithoutBags(grid: string): string {
+export function gridWithoutBags(grid: string, hasProduct = false): string {
   return grid
     .split("\n")
-    .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || LETTERED.test(line) || /\blogos?\b/i.test(line) ? "" : line) : withoutLettering(withoutBags(line))))
+    .map((line) => (/^Tile \d/.test(line) ? (BAGS.test(line) || LETTERED.test(line) || /\blogos?\b/i.test(line) ? "" : hasProduct ? withoutEdibleItems(line) : line) : withoutLettering(withoutBags(line))))
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * Food, drink and toppings of another brand: what a reference tile or shot shows that the client's
+ * product takes the place of. Never written into a prompt that carries a product photo.
+ */
+export const EDIBLE =
+  /\b(?:cookies?|biscuits?|cinnamon rolls?|rolls?|buns?|croissants?|pastr(?:y|ies)|donuts?|doughnuts?|muffins?|cupcakes?|cakes?|brownies?|tarts?|pies?|bread|toast|waffles?|pancakes?|crepes?|macarons?|candy|candies|sweets?|chocolates?|chocolate (?:chips?|sauce|syrup|drizzle)|truffles?|marshmallows?|pretzels?|crackers?|chips|popcorn|nuts?|almonds?|pistachios?|walnuts?|hazelnuts?|peanuts?|seeds?|cereal|corn ?flakes|granola|oats?|fruits?|fruit slices?|berries|strawberr(?:y|ies)|blueberr(?:y|ies)|raspberr(?:y|ies)|cherr(?:y|ies)|bananas?|apples?|oranges?|lemons?|limes?|mango(?:es|s)?|grapes?|dates?|figs?|pomegranates?|kiwis?|peach(?:es)?|melons?|watermelons?|coconuts?|avocados?|olives?|vegetables?|herbs?|mint|basil|rosemary|cream|whipped cream|ice cream|gelato|yogh?urt|cheese|butter|honey|jam|syrup|sauce|caramel|drizzle|sprinkles|glaze|frosting|icing|toppings?|garnish|sugar|cinnamon|spices?|coffee beans?|beans?|eggs?|milk|juices?|smoothies?|milkshakes?|drinks?|beverages?|coffee|tea|latte|cocktails?|sandwich(?:es)?|burgers?|pizzas?|fries|pasta|rice|salads?|soups?|meat|chicken|fish|sushi|snacks?)\b/gi;
+
+const EDIBLE_ONE = new RegExp(EDIBLE.source, "i");
+
+/** A tile line without the reference's edible items ("Items: wooden tray, cinnamon rolls" → "Items: wooden tray"). */
+export function withoutEdibleItems(line: string): string {
+  return line.replace(/\bItems:\s*([^.;\n]*?)(?=\s*(?:Background:|Text:|Product:|$|[.;\n]))/g, (_m, items: string) => {
+    const kept = items
+      .split(/,\s*|\s+and\s+/)
+      .map((x) => x.trim())
+      .filter((x) => x && !EDIBLE_ONE.test(x));
+    return `Items: ${kept.length ? kept.join(", ") : "none (the product stands there)"}`;
+  });
 }
 
 /** The month's outfits, one per line; each post with people wears one of them, in turn. */

@@ -57,7 +57,7 @@ import {
   type FramingCheck,
 } from "./editorial";
 import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
-import { buildPostPrompt, tileWithoutBags, type PostBrief } from "@shared/posts";
+import { buildPostPrompt, tileWithoutBags, type PostBrief, splitEdit } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
@@ -1808,7 +1808,7 @@ async function submitTask(
     }
   }
   const edit = task.edit?.trim() ?? "";
-  if ((edit || task.recenter) && task.output) {
+  if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
     imageUrls.push(await outputEngineUrl(env, client, task));
     roles.revision = true;
   }
@@ -2000,7 +2000,7 @@ async function submitOpenAITask(
     }
   }
   const edit = task.edit?.trim() ?? "";
-  if ((edit || task.recenter) && task.output) {
+  if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
     images.push(await outputBytes(env, task));
     roles.revision = true;
   }
@@ -2415,7 +2415,7 @@ async function collectReferenceKeys(
     }
   }
   const edit = task.edit?.trim() ?? "";
-  if ((edit || task.recenter) && task.output) {
+  if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
     keys.push(task.output);
     roles.revision = true;
   }

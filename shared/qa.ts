@@ -2,7 +2,7 @@
  * The checks a month's posts pass before any image is paid for: what the image engine would get
  * wrong if it were sent as it is. Each problem says where it is and how it is fixed.
  */
-import { BAGS, LETTERED, decodeEntities, offerReady, type Post } from "./posts";
+import { BAGS, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post } from "./posts";
 import { FOREIGN_ITEMS } from "./brief";
 import { AI_LOOK_CHECK, AI_LOOK_FIX } from "./realism";
 
@@ -257,7 +257,7 @@ export function fixNote(flags: PostFlag[]): string {
     ailook: AI_LOOK_FIX,
     staging: "Stage it as it is really served: a drink stays in its cup on the table or in a hand, never inside a plate, bowl or saucer; every object rests where it really would",
   };
-  return flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
+  return FRESH_TAKE + flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }
 
 /**

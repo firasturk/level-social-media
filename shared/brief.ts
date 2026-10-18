@@ -3,7 +3,7 @@
  * means for the month, and one rule the ideas writer then follows.
  */
 import type { BriefNote, BriefStep } from "./config";
-import { NO_PROPS_RULE } from "./posts";
+import { EDIBLE, NO_PROPS_RULE } from "./posts";
 
 export const BRIEF_SCHEMA = {
   type: "object",
@@ -115,7 +115,8 @@ export function adaptShotsInstruction(r: {
   posts: ShotPost[];
   palette: string[];
   props?: string;
-  strict?: boolean;
+  /** True, or the edible items the previous answer invented, when it is asked again. */
+  strict?: boolean | string;
   /** A client with no products: the service it offers. */
   service?: string;
 }): string {
@@ -123,6 +124,7 @@ export function adaptShotsInstruction(r: {
     `You are the photographer planning this month's shoot. The month has ${r.posts.length} posts (below, with their type, product, occasion and people). The look comes from ${r.shots.length} reference shots read from Pinterest, which show other brands' items. Write ONE shot per post: 2-4 sentences that a camera crew can shoot.`,
     "For each post pick the reference shot whose place, camera angle and distance, light and gesture fit the post best (vary the references across the month; give its number in \"ref\"), and write the post's own shot in that look: its product, its type, its occasion, its people and its message.",
     "PRODUCTS: each product appears exactly as described, in its own colours (never recoloured to the palette): a closed box stays closed with its lid, an open one stays open; never opened, unwrapped or re-packed. Describe it by its kind and look ('the blue and silver gift box of mini tarts'), never by a file name. What a reference's hands held becomes the post's product.",
+    "NOTHING ADDED TO THE PRODUCT: its toppings, fill, cream, nuts, fruit, sauce and colours are exactly those in its description; never write a topping, drizzle, syrup, sauce, sprinkles, garnish, fruit, cookie, pastry or any edible item that the description does not name, on the product or beside it. The food, pastries, fruit, cookies, cups and toppings a reference or a tile shows belong to another brand: the post's product takes their place, and they are never written.",
     "SIZE AND GRIP: each product keeps its real size against hands and furniture (a box or tin about a forearm wide, one piece between two fingers) and is held level with both hands from below or set on a surface; never balanced on fingertips, hung from a finger, pinched at a rim, put into a bag, a basket or a carrier, or set on top of another object.",
     "TYPES: a lifestyle post shows the product living in a real moment; a tip or quote post is a calm minimal frame with one large empty area for the words and the product small to one side; a greeting post is built from its occasion's elements (a royal day: no person, no product, an empty dignified frame of space in the upper middle for the official portrait added later); an offer shows exactly its products together; an announcement is bold and simple.",
     "PEOPLE: only the people listed for a post appear, each as described (their own gender and look; a man never wears a headscarf, hijab or dress; a woman wears a hijab only when her look says so), dressed as their look says (modest clothing when it says so: no bare shoulders, sleeveless tops, low necklines or short skirts); a post with no people shows at most a hand.",
@@ -134,7 +136,9 @@ export function adaptShotsInstruction(r: {
     r.service?.trim()
       ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. The hands hold something of the service's moment (car keys, a phone, a folder, a suitcase, a house key), never a drink or food.`
       : "",
-    r.strict ? "Your previous answer still named a drink, glass, cup or other item the brand does not sell. Remove every such item." : "",
+    r.strict
+      ? `Your previous answer still named ${typeof r.strict === "string" ? `food, drink or toppings the brand's products do not have (${r.strict})` : "a drink, glass, cup or other item the brand does not sell"}. Remove every such item: the product stands there by itself.`
+      : "",
     `THE POSTS:\n${r.posts
       .map(
         (p) =>
@@ -147,3 +151,24 @@ export function adaptShotsInstruction(r: {
     .filter(Boolean)
     .join("\n\n");
 }
+
+/**
+ * The edible words a shot names that its post's products do not have (their names and photo
+ * descriptions): what the writer invented from a reference or a tile.
+ */
+export function foreignFood(shot: string, allowed: string): string[] {
+  // "corn flakes" and "cornflakes" are one word; a generic word (drink, snack) names no item.
+  const squash = (t: string) => t.toLowerCase().replace(/[\s-]+/g, "");
+  const ok = squash(allowed);
+  const out = new Set<string>();
+  for (const m of shot.matchAll(EDIBLE)) {
+    const w = m[0].toLowerCase();
+    if (GENERIC_FOOD.test(w)) continue;
+    const stem = squash(w).replace(/(?:ies|es|s)$/, "");
+    if (!ok.includes(stem.slice(0, Math.max(3, stem.length - 1)))) out.add(w);
+  }
+  return [...out];
+}
+
+/** Words that name a kind, not an item: a milkshake is a drink, a cup of nuts is a snack. */
+const GENERIC_FOOD = /^(?:drinks?|beverages?|snacks?|sweets?|candy|candies|food|toppings?|garnish|spices?|seeds?|beans?)$/i;

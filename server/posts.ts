@@ -24,7 +24,7 @@ import { HOSTED_FONTS, resolveOverlay, type OverlaySpec } from "@shared/overlay"
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
-import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
+import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
@@ -87,6 +87,7 @@ import {
   themeBuilderInstruction,
   type Post,
   type PostBrief,
+  productKeyOf,
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
 
@@ -769,8 +770,11 @@ const MAX_NOTE_BYTES = 6 * 1024 * 1024;
  * Runs a few photos at a time: it is called in the background right after an upload, and again
  * (for anything still missing) before ideas are written.
  */
+/** A note written before the describer was told to leave out the photo's surroundings: described again. */
+const STALE_NOTE = /\b(?:surrounded by|next to|beside|alongside|on a (?:wooden |serving |marble |white )?(?:tray|plate|board|table)|social media handles?)\b/i;
+
 export async function describeProducts(env: Env, sources: SourceRow[]): Promise<void> {
-  const pending = sources.filter((s) => s.kind === "product" && !s.note);
+  const pending = sources.filter((s) => s.kind === "product" && (!s.note || STALE_NOTE.test(s.note)));
   const describe = async (s: SourceRow) => {
     try {
       // Another request (the upload's background read) may have finished it meanwhile.
@@ -779,7 +783,7 @@ export async function describeProducts(env: Env, sources: SourceRow[]): Promise<
         "SELECT note FROM sources WHERE id = ?",
         s.id,
       );
-      if (row?.note) {
+      if (row?.note && !STALE_NOTE.test(row.note)) {
         s.note = row.note;
         return;
       }
@@ -1699,9 +1703,14 @@ postRoutes.post("/generate", async (c) => {
       ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
     // Further products shown in the same picture, attached after image 1.
+    // "Sahlab" next to "Sahlab with nuts" is the same product twice, not two products together.
+    const sameBase = (a: string, b: string) => {
+      const [x, y] = [productKeyOf(a), productKeyOf(b)];
+      return !!x && !!y && (x.startsWith(y) || y.startsWith(x));
+    };
     const extraProducts = product
       ? [...new Set(extraNames.map((n) => matchProduct(n, productNames)))]
-          .filter((n): n is string => !!n && n !== productMatch)
+          .filter((n): n is string => !!n && n !== productMatch && !sameBase(n, productMatch!))
           .slice(0, 3)
           .map((n) => productSources.find((s) => productName(s) === n)!)
           .filter(Boolean)
@@ -1809,6 +1818,17 @@ postRoutes.post("/generate", async (c) => {
       wordsSpace: spec?.kind === "text" && !textured ? true : undefined,
       place: post.type !== "greeting" && (spec?.kind === "place" || SHOP_INSIDE.test(`${post.brief} ${post.scene ?? ""}`)) ? await placeFor(post) : undefined,
       shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
+      // What the shot or the idea added to the product (a biscuit dipped in, syrup, rolls beside it): named so the engine leaves it out.
+      notInPicture: (() => {
+        if (!product || exactProduct) return undefined;
+        const shotText = `${post.scene ?? ""} ${post.brief ?? ""}`;
+        const own = [product, ...extraProducts.map((e) => productSources.find((s) => (s.reference_key || s.key) === e.key))]
+          .filter((x): x is SourceRow => !!x)
+          .map((x) => `${productName(x)} ${x.note ?? ""} ${(x as { category?: string | null }).category ?? ""}`)
+          .join(" ");
+        const found = foreignFood(shotText, own);
+        return found.length ? found : undefined;
+      })(),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       // A post with a style follows the style alone: the grid gives it only the month's colours.
@@ -3191,7 +3211,7 @@ postRoutes.post("/shots", async (c) => {
   const tileRule = tileImages.length
     ? `\n\nTILE PICTURES: ${[...tileFor].map(([post, img]) => `image ${img} is the grid tile post ${post} recreates`).join("; ")}. Write each of these posts' shot from its tile picture, not only from its words: the same composition (how the items are arranged, stacked, tilted or scattered, how many and where), camera angle and distance, surface and set, light direction and shadows, with the client's own product in place of the tile's items (several pieces or copies of it when the tile shows several). Never its brand, packaging, bags, cups, cards, text or logos.`
     : "";
-  const ask = async (strict: boolean) => {
+  const ask = async (strict: boolean | string) => {
     const raw = parseJson<{ shots?: unknown }>(
       await askText(
         c.env,
@@ -3216,7 +3236,18 @@ postRoutes.post("/shots", async (c) => {
     return out;
   };
   let shots = await ask(false);
-  if (!sellsDrinks && [...shots.values()].some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
+  // Food, drink or toppings a shot names that its post's products do not have (a cookie from the
+  // tile, syrup the product photo does not show) are invented: the writer is asked once more.
+  const invented = (out: Map<number, string>) =>
+    [...out].flatMap(([i, t]) => {
+      const post = posts.find((p) => p.index === i);
+      if (!post?.products.length) return [];
+      // Only the products themselves are allowed: an idea that dips a biscuit in is not a licence.
+      return foreignFood(t, post.products.join(" "));
+    });
+  const bad = [...new Set(invented(shots))];
+  if (bad.length) shots = await ask(bad.slice(0, 12).join(", "));
+  else if (!sellsDrinks && [...shots.values()].some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
   if (!shots.size) throw new StudioError("The model returned no shots. Try again.", 502);
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
