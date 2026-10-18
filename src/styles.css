@@ -10177,3 +10177,7 @@ button.shot-product:hover {
     bottom: 140px;
   }
 }
+.group-actions {
+  display: inline-flex;
+  gap: 10px;
+}

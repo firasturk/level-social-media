@@ -402,6 +402,7 @@ export function BrandKit({
     >
       <LogosGroup client={client} onClientsChanged={onClientsChanged} />
       <PlacesGroup client={client} onClientsChanged={onClientsChanged} />
+      <RealPeopleGroup client={client} onClientsChanged={onClientsChanged} />
       <Group
         kit="colours"
         title="Brand colours"
@@ -652,6 +653,91 @@ function PlacesGroup({ client, onClientsChanged }: { client: Client; onClientsCh
         </div>
       ) : (
         <div className="prompt-tip">The shop, café, kitchen or counter. When a month follows a grid, its place tiles are set in these real photos.</div>
+      )}
+    </Group>
+  );
+}
+
+/**
+ * Photos of real people (Pinterest links or uploads): the image model sees what a real photo of a
+ * person looks like (skin, light, lens), so the brand's people stop looking generated.
+ */
+function RealPeopleGroup({ client, onClientsChanged }: { client: Client; onClientsChanged: (clients: Client[]) => void }) {
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const refs = client.realRefs ?? [];
+  async function upload(files: FileList | null) {
+    if (!files?.length) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      for (const f of Array.from(files).slice(0, 12)) form.append("file", f);
+      const r = await postForm<ClientsReply>(`/api/studio/clients/${client.id}/realrefs`, form);
+      onClientsChanged(r.clients);
+      toast.success(`${files.length} photo${files.length > 1 ? "s" : ""} of real people added.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+  async function addLinks() {
+    const text = await askInput("Pinterest links of real models", "", { ok: "Add", placeholder: "One or more pin links, separated by spaces or new lines" });
+    const links = (text ?? "").split(/\s+/).filter((x) => /^https?:\/\//.test(x)).slice(0, 12);
+    if (!links.length) return;
+    setBusy(true);
+    try {
+      const r = await post<ClientsReply & { failed: string[] }>(`/api/studio/clients/${client.id}/realrefs`, { links });
+      onClientsChanged(r.clients);
+      if (r.failed.length) toast.error(`${r.failed.length} link${r.failed.length > 1 ? "s" : ""} could not be read.`);
+      else toast.success(`${links.length} photo${links.length > 1 ? "s" : ""} of real people added.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(id: string) {
+    if (!(await askConfirm("Remove this photo?", { ok: "Remove" }))) return;
+    try {
+      const r = await del<ClientsReply>(`/api/studio/clients/${client.id}/realrefs/${id}`);
+      onClientsChanged(r.clients);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  return (
+    <Group
+      kit="ambassadors"
+      title="Real people"
+      actions={
+        <span className="group-actions">
+          <button type="button" className="text-button" disabled={busy} onClick={() => void addLinks()}>
+            {busy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Pinterest links
+          </button>
+          <button type="button" className="text-button" disabled={busy} onClick={() => input.current?.click()}>
+            <Plus size={13} /> Upload
+          </button>
+        </span>
+      }
+    >
+      <input ref={input} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(e) => void upload(e.target.files)} />
+      {refs.length ? (
+        <div className="place-list">
+          {refs.map((p) => (
+            <span key={p.id} className="place-thumb">
+              <img src={`/api/studio/clients/${client.id}/realrefs/${p.id}/file`} alt={p.name} loading="lazy" />
+              <button type="button" className="icon-button" aria-label={`Remove ${p.name}`} onClick={() => void remove(p.id)}>
+                <Trash2 size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="prompt-tip">
+          Real photos of real models in natural light (from Pinterest or your shoots). The posts and the ambassadors' portraits copy their realism: skin, light and lens. Never their faces or clothes.
+        </div>
       )}
     </Group>
   );

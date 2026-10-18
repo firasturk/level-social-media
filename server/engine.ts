@@ -10,7 +10,8 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
+import { fixNote, parsePostReview, POST_REVIEW_SCHEMA, postReviewInstruction } from "@shared/qa";
+import { AI_LOOK_FIX } from "@shared/realism";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import {
@@ -466,6 +467,24 @@ async function storeResultBytes(
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
+    }
+    // People that look generated get one realism pass by themselves (with the other fixes the
+    // review asked for) before the team sees them; the pass's own result is never sent again.
+    const realism = qa.automated && qa.flags?.some((f) => f.kind === "ailook") && !(task.edit ?? "").includes(AI_LOOK_FIX);
+    if (realism) {
+      const sent = await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', edit = ?, qa = ?, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        fixNote(qa.flags!),
+        JSON.stringify(qa),
+        now(),
+        task.id,
+        key,
+      );
+      if (sent) {
+        await run(env.DB, "UPDATE batches SET state = 'running', last_error = NULL, updated = ? WHERE id = ?", now(), batch.id);
+        return;
+      }
     }
     await run(
       env.DB,
@@ -1942,7 +1961,7 @@ async function submitOpenAITask(
   if (config.mode === "post") {
     const pb = postBrief(task);
     // Order matters: the prompt numbers products, then ambassador portraits, then the reference.
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : [])]) {
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) {
       const obj = await env.BUCKET.get(extra.key);
       if (obj)
         images.push({
@@ -2363,7 +2382,7 @@ async function collectReferenceKeys(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : [])]) keys.push(extra.key);
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) keys.push(extra.key);
     if (pb.styleKey && !pb.refIsSource) {
       keys.push(pb.styleKey);
       roles.mood = true;

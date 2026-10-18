@@ -78,6 +78,10 @@ shareRoutes.get("/:token", async (c) => {
         ? {
             ...p.ov,
             photo: p.ov.photo && p.occasion ? `/api/share/${c.req.param("token")}/occasion/${encodeURIComponent(p.occasion)}` : undefined,
+            // The product's outline (typography behind the product) through this link too.
+            typo: p.ov.typo
+              ? { ...p.ov.typo, subject: p.ov.typo.subject ? `/api/share/${c.req.param("token")}/subject/${p.index}?v=${t?.updated ?? 0}` : undefined }
+              : undefined,
           }
         : null,
       caption: caption.text,
@@ -132,6 +136,19 @@ shareRoutes.get("/:token/image/:index", async (c) => {
   const obj = row?.output ? await c.env.BUCKET.get(row.output) : null;
   if (!obj) throw new StudioError("Image not found.", 404);
   return imageResponse(obj);
+});
+
+shareRoutes.get("/:token/subject/:index", async (c) => {
+  const { b } = await sharedBatch(c.env, c.req.param("token"));
+  const row = await first<{ output: string | null }>(
+    c.env.DB,
+    "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1",
+    b.id,
+    Number(c.req.param("index")) || 0,
+  );
+  const obj = row?.output ? await c.env.BUCKET.get(`${row.output}.subject.json`) : null;
+  if (!obj) throw new StudioError("Not found.", 404);
+  return new Response(obj.body, { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" } });
 });
 
 for (const mark of ["logo", "badge"] as const) {

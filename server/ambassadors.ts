@@ -3,6 +3,7 @@
  * portrait (generated from the look or uploaded); posts that cast them attach the portrait so
  * the engine keeps the same face.
  */
+import { REAL_PORTRAIT_RULE, realRefLine } from "@shared/realism";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
@@ -82,6 +83,7 @@ export function portraitPrompt(name: string, look: string, wish = ""): string {
     wish.trim() ? `Designer's note: ${wish.trim()}.` : "",
     "Head and shoulders, facing the camera with a natural, warm expression, the whole face clearly visible and evenly lit by soft daylight-balanced studio light, sharp focus on the eyes.",
     "Plain light-grey seamless backdrop. Real skin texture, natural proportions, one head, two eyes, no accessories covering the face.",
+    REAL_PORTRAIT_RULE,
     "No text, logos, watermarks or frames. A modest, respectful look suitable for a Middle Eastern family brand.",
   ]
     .filter(Boolean)
@@ -174,10 +176,14 @@ ambassadorRoutes.post("/:id/portrait", async (c) => {
   const d = await body(c, z.object({ wish: z.string().max(600).optional() }));
   if (!r.gender) throw new StudioError(`Choose whether ${r.name} is a man or a woman first.`);
   const engine = await makeGoogleClient(c.env);
+  // A photo of a real person (the client's real-people references) shows what real looks like.
+  const ref = await first<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY RANDOM() LIMIT 1", r.client);
+  const refObj = ref ? await c.env.BUCKET.get(ref.key) : null;
+  const images = refObj ? [{ bytes: await refObj.arrayBuffer(), mime: refObj.httpMetadata?.contentType || "image/jpeg" }] : [];
   const img = await engine.edit({
     model: "gemini-3-pro-image",
-    prompt: portraitPrompt(r.name, castLook({ ...r, modest: !!r.modest, hijab: !!r.hijab }), d.wish ?? ""),
-    images: [],
+    prompt: [portraitPrompt(r.name, castLook({ ...r, modest: !!r.modest, hijab: !!r.hijab }), d.wish ?? ""), images.length ? realRefLine(1) : ""].filter(Boolean).join(" "),
+    images,
     aspectRatio: "4:5",
     size: "1K",
   });

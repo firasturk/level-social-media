@@ -4,7 +4,8 @@
  */
 import { readableOn } from "@shared/contrast";
 import type { AnimationPreset, OverlaySpec, PostOverlayPatch } from "@shared/overlay";
-import { HOSTED_FONTS } from "@shared/overlay";
+import { HEADLINE_FONTS, HOSTED_FONTS, LATIN_FONTS } from "@shared/overlay";
+import type { PostTypography, SubjectMask } from "@shared/typography";
 
 export interface OverlayText {
   headline?: string;
@@ -121,6 +122,9 @@ export async function drawOverlay(
   }
   const margin = spec.margin * W;
   const scale = patch.scale ?? 1;
+  // Typography: the picture as it is, kept to draw the product back over its letters.
+  const typo = !anim && headline ? patch.typo : undefined;
+  const base = typo ? copyCanvas(ctx.canvas) : null;
   // A web font only downloads once something asks for it; a canvas never does on its own, so
   // without this the text silently falls back to the default face. Ask for the exact faces,
   // with the text itself so the right (Arabic or Latin) subset is fetched.
@@ -134,7 +138,7 @@ export async function drawOverlay(
   await document.fonts.ready;
 
   // Scrim behind the text block.
-  if (spec.scrim > 0 && patch.fade !== false && (headline || subline)) {
+  if (spec.scrim > 0 && patch.fade !== false && !typo && (headline || subline)) {
     const g =
       spec.headline.position === "top"
         ? ctx.createLinearGradient(0, 0, 0, H * 0.5)
@@ -237,6 +241,11 @@ export async function drawOverlay(
   }
 
   if (!headline && !subline) return layout;
+  const typeset = typo && base ? await drawTypography(ctx, W, H, spec, typo, headline, subline, base, layout.logo, scale) : null;
+  if (typeset) {
+    layout.text = typeset;
+    return layout;
+  }
   const h = spec.headline;
   const hSize = h.size * W * scale;
   const sSize = spec.subline.size * W * scale;
@@ -330,6 +339,196 @@ export async function drawOverlay(
   }
   ctx.restore();
   return layout;
+}
+
+function copyCanvas(src: HTMLCanvasElement): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = src.width;
+  c.height = src.height;
+  c.getContext("2d")!.drawImage(src, 0, 0);
+  return c;
+}
+
+const mattes = new Map<string, Promise<{ matte: HTMLCanvasElement; box: Rect } | null>>();
+
+/**
+ * The product's outline as an alpha matte the size of the picture, from the masks read on the
+ * server (each a greyscale PNG over its box), and the box around them all.
+ */
+function subjectMatte(url: string, W: number, H: number): Promise<{ matte: HTMLCanvasElement; box: Rect } | null> {
+  const key = `${url}|${W}x${H}`;
+  let p = mattes.get(key);
+  if (!p) {
+    p = (async () => {
+      const r = await fetch(url, { credentials: "same-origin" });
+      if (!r.ok) return null;
+      const masks = (await r.json()) as SubjectMask[];
+      if (!Array.isArray(masks) || !masks.length) return null;
+      const matte = document.createElement("canvas");
+      matte.width = W;
+      matte.height = H;
+      const mctx = matte.getContext("2d")!;
+      for (const m of masks) {
+        const img = await loadImage(m.mask);
+        const bx = Math.round(m.box[0] * W);
+        const by = Math.round(m.box[1] * H);
+        const bw = Math.max(1, Math.round(m.box[2] * W));
+        const bh = Math.max(1, Math.round(m.box[3] * H));
+        const t = document.createElement("canvas");
+        t.width = bw;
+        t.height = bh;
+        const tctx = t.getContext("2d")!;
+        tctx.drawImage(img, 0, 0, bw, bh);
+        const data = tctx.getImageData(0, 0, bw, bh);
+        // The mask is a probability: a soft edge around the middle keeps the outline clean.
+        for (let i = 0; i < data.data.length; i += 4) {
+          const v = data.data[i];
+          data.data[i + 3] = Math.max(0, Math.min(255, ((v - 96) / 64) * 255));
+          data.data[i] = data.data[i + 1] = data.data[i + 2] = 0;
+        }
+        tctx.putImageData(data, 0, 0);
+        mctx.drawImage(t, bx, by);
+      }
+      // The box around the subject itself (a full-picture matte is mostly empty).
+      const a = mctx.getImageData(0, 0, W, H).data;
+      let x0 = W;
+      let y0 = H;
+      let x1 = -1;
+      let y1 = -1;
+      const step = Math.max(1, Math.round(W / 270));
+      for (let y = 0; y < H; y += step)
+        for (let x = 0; x < W; x += step)
+          if (a[(y * W + x) * 4 + 3] > 128) {
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
+          }
+      // No subject, or one filling the whole picture: no outline to work with.
+      if (x1 < 0 || (x1 - x0) * (y1 - y0) > W * H * 0.92) return null;
+      return { matte, box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+    })().catch(() => null);
+    mattes.set(key, p);
+  }
+  return p;
+}
+
+/** The product drawn back over the letters (only above `cut` when given). */
+function drawSubject(ctx: CanvasRenderingContext2D, base: HTMLCanvasElement, matte: HTMLCanvasElement, cut?: number) {
+  const layer = document.createElement("canvas");
+  layer.width = base.width;
+  layer.height = base.height;
+  const l = layer.getContext("2d")!;
+  l.drawImage(base, 0, 0);
+  l.globalCompositeOperation = "destination-in";
+  l.drawImage(matte, 0, 0, base.width, base.height);
+  if (cut !== undefined) {
+    l.globalCompositeOperation = "destination-out";
+    l.fillRect(0, cut, layer.width, layer.height - cut);
+  }
+  ctx.drawImage(layer, 0, 0, ctx.canvas.width, ctx.canvas.height);
+}
+
+const typoWeight = (font: string) => [...HEADLINE_FONTS, ...LATIN_FONTS].find((f) => f.family === font)?.weight ?? 700;
+
+/**
+ * A post's words as typography: one big word in a second font behind the product, crossing it,
+ * repeated or outlined, and the rest of the words small beside it. Returns where the words sit.
+ */
+async function drawTypography(
+  ctx: CanvasRenderingContext2D,
+  W: number,
+  H: number,
+  spec: OverlaySpec,
+  typo: PostTypography,
+  headline: string,
+  subline: string,
+  base: HTMLCanvasElement,
+  logo: Rect | null,
+  scale: number,
+): Promise<Rect | null> {
+  const word = typo.word.trim() || headline;
+  const weight = typoWeight(typo.font);
+  const family = fontStack(typo.font);
+  await document.fonts.load(`${weight} 64px ${family}`, word).catch(() => []);
+  await document.fonts.ready;
+  const subject = typo.subject ? await subjectMatte(typo.subject, W, H) : null;
+  // Letters behind or across the product need one clear product with room around it: scattered
+  // pieces filling the picture, or a missing outline, keep the plain headline.
+  if ((typo.style === "behind" || typo.style === "overlap") && (!subject || subject.box.w * subject.box.h > W * H * 0.5)) return null;
+  const margin = spec.margin * W;
+  const rtl = ARABIC.test(word + headline);
+  ctx.save();
+  ctx.direction = rtl ? "rtl" : "ltr";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
+  // The big word fills the width between the margins.
+  ctx.font = `${weight} 100px ${family}`;
+  const fit = ((W - margin * 2) / Math.max(1, ctx.measureText(word).width)) * 100;
+  const rows = typo.style === "repeat" ? 4 : 1;
+  // The post's text size moves it, but the word always fits between the margins.
+  let size = Math.min(fit, W * (typo.style === "repeat" ? 0.2 : 0.34) * scale);
+  // The word's real height in this font (calligraphic faces reach far above and below).
+  ctx.font = `${weight} ${size}px ${family}`;
+  const m = ctx.measureText(word);
+  // Calligraphic faces draw wider than their advance: the ink must fit too.
+  const ink = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0);
+  if (ink > W - margin * 2) {
+    size = (size * (W - margin * 2)) / ink;
+    ctx.font = `${weight} ${size}px ${family}`;
+  }
+  const mm = ctx.measureText(word);
+  const glyphH = (mm.actualBoundingBoxAscent || size * 0.8) + (mm.actualBoundingBoxDescent || size * 0.2);
+  const lineH = glyphH * (typo.style === "repeat" ? 1.04 : 1.1);
+  const top = logo ? logo.y + logo.h + 0.02 * W : margin;
+  const box = subject?.box;
+  // Where the big word sits: behind the product's upper part, across its lower part, or in the calmest band.
+  let cy: number;
+  if (typo.style === "behind" && box) cy = box.y + box.h * 0.3;
+  else if (typo.style === "overlap" && box) cy = box.y + box.h * 0.66;
+  else if (box && box.y > H * 0.42) cy = top + (rows * lineH) / 2;
+  else cy = rows > 1 ? H * 0.42 : H * 0.36;
+  cy = Math.max(top + (rows * lineH) / 2, Math.min(H - margin - (rows * lineH) / 2 - size * 0.4, cy));
+  const blockTop = cy - (rows * lineH) / 2;
+  let color = typo.color || spec.headline.color;
+  const behind = averageLuminance(ctx, margin, blockTop, W - margin * 2, rows * lineH);
+  if (behind !== null && !typo.color) color = readableOn(color, behind);
+  ctx.font = `${weight} ${size}px ${family}`;
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.2, size * 0.022);
+  ctx.lineJoin = "round";
+  // Each row centred on its glyphs, not on the font's em box.
+  const shift = ((mm.actualBoundingBoxAscent || size * 0.8) - (mm.actualBoundingBoxDescent || size * 0.2)) / 2;
+  ctx.textBaseline = "alphabetic";
+  for (let i = 0; i < rows; i++) {
+    const y = blockTop + lineH * (i + 0.5) + shift;
+    // Repeated rows: outlined, with one filled row; an outline word is only its edge.
+    if (typo.style === "outline" || (typo.style === "repeat" && i !== 1)) ctx.strokeText(word, W / 2, y);
+    else ctx.fillText(word, W / 2, y);
+  }
+  ctx.textBaseline = "middle";
+  if (subject) drawSubject(ctx, base, subject.matte, typo.style === "overlap" ? cy : undefined);
+  // The rest of the words, small, under the big word (above it when there is no room below).
+  const rest = headline !== word ? headline : subline;
+  let textRect: Rect = { x: margin, y: blockTop, w: W - margin * 2, h: rows * lineH };
+  if (rest) {
+    const sSize = Math.max(spec.subline.size, 0.034) * W * scale;
+    ctx.font = `${spec.subline.weight} ${sSize}px ${fontStack(spec.subline.font || spec.headline.font)}`;
+    ctx.direction = ARABIC.test(rest) ? "rtl" : "ltr";
+    // Under the big word, but never across the product: below it, or above the big word.
+    let ry = blockTop + rows * lineH + sSize * 0.9;
+    if (box && ry + sSize / 2 > box.y && ry - sSize / 2 < box.y + box.h) ry = box.y + box.h + sSize * 0.9;
+    if (ry + sSize > H - margin) ry = blockTop - sSize * 0.9;
+    const under = averageLuminance(ctx, margin, ry - sSize / 2, W - margin * 2, sSize);
+    ctx.fillStyle = under !== null ? readableOn(spec.subline.color, under) : spec.subline.color;
+    ctx.fillText(rest, W / 2, ry, W - margin * 2);
+    const y0 = Math.min(blockTop, ry - sSize / 2);
+    textRect = { x: margin, y: y0, w: W - margin * 2, h: Math.max(blockTop + rows * lineH, ry + sSize / 2) - y0 };
+  }
+  ctx.restore();
+  return textRect;
 }
 
 /** The picture's mean luminance under a block, or null when it cannot be read. */

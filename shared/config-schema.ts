@@ -40,6 +40,16 @@ export const postSchema = z.object({
       photo: z.string().max(400).optional(),
       fade: z.boolean().optional(),
       position: z.enum(["top", "center", "bottom"]).optional(),
+      typo: z
+        .object({
+          style: z.enum(["behind", "overlap", "repeat", "outline"]),
+          word: z.string().max(80),
+          font: z.string().max(60),
+          color: z.string().max(12).optional(),
+          subject: z.string().max(400).optional(),
+        })
+        .optional(),
+      typoFor: z.string().max(400).optional(),
     })
     .optional(),
   tile: z.string().max(400).optional(),

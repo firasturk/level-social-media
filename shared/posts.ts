@@ -3,6 +3,7 @@
  * post, and the deterministic prompt the image engine receives. No fashion assumptions: the
  * subject is a product, a place, a person at work, a texture, whatever the post calls for.
  */
+import { REAL_PEOPLE_RULE, realRefLine } from "./realism";
 import type { PromptImages } from "./prompts";
 import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS, type PostOverlayPatch } from "./overlay";
 import { FULL_FRAME_RULE } from "./prompts";
@@ -159,6 +160,8 @@ export interface PostBrief {
   design?: "background";
   /** A photo of the client's own place (R2 key): the picture is taken there (a grid's place tile). */
   place?: { key: string; /** What the photo shows: "shop" or "kitchen or factory". */ what?: string };
+  /** A real photograph of a person, attached only for realism (skin, light, lens) when the post shows people. */
+  realRef?: { key: string };
   /** A test post made smaller than the month's size: it is made again with the rest. */
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
@@ -515,6 +518,10 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
       `Image ${n} is a photo of the client's own ${b.place.what ?? "place"}: the picture is taken HERE, in this same room with its walls, materials, furniture, windows and light, from a fitting angle; the product and any people are set into it. Never invent another place, never copy its signs or words.`,
     );
   }
+  if (b.realRef) {
+    n += 1;
+    parts.push(realRefLine(n));
+  }
   if (b.hasProduct && (b.ref || b.styleKey || b.tileKey) && !b.refIsSource) {
     n += 1;
     parts.push(`Image ${n} is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
@@ -618,7 +625,7 @@ export function buildPostPrompt(b: PostBrief, edit = "", images: PromptImages = 
   );
   parts.push(POST_SHADOW_RULE);
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
-  if (people.length) parts.push(SAFE_WORDING_RULE);
+  if (people.length) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
   parts.push(NO_DESIGN_RULE);
   if (edit.trim()) parts.push(`REVISION: ${edit.trim()}`);
   if (b.exact && !images.revision)

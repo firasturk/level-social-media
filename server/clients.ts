@@ -82,7 +82,7 @@ export async function listClients(env: Env, includeArchived = false): Promise<Cl
   );
   const assets = await all<{ id: string; client: string; name: string | null; kind: string }>(
     env.DB,
-    "SELECT id, client, name, kind FROM brand_assets WHERE kind IN ('font', 'place') ORDER BY created",
+    "SELECT id, client, name, kind FROM brand_assets WHERE kind IN ('font', 'place', 'realref') ORDER BY created",
   );
   const drivePlaces = new Map(
     (await all<{ client: string; n: number }>(env.DB, "SELECT client, COUNT(*) AS n FROM drive_photos WHERE status = 'read' AND kind IN ('place', 'factory') GROUP BY client")).map((r) => [r.client, r.n]),
@@ -96,6 +96,9 @@ export async function listClients(env: Env, includeArchived = false): Promise<Cl
     places: assets
       .filter((f) => f.client === r.id && f.kind === "place")
       .map((f) => ({ id: f.id, name: f.name ?? "Place" })),
+    realRefs: assets
+      .filter((f) => f.client === r.id && f.kind === "realref")
+      .map((f) => ({ id: f.id, name: f.name ?? "Real photo" })),
   }));
 }
 
@@ -357,6 +360,68 @@ clientRoutes.post("/:id/places", async (c) => {
     );
   }
   return c.json(await payload(c.env));
+});
+
+/**
+ * Photos of real people (Pinterest links or uploads): the image model sees what a real photo of a
+ * person looks like, so the brand's people stop looking generated. Never their faces or clothes.
+ */
+clientRoutes.post("/:id/realrefs", async (c) => {
+  const id = c.req.param("id");
+  await clientRow(c.env, id);
+  const add = async (bytes: ArrayBuffer, mime: string, name: string) => {
+    const assetId = uuid();
+    const key = `clients/${id}/realref-${assetId}`;
+    await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } });
+    await run(c.env.DB, "INSERT INTO brand_assets (id, client, kind, key, name, created) VALUES (?, ?, 'realref', ?, ?, ?)", assetId, id, key, name.slice(0, 80), now());
+  };
+  const failed: string[] = [];
+  if ((c.req.header("content-type") ?? "").includes("application/json")) {
+    const d = z.object({ links: z.array(z.string().url().max(600)).min(1).max(12) }).parse(await c.req.json());
+    const { pageImage } = await import("./posts");
+    for (const link of d.links) {
+      const img = await pageImage(link).catch(() => null);
+      if (img && /^image\/(jpeg|png|webp)$/.test(img.mime)) await add(img.bytes, img.mime, "Pinterest");
+      else failed.push(link);
+    }
+  } else {
+    const form = await c.req.formData();
+    const files = form.getAll("file").filter((f): f is File => f instanceof File).slice(0, 12);
+    if (!files.length) throw new StudioError("Choose one or more photos of real people.");
+    for (const f of files) {
+      if (!/^image\/(jpeg|png|webp)$/.test(f.type)) throw new StudioError(`${f.name}: use a JPG, PNG or WebP photo.`);
+      if (f.size > 15 * 1024 * 1024) throw new StudioError(`${f.name}: the photo is over 15 MB.`);
+      await add(await f.arrayBuffer(), f.type, f.name.replace(/\.[^.]+$/, ""));
+    }
+  }
+  return c.json({ ...(await payload(c.env)), failed });
+});
+
+clientRoutes.delete("/:id/realrefs/:assetId", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'realref'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  if (!row) throw new StudioError("Photo not found.", 404);
+  await c.env.BUCKET.delete(row.key);
+  await run(c.env.DB, "DELETE FROM brand_assets WHERE id = ?", c.req.param("assetId"));
+  return c.json(await payload(c.env));
+});
+
+clientRoutes.get("/:id/realrefs/:assetId/file", async (c) => {
+  const row = await first<{ key: string }>(
+    c.env.DB,
+    "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'realref'",
+    c.req.param("assetId"),
+    c.req.param("id"),
+  );
+  const obj = row ? await c.env.BUCKET.get(row.key) : null;
+  if (!obj) throw new StudioError("Photo not found.", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=604800" },
+  });
 });
 
 clientRoutes.delete("/:id/places/:assetId", async (c) => {

@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
+import { TYPO_FONTS, TYPO_LABELS, TYPO_STYLES, type TypoStyle } from "@shared/typography";
 import { loadImage, paintFrame, type OverlayLayout } from "@/lib/overlay";
 
 export interface EditorResult {
@@ -172,8 +173,55 @@ export default function OverlayEditor({
                 </select>
               </label>
             </div>
+            <label className="field-label" htmlFor="oe-typo">Typography</label>
+            <div className="field-grid three overlay-typo">
+              <label className="num">
+                <span>Style</span>
+                <select
+                  id="oe-typo"
+                  value={patch.typo?.style ?? ""}
+                  onChange={(e) => {
+                    const style = e.target.value as TypoStyle | "";
+                    setPatch((p) => ({
+                      ...p,
+                      typo: style
+                        ? { word: headline.split(/\s+/).slice(0, 2).join(" "), font: TYPO_FONTS[0], ...initialPatch?.typo, ...p.typo, style }
+                        : undefined,
+                    }));
+                  }}
+                >
+                  <option value="">Plain headline</option>
+                  {TYPO_STYLES.map((t) => (
+                    <option key={t} value={t}>
+                      {TYPO_LABELS[t]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {patch.typo && (
+                <>
+                  <label className="num">
+                    <span>Big word</span>
+                    <input dir="auto" value={patch.typo.word} onChange={(e) => setPatch((p) => ({ ...p, typo: { ...p.typo!, word: e.target.value } }))} />
+                  </label>
+                  <label className="num">
+                    <span>Second font</span>
+                    <select value={patch.typo.font} onChange={(e) => setPatch((p) => ({ ...p, typo: { ...p.typo!, font: e.target.value } }))}>
+                      {TYPO_FONTS.map((f) => (
+                        <option key={f} value={f}>
+                          {f}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
+              )}
+            </div>
+            {patch.typo && !patch.typo.subject && (
+              <p className="field-hint">The letters go behind the product once its outline is read: press "Typography for me" on the month.</p>
+            )}
             <div className="footer-actions">
-              <button type="button" className="text-button" onClick={() => setPatch({})}>
+              <button type="button" className="text-button" onClick={() => setPatch((p) => ({ typo: p.typo, typoFor: p.typoFor }))}>
                 <RotateCcw size={13} /> Reset position and size
               </button>
               <span className="spacer" />

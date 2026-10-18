@@ -33,6 +33,8 @@
     "@shared/cast": "./shared/cast.ts",
     "@shared/styles": "./shared/styles.ts",
     "@shared/profile": "./shared/profile.ts",
+    "@shared/typography": "./shared/typography.ts",
+    "@shared/realism": "./shared/realism.ts",
     "@shared/autopilot": "./shared/autopilot.ts",
     "@shared/drive": "./shared/drive.ts",
     "@shared/testgrid": "./shared/testgrid.ts",

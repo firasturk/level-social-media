@@ -223,6 +223,8 @@ export interface JourneyProps {
   onFix: (index: number, edit: string) => Promise<void>;
   onShare: () => Promise<void>;
   onExport: () => Promise<void>;
+  /** Each finished post's words set as typography by the AI. */
+  onTypography: () => Promise<void>;
   overlay: OverlaySpec;
   logoSrc: string | null;
 }
@@ -967,6 +969,9 @@ export default function Journey(p: JourneyProps) {
         log("Writing the captions from the pictures…", "run");
         break;
       case "feed":
+        log("Setting the typography on the posts…", "run");
+        await p.onTypography();
+        log("Typography set: change any post in \"Text on image\".");
         confetti();
         stopAutopilot(`Done: ${p.posts.filter((x) => x.url).length} posts ready in the feed.`, "done");
         break;
@@ -1450,6 +1455,7 @@ export default function Journey(p: JourneyProps) {
               logoSrc={p.logoSrc}
               onShare={p.onShare}
               onExport={p.onExport}
+              onTypography={p.onTypography}
               onRetake={p.onRetake}
               approvals={p.config?.approvals}
               onFix={p.onFix}

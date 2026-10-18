@@ -3,6 +3,7 @@
  * client's fonts and colours. Every metric is a fraction of the canvas width (1080 = 1), so one
  * spec fits 1:1, 4:5 and 9:16 outputs at any resolution. The engine never draws text; this does.
  */
+import type { PostTypography } from "./typography";
 export type OverlayTemplate = "united" | "abusaleh" | "habibah" | "clean" | "none";
 export type LogoPosition = "top-center" | "top-left" | "top-right" | "bottom-center" | "none";
 export type TextPosition = "bottom" | "top" | "center";
@@ -177,6 +178,10 @@ export interface PostOverlayPatch {
   photo?: string;
   /** false: no dark fade under the text on this post, whatever the client's layout says. */
   fade?: boolean;
+  /** The words set as typography: a big word behind or across the product, repeated or outlined. */
+  typo?: PostTypography;
+  /** The picture the typography was chosen for (it is chosen again for a new picture). */
+  typoFor?: string;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */

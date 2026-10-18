@@ -20,7 +20,8 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
-import { HOSTED_FONTS, resolveOverlay } from "@shared/overlay";
+import { HOSTED_FONTS, resolveOverlay, type OverlaySpec } from "@shared/overlay";
+import { parseTypography, TYPO_SCHEMA, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
@@ -631,7 +632,7 @@ async function pinterestImage(pinId: string): Promise<Fetched | null> {
 }
 
 /** The main image of a web page: og:image, twitter:image, or the URL itself when it is an image. */
-async function pageImage(url: string): Promise<Fetched | null> {
+export async function pageImage(url: string): Promise<Fetched | null> {
   const directPin = pinIdOf(url);
   if (directPin) {
     const img = await pinterestImage(directPin);
@@ -1608,6 +1609,9 @@ postRoutes.post("/generate", async (c) => {
   let designSource: string | undefined;
   // Photos of the client's own place: a grid's place tile is set there, one photo after another.
   const places = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'place' ORDER BY created", client.id);
+  // Photos of real people: a post with people sees one, for real skin, light and lens.
+  const realRefs = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY created", client.id);
+  let realTurn = 0;
   // And the shop, kitchen and factory photos in its Drive, as vision read them.
   const drivePlaces = await clientPlacePhotos(c.env, client.id);
   let placeTurn = 0;
@@ -1836,7 +1840,10 @@ postRoutes.post("/generate", async (c) => {
           .map((a) => ({ name: a.name, description: a.description, key: a.image_key! }));
         return list.length ? list : undefined;
       })(),
+      realRef: realRefs.length && !portraitDay && post.people?.length ? realRefs[realTurn++ % realRefs.length] : undefined,
     };
+    // The real-people photo only goes with a post that shows the brand's people.
+    if (!brief.ambassadors?.length) delete brief.realRef;
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)
@@ -2042,6 +2049,140 @@ postRoutes.post("/captions", async (c) => {
   }
   if (written.size) await saveConfig(c.env, fresh, latest);
   return c.json({ ok: true, plan: latest.plan ?? [], written: [...written.keys()], failed });
+});
+
+/* ───────────── Typography: words set as part of the picture ───────────── */
+
+/** A copy of a picture small enough for a quick reading (the long side at most `max`). */
+async function smallCopy(bytes: ArrayBuffer, max = 1024): Promise<ImageBytes> {
+  const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
+  const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
+  const k = Math.min(1, max / Math.max(img.get_width(), img.get_height()));
+  const out = k < 1 ? resize(img, Math.round(img.get_width() * k), Math.round(img.get_height() * k), SamplingFilter.Lanczos3) : img;
+  const jpeg = out.get_bytes_jpeg(88);
+  if (out !== img) out.free();
+  img.free();
+  return { bytes: jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer, mime: "image/jpeg" };
+}
+
+/** The paint-by-colour matte the image model makes of a post: the product white, the rest black. */
+const MATTE_PROMPT =
+  "Turn this photo into a matte for compositing. Paint the main subject solid pure white #FFFFFF: the product (the food, cake, sweets, drink, box, tin or tray, with the plate, cup or tray it sits in) and any person holding or presenting it. Paint everything else solid pure black #000000: the background, the table, the props, the shadows, the logo and any words. Keep exactly the same framing, size and position, so the white shape lines up with the subject in the photo pixel for pixel. Flat white and black only: no grey, no texture, no details.";
+
+function base64Of(bytes: ArrayBuffer): string {
+  const view = new Uint8Array(bytes);
+  let s = "";
+  for (let i = 0; i < view.length; i += 0x8000) s += String.fromCharCode(...view.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/** The outline of the picture's product (and the person holding it), as a full-frame matte. */
+async function readSubject(env: Env, image: ImageBytes, aspectRatio: string): Promise<SubjectMask[]> {
+  const engine = await makeGoogleClient(env);
+  const out = await engine.edit({ model: "gemini-3.1-flash-image", prompt: MATTE_PROMPT, images: [image], aspectRatio, size: "1K" });
+  return [{ box: [0, 0, 1, 1], mask: `data:${out.mime};base64,${base64Of(out.bytes)}`, label: "matte" }];
+}
+
+/**
+ * The typographer: for each finished post, a style for its words (behind the product, crossing it,
+ * repeated or outlined, or the plain headline), the word set big and a second font; the product's
+ * outline is read for the styles that need it.
+ */
+postRoutes.post("/typography", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+      force: z.boolean().optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
+  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const spec = resolveOverlay(client.overlay ? (JSON.parse(client.overlay) as Partial<OverlaySpec>) : null);
+  const headlineFont = config.monthFonts?.headline ?? spec.headline.font;
+  const tasks = await all<{ post: number | null; output: string | null }>(
+    c.env.DB,
+    "SELECT post, output FROM tasks WHERE batch = ? AND post IS NOT NULL AND output IS NOT NULL",
+    b.id,
+  );
+  const plan = [...(config.plan ?? [])].sort((x, y) => x.index - y.index);
+  const due = plan.filter((p) => {
+    const t = tasks.find((x) => x.post === p.index);
+    if (!t?.output || !p.headline?.trim() || p.overlay === false) return false;
+    if (d.indexes && !d.indexes.includes(p.index)) return false;
+    return d.force || !p.ov?.typo || p.ov.typoFor !== t.output;
+  });
+  const chosen = new Map<number, { typo: PostTypography | null; for: string }>();
+  const used: string[] = plan.flatMap((p) => (p.ov?.typo ? [`post ${p.index}: ${p.ov.typo.style}`] : []));
+  const failed: number[] = [];
+  const one = async (p: Post) => {
+    const output = tasks.find((x) => x.post === p.index)!.output!;
+    try {
+      const obj = await c.env.BUCKET.get(output);
+      if (!obj) throw new Error("the picture is missing");
+      const image = await smallCopy(await obj.arrayBuffer());
+      const kind = p.tileSpec ? `${p.tileSpec.kind} tile, ${p.type} post` : `${p.type} post`;
+      const raw = await askText(
+        c.env,
+        typographyInstruction({ client: client.name, headline: p.headline!, subline: p.subline, kind, headlineFont, palette, used: used.slice(-4) }),
+        TYPO_SCHEMA,
+        [image],
+      );
+      const typo = parseTypography(parseJson<unknown>(raw), p.headline!, headlineFont);
+      if (typo) {
+        used.push(`post ${p.index}: ${typo.style}`);
+        // The product's outline: the letters go behind it, or the repeated word stops at it.
+        if (typo.style !== "outline") {
+          const masks = await readSubject(c.env, image, config.format ?? "4:5").catch((e) => {
+            console.log(`[typography] post ${p.index} outline: ${errorMessage(e).slice(0, 160)}`);
+            return [] as SubjectMask[];
+          });
+          if (masks.length) {
+            await c.env.BUCKET.put(`${output}.subject.json`, JSON.stringify(masks), { httpMetadata: { contentType: "application/json" } });
+            typo.subject = `/api/studio/posts/subject/${b.id}/${p.index}?v=${encodeURIComponent(output.split("/").at(-1) ?? "")}`;
+          }
+        }
+      }
+      // Without the product's outline, letters behind it or repeated over it would cover it: plain headline.
+      const covers = typo && !typo.subject && (typo.style === "behind" || typo.style === "overlap" || (typo.style === "repeat" && p.tileSpec?.kind !== "text"));
+      chosen.set(p.index, { typo: covers ? null : typo, for: output });
+    } catch (e) {
+      console.log(`[typography] post ${p.index}: ${errorMessage(e).slice(0, 160)}`);
+      failed.push(p.index);
+    }
+  };
+  // In feed order, a few at a time, so each knows the styles before it.
+  for (let i = 0; i < due.length; i += 3) await Promise.all(due.slice(i, i + 3).map(one));
+  const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+  const latest = JSON.parse(fresh.config) as Config;
+  for (const p of latest.plan ?? []) {
+    const ch = chosen.get(p.index);
+    if (!ch) continue;
+    const rest = { ...p.ov };
+    delete rest.typo;
+    p.ov = ch.typo ? { ...rest, typo: ch.typo, typoFor: ch.for } : { ...rest, typoFor: ch.for };
+  }
+  if (chosen.size) await saveConfig(c.env, fresh, latest);
+  return c.json({
+    ok: true,
+    plan: latest.plan ?? [],
+    set: [...chosen.entries()].filter(([, v]) => v.typo).map(([k, v]) => ({ index: k, style: v.typo!.style, word: v.typo!.word, font: v.typo!.font })),
+    plain: [...chosen.entries()].filter(([, v]) => !v.typo).map(([k]) => k),
+    failed,
+  });
+});
+
+/** The outline of a post's product, read for its current picture; 404 once the picture changed. */
+postRoutes.get("/subject/:batch/:index", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.param("batch"));
+  const t = await first<{ output: string | null }>(c.env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ?", b.id, Number(c.req.param("index")));
+  const obj = t?.output ? await c.env.BUCKET.get(`${t.output}.subject.json`) : null;
+  if (!obj) throw new StudioError("No outline for this picture.", 404);
+  return new Response(obj.body, { headers: { "Content-Type": "application/json", "Cache-Control": "private, max-age=86400" } });
 });
 
 /** captions.csv for the month: one row per generated post, file names as the export names them. */

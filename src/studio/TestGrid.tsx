@@ -33,7 +33,7 @@ async function compose(src: string, info: TestGridInfo, plan: Post[], spec: Over
     cell.width = Math.round(cw);
     cell.height = Math.round(ch);
     cell.getContext("2d")!.drawImage(img, x, y, cw, ch, 0, 0, cell.width, cell.height);
-    const drawn = await renderOverlay(cell.toDataURL("image/jpeg", 0.92), spec, { headline: p.headline, subline: p.subline }, logoSrc, cell.width, { patch: p.ov });
+    const drawn = await renderOverlay(cell.toDataURL("image/jpeg", 0.92), spec, { headline: p.headline, subline: p.subline }, logoSrc, cell.width, { patch: { ...p.ov, typo: undefined } });
     ctx.drawImage(drawn, x, y, cw, ch);
   }
   return canvas.toDataURL("image/jpeg", 0.9);

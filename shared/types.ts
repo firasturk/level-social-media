@@ -216,6 +216,8 @@ export interface Client {
   drivePlaces?: number;
   /** Photos of the client's own place (shop, café, kitchen), served at /clients/:id/places/:id/file. */
   places: { id: string; name: string }[];
+  /** Photos of real people (from Pinterest or uploaded) that show the image model what a real photo of a person looks like. */
+  realRefs?: { id: string; name: string }[];
 }
 
 /** Team overrides for a production approach card. */

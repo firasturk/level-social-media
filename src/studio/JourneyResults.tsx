@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Type, Wand2, X } from "lucide-react";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
@@ -329,6 +329,7 @@ export function FeedStep({
   logoSrc,
   onShare,
   onExport,
+  onTypography,
   reference,
   onRetake,
   approvals = {},
@@ -343,6 +344,7 @@ export function FeedStep({
   logoSrc: string | null;
   onShare: () => Promise<void>;
   onExport: () => Promise<void>;
+  onTypography: () => Promise<void>;
   /** The reference grid the month follows (its picture), shown beside the feed. */
   reference?: string;
   onRetake: (index: number) => Promise<void>;
@@ -356,6 +358,7 @@ export function FeedStep({
   const comments = plan.filter((p) => approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note);
   const approvedCount = plan.filter((p) => approvals[String(p.index)]?.status === "approved").length;
   const [exporting, setExporting] = useState(false);
+  const [setting, setSetting] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
   // The newest post sits top left, as in the feed at the end of the month.
   const feed = [...plan].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.index - a.index);
@@ -429,6 +432,9 @@ export function FeedStep({
           </p>
           <button type="button" className="primary" disabled={sharing} onClick={() => void run(setSharing, onShare)}>
             {sharing ? <LoaderCircle className="spinning" size={15} /> : <Share2 size={15} />} Copy the client's approval link
+          </button>
+          <button type="button" className="secondary" disabled={setting || !ready} onClick={() => void run(setSetting, onTypography)} title="A big word behind or across the product, repeated or outlined, in a second font">
+            {setting ? <LoaderCircle className="spinning" size={15} /> : <Type size={15} />} Typography for me
           </button>
           <button type="button" className="secondary" disabled={exporting} onClick={() => void run(setExporting, onExport)}>
             {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />} Download the month

@@ -872,6 +872,29 @@ export default function Workspace({
   }
 
   /** The client's approval link: copied to the clipboard. */
+  /** Each finished post's words set as typography by the AI (behind or across the product, repeated, outlined). */
+  async function typographyMonth(indexes?: number[]) {
+    if (!batch) return;
+    const t = toast.loading("Setting the typography: reading each picture and its product's outline…");
+    try {
+      const r = await post<{ set: { index: number; style: string; word: string; font: string }[]; plain: number[]; failed: number[] }>("/api/studio/posts/typography", {
+        batch: batch.id,
+        indexes,
+        force: !!indexes || undefined,
+      });
+      await refresh();
+      toast.success(
+        r.set.length
+          ? `Typography on ${r.set.length} post${r.set.length > 1 ? "s" : ""}${r.plain.length ? `; ${r.plain.length} keep the plain headline` : ""}. Change any in "Text on image".`
+          : "Every post keeps its plain headline: nothing new to set.",
+        { id: t },
+      );
+      if (r.failed.length) toast.error(`Typography failed on post${r.failed.length > 1 ? "s" : ""} ${r.failed.join(", ")}: try again.`);
+    } catch (e) {
+      toast.error((e as Error).message, { id: t });
+    }
+  }
+
   async function shareMonth() {
     if (!batch) return;
     try {
@@ -1113,6 +1136,7 @@ export default function Workspace({
                 onOpen={setSelected}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
+                onTypography={() => typographyMonth()}
                 onDeletePlan={() => void deletePlan()}
                 paused={batch?.state === "paused" ? batch.last_error || "The engine paused this month." : null}
                 themeChanged={(() => {
@@ -1204,6 +1228,7 @@ export default function Workspace({
             }
           }}
           onShare={shareMonth}
+          onTypography={() => typographyMonth()}
           onExport={exportMonth}
           overlay={overlaySpec}
           logoSrc={logoSrc}
