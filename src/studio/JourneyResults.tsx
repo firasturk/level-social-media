@@ -87,12 +87,17 @@ export function MakeStep({
   plan,
   posts,
   format,
+  overlay,
+  logoSrc,
   onRetake,
   onFix,
 }: {
   plan: Post[];
   posts: JourneyPost[];
   format: Format;
+  /** The month's words and logo are drawn on the pictures here as on the feed. */
+  overlay?: OverlaySpec;
+  logoSrc?: string | null;
   onRetake: (index: number) => Promise<void>;
   onFix: (index: number, edit: string) => Promise<void>;
 }) {
@@ -152,8 +157,12 @@ export function MakeStep({
               </div>
               <div className="make-image" style={{ aspectRatio: format.replace(":", " / ") }}>
                 {j?.url && (
-                  <button type="button" className="make-open" onClick={() => setOpen(p.index)} title="Open large" aria-label={`Open post ${p.index}`}>
-                    <img src={j.url} alt={p.title} className={busy ? "fading" : ""} />
+                  <button type="button" className={`make-open ${busy ? "fading" : ""}`} onClick={() => setOpen(p.index)} title="Open large" aria-label={`Open post ${p.index}`}>
+                    {overlay && p.overlay !== false && (p.headline || logoSrc) ? (
+                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc ?? null} patch={p.ov} width={520} alt={p.title} />
+                    ) : (
+                      <img src={j.url} alt={p.title} />
+                    )}
                     <Maximize2 size={14} className="make-zoom" />
                   </button>
                 )}

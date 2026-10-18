@@ -8859,7 +8859,7 @@ label.num select {
   display: block;
   animation: j-pop 420ms var(--ease-out) both;
 }
-.make-open img.fading {
+.make-open.fading img {
   opacity: 0.35;
   filter: blur(2px);
 }

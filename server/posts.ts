@@ -1664,7 +1664,7 @@ postRoutes.post("/generate", async (c) => {
     // A text tile of the grid is a typographic post. A plain background is drawn here, exactly in its
     // colour and without the image engine; the headline goes on it as the tile has it.
     const spec = config.gridRef ? post.tileSpec : undefined;
-    if (spec?.kind === "text" && !TEXTURED_BACKGROUND.test(spec.background)) {
+    if (typographic && spec?.kind === "text" && !TEXTURED_BACKGROUND.test(spec.background)) {
       const taskId = existing?.id ?? uuid();
       const colour = hexIn(spec.background, monthPaletteOf(theme)[0] ? hexIn(monthPaletteOf(theme)[0], "#f3ece0") : hexIn(paletteOf(client)[0], "#f3ece0"));
       const key = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.png`;
