@@ -11186,3 +11186,205 @@ button.shot-product:hover {
 :root[data-theme="dark"] .post-style-row.on { background: #2b2442; color: #ddd2ff; }
 :root[data-theme="dark"] .post-style-row.pending { background: #3f3414; color: #ffe08a; }
 :root[data-theme="dark"] .post-style-text strong { color: inherit; }
+
+
+/* ───────────── The menu: a rail of icons until it is opened ───────────── */
+.studio:has(.sidebar.collapsed) {
+  --rail: 68px;
+}
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-top .sidebar-brand {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-mark {
+  display: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ink-900);
+  color: var(--surface);
+  font-weight: 800;
+  font-size: 16px;
+  place-items: center;
+}
+.sidebar-toggle {
+  margin-left: 0;
+  flex: none;
+}
+.sidebar.collapsed {
+  padding: 14px 10px;
+  gap: 14px;
+  align-items: stretch;
+}
+.sidebar.collapsed .sidebar-top {
+  flex-direction: column;
+  gap: 8px;
+}
+.sidebar.collapsed .sidebar-brand {
+  padding: 0;
+  justify-content: center;
+}
+.sidebar.collapsed .sidebar-brand-text {
+  display: none;
+}
+.sidebar.collapsed .sidebar-mark {
+  display: grid;
+}
+.sidebar.collapsed .sb-text,
+.sidebar.collapsed .sidebar-nav .count:not(.waiting),
+.sidebar.collapsed .client-list-head span,
+.sidebar.collapsed .client-row-name,
+.sidebar.collapsed .client-row-tools,
+.sidebar.collapsed .client-list-toggle,
+.sidebar.collapsed .client-list-empty,
+.sidebar.collapsed .sidebar-connection span,
+.sidebar.collapsed .sidebar-name {
+  display: none;
+}
+.sidebar.collapsed .sidebar-nav button {
+  justify-content: center;
+  padding: 10px 0;
+  position: relative;
+}
+.sidebar.collapsed .sidebar-nav .count.waiting {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  margin: 0;
+  font-size: 10px;
+  padding: 1px 5px;
+}
+.sidebar.collapsed .client-list-head {
+  justify-content: center;
+  padding: 0 0 6px;
+}
+.sidebar.collapsed .client-row {
+  justify-content: center;
+  padding: 6px 0;
+}
+.sidebar.collapsed .sidebar-connection {
+  justify-content: center;
+  padding: 9px 0;
+}
+.sidebar.collapsed .sidebar-user {
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+}
+.sidebar.collapsed .sidebar-user .icon-button {
+  margin-left: 0;
+}
+
+/* ───────────── The month's things in the side panel ───────────── */
+.kit-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.month-panel-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+}
+.month-products {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+}
+.month-products figure {
+  position: relative;
+  margin: 0;
+  min-width: 0;
+}
+.month-products img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #fff;
+  display: block;
+}
+.month-products figcaption {
+  font-size: 10.5px;
+  color: var(--ink-400);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.month-products .mood-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+}
+.month-grid-chip {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.bp-body textarea {
+  width: 100%;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-900);
+  resize: vertical;
+}
+.kit-column .month-versions {
+  margin: 0;
+}
+.kit-column .month-versions-row,
+.kit-column .month-versions .versions {
+  flex-wrap: wrap;
+}
+
+
+/* ───────────── Text on design ───────────── */
+.journey-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.caption-thumb.big {
+  width: 128px;
+  position: relative;
+}
+.caption-checking {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.5);
+  text-align: center;
+  padding: 8px;
+}
+.caption-check {
+  margin: 4px 0 2px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--ink-500);
+}
+.caption-check.ok { color: var(--success); }
+.caption-check.warn { color: var(--warning); }
+.caption-check svg { flex: none; margin-top: 2px; }
+.caption-card.text-warn { border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }

@@ -1,6 +1,7 @@
 import { lazyScreen } from "@/lib/lazy";
 import SetupChecklist from "./SetupChecklist";
 import MonthVersions from "./MonthVersions";
+import MonthPanel from "./MonthPanel";
 import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -139,6 +140,8 @@ export default function Workspace({
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
   /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
   const [kitOpen, setKitOpen] = useState<boolean | null>(null);
+  /** Notes for the ideas writer, kept with the month's things in the side panel. */
+  const [monthNotes, setMonthNotes] = useState("");
   // Only "Skip to the studio" or Generate leaves the journey: a refresh keeps the team in it.
   useEffect(() => {
     try {
@@ -1234,6 +1237,19 @@ export default function Workspace({
             )}
             <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>
               {kitShown ? (
+              <div className="kit-column">
+              <MonthPanel
+                products={sources.filter((s) => (s.kind ?? "product") === "product")}
+                sourceUrl={(id) => sourceUrl(id)}
+                onUpload={() => document.getElementById("plan-upload-products")?.click()}
+                onRemoveProduct={(id) => void removeProduct(id)}
+                busy={busy === "upload"}
+                notes={monthNotes}
+                onNotes={setMonthNotes}
+                gridRef={config?.gridRef ?? null}
+                onClearGrid={() => void clearGrid()}
+                versions={batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : null}
+              />
               <BrandPanel
                 client={client}
                 onClientsChanged={setClients}
@@ -1250,15 +1266,16 @@ export default function Workspace({
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
+              </div>
               ) : (
-                <button type="button" className="kit-rail" onClick={() => setKitOpen(true)} title="Open the brand kit: logos, colours, fonts, tone, rules, theme, ambassadors">
+                <button type="button" className="kit-rail" onClick={() => setKitOpen(true)} title="Open the side panel: products, notes, earlier versions and the brand kit">
                   <PanelLeft size={16} />
-                  <span>Brand kit</span>
+                  <span>Products · versions · brand kit</span>
                 </button>
               )}
               <div className="plan-column">
-                {batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />}
                 <PlanView
+                notes={monthNotes}
                 onStyles={assignStyles}
                 client={client}
                 month={month}
@@ -1281,10 +1298,8 @@ export default function Workspace({
                 gridRef={config?.gridRef ?? null}
                 plannedAt={config?.plannedAt ?? null}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
-                onClearGrid={() => void clearGrid()}
                 fileBase={`${client.slug}_${month}`}
                 onUploadProducts={(files) => void uploadProducts(files)}
-                onRemoveProduct={(id) => void removeProduct(id)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}
                 onNewIdea={(i) => void newIdea(i)}
                 cast={ambassadors.filter((a) => castIds.includes(a.id))}

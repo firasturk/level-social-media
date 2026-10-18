@@ -20,7 +20,7 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
-import { HOSTED_FONTS, resolveOverlay, type OverlaySpec } from "@shared/overlay";
+import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
@@ -29,7 +29,7 @@ import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
 import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
-import { renameProduct, SHOP_INSIDE } from "@shared/qa";
+import { renameProduct, SHOP_INSIDE, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -2436,6 +2436,59 @@ postRoutes.post("/accept", async (c) => {
   }
   await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: "Accepted by the team." }), now(), t.id);
   return c.json({ ok: true });
+});
+
+/**
+ * Text on design: the finished post, with its words and logo drawn on by the studio, is looked at
+ * by the art director. What it finds goes on the post (note), and its corrections into the post's
+ * text layout (position, colour, fade, size), so the words move off the product and stay readable.
+ */
+postRoutes.post("/text-check", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      index: z.number().int().min(1).max(MAX_POST_COUNT),
+      /** The composed post as a JPEG data URL (the browser draws the words; the server cannot). */
+      image: z.string().regex(/^data:image\/jpeg;base64,/).max(1_500_000),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === d.index);
+  if (!post) throw new StudioError("That post is not in the plan.", 404);
+  const t = await first<{ output: string | null }>(c.env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
+  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const spec = resolveOverlay(client.overlay ? (JSON.parse(client.overlay) as Partial<OverlaySpec>) : null);
+  const bytes = Uint8Array.from(atob(d.image.slice(d.image.indexOf(",") + 1)), (ch) => ch.charCodeAt(0));
+  const check = parseTextCheck(
+    parseJson<unknown>(
+      await askText(
+        c.env,
+        textCheckInstruction({ client: client.name, headline: post.headline ?? "", subline: post.subline || undefined, palette, shadow: spec.headline.shadow || undefined }),
+        TEXT_CHECK_SCHEMA,
+        [{ bytes: bytes.buffer as ArrayBuffer, mime: "image/jpeg" }],
+      ),
+    ),
+  );
+  if (!check) throw new StudioError("The art director gave no usable answer. Try again.", 502);
+  // The corrections go into the post's text layout; a designer's own placement (dx/dy) is kept.
+  const ov: PostOverlayPatch = { ...(post.ov ?? {}) };
+  if (check.position !== "keep" && ov.dx === undefined && ov.dy === undefined) ov.position = check.position;
+  if (check.color) ov.color = check.color;
+  else if (!check.ok && !check.readable && !ov.color) ov.color = "#ffffff";
+  if (check.fade === "on") delete ov.fade;
+  if (check.fade === "off") ov.fade = false;
+  if (Math.abs(check.scale - 1) >= 0.05) ov.scale = Math.round((ov.scale ?? 1) * check.scale * 100) / 100;
+  const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(fresh.config) as Config;
+  const next: Post = { ...post, ov: Object.keys(ov).length ? ov : undefined, textCheck: { ok: check.ok, note: check.note || (check.ok ? "The words read well and cover nothing." : [check.covers ? `The words cover ${check.covers}.` : "", !check.readable ? "The words are hard to read." : ""].filter(Boolean).join(" ")), for: t.output, at: now() } };
+  cfg.plan = (cfg.plan ?? []).map((p) => (p.index === d.index ? next : p));
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, post: next, check });
 });
 
 /** The outline of a post's product, read for its current picture; 404 once the picture changed. */

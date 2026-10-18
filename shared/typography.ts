@@ -81,7 +81,7 @@ export function typographyInstruction(r: {
     r.tile ? `THE GRID TILE this post follows sets its words ${r.tile.size ? `${r.tile.size} ` : ""}${r.tile.position ? `at the ${r.tile.position}` : ""}: match that scale and place (small or medium tile words mean none; huge tile words mean behind, outline or repeat at that place).` : "",
     `word: the strongest one or two words of the headline, copied EXACTLY as written there (same language, same letters); never a new word.`,
     `font: one of ${TYPO_FONTS.join(", ")}. A second font that suits this post and sits well with the headline font ${r.headlineFont}: a contrast (a calligraphic or display face against a clean one), and it must write the word's script (an Arabic word takes an Arabic font; Montserrat and Inter are Latin only).`,
-    `color: one #rrggbb that reads on the picture where the word sits, from the month's colours when one fits: ${r.palette.join(", ") || "white #ffffff, black #111111"}.`,
+    `color: white #ffffff, always, unless the word sits on a white or very light area (a white product, pale cloth, bright sky) where white cannot read; only then one dark colour of the month: ${r.palette.join(", ") || "black #111111"}.`,
     r.force
       ? `THE TEAM CHOSE THE STYLE "${r.force}" for the month: use it, and answer "none" only when it cannot work on this picture (it would cover a face, or the picture is too busy for letters to read).`
       : r.used.length

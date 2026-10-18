@@ -202,7 +202,7 @@ export default function BrandPanel({
   );
 }
 
-function Section({
+export function Section({
   title,
   subtitle,
   defaultOpen = true,

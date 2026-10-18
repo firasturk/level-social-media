@@ -1,4 +1,5 @@
-import { BadgeCheck, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, ShieldCheck, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BadgeCheck, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sun } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
@@ -51,19 +52,42 @@ export default function Sidebar({
     engine.google !== "none" ||
     engine.fal !== "none";
   const modelName = models.find((m) => m.slug === engine.model)?.name ?? engine.model ?? "";
+  // The menu is a narrow rail of icons until it is opened, so the work has the width.
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem("lsm-menu") === "open";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("lsm-menu", open ? "open" : "closed");
+    } catch {
+      /* private mode */
+    }
+  }, [open]);
   return (
-    <aside className="sidebar">
-      <a href="/" className="sidebar-brand" aria-label="Level Social Media">
-        <span className="sidebar-brand-text">
-          <LevelLogo className="sidebar-wordmark" />
-          <small>Social Media</small>
-        </span>
-      </a>
+    <aside className={`sidebar ${open ? "" : "collapsed"}`}>
+      <div className="sidebar-top">
+        <a href="/" className="sidebar-brand" aria-label="Level Social Media">
+          <span className="sidebar-brand-text">
+            <LevelLogo className="sidebar-wordmark" />
+            <small>Social Media</small>
+          </span>
+          <span className="sidebar-mark" aria-hidden>
+            L
+          </span>
+        </a>
+        <button type="button" className="icon-button sidebar-toggle" onClick={() => setOpen((v) => !v)} title={open ? "Hide the menu" : "Open the menu"} aria-label={open ? "Hide the menu" : "Open the menu"} aria-expanded={open}>
+          {open ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+        </button>
+      </div>
       <nav className="sidebar-nav" aria-label="Pages">
         {user.role === "admin" && (
           <button className={`sidebar-approvals ${page === "approvals" ? "active" : ""}`} onClick={() => onPage("approvals")}>
             <BadgeCheck size={17} />
-            Approvals
+            <span className="sb-text">Approvals</span>
             {pendingStyles > 0 && (
               <span className="count waiting" title={`${pendingStyles} styles and grids waiting for your approval`}>
                 {pendingStyles}
@@ -73,21 +97,21 @@ export default function Sidebar({
         )}
         <button className={page === "studio" ? "active" : ""} onClick={() => onPage("studio")}>
           <LayoutGrid size={17} />
-          Studio
+          <span className="sb-text">Studio</span>
         </button>
         <button className={page === "batches" ? "active" : ""} onClick={() => onPage("batches")}>
           <FolderOpen size={17} />
-          Months
+          <span className="sb-text">Months</span>
           <span className="count">{batches}</span>
         </button>
         <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
           <Images size={17} />
-          Styles
+          <span className="sb-text">Styles</span>
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => onPage("admin")}>
             <ShieldCheck size={17} />
-            Admin
+            <span className="sb-text">Admin</span>
           </button>
         )}
       </nav>

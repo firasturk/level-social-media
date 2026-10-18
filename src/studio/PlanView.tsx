@@ -76,10 +76,8 @@ export default function PlanView({
   gridRef,
   plannedAt,
   onGridIdeas,
-  onClearGrid,
   fileBase,
   onUploadProducts,
-  onRemoveProduct,
   onGenerateIdeas,
   onNewIdea,
   onPostCount,
@@ -101,7 +99,10 @@ export default function PlanView({
   onRewrite,
   onStyles,
   monthOccasions,
+  notes = "",
 }: {
+  /** The month's notes for the ideas writer (kept in the side panel). */
+  notes?: string;
   client: Client;
   month: string;
   onMonth: (m: string) => void;
@@ -128,7 +129,6 @@ export default function PlanView({
   /** When the ideas writer last wrote the plan; posts made before it are due again. */
   plannedAt: number | null;
   onGridIdeas: (refId: string, notes: string) => void;
-  onClearGrid: () => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
   /** The theme (reference, colours, props, shots) was edited after the ideas were written. */
@@ -145,7 +145,6 @@ export default function PlanView({
   paused: string | null;
   onResume: () => void;
   onUploadProducts: (files: File[]) => void;
-  onRemoveProduct: (id: string) => void;
   onGenerateIdeas: (notes: string) => void;
   /** A fresh idea for one post, then that post is generated again. */
   onNewIdea: (index: number) => void;
@@ -173,7 +172,6 @@ export default function PlanView({
   const occasions = occasionsOf(month);
   const occasionOn = (date?: string) => occasions.filter((o) => o.date === date).map((o) => o.name).join(", ");
   const fileInput = useRef<HTMLInputElement>(null);
-  const [notes, setNotes] = useState("");
   const [draft, setDraft] = useState<Post[]>(plan);
   const [dragging, setDragging] = useState(false);
   const [gridPicker, setGridPicker] = useState(false);
@@ -336,6 +334,7 @@ export default function PlanView({
         }}
       />
       <input
+        id="plan-upload-products"
         ref={fileInput}
         type="file"
         accept="image/*,.heic,.heif,.avif,.tif,.tiff,.bmp"
@@ -492,14 +491,6 @@ export default function PlanView({
         </div>
       )}
 
-      <div className="plan-notes">
-        <input
-          value={notes}
-          placeholder="Notes for this month's ideas: occasions, launches, offers, what to push…"
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
-
       {gridPicker && (
         <div className="grid-picker">
           <div className="grid-picker-head">
@@ -533,46 +524,6 @@ export default function PlanView({
           )}
         </div>
       )}
-      {gridRef && (
-        <div className="grid-chip">
-          <Grid3x3 size={14} />
-          <span>This month follows a reference grid: every post is staged in its world.</span>
-          <img src={gridRef.startsWith("style:") ? styleThumb({ id: gridRef.slice(6), updated: 0 }) : `/api/studio/references/${gridRef}/file`} alt="" />
-          <button type="button" className="text-button" onClick={onClearGrid}>
-            Stop following
-          </button>
-        </div>
-      )}
-
-      <div className="products">
-        <div className="products-head">
-          <strong>Products</strong>
-          <span>
-            {products.length
-              ? `${products.length} photo${products.length > 1 ? "s" : ""} · drop more anywhere`
-              : "Drop the client's product photos here, or use Upload products"}
-          </span>
-        </div>
-        {products.length > 0 && (
-          <div className="products-strip">
-            {products.map((s) => (
-              <figure key={s.id} title={s.name}>
-                <img src={sourceUrl(s.id)} alt={s.name} loading="lazy" />
-                <figcaption>{displayName(s.name)}</figcaption>
-                <button
-                  type="button"
-                  className="mood-remove"
-                  aria-label={`Remove ${s.name}`}
-                  onClick={() => onRemoveProduct(s.id)}
-                >
-                  <X size={12} />
-                </button>
-              </figure>
-            ))}
-          </div>
-        )}
-      </div>
-
       {!plan.length ? (
         <div className="plan-empty">
           <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />

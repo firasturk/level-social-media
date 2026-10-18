@@ -270,3 +270,65 @@ export function renameProduct(text: string, from: string, to: string): string {
   const pattern = words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("[\\s_\\-\\u0640]+");
   return text.replace(new RegExp(pattern, "gi"), to.trim());
 }
+
+
+/* ───────────── Text on design: the words as drawn on the finished post ───────────── */
+
+export const TEXT_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    ok: { type: "boolean" },
+    readable: { type: "boolean" },
+    covers: { type: "string" },
+    position: { type: "string", enum: ["keep", "top", "center", "bottom"] },
+    color: { type: "string" },
+    fade: { type: "string", enum: ["keep", "on", "off"] },
+    scale: { type: "number" },
+    note: { type: "string" },
+  },
+  required: ["ok", "readable", "covers", "position", "color", "fade", "scale", "note"],
+};
+
+export function textCheckInstruction(r: { client: string; headline: string; subline?: string; palette: string[]; shadow?: string }): string {
+  return [
+    `You are the art director of the brand "${r.client}" checking one finished Instagram post. The attached image is the post AS IT WILL BE PUBLISHED: the photograph with the headline "${r.headline}"${r.subline ? ` and the second line "${r.subline}"` : ""} and the logo already drawn on it.`,
+    [
+      "Check the text on the design, strictly:",
+      "- readable: every letter reads at a glance on a phone (enough contrast with what is behind it, no busy texture under it, not too small, not cut by the edge);",
+      "- covers: the words never sit on the product, the food, a face, a hand holding the product, or the logo; name what they cover, or write nothing;",
+      "- position: keep when the words are well placed; otherwise where they should move (top, center, bottom) to the calmest area away from the product and the logo;",
+      `- color: an empty string to keep. The brand's text is white${r.shadow ? ` with a ${r.shadow} drop under it` : ""}; white stays on every coloured, dark or mid-tone background (cyan, turquoise, pink, orange, yellow, blue, wood, food) and changes only when the words sit on a white or very light area (a white product, pale cloth, white wall) where white cannot read; then one dark colour of the brand: ${r.palette.join(", ") || "black #111111"} (as #rrggbb);`,
+      "- fade: keep, or on when a soft dark fade under the words is the only way to read them, or off when the fade is there but darkens a clean picture for nothing;",
+      "- scale: 1 to keep the size; between 0.75 and 1.3 when the words should be smaller or bigger;",
+      "- ok: true only when readable is true, nothing is covered and position, color and fade can all be kept;",
+      "- note: one short sentence for the designer, in English: what is right, or what to change and why.",
+    ].join("\n"),
+    "Return ONLY the JSON.",
+  ].join("\n\n");
+}
+
+export interface TextCheck {
+  ok: boolean;
+  readable: boolean;
+  covers: string;
+  position: "keep" | "top" | "center" | "bottom";
+  color: string;
+  fade: "keep" | "on" | "off";
+  scale: number;
+  note: string;
+}
+
+export function parseTextCheck(raw: unknown): TextCheck | null {
+  const x = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+  if (!x) return null;
+  const str = (v: unknown) => String(v ?? "").trim();
+  const position = ["top", "center", "bottom"].includes(str(x.position)) ? (str(x.position) as TextCheck["position"]) : "keep";
+  const fade = ["on", "off"].includes(str(x.fade)) ? (str(x.fade) as TextCheck["fade"]) : "keep";
+  const color = /^#[0-9a-f]{6}$/i.test(str(x.color)) ? str(x.color).toLowerCase() : "";
+  const scaleRaw = Number(x.scale);
+  const scale = Number.isFinite(scaleRaw) && scaleRaw > 0 ? Math.max(0.75, Math.min(1.3, scaleRaw)) : 1;
+  const readable = x.readable !== false;
+  const covers = /^(nothing|none|no|-)?\.?$/i.test(str(x.covers)) ? "" : str(x.covers).slice(0, 160);
+  const ok = x.ok === true && readable && !covers && position === "keep" && !color && fade === "keep" && Math.abs(scale - 1) < 0.05;
+  return { ok, readable, covers, position, color, fade, scale, note: str(x.note).slice(0, 300) };
+}

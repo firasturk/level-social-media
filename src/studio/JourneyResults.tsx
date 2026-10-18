@@ -222,6 +222,10 @@ export function CaptionsStep({
   failed,
   onWrite,
   onSave,
+  overlay,
+  logoSrc,
+  checking,
+  onCheck,
 }: {
   plan: Post[];
   posts: JourneyPost[];
@@ -230,34 +234,55 @@ export function CaptionsStep({
   failed: number[];
   onWrite: (indexes?: number[], force?: boolean) => void;
   onSave: (post: Post) => void;
+  /** The client's text layout and logo: each post is shown as it will be published. */
+  overlay: OverlaySpec;
+  logoSrc: string | null;
+  /** The posts whose text on design is being checked now. */
+  checking: number[];
+  onCheck: (indexes?: number[]) => void;
 }) {
   const grid = gridOf(plan.length);
-  const busy = writing.length > 0;
+  const busy = writing.length > 0 || checking.length > 0;
+  const made = plan.filter((p) => posts.find((x) => x.index === p.index)?.url);
+  const bad = made.filter((p) => p.textCheck && !p.textCheck.ok);
   return (
     <>
       <Head
         kit="voice"
-        title="Captions"
+        title="Text on design"
         action={
-          <button type="button" className="secondary journey-head-action" disabled={busy} onClick={() => onWrite(plan.map((p) => p.index), true)}>
-            {busy ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />} Write them all again
-          </button>
+          <span className="journey-head-actions">
+            <button type="button" className="secondary journey-head-action" disabled={busy || !made.length} onClick={() => onCheck(made.map((p) => p.index))} title="Look at every post with its words drawn on, and move or recolour the words where they do not read">
+              {checking.length ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} Check the text again
+            </button>
+            <button type="button" className="text-button journey-head-action" disabled={busy} onClick={() => onWrite(plan.map((p) => p.index), true)}>
+              <Wand2 size={14} /> Rewrite the captions
+            </button>
+          </span>
         }
       >
-        {busy
-          ? `Looking at ${writing.length === 1 ? "the picture" : `${writing.length} pictures`} and writing what each one shows, in the client's tone…`
-          : "Every caption is written from its finished picture. Edit any of them: your words stay even if the picture is made again."}
+        {checking.length
+          ? `Looking at ${checking.length === 1 ? "one post" : `${checking.length} posts`} as they will be published: are the words readable, off the product, in the right place…`
+          : writing.length
+            ? `Writing ${writing.length === 1 ? "a caption" : `${writing.length} captions`} from the pictures, at most ten words each…`
+            : bad.length
+              ? `${bad.length} post${bad.length > 1 ? "s" : ""} had words on the product or hard to read: the text was moved or recoloured. Open the feed to see them.`
+              : "Every post is checked with its words drawn on; the caption under each is at most ten words. Edit anything."}
       </Head>
       <div className={`journey-boxes idea-grid results ${grid.rows > 2 ? "scrolls" : ""}`} style={grid.style}>
         {plan.map((p, i) => (
           <CaptionCard
-            key={`${p.index}:${p.captionFrom ?? ""}:${p.caption.length}`}
+            key={`${p.index}:${p.captionFrom ?? ""}:${p.caption.length}:${p.textCheck?.at ?? 0}`}
             post={p}
             job={posts.find((x) => x.index === p.index)}
             order={i}
             writing={writing.includes(p.index)}
+            checking={checking.includes(p.index)}
             failed={failed.includes(p.index)}
+            overlay={overlay}
+            logoSrc={logoSrc}
             onWrite={() => onWrite([p.index], true)}
+            onCheck={() => onCheck([p.index])}
             onSave={onSave}
           />
         ))}
@@ -266,21 +291,34 @@ export function CaptionsStep({
   );
 }
 
+/** Words in a caption (Arabic or Latin), for the ten-word limit. */
+function wordCount(t: string): number {
+  return t.trim().split(/\s+/).filter(Boolean).length;
+}
+
 function CaptionCard({
   post,
   job,
   order,
   writing,
+  checking,
   failed,
+  overlay,
+  logoSrc,
   onWrite,
+  onCheck,
   onSave,
 }: {
   post: Post;
   job: JourneyPost | undefined;
   order: number;
   writing: boolean;
+  checking: boolean;
   failed: boolean;
+  overlay: OverlaySpec;
+  logoSrc: string | null;
   onWrite: () => void;
+  onCheck: () => void;
   onSave: (post: Post) => void;
 }) {
   const [caption, setCaption] = useState(post.caption);
@@ -289,10 +327,25 @@ function CaptionCard({
     if (caption !== post.caption || hashtags !== post.hashtags) onSave({ ...post, caption, hashtags, captionHand: true });
   };
   const current = captionCurrent(post, job);
+  const words = wordCount(caption);
+  const check = post.textCheck && job?.output && post.textCheck.for === job.output ? post.textCheck : null;
   return (
-    <article className="journey-box idea-card caption-card" style={{ "--i": order } as React.CSSProperties}>
+    <article className={`journey-box idea-card caption-card ${check ? (check.ok ? "text-ok" : "text-warn") : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="caption-top">
-        <span className="caption-thumb">{job?.url ? <img src={job.url} alt="" /> : null}</span>
+        <span className="caption-thumb big">
+          {job?.url ? (
+            post.overlay !== false && (post.headline || logoSrc) ? (
+              <OverlayPreview src={job.url} spec={overlay} text={{ headline: post.headline, subline: post.subline }} logoSrc={logoSrc} patch={post.ov} width={360} alt={post.title} />
+            ) : (
+              <img src={job.url} alt="" />
+            )
+          ) : null}
+          {checking && (
+            <span className="caption-checking">
+              <LoaderCircle className="spinning" size={16} /> Checking the text
+            </span>
+          )}
+        </span>
         <div className="caption-what">
           <div className="idea-meta">
             <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
@@ -303,6 +356,13 @@ function CaptionCard({
               {post.headline}
             </strong>
           )}
+          <p className={`caption-check ${check ? (check.ok ? "ok" : "warn") : "none"}`}>
+            {check ? (check.ok ? <Check size={13} /> : <TriangleAlert size={13} />) : null}
+            <span>{checking ? "Looking at the post as it will be published…" : check ? check.note : job?.url ? "Text not checked yet." : "No picture yet."}</span>
+          </p>
+          <button type="button" className="text-button" disabled={checking || !job?.url} onClick={onCheck} title="Look at this post with its words drawn on; move or recolour them if they do not read">
+            <Check size={13} /> Check the text
+          </button>
         </div>
       </div>
       {writing ? (
@@ -318,18 +378,12 @@ function CaptionCard({
         </>
       )}
       <div className="caption-foot">
-        <small className={failed ? "caption-note warn" : "caption-note"}>
+        <small className={failed ? "caption-note warn" : words > 10 ? "caption-note warn" : "caption-note"}>
           {writing
             ? "Writing from the picture…"
             : failed
               ? "Could not be written. Try again."
-              : post.captionHand
-                ? "Your words"
-                : current && post.captionFrom
-                  ? "From the picture"
-                  : job?.url
-                    ? "The idea's draft: not from the picture yet"
-                    : "No picture yet"}
+              : `${words} of 10 words${words > 10 ? ": too long, shorten it" : ""}${post.captionHand ? " · your words" : current && post.captionFrom ? " · from the picture" : job?.url ? " · the idea's draft" : ""}`}
         </small>
         <button type="button" className="text-button" disabled={writing || !job?.url} onClick={onWrite} title="Look at the picture again and write a new caption">
           <Wand2 size={13} /> From the picture

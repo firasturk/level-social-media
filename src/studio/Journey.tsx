@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { del, get, post, postForm, put } from "@/api";
+import { renderOverlay } from "@/lib/overlay";
 import LevelLogo from "@/components/LevelLogo";
 import { applyTheme, currentTheme } from "@/theme";
 import { askConfirm, askInput } from "@/lib/confirm";
@@ -76,7 +77,7 @@ const STEPS: { key: string; kit?: KitKey; title: string; brief?: BriefStep }[] =
   { key: "magic", kit: "theme", title: "Test grid" },
   // After Generate the journey stays: the images arrive, then their captions, then the feed.
   { key: "make", kit: "output", title: "Generate" },
-  { key: "captions", kit: "voice", title: "Captions" },
+  { key: "captions", kit: "voice", title: "Text on design" },
   { key: "feed", kit: "output", title: "Feed" },
 ];
 const MAGIC = STEPS.findIndex((s) => s.key === "magic");
@@ -404,6 +405,53 @@ export default function Journey(p: JourneyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [p.batchId, p.plan, p.posts, p.refresh],
   );
+  /** Text on design: each post as it will be published (words and logo drawn by the browser) is checked by the art director. */
+  const [textChecking, setTextChecking] = useState<number[]>([]);
+  const checkText = useCallback(
+    async (indexes?: number[]) => {
+      if (!p.batchId) return;
+      const due = (indexes ?? p.plan.map((x) => x.index)).filter((i) => {
+        const x = p.plan.find((q) => q.index === i);
+        const j = p.posts.find((q) => q.index === i);
+        return !!x && !!j?.url && !!j.output && (indexes ? true : x.textCheck?.for !== j.output);
+      });
+      if (!due.length) return;
+      setTextChecking(due);
+      try {
+        for (const i of due) {
+          const x = p.plan.find((q) => q.index === i)!;
+          const j = p.posts.find((q) => q.index === i)!;
+          try {
+            const canvas = await renderOverlay(j.url!, p.overlay, { headline: x.headline, subline: x.subline }, x.overlay === false ? null : p.logoSrc, 900, { patch: x.ov });
+            const image = canvas.toDataURL("image/jpeg", 0.82);
+            await post("/api/studio/posts/text-check", { batch: p.batchId, index: i, image });
+          } catch (e) {
+            toast.error(`Post ${i}: ${(e as Error).message}`);
+          } finally {
+            setTextChecking((list) => list.filter((n) => n !== i));
+          }
+        }
+        await p.refresh();
+      } finally {
+        setTextChecking([]);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [p.batchId, p.plan, p.posts, p.overlay, p.logoSrc, p.refresh],
+  );
+  const staleChecks = p.plan
+    .filter((x) => {
+      const j = p.posts.find((q) => q.index === x.index);
+      return !!j?.url && !!j.output && x.textCheck?.for !== j.output;
+    })
+    .map((x) => `${x.index}:${p.posts.find((q) => q.index === x.index)?.output ?? ""}`)
+    .join(",");
+  const checksTried = useRef("");
+  useEffect(() => {
+    if (key !== "captions" || !staleChecks || textChecking.length || captionsWriting.length || checksTried.current === staleChecks) return;
+    checksTried.current = staleChecks;
+    void checkText();
+  }, [key, staleChecks, textChecking.length, captionsWriting.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // On the captions screen, every caption older than its picture is written once by itself.
   const staleCaptions = p.plan
     .filter((x) => !captionCurrent(x, p.posts.find((j) => j.index === x.index)))
@@ -743,9 +791,16 @@ export default function Journey(p: JourneyProps) {
         break;
       }
       case "captions": {
-        if (captionsWriting.length) {
-          out.push({ text: "Wait: the captions are being written from the pictures." });
+        if (captionsWriting.length || textChecking.length) {
+          out.push({ text: textChecking.length ? "Wait: the text on the posts is being checked." : "Wait: the captions are being written from the pictures." });
           break;
+        }
+        for (const x of p.plan) {
+          const j = p.posts.find((q) => q.index === x.index);
+          if (!j?.url) continue;
+          if (x.textCheck?.for !== j.output) out.push({ text: `Post ${x.index}: the text on the design is not checked yet.`, fix: { label: "Check it", run: () => checkText([x.index]) } });
+          else if (!x.textCheck.ok) out.push({ warn: true, text: `Post ${x.index}: ${x.textCheck.note} (the text was adjusted; check it in the feed).` });
+          if (x.caption.trim().split(/\s+/).filter(Boolean).length > 10) out.push({ warn: true, text: `Post ${x.index}: the caption is longer than ten words.`, fix: { label: "Rewrite it", run: () => writeCaptions([x.index], true) } });
         }
         const old = p.plan.filter((x) => !captionCurrent(x, p.posts.find((j) => j.index === x.index)));
         if (old.length)
@@ -992,7 +1047,8 @@ export default function Journey(p: JourneyProps) {
         log("The pictures are being made; each one is reviewed as it arrives.", "run");
         break;
       case "captions":
-        log("Writing the captions from the pictures…", "run");
+        log("Checking the text on the posts and writing the captions…", "run");
+        await checkText();
         break;
       case "feed":
         log("Setting the typography on the posts…", "run");
@@ -1505,6 +1561,10 @@ export default function Journey(p: JourneyProps) {
               failed={captionsFailed}
               onWrite={(indexes, force) => void writeCaptions(indexes, force)}
               onSave={(next) => p.onSavePlan(p.plan.map((x) => (x.index === next.index ? next : x)))}
+              overlay={p.overlay}
+              logoSrc={p.logoSrc}
+              checking={textChecking}
+              onCheck={(indexes) => void checkText(indexes)}
             />
           )}
 

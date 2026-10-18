@@ -145,12 +145,12 @@ describe("size, grip and colours of the product", () => {
 });
 
 describe("captions", () => {
-  it("are at most 15 words", async () => {
+  it("are at most 10 words", async () => {
     const { shortCaption } = await import("@shared/posts");
     expect(shortCaption("حلاوة الصبح بلمسة حبيبه. جربوها مع القهوة واحكولنا رأيكم. متوفرة بكل فروعنا ومستنيينكم بأحلى عروض الموسم مع أهلكم وحبايبكم.")).toBe(
       "حلاوة الصبح بلمسة حبيبه. جربوها مع القهوة واحكولنا رأيكم.",
     );
     expect(shortCaption("one two three")).toBe("one two three");
-    expect(shortCaption(Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")).split(" ").length).toBe(15);
+    expect(shortCaption(Array.from({ length: 30 }, (_, i) => `w${i}`).join(" ")).split(" ").length).toBe(10);
   });
 });
