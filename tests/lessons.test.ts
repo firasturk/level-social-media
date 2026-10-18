@@ -83,3 +83,12 @@ describe("the gate before paying", () => {
     expect(gatePostText({ brief: "A girl holds the box level with both hands." }).notes).toEqual([]);
   });
 });
+
+describe("a back print stays on the back", () => {
+  it("adds the rule only when a product's description puts the graphic on the back", async () => {
+    const { backPrintRule } = await import("../shared/posts");
+    expect(backPrintRule(['A light grey toddler sweatshirt with a cake character and the text "BORN TO PARTY" printed on the back.'])).toContain("BACK PRINT");
+    expect(backPrintRule(["A brown sweatshirt with 'born to brunch' across the back", ""])).toContain("seen from behind");
+    expect(backPrintRule(["A red sweatshirt with white 'LET'S GET COZY' text on the chest."])).toBe("");
+  });
+});

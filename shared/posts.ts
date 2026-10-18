@@ -505,6 +505,19 @@ export function withoutSentencesNaming(text: string, words: string[]): string {
     .trim();
 }
 
+/** A garment whose print or graphic is on its back, as its photo and description show. */
+export const BACK_PRINT = /\b(?:printed |graphic |print |design |artwork |text |embroider\w* )?(?:on|across|at|covers?|covering) (?:the |its )?(?:upper |lower )?back\b|\bback (?:print|graphic|design|artwork)\b|\bon the reverse\b/i;
+
+/**
+ * The rule that keeps a back print on the back: the engine's easy way out is to move the graphic
+ * to the chest so the wearer can face the camera; the pose turns instead.
+ */
+export function backPrintRule(notes: string[]): string {
+  const printed = notes.filter((t) => t && BACK_PRINT.test(t));
+  if (!printed.length) return "";
+  return "BACK PRINT: the graphic of this garment is on its BACK, as photographed. It stays on the back: the wearer is seen from behind or turned three-quarter away so the back print is in view, or the garment is shown folded or laid with its back up. The front of the garment is plain, as in its photo; the graphic is never moved, copied or mirrored onto the front or the chest.";
+}
+
 const CHILD_WORDS = /\b(child|kid|toddler|baby|girl|boy|little|years? old|\d{1,2}\s*(years?|yrs?))\b/i;
 
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
@@ -598,6 +611,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.hasProduct && productText && productText.toLowerCase() !== "the product")
     parts.push(`THE PRODUCT IN IMAGE 1 (as photographed): ${productText}`);
+  if (b.hasProduct) {
+    const back = backPrintRule([productText, ...extras.map((e) => e.note ?? "")]);
+    if (back) parts.push(back);
+  }
   // A retake of a picked style stays that style: only the details move, never its composition.
   if ((b.take ?? 1) > 1 && b.styleKey)
     parts.push(
@@ -907,7 +924,7 @@ export function ideasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     r.products.length ? PRODUCT_ONLY_IDEAS : "",
     r.products.length
-      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product. NOTHING IS ADDED TO A PRODUCT: no biscuit, cookie, fruit, sauce, syrup, drizzle, sprinkles, cream or topping its description does not name, nothing dipped into it or poured over it, and no other food or pastry beside it; its colours stay its own:
+      ? `PRODUCTS AVAILABLE AS PHOTOS (use the exact names in the product fields). COVERAGE: no product appears a second time before every product has appeared once; a picture that shows several products together counts for each of them, so group products into one post wherever the shot or the idea shows several items (a row of cups, a pair of drinks, a tray). When there are still more products than the posts can carry, leave some out rather than adding posts. The description after each name is what its photo actually shows: the post's title, headline, subline, brief and caption are about THOSE items and never name or describe a different product. NOTHING IS ADDED TO A PRODUCT: no biscuit, cookie, fruit, sauce, syrup, drizzle, sprinkles, cream or topping its description does not name, nothing dipped into it or poured over it, and no other food or pastry beside it; its colours stay its own. A GARMENT PRINTED ON THE BACK is worn by a person seen from behind or turned away so the back print shows; the brief says so, and never puts the graphic on the front:
 ${r.products.map((n) => `- ${n}${r.productNotes?.[n] ? `: ${r.productNotes[n]}` : ""}`).join("\n")}`
       : r.service?.trim()
         ? serviceBlock(r)
