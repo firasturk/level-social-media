@@ -1811,8 +1811,9 @@ postRoutes.post("/generate", async (c) => {
       shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
-      grid: config.gridRef ? config.gridNotes || undefined : undefined,
-      tile: config.gridRef ? post.tile : undefined,
+      // A post with a style follows the style alone: the grid gives it only the month's colours.
+      grid: config.gridRef && !styled ? config.gridNotes || undefined : undefined,
+      tile: config.gridRef && !styled ? post.tile : undefined,
       format: config.format ?? "4:5",
       ref: refId,
       styleKey: styled?.image_key ?? undefined,
@@ -3277,7 +3278,7 @@ async function writeStyleScenes(
             .map((x) => `${x.name} (${x.description})`),
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
-          theme: theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
+          theme: config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
         }),
         ADAPT_SCHEMA,
       );
@@ -3320,8 +3321,12 @@ postRoutes.post("/style", async (c) => {
     void _style;
     void _scene;
     // A style's own idea replaces the post's; taking the style off brings the post's idea back.
-    if (s.style) return { ...rest, style: s.style, scene: s.scene, ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
-    return { ...rest, ...(before ? { brief: before } : {}) };
+    // The tile's text layout (huge words at the centre…) goes with the tile: a styled post keeps
+    // the plain layout, and gets the tile's back when the style is taken off.
+    const typo = p.ov?.typo ? { typo: p.ov.typo, typoFor: p.ov.typoFor } : {};
+    if (s.style) return { ...rest, style: s.style, scene: s.scene, ov: Object.keys(typo).length ? typo : undefined, ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
+    const tileOv = p.tileSpec ? overlayFromTile(p.tileSpec.text, p.tileSpec.kind) : {};
+    return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo }, ...(before ? { brief: before } : {}) };
   });
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, plan: cfg.plan });
