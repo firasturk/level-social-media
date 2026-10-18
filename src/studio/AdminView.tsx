@@ -1,4 +1,5 @@
 import { askConfirm } from "@/lib/confirm";
+import SystemCheck from "./SystemCheck";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -149,6 +150,7 @@ export default function AdminView({ me }: { me: string }) {
 
   return (
     <div className="admin">
+      <SystemCheck />
       <section className="batches-page">
         <div className="panel-heading" style={{ padding: "8px 16px 0" }}>
           <ShieldCheck size={18} />

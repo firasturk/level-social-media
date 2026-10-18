@@ -11,6 +11,7 @@ import { advanceBatch, activeBatchIds, readPendingReferences } from "./engine";
 import type { User } from "@shared/types";
 import { serveStatic } from "./static";
 import { readDrivePhotos } from "./drive";
+import { auditRoutes, dailyAudit } from "./audit";
 import { shareRoutes } from "./share";
 
 type Variables = { user: User };
@@ -86,6 +87,7 @@ app.use("/api/admin/*", async (c, next) => {
   await next();
 });
 app.route("/api/admin", adminRoutes);
+app.route("/api/admin/audit", auditRoutes);
 
 app.use("/api/studio/*", async (c, next) => {
   const user = await currentUser(c.env, getCookie(c, SESSION_COOKIE));
@@ -130,6 +132,8 @@ export default {
     ctx.waitUntil(dailyStyles(env).catch((e) => console.error("[styles]", errorMessage(e))));
     // The clients' Drive photos are named by vision a few at a time, so the team finds them by name.
     ctx.waitUntil(readDrivePhotos(env).catch((e) => console.error("[drive]", errorMessage(e))));
+    // The system check runs once a day and tells the admin when something fails.
+    ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     for (const id of ids)
       ctx.waitUntil(advanceBatch(env, id).catch((e) => console.error("[cron]", id, e)));

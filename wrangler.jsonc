@@ -35,6 +35,8 @@
     "@shared/profile": "./shared/profile.ts",
     "@shared/typography": "./shared/typography.ts",
     "@shared/realism": "./shared/realism.ts",
+    "@shared/audit": "./shared/audit.ts",
+    "@shared/skillbook": "./shared/skillbook.ts",
     "@shared/autopilot": "./shared/autopilot.ts",
     "@shared/drive": "./shared/drive.ts",
     "@shared/testgrid": "./shared/testgrid.ts",

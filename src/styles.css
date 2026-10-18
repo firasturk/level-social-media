@@ -10432,3 +10432,121 @@ button.shot-product:hover {
   display: flex;
   flex-direction: column;
 }
+
+/* The system check on the Admin page. */
+.system-check-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+}
+.system-check-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.system-check-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.system-check-counts b {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.system-check-counts b.error {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.12);
+}
+.system-check-counts b.warn {
+  color: #b54708;
+  background: rgba(181, 71, 8, 0.12);
+}
+.system-check-counts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-500);
+}
+.system-check-clear {
+  padding: 0 16px 12px;
+}
+.system-check-area {
+  padding: 4px 16px 12px;
+}
+.system-check-area h3 {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-500);
+}
+.system-check-area ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.system-finding {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.system-finding > svg {
+  margin-top: 2px;
+}
+.system-finding.error > svg {
+  color: #d92d20;
+}
+.system-finding.warn > svg {
+  color: #dc6803;
+}
+.system-finding.ok > svg {
+  color: #1f8a4c;
+}
+.system-finding.info > svg {
+  color: var(--ink-500);
+}
+.system-finding > span {
+  display: grid;
+  gap: 2px;
+}
+.system-finding em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-500);
+}
+.system-finding-detail {
+  color: var(--ink-700, inherit);
+}
+.system-finding small {
+  color: var(--ink-500);
+}
+.skillbook {
+  margin-top: 8px;
+}
+.skillbook li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.skillbook small {
+  color: var(--ink-500);
+}
+.skillbook code {
+  font-size: 11px;
+  color: var(--ink-500);
+}
