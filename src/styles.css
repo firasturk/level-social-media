@@ -10331,12 +10331,67 @@ button.shot-product:hover {
 .month-version-dialog {
   max-width: min(720px, calc(100vw - 32px));
 }
+.month-version-scroll {
+  display: grid;
+  gap: 12px;
+  max-height: 64vh;
+  overflow: auto;
+}
 .month-version-feed {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 3px;
-  max-height: 70vh;
-  overflow: auto;
+}
+.month-version-actions {
+  display: flex;
+  gap: 8px;
+}
+.month-version-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.month-version-take {
+  position: relative;
+  margin: 0;
+}
+.month-version-take img {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  display: block;
+}
+.month-version-take figcaption {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+.month-version-take button {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  justify-content: center;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 140ms;
+}
+.month-version-take:hover button,
+.month-version-take button:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .month-version-take button {
+    opacity: 1;
+  }
 }
 .month-version-feed img {
   width: 100%;

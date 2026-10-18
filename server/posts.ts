@@ -2088,7 +2088,10 @@ async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
   const postOf = new Map(tasks.map((t) => [t.id, t.post!]));
   const current = new Set(tasks.map((t) => t.output).filter(Boolean));
   const kept = new Set(
-    (await all<{ outputs: string }>(env.DB, "SELECT outputs FROM month_versions WHERE batch = ?", b.id)).flatMap((v) => Object.values(JSON.parse(v.outputs) as Record<string, string>)),
+    (await all<{ outputs: string; takes: string }>(env.DB, "SELECT outputs, takes FROM month_versions WHERE batch = ? AND kind = 'snapshot'", b.id)).flatMap((v) => [
+      ...Object.values(JSON.parse(v.outputs) as Record<string, string>),
+      ...(JSON.parse(v.takes) as { key: string }[]).map((t) => t.key),
+    ]),
   );
   const old: { key: string; post: number; at: number }[] = [];
   let cursor: string | undefined;
@@ -2115,11 +2118,20 @@ async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
       groups.splice(i, 1);
     }
   for (const g of groups) {
-    // The latest picture of each post in the group.
+    // The latest picture of each post makes the feed; every take stays in the version.
     const outputs: Record<string, string> = {};
     for (const o of g) outputs[String(o.post)] = o.key;
-    const day = new Date(g[0].at).toISOString().slice(0, 10);
-    await run(env.DB, "INSERT INTO month_versions (id, batch, kind, label, outputs, created) VALUES (?, ?, 'backfill', ?, ?, ?)", uuid(), b.id, `Earlier pictures · ${day}`, JSON.stringify(outputs), g[0].at);
+    const takes = g.map((o) => ({ post: o.post, key: o.key, at: o.at }));
+    await run(
+      env.DB,
+      "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'backfill', ?, ?, ?, ?)",
+      uuid(),
+      b.id,
+      `${g.length} pictures`,
+      JSON.stringify(outputs),
+      JSON.stringify(takes),
+      g[0].at,
+    );
   }
   await run(env.DB, "INSERT INTO month_versions (id, batch, kind, created) VALUES (?, ?, 'scanned', ?)", uuid(), b.id, now());
 }
@@ -2128,11 +2140,12 @@ async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
 postRoutes.get("/versions", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
   if (!(await first(c.env.DB, "SELECT 1 AS x FROM month_versions WHERE batch = ? AND kind = 'scanned'", b.id))) await rebuildMonthVersions(c.env, b);
-  const rows = await all<{ id: string; label: string; grid: string | null; plan: string | null; outputs: string; created: number }>(
+  const rows = await all<{ id: string; label: string; grid: string | null; plan: string | null; outputs: string; takes: string; created: number }>(
     c.env.DB,
-    "SELECT id, label, grid, plan, outputs, created FROM month_versions WHERE batch = ? AND kind != 'scanned' ORDER BY created DESC",
+    "SELECT id, label, grid, plan, outputs, takes, created FROM month_versions WHERE batch = ? AND kind != 'scanned' ORDER BY created DESC",
     b.id,
   );
+  const imageUrl = (key: string) => `/api/studio/posts/versions/image?batch=${b.id}&key=${encodeURIComponent(key)}`;
   return c.json({
     ok: true,
     versions: rows.map((v) => {
@@ -2146,11 +2159,75 @@ postRoutes.get("/versions", async (c) => {
         created: v.created,
         posts: indexes.map((i) => {
           const p = plan.find((x) => x.index === i);
-          return { index: i, headline: p?.headline ?? "", subline: p?.subline ?? "", ov: p?.ov, image: outputs[String(i)] ? `/api/studio/posts/versions/image?batch=${b.id}&key=${encodeURIComponent(outputs[String(i)])}` : null };
+          return { index: i, headline: p?.headline ?? "", subline: p?.subline ?? "", ov: p?.ov, key: outputs[String(i)] ?? null, image: outputs[String(i)] ? imageUrl(outputs[String(i)]) : null };
         }),
+        // Every picture of the version, newest first (all the takes of each post).
+        takes: (JSON.parse(v.takes) as { post: number; key: string; at: number }[])
+          .sort((x, y) => y.at - x.at)
+          .map((t) => ({ index: t.post, key: t.key, image: imageUrl(t.key) })),
+        // A version that kept its plan brings its ideas and words back too.
+        withPlan: plan.length > 0,
       };
     }),
   });
+});
+
+/**
+ * An earlier version back in the studio: the month as it is now is kept as a version first, then
+ * the version's pictures (and its plan and grid, when it kept them) become the month's. One picture
+ * alone can also come back to its post.
+ */
+postRoutes.post("/versions/restore", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), version: z.string().min(1), index: z.number().int().min(1).optional(), key: z.string().max(400).optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const v = await first<{ plan: string | null; grid: string | null; outputs: string }>(c.env.DB, "SELECT plan, grid, outputs FROM month_versions WHERE id = ? AND batch = ?", d.version, b.id);
+  if (!v) throw new StudioError("That version is gone.", 404);
+  const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND status IN ('queued','processing','finalizing') LIMIT 1", b.id);
+  if (busy) throw new StudioError("Posts are being made: wait for them, then bring the version back.", 409);
+  const config = JSON.parse(b.config) as Config;
+  const tasks = await all<{ id: string; post: number | null; output: string | null }>(c.env.DB, "SELECT id, post, output FROM tasks WHERE batch = ? AND post IS NOT NULL", b.id);
+  const put = async (index: number, key: string) => {
+    if (!key.startsWith(`${b.owner}/${b.id}/output/`)) throw new StudioError("Not this month's picture.", 400);
+    const t = tasks.find((x) => x.post === index);
+    if (!t) return false;
+    await run(
+      c.env.DB,
+      "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, updated = ? WHERE id = ?",
+      key,
+      now() + 1,
+      t.id,
+    );
+    return true;
+  };
+  // One picture back to its post: the picture it replaces is kept with the month's earlier pictures.
+  if (d.index && d.key) {
+    const was = tasks.find((x) => x.post === d.index)?.output;
+    if (!(await put(d.index, d.key))) throw new StudioError(`Post ${d.index} is not in the month any more.`, 409);
+    if (was)
+      await run(
+        c.env.DB,
+        "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)",
+        uuid(),
+        b.id,
+        `Post ${d.index} before`,
+        JSON.stringify({ [String(d.index)]: was }),
+        JSON.stringify([{ post: d.index, key: was, at: now() }]),
+        now(),
+      );
+    return c.json({ ok: true, restored: 1 });
+  }
+  await keepMonthVersion(c.env, b);
+  const outputs = JSON.parse(v.outputs) as Record<string, string>;
+  if (v.plan) {
+    config.plan = JSON.parse(v.plan) as Post[];
+    config.gridRef = v.grid ?? undefined;
+    config.plannedAt = now();
+    config.postCount = config.plan.length;
+    await saveConfig(c.env, b, config);
+  }
+  let restored = 0;
+  for (const [i, key] of Object.entries(outputs)) if (await put(Number(i), key)) restored++;
+  return c.json({ ok: true, restored });
 });
 
 /** One picture of an earlier version (only the month's own pictures). */

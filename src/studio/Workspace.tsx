@@ -1121,7 +1121,7 @@ export default function Workspace({
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
               />
-{batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} />}
+{batch && <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />}
                             <PlanView
                 onStyles={assignStyles}
                 client={client}
