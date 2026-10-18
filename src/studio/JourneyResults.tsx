@@ -1,7 +1,7 @@
 import { useState } from "react";
 import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
-import { Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { ArrowUpRight, Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
@@ -331,6 +331,7 @@ export function FeedStep({
   onShare,
   onExport,
   typography,
+  onOpenStudio,
   reference,
   onRetake,
   approvals = {},
@@ -346,6 +347,8 @@ export function FeedStep({
   onShare: () => Promise<void>;
   onExport: () => Promise<void>;
   typography: TypographyProps;
+  /** Opens the studio on one post. */
+  onOpenStudio: (index: number) => void;
   /** The reference grid the month follows (its picture), shown beside the feed. */
   reference?: string;
   onRetake: (index: number) => Promise<void>;
@@ -475,6 +478,9 @@ export function FeedStep({
               <strong dir="auto">{opened.headline ?? opened.title}</strong>
               <p dir="auto">{opened.caption}</p>
               <small dir="auto">{opened.hashtags}</small>
+              <button type="button" className="secondary" onClick={() => onOpenStudio(opened.index)}>
+                <ArrowUpRight size={14} /> Open this post in the studio
+              </button>
               {openedJob.flags?.find((f) => f.kind === "tile") && (
                 <>
                   <p className="feed-drift">{openedJob.flags.find((f) => f.kind === "tile")!.text}</p>

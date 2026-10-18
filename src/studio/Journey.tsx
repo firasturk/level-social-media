@@ -212,7 +212,8 @@ export interface JourneyProps {
   testPost: TestPost | null;
   onTest: (index: number) => Promise<void>;
   onFixTest: (edit: string) => Promise<void>;
-  onDone: () => void;
+  /** Opens the studio on the month's posts (or on one post). */
+  onDone: (focus?: number) => void;
   /** Styles and grids waiting for the admin's approval, and a nudge when the admin decided some. */
   pendingStyles?: number;
   onPendingChange?: () => void;
@@ -1058,7 +1059,7 @@ export default function Journey(p: JourneyProps) {
         <span className="journey-where">
           {client && step > 0 ? `${client.name} · ${monthLabel(p.month)}` : ""}
         </span>
-        <button type="button" className="text-button" onClick={p.onDone}>
+        <button type="button" className="text-button" onClick={() => p.onDone()}>
           Skip to the studio
         </button>
       </header>
@@ -1478,6 +1479,14 @@ export default function Journey(p: JourneyProps) {
               onShare={p.onShare}
               onExport={p.onExport}
               typography={p.typography}
+              onOpenStudio={(i) => {
+                try {
+                  localStorage.removeItem(RESUME_KEY);
+                } catch {
+                  /* private mode */
+                }
+                p.onDone(i);
+              }}
               onRetake={p.onRetake}
               approvals={p.config?.approvals}
               onFix={p.onFix}

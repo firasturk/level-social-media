@@ -145,7 +145,8 @@ export default function Workspace({
       /* private mode */
     }
   }, [journey]);
-  const finishJourney = useCallback(() => {
+  /** Leaves the journey for the studio, scrolled to the month's posts (or to one post). */
+  const finishJourney = useCallback((focus?: number) => {
     try {
       sessionStorage.setItem(JOURNEY_KEY, "1");
     } catch {
@@ -153,6 +154,19 @@ export default function Workspace({
     }
     setJourney(false);
     setPage("studio");
+    // The posts sit under the brand kit and the products: the studio opens on them.
+    let tries = 0;
+    const go = () => {
+      const el = document.getElementById(focus ? `post-card-${focus}` : "month-posts");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (focus) {
+          el.classList.add("post-card-focus");
+          setTimeout(() => el.classList.remove("post-card-focus"), 2400);
+        }
+      } else if (tries++ < 20) setTimeout(go, 150);
+    };
+    setTimeout(go, 200);
   }, []);
 
   useEffect(() => {

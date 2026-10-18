@@ -10421,3 +10421,8 @@ button.shot-product:hover {
 .journey-made-thumbs img:first-child {
   margin-left: 0;
 }
+.post-card-focus {
+  outline: 3px solid #7c3aed;
+  outline-offset: 3px;
+  transition: outline-color 400ms;
+}

@@ -513,7 +513,7 @@ export default function PlanView({
         </div>
       ) : (
         <>
-          <div className="posts-head">
+          <div className="posts-head" id="month-posts">
             <strong>Posts</strong>
             <span>Edit any text; it saves when you click out. New idea rewrites a post, Regenerate makes a different take of it.</span>
             {dirty && (
@@ -536,7 +536,7 @@ export default function PlanView({
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
               return (
-                <article key={p.index} className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""}`}>
+                <article key={p.index} id={`post-card-${p.index}`} className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""}`}>
                   {p.style && (
                     <div className="post-style-banner">
                       {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
