@@ -4,8 +4,6 @@ import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import { fixNote } from "@shared/qa";
 import {
-  ChevronDown,
-  ChevronUp,
   Clapperboard,
   Download,
   Film,
@@ -232,9 +230,8 @@ export default function PlanView({
       });
   }
   /** Which cards show every field (the picture, the words and the status show always). */
-  const [detailsOn, setDetailsOn] = useState<Set<number>>(new Set());
-  const [allDetails, setAllDetails] = useState(false);
-  const showDetails = (index: number) => allDetails || detailsOn.has(index);
+  // Every detail is on the card, always: the designer edits without opening anything.
+  const showDetails = () => true;
   const [fixing, setFixing] = useState<number | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
   const prevKey = (t: Task) => `lsm-prev-output:${t.id}`;
@@ -553,10 +550,7 @@ export default function PlanView({
         <>
           <div className="posts-head" id="month-posts">
             <strong>Posts</strong>
-            <button type="button" className="text-button posts-details-all" onClick={() => setAllDetails((v) => !v)} aria-pressed={allDetails}>
-              {allDetails ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {allDetails ? "Hide details" : "Show all details"}
-            </button>
-            <span>Three posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
+            <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => onSavePlan(draft)}>
@@ -988,7 +982,7 @@ export default function PlanView({
                         )}
                       </div>
                     </section>
-                    {showDetails(p.index) && (
+                    {showDetails() && (
                       <section className="post-section post-details">
                         <h4>
                           <FileText size={13} /> Details
@@ -1018,10 +1012,10 @@ export default function PlanView({
                           placeholder="What the photograph shows: place, subject, light, mood, where the product is."
                           aria-label="Visual brief"
                         />
-                        <details>
-                          <summary>Caption and hashtags</summary>
+                        <div className="post-caption-fields">
+                          <span className="post-field-label">Caption and hashtags</span>
                           <textarea
-                            rows={4}
+                            rows={3}
                             value={p.caption}
                             dir="auto"
                             onChange={(e) => patch(p.index, { caption: e.target.value })}
@@ -1033,7 +1027,7 @@ export default function PlanView({
                             placeholder="#hashtags"
                             aria-label="Hashtags"
                           />
-                        </details>
+                        </div>
                       </section>
                     )}
                     <div className="post-actions">
@@ -1078,14 +1072,6 @@ export default function PlanView({
                           <Film size={13} /> Video
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className="text-button post-details-toggle"
-                        aria-expanded={showDetails(p.index)}
-                        onClick={() => setDetailsOn((set) => { const n = new Set(set); if (n.has(p.index)) n.delete(p.index); else n.add(p.index); return n; })}
-                      >
-                        {showDetails(p.index) ? <ChevronUp size={13} /> : <ChevronDown size={13} />} Details
-                      </button>
                       <span className="spacer" />
                       {onRestorePicture && !inFlight && prevOf(t) && (
                         <button

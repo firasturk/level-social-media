@@ -11470,3 +11470,47 @@ button.shot-product:hover {
   font-size: 12.5px;
   padding: 8px 12px;
 }
+
+
+/* ───────────── Posts: four a row, every detail on the card ───────────── */
+.post-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 1500px) {
+  .post-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 1100px) {
+  .post-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .post-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.post-caption-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.post-field-label {
+  font-size: 11.5px;
+  color: var(--ink-500);
+}
+.post-section .post-overlay-fields input[dir] {
+  font-size: 14px;
+  padding: 9px 11px;
+}
+.post-actions .post-main-action {
+  font-size: 13px;
+  padding: 8px 13px;
+}
+.post-actions .secondary,
+.post-actions .post-video {
+  font-size: 12px;
+  padding: 7px 10px;
+}
