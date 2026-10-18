@@ -268,7 +268,8 @@ export interface ProductOption {
 
 export interface ProductMatch {
   index: number;
-  picks: (ProductOption & { reason: string })[];
+  /** same: the photo shows the product the post already has (another photo of it), not a different product. */
+  picks: (ProductOption & { reason: string; same?: boolean })[];
 }
 
 /** Tiles that show no product: their posts are not given one (a person tile holds one). */
@@ -294,7 +295,7 @@ export const PRODUCT_MATCH_SCHEMA = {
           post: { type: "integer" },
           picks: {
             type: "array",
-            items: { type: "object", properties: { option: { type: "integer" }, reason: { type: "string" } }, required: ["option", "reason"] },
+            items: { type: "object", properties: { option: { type: "integer" }, reason: { type: "string" }, same: { type: "boolean" } }, required: ["option", "reason", "same"] },
           },
         },
         required: ["post", "picks"],
@@ -319,9 +320,11 @@ export function productMatchInstruction(r: { client: string; posts: MatchPost[];
       "For every post, pick up to 3 photos (their numbers) that fit what its picture shows and its grid tile, best first:",
       "- the post's current product first when it fits and has a photo;",
       "- the same product, or the closest one in look and kind (a kunafa for a kunafa, a can for a can, a tray for a tray) when the exact one has no photo;",
+      "- a photo is judged by what its description says it shows. A name that does not say what the item is (a file name, a number, an event or a date such as \"world cup-07\", \"IMG_2231\", \"WhatsApp Image\") counts for nothing: such a photo is picked only when its description plainly shows the product the post is about, never for a post about a named product that has its own photo, and never when it shows a different kind of item (boxes of cake are not a muffin);",
       r.preferDrive
-        ? "- the team asks for the client's Drive photos: pick a Drive photo first whenever one fits the post and its tile, then the others;"
+        ? "- the team asks for the client's Drive photos: pick a Drive photo first when it shows the SAME product as the post (another photo of it) or the post has no product yet; a Drive photo of a different product never replaces the post's product;"
         : "- at equal fit, this month's photos first, then earlier months, then Drive;",
+      "- same: true when the photo shows the product the post already has (the same item, another photo of it), false when it is a different product or the post has none;",
       "- spread the month: avoid giving the same product to every post when others fit;",
       "- a post whose picture shows no product (a text or quote tile, a texture, a place, a greeting) gets no picks; a person tile gets the product the person holds (a box or tin held level with both hands suits it best).",
       r.exact ? "- exact product mode is on: the product photo is set into the picture as it is, so prefer a photo where the product stands alone on a plain background (a studio packshot) over one with a table, cups or a scene around it;" : "",
@@ -340,10 +343,10 @@ export function parseMatches(raw: unknown, posts: MatchPost[], options: ProductO
     if (!indexes.has(index) || out.has(index)) continue;
     const seen = new Set<number>();
     const picks = (Array.isArray(m.picks) ? (m.picks as Record<string, unknown>[]) : [])
-      .map((x) => ({ n: Math.round(Number(x?.option)) - 1, reason: String(x?.reason ?? "").trim().slice(0, 140) }))
+      .map((x) => ({ n: Math.round(Number(x?.option)) - 1, reason: String(x?.reason ?? "").trim().slice(0, 140), same: x?.same === true }))
       .filter((x) => options[x.n] && !seen.has(x.n) && seen.add(x.n))
       .slice(0, 3)
-      .map((x) => ({ ...options[x.n], reason: x.reason }));
+      .map((x) => ({ ...options[x.n], reason: x.reason, same: x.same }));
     out.set(index, { index, picks });
   }
   return posts.map((p) => out.get(p.index) ?? { index: p.index, picks: [] });

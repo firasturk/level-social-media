@@ -50,11 +50,12 @@ describe("Drive folders", () => {
     expect(text).toContain("grid tile: product (tray)");
     expect(text).toContain("2. Sidr - Tray (the client's Drive)");
     expect(text).toMatch(/gets no picks/);
-    const m = parseMatches({ matches: [{ post: 1, picks: [{ option: 2, reason: "a tray" }, { option: 2 }, { option: 7 }] }, { post: 9, picks: [] }] }, posts, options);
+    const m = parseMatches({ matches: [{ post: 1, picks: [{ option: 2, reason: "a tray", same: true }, { option: 2 }, { option: 7 }] }, { post: 9, picks: [] }] }, posts, options);
     expect(m).toEqual([
-      { index: 1, picks: [{ ...options[1], reason: "a tray" }] },
+      { index: 1, picks: [{ ...options[1], reason: "a tray", same: true }] },
       { index: 2, picks: [] },
     ]);
+    expect(text).toMatch(/counts for nothing/);
   });
 
   it("finds a free product name in the month", () => {

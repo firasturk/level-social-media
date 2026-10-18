@@ -942,33 +942,39 @@ postRoutes.post("/reidea", async (c) => {
     d.wish = `${d.wish ? `${d.wish} ` : ""}The client has no photos of its shop or branch: this post shows one of its products instead (a close-up on a surface in the month's colours, with the tile's props), never an interior, a shop, a counter, shelves, or a wall with signs, logos or patterns.`;
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  const next = await rewritePostIdea(c.env, b, config, d.index, d.wish ?? "", !!d.noPlace);
+  return c.json({ ok: true, post: next });
+});
+
+/** One post written again (its words, idea and shot) for the month as it is now; the plan is saved. */
+async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: number, wish: string, noPlace = false): Promise<Post> {
   const plan = config.plan ?? [];
-  const current = plan.find((p) => p.index === d.index);
+  const current = plan.find((p) => p.index === index);
   if (!current) throw new StudioError("That post is not in the plan.", 404);
-  const client = await clientRow(c.env, config.client);
+  const client = await clientRow(env, config.client);
   const theme = config.theme
-    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
   const sources = await all<SourceRow>(
-    c.env.DB,
+    env.DB,
     "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
-  await describeProducts(c.env, sources);
+  await describeProducts(env, sources);
   const products = [...new Set(sources.map(productName))];
   const productNotes = Object.fromEntries(
     sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
   );
-  const others = plan.filter((p) => p.index !== d.index).map((p) => p.title);
-  const cast = await monthAmbassadors(c.env, config);
+  const others = plan.filter((p) => p.index !== index).map((p) => p.title);
+  const cast = await monthAmbassadors(env, config);
   const instruction = singleIdeaInstruction(
-    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id)), count: 1 },
+    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id)), count: 1 },
     current,
     others,
-    d.wish ?? "",
+    wish,
   );
   const [fresh] = parseIdeas(
-    await askText(c.env, instruction, IDEAS_SCHEMA),
+    await askText(env, instruction, IDEAS_SCHEMA),
     1,
     products,
     cast.map((a) => a.name),
@@ -991,17 +997,17 @@ postRoutes.post("/reidea", async (c) => {
     // The post changed: its shot is written again on the shots screen.
     scene: undefined,
     // A place tile without photos of the shop becomes a food tile.
-    tileSpec: d.noPlace && current.tileSpec?.kind === "place" ? { ...current.tileSpec, kind: "food" } : current.tileSpec,
+    tileSpec: noPlace && current.tileSpec?.kind === "place" ? { ...current.tileSpec, kind: "food" } : current.tileSpec,
   };
   // An offer shows exactly the designer's products.
   if (next.type === "offer" && next.offer?.products.length) {
     next.product = next.offer.products[0];
     next.products = next.offer.products.slice(1);
   }
-  config.plan = withPortraits(plan.map((p) => (p.index === d.index ? next : p)), config, b.id);
-  await saveConfig(c.env, b, config);
-  return c.json({ ok: true, post: next });
-});
+  config.plan = withPortraits(plan.map((p) => (p.index === index ? next : p)), config, b.id);
+  await saveConfig(env, b, config);
+  return next;
+}
 
 postRoutes.post("/ideas", async (c) => {
   const d = await body(
@@ -2765,6 +2771,17 @@ async function useProduct(
   const next = withProduct(current, name);
   config.plan = plan.map((p) => (p.index === index ? next : p));
   await saveConfig(env, b, config);
+  // Another product, not another photo of the same one: the headline, idea and caption written for
+  // the old product would describe a muffin under a picture of cake boxes, so they are written again.
+  const sameKind = !current.product || productKeyOf(current.product) === productKeyOf(name) || productKeyOf(current.product).startsWith(productKeyOf(name)) || productKeyOf(name).startsWith(productKeyOf(current.product));
+  if (!sameKind) {
+    const row = (await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id)).find((s) => productName(s) === name);
+    try {
+      return await rewritePostIdea(env, b, config, index, `The post's product is now "${name}"${row?.note ? ` (${row.note})` : ""}: keep the post's type, date and tile, and write its title, headline, subline, idea and caption for THIS product, as its photo shows it.`);
+    } catch (e) {
+      console.error("[products] rewrite after swap", index, errorMessage(e));
+    }
+  }
   return next;
 }
 
@@ -2870,7 +2887,10 @@ postRoutes.post("/products/fill", async (c) => {
     // From Drive: each post's best Drive photo, the photos brought in four at a time under names
     // reserved first; a post whose Drive picks do not fit keeps its product.
     const chosen = matches.flatMap((m) => {
-      const pick = m.picks.find((x) => x.source === "drive");
+      const post = missing.find((p) => p.index === m.index);
+      const has = !!matchProduct(post?.product, monthNames);
+      // A post that has its product takes a Drive photo of that same product only.
+      const pick = m.picks.find((x) => x.source === "drive" && (!has || x.same));
       return pick ? [{ index: m.index, pick }] : [];
     });
     const taken = new Set((await all<{ stem: string }>(c.env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem));
