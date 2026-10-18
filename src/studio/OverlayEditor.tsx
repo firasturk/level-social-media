@@ -221,6 +221,14 @@ export default function OverlayEditor({
                       ))}
                     </select>
                   </label>
+                  <label className="num">
+                    <span>Big word colour</span>
+                    <input
+                      type="color"
+                      value={patch.typo.color || patch.color || spec.headline.color}
+                      onChange={(e) => setPatch((p) => ({ ...p, typo: { ...p.typo!, color: e.target.value } }))}
+                    />
+                  </label>
                 </>
               )}
             </div>

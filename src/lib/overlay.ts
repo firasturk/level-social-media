@@ -240,7 +240,7 @@ export async function drawOverlay(
   }
 
   if (!headline && !subline) return layout;
-  const typeset = typo && base ? await drawTypography(ctx, W, H, spec, typo, headline, subline, base, layout.logo, scale) : null;
+  const typeset = typo && base ? await drawTypography(ctx, W, H, spec, { ...typo, color: typo.color || patch.color || "" }, headline, subline, base, layout.logo, scale) : null;
   if (typeset) {
     layout.text = typeset;
     return layout;
