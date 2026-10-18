@@ -431,7 +431,7 @@ export function preflightInstruction(r: {
   /** The people the picture may show, with their look ("" for nobody). */
   people: string[];
   /** A style or tile image is attached: the engine will copy what it sees in it. */
-  reference: "style" | "tile" | "";
+  reference: "style" | "tile" | "grid" | "";
   /** The client's lessons: what went wrong before. */
   lessons: string[];
 }): string {
@@ -441,13 +441,13 @@ export function preflightInstruction(r: {
     r.products.length ? `THE PRODUCTS (as photographed; they are reproduced exactly):\n${r.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}` : "THE POST HAS NO PRODUCT PHOTO.",
     r.people.length ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.` : "NO PEOPLE are allowed (a hand at most).",
     r.reference
-      ? `THE ATTACHED IMAGE is the ${r.reference === "style" ? "style the designer picked" : "grid tile this post recreates"}; the engine sees it too and tends to copy everything in it: its people (their age and gender), its words, its bags, its products.`
+      ? `THE ATTACHED IMAGE is the ${r.reference === "style" ? "style the designer picked" : r.reference === "tile" ? "grid tile this post recreates" : "whole feed grid the month follows (many posts side by side)"}; the engine sees it too and tends to copy everything in it: its people (their age and gender, how many), its words, its bags, its products.`
       : "No style or tile image is attached.",
     r.lessons.length ? `WHAT WENT WRONG IN THIS CLIENT'S EARLIER PICTURES:\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
     [
       "Check, strictly:",
-      "- people: the scene and the reference agree with the allowed people (children stay children, a girl stays a girl, nobody extra); a reference showing adults when the people are children, or people when none are allowed, is a problem;",
-      "- words: nothing in the scene asks for a headline, slogan, sign, label or arrow, and the reference carries no big words the engine would copy;",
+      "- people: the scene, the tile and the reference agree with the allowed people in number, age and gender (one allowed person means a single portrait, never friends, a group or a crowd; children stay children, a girl stays a girl); a reference showing adults when the people are children, more people than allowed, or people when none are allowed, is a problem;",
+      "- words: nothing in the scene asks for a headline, slogan, sign, label or arrow, and the reference carries no big words the engine would copy. The product's OWN printed text, as its photo and description show it (a slogan on a sweatshirt, the name on a box), is part of the product and is never a problem: keep it in the scene exactly as the description words it;",
       "- product: each product is staged as its photo shows it (a garment printed on the back is seen from behind; a box stays closed; nothing added, recoloured or invented; no plain item is described as a second product);",
       "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
       "- foreign: no food, drink, cup or glass the brand does not sell.",

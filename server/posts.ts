@@ -1993,7 +1993,7 @@ postRoutes.post("/generate", async (c) => {
     if (!brief.ambassadors?.length) delete brief.realRef;
     // With ambassadors in the picture, a reference that shows people is described, not attached:
     // the engine copies a reference's people (their age, their gender) over the portraits.
-    if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || (brief.tileKey && post.tileSpec?.kind === "person"))) brief.noRefImage = true;
+    if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || ((brief.tileKey || (brief.ref && brief.grid)) && post.tileSpec?.kind === "person"))) brief.noRefImage = true;
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)

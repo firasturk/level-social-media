@@ -168,3 +168,14 @@ describe("a print stays on the side its photo shows", () => {
     expect(backPrintRule(['Off-white toddler sweatshirt featuring red "Mini MAMA" text, about 40 cm long.'])).toBe("");
   });
 });
+
+describe("a tile follows the post's people", () => {
+  it("turns a group tile into a single portrait for one ambassador and into nobody for none", async () => {
+    const { tileForPeople } = await import("../shared/posts");
+    const tile = "Tile 11 (row 4, col 2): group portrait against patterned white Product: worn Items: friends standing";
+    expect(tileForPeople(tile, 1)).toBe("Tile 11 (row 4, col 2): portrait of one person against patterned white Product: worn Items: none (this post shows ONE person: the ambassador, alone)");
+    expect(tileForPeople(tile, 0)).toContain("picture with nobody in it");
+    expect(tileForPeople(tile, 3)).toContain("portrait of 3 people");
+    expect(tileForPeople("Tile 2 (row 1, col 2): flat lay Product: center Items: wooden tray, linen napkin Background: cream", 1)).toContain("Items: wooden tray, linen napkin");
+  });
+});

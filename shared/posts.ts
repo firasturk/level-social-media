@@ -688,7 +688,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.grid)
     parts.push(
-      `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact)}` : ""}\n${gridWithoutBags(b.grid.trim(), !!b.hasProduct)}`,
+      `REFERENCE GRID: ${b.tileKey ? "the month follows a feed grid (its tile for this post is attached)" : "the attached style reference is a whole feed grid"}. Reproduce its world (sets, materials, props, palette, light, camera) and the rhythm of its tiles, never its products, packaging, shopping bags, cups, boxes, cards, text, logos or brand name: nothing of that brand appears in this picture.${b.tile ? ` THIS POST FOLLOWS TILE: ${tileForPeople(tileWithoutBags(b.tile.trim(), !!b.hasProduct || !!b.exact), people.length)}` : ""}\n${gridWithoutBags(b.grid.trim(), !!b.hasProduct)}`,
     );
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial" || b.wordsSpace)
@@ -1514,6 +1514,31 @@ export function withoutLettering(text: string): string {
 const BAG_PHRASE = /\b(?:an?\s+|the\s+)?(?:(?:large|small|big|paper|brand(?:ed)?|shopping|gift|tote)\s+)*(?:bags?|carriers?|totes?|baskets?)\b/gi;
 
 /** A grid tile's words without its bag: the product takes the bag's place, or the bag goes. */
+/** Words of a tile that cast people: a group tile shot with one ambassador is a portrait of that one. */
+const TILE_PEOPLE =
+  /\b(friends?|family|families|couples?|group|groups|crowd|crowds|kids|children|boys|girls|people|siblings|duo|trio|pair|team|two|three|four|several|many)\b/gi;
+/**
+ * A tile read from the grid may stage a group ("group portrait … Items: friends standing"); the
+ * post shows only its own ambassadors, so the tile is reworded to their number before the engine
+ * or the review reads it. With one person it becomes a single portrait; with none, nobody.
+ */
+export function tileForPeople(tile: string, people: number): string {
+  if (!tile.trim()) return tile;
+  if (people >= 2) return tile.replace(/\bgroup portrait\b/gi, `portrait of ${people} people`);
+  const items = tile.replace(/(Items:\s*)([^]*?)(?=\s+(?:Background|Text):|$)/i, (_m, label: string, list: string) => {
+    const kept = list
+      .split(/,\s*/)
+      .map((x) => x.trim())
+      .filter((x) => x && !TILE_PEOPLE.test(x) && (TILE_PEOPLE.lastIndex = 0) === 0);
+    return `${label}${kept.length ? kept.join(", ") : "none"}`;
+  });
+  const single = items
+    .replace(/\bgroup portrait\b/gi, people === 1 ? "portrait of one person" : "picture with nobody in it")
+    .replace(/\b(a group of|several|many|two|three|four) (friends|kids|children|boys|girls|people)\b/gi, people === 1 ? "one person" : "nobody")
+    .replace(/\b(friends|kids|children|siblings) (standing|sitting|playing|laughing|together)\b/gi, people === 1 ? "one person $2" : "nobody");
+  return `${single}${people === 1 ? " (this post shows ONE person: the ambassador, alone)" : " (this post shows nobody)"}`;
+}
+
 export function tileWithoutBags(tile: string, hasProduct: boolean): string {
   // Cards carry words: they leave the tile ("A container and a branded card" → "A container").
   tile = tile.replace(/,?\s*(?:and\s+)?(?:an?\s+)?(?:(?:branded|business|name|gift|greeting)\s+)?cards?\b/gi, "");

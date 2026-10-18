@@ -57,7 +57,7 @@ import {
   type FramingCheck,
 } from "./editorial";
 import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
-import { buildPostPrompt, tileWithoutBags, type PostBrief, splitEdit } from "@shared/posts";
+import { buildPostPrompt, tileWithoutBags, type PostBrief, splitEdit, tileForPeople } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
@@ -1651,9 +1651,11 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
     const { askText, parseJson } = await import("./posts");
     const scene = pb.shot?.trim() || pb.brief.trim();
     const products = pb.hasProduct ? [pb.product ?? "", ...(pb.extraProducts ?? []).map((e) => e.note ?? e.name)].filter(Boolean) : [];
-    const reference: "style" | "tile" | "" = pb.styleKey && !pb.refIsSource && !pb.noRefImage ? "style" : pb.tileKey && !pb.refIsSource && !pb.noRefImage ? "tile" : "";
+    const attachable = !pb.refIsSource && !pb.noRefImage;
+    const reference: "style" | "tile" | "grid" | "" = pb.styleKey && attachable ? "style" : pb.tileKey && attachable ? "tile" : pb.ref && pb.grid && attachable ? "grid" : "";
     const images: ImageBytes[] = [];
-    if (reference) {
+    if (reference === "grid") images.push(await referenceBytes(env, pb.ref!));
+    else if (reference) {
       const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
       if (obj) images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
     }
@@ -1664,7 +1666,7 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
           env,
           preflightInstruction({
             client: client?.name ?? "the brand",
-            scene,
+            scene: pb.grid && pb.tile ? `${scene}\nTILE OF THE GRID THIS POST FOLLOWS: ${tileForPeople(pb.tile, (pb.ambassadors ?? []).length)}` : scene,
             products,
             people: (pb.ambassadors ?? []).map((a) => `${a.name} (${a.description})`),
             reference,
@@ -1872,7 +1874,7 @@ async function submitTask(
     if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
       imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
       roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource) {
+    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
       imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
       roles.mood = true;
     }
@@ -1930,7 +1932,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.
-    tile: pb.grid && pb.tile ? tileWithoutBags(pb.tile, !!pb.hasProduct || !!pb.exact) : undefined,
+    tile: pb.grid && pb.tile ? tileForPeople(tileWithoutBags(pb.tile, !!pb.hasProduct || !!pb.exact), (pb.ambassadors ?? []).length) : undefined,
   };
   const instruction = postReviewInstruction(ctx);
   const all = [...images, result];
@@ -2065,7 +2067,7 @@ async function submitOpenAITask(
         images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
         roles.mood = true;
       }
-    } else if (pb.ref && !pb.refIsSource) {
+    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
       images.push(await referenceBytes(env, pb.ref));
       roles.mood = true;
     }
@@ -2478,7 +2480,7 @@ async function collectReferenceKeys(
     if (pb.styleKey && !pb.refIsSource && !pb.noRefImage) {
       keys.push(pb.styleKey);
       roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource) {
+    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
       const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
       if (ref) {
         keys.push(ref.key);
