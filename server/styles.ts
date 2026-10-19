@@ -524,8 +524,66 @@ async function pinFromLink(link: string): Promise<Pin | null> {
  * The team's own pins: read and put at the front of the gallery at once, whatever their score
  * (the team chose them). The gallery's weakest style of that kind steps back to the spares.
  */
+/** One of the team's pins read into the library (or found already there): its style id, or null. */
+async function addOwnPin(env: Env, admin: boolean, pin: Pin, grid: boolean): Promise<string | null> {
+  const known = await first<StyleRow>(env.DB, "SELECT * FROM styles WHERE pin = ?", pin.pin);
+  if (known?.image_key && known.prompt && (known.status === "active" || known.status === "review")) return known.id;
+  await run(
+    env.DB,
+    "INSERT INTO styles (id, kind, status, pin, source, note, sig, created, updated) VALUES (?, 'product', 'pool', ?, ?, ?, ?, ?, ?) ON CONFLICT(pin) DO UPDATE SET status = 'pool', source = excluded.source, updated = excluded.updated",
+    uuid(),
+    pin.pin,
+    pin.url,
+    pin.note,
+    pictureSig(pin.url),
+    now(),
+    now(),
+  );
+  const row = await first<StyleRow>(env.DB, "SELECT * FROM styles WHERE pin = ?", pin.pin);
+  if (!row) return null;
+  const stored = await storeImage(env, row);
+  const st = await readPicture(env, { bytes: stored.bytes, mime: stored.mime }, row.note, grid);
+  if (!st.prompt) return null;
+  await run(
+    env.DB,
+    "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
+    // The admin's own pins go straight in; anyone else's wait for the admin.
+    admin ? "active" : "review",
+    st.kind,
+    st.category,
+    Math.max(st.score, 9),
+    st.tiles,
+    stored.w,
+    stored.h,
+    st.title || "Team pick",
+    st.tags,
+    st.prompt,
+    stored.image,
+    stored.thumb,
+    now(),
+    now(),
+    row.id,
+  );
+  return row.id;
+}
+
+/** How many of a pin's related pins come along with it. */
+const RELATED_WITH_PIN = 24;
+
 styleRoutes.post("/add", async (c) => {
-  const d = await body(c, z.object({ links: z.array(z.string().url().max(600)).min(1).max(20), grid: z.boolean().optional() }));
+  const d = await body(
+    c,
+    z.object({
+      links: z.array(z.string().url().max(600)).min(1).max(20),
+      grid: z.boolean().optional(),
+      /** The pins Pinterest shows under each link come along too. */
+      related: z.boolean().optional(),
+      /** Everything added joins this client's own styles. */
+      client: z.string().max(80).optional(),
+    }),
+  );
+  const admin = c.get("user").role === "admin";
+  if (d.client && !(await first(c.env.DB, "SELECT 1 AS x FROM clients WHERE id = ?", d.client))) throw new StudioError("Client not found.", 404);
   const added: string[] = [];
   const failed: string[] = [];
   await Promise.all(
@@ -533,50 +591,31 @@ styleRoutes.post("/add", async (c) => {
       try {
         const pin = await pinFromLink(link);
         if (!pin) return failed.push(link);
-        await run(
-          c.env.DB,
-          "INSERT INTO styles (id, kind, status, pin, source, note, sig, created, updated) VALUES (?, 'product', 'pool', ?, ?, ?, ?, ?, ?) ON CONFLICT(pin) DO UPDATE SET status = 'pool', source = excluded.source, updated = excluded.updated",
-          uuid(),
-          pin.pin,
-          pin.url,
-          pin.note,
-          pictureSig(pin.url),
-          now(),
-          now(),
-        );
-        const row = await first<StyleRow>(c.env.DB, "SELECT * FROM styles WHERE pin = ?", pin.pin);
-        if (!row) return failed.push(link);
-        const stored = await storeImage(c.env, row);
-        const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, row.note, !!d.grid);
-        if (!st.prompt) return failed.push(link);
-        await run(
-          c.env.DB,
-          "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
-          // The admin's own pins go straight in; anyone else's wait for the admin.
-          c.get("user").role === "admin" ? "active" : "review",
-          st.kind,
-          st.category,
-          Math.max(st.score, 9),
-          st.tiles,
-          stored.w,
-          stored.h,
-          st.title || "Team pick",
-          st.tags,
-          st.prompt,
-          stored.image,
-          stored.thumb,
-          now(),
-          now(),
-          row.id,
-        );
-        added.push(row.id);
+        const id = await addOwnPin(c.env, admin, pin, !!d.grid);
+        if (!id) return failed.push(link);
+        added.push(id);
+        if (!d.related) return;
+        const related = (await relatedPins(pin.pin)).slice(0, RELATED_WITH_PIN);
+        // A few at a time: each one is downloaded and read by vision.
+        for (let i = 0; i < related.length; i += 4) {
+          const ids = await Promise.all(
+            related.slice(i, i + 4).map((r) =>
+              addOwnPin(c.env, admin, r, !!d.grid).catch((e) => {
+                console.error("[styles] related add failed", r.pin, errorMessage(e));
+                return null;
+              }),
+            ),
+          );
+          for (const x of ids) if (x) added.push(x);
+        }
       } catch (e) {
         console.error("[styles] add failed", link, errorMessage(e));
         failed.push(link);
       }
     }),
   );
-  return c.json({ ...(await list(c.env, c.get("user"), { tab: d.grid ? "grid" : c.get("user").role === "admin" ? "trends" : "all" })), added: added.length, failed });
+  if (d.client) for (const id of new Set(added)) await run(c.env.DB, "INSERT OR IGNORE INTO client_styles (client, style, added) VALUES (?, ?, ?)", d.client, id, now());
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: d.grid ? "grid" : admin ? "trends" : "all", client: d.client })), added: new Set(added).size, failed });
 });
 
 /**

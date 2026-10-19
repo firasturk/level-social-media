@@ -129,6 +129,9 @@ export default function StyleScreen({
   const [adding, setAdding] = useState(false);
   const [links, setLinks] = useState("");
   const [asGrid, setAsGrid] = useState(false);
+  /** The pins Pinterest shows under each link come along, and everything joins the client's styles. */
+  const [withRelated, setWithRelated] = useState(false);
+  const [toClient, setToClient] = useState(true);
   const fileInput = useRef<HTMLInputElement>(null);
   const single = pick?.mode === "post" || pick?.mode === "feed";
   const clientId = forClient?.id ?? pick?.client;
@@ -300,10 +303,12 @@ export default function StyleScreen({
     if (!list.length) return toast.error("Paste one or more Pinterest links.");
     setBusy("add");
     try {
-      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20), grid: asGrid || undefined });
+      const client = toClient && forClient ? forClient.id : undefined;
+      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20), grid: asGrid || undefined, related: withRelated || undefined, client });
       pages.clear();
       remember(r.styles);
-      toast.success(`${r.added} ${asGrid ? "grid" : "pin"}${r.added === 1 ? "" : "s"} added${asGrid ? " (on Grids)" : " (on Trends)"}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`);
+      toast.success(`${r.added} ${asGrid ? "grid" : "pin"}${r.added === 1 ? "" : "s"} added${client ? ` to ${forClient!.name}'s styles` : asGrid ? " (on Grids)" : " (on Trends)"}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`, { duration: 8000 });
+      if (client) onPendingChange?.();
       setLinks("");
       setAdding(false);
       setTyped("");
@@ -463,6 +468,16 @@ export default function StyleScreen({
                 <input type="checkbox" checked={asGrid} onChange={(e) => setAsGrid(e.target.checked)} />
                 <Grid3x3 size={13} /> Feed grids
               </label>
+              <label className="check-row" title="The pins Pinterest shows under each link (up to 24 per link) come along">
+                <input type="checkbox" checked={withRelated} onChange={(e) => setWithRelated(e.target.checked)} />
+                With related pins
+              </label>
+              {forClient && (
+                <label className="check-row" title={`Everything added joins ${forClient.name}'s own styles and comes first when you pick for ${forClient.name}`}>
+                  <input type="checkbox" checked={toClient} onChange={(e) => setToClient(e.target.checked)} />
+                  Add to {forClient.name}'s
+                </label>
+              )}
               <button type="button" className="secondary" disabled={!!busy} onClick={() => fileInput.current?.click()}>
                 {busy === "upload" ? <LoaderCircle className="spinning" size={14} /> : <Upload size={14} />} Upload pictures
               </button>
