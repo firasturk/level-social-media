@@ -206,7 +206,7 @@ export interface JourneyProps {
   cast: string[];
   onCast: (ids: string[]) => void;
   plan: Post[];
-  onGenerateIdeas: () => Promise<boolean>;
+  onGenerateIdeas: (force?: boolean) => Promise<boolean>;
   onSavePlan: (plan: Post[]) => void;
   ideasBusy: boolean;
   /** A single post is being written again (its type changed or its offer was filled). */
@@ -689,8 +689,12 @@ export default function Journey(p: JourneyProps) {
           break;
         }
         const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
+        // A month made from a brief is the brief's posts: no reading, grid or count makes them stale.
+        const briefMonth = !!p.config?.campaign?.only && p.plan.some((x) => x.group);
         // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
-        if ((p.config?.gridAt ?? 0) > plannedAt)
+        if (briefMonth) {
+          /* the brief's posts stand as written */
+        } else if ((p.config?.gridAt ?? 0) > plannedAt)
           out.push({ text: "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite });
         else if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
           out.push({ text: "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite });
@@ -1560,7 +1564,15 @@ export default function Journey(p: JourneyProps) {
               batchId={p.batchId}
               refresh={p.refresh}
               productNames={p.products.map((x) => displayName(x.name))}
-              onGenerate={() => void p.onGenerateIdeas()}
+              onGenerate={async () => {
+                if (p.config?.campaign?.only && p.plan.some((x) => x.group)) {
+                  const ok = await askConfirm("This month is your brief's posts. Write new ideas in their place? (Change the brief instead to plan it again.)", { ok: "Replace them", danger: true });
+                  if (!ok) return;
+                  void p.onGenerateIdeas(true);
+                  return;
+                }
+                void p.onGenerateIdeas();
+              }}
               onSavePlan={p.onSavePlan}
               onRewrite={p.onRewrite}
             />

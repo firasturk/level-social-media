@@ -575,7 +575,7 @@ export default function Workspace({
     }
   }
 
-  async function generateIdeas(notes: string): Promise<boolean> {
+  async function generateIdeas(notes: string, force = false): Promise<boolean> {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return false;
@@ -589,6 +589,7 @@ export default function Workspace({
         ref: config?.gridRef,
         notes: notes || undefined,
         count: shownSettings.postCount,
+        force: force || undefined,
       });
       await refresh();
       toast.success(`${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
@@ -1441,7 +1442,7 @@ export default function Workspace({
           cast={castIds}
           onCast={(ids) => void updateSettings({ ambassadors: ids })}
           plan={plan}
-          onGenerateIdeas={() => generateIdeas(config?.notes ?? "")}
+          onGenerateIdeas={(force) => generateIdeas(config?.notes ?? "", force)}
           onSavePlan={(next) => void savePlan(next)}
           ideasBusy={busy === "ideas"}
           rewriting={busy === "reidea"}

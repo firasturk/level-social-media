@@ -1119,10 +1119,15 @@ postRoutes.post("/ideas", async (c) => {
       notes: z.string().max(2000).optional(),
       types: z.array(z.enum(POST_TYPES)).max(POST_TYPES.length).optional(),
       count: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+      /** The team chose to replace a brief's posts with written ideas. */
+      force: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  // A month made from a brief is the brief's posts: nothing rewrites them by itself.
+  if (config.campaign?.only && (config.plan ?? []).some((p) => p.group) && !d.force)
+    throw new StudioError("This month is your brief's posts. Change the brief to plan it again, or confirm writing new ideas in their place.", 409);
   const client = await clientRow(c.env, config.client);
   const theme = config.theme
     ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
@@ -1271,6 +1276,8 @@ postRoutes.post("/grid-ideas", async (c) => {
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  if (config.campaign?.only && (config.plan ?? []).some((p) => p.group))
+    throw new StudioError("This month is your brief's posts. Change the brief to plan it again.", 409);
   const ref = await gridImage(c.env, d.ref);
   const obj = ref ? await c.env.BUCKET.get(ref.key) : null;
   if (!ref || !obj) throw new StudioError("Reference image not found.", 404);
@@ -3743,7 +3750,7 @@ postRoutes.post("/shots", async (c) => {
   // A post with a gallery style keeps its own shot (that style written for its product).
   const wanted = new Set((d.indexes ?? plan.map((p) => p.index)).filter((i) => !plan.find((p) => p.index === i)?.style));
   const styledMissing = plan
-    .filter((p) => p.style && (d.all || !p.scene) && (!d.indexes || d.indexes.includes(p.index)))
+    .filter((p) => p.style && ((d.all && !p.group) || !p.scene) && (!d.indexes || d.indexes.includes(p.index)))
     .map((p) => ({ index: p.index, style: p.style! }));
   const styledScenes = styledMissing.length ? await writeStyleScenes(c.env, b, config, styledMissing) : new Map<number, { style?: string; scene?: string }>();
   if (!wanted.size) {
