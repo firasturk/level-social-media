@@ -999,9 +999,11 @@ async function refitWords(env: Env, b: BatchRow, config: Config, index: number):
     const fresh = await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", b.id);
     const cfg = JSON.parse((fresh ?? b).config) as Config;
     if (s?.scene) {
-      cfg.plan = (cfg.plan ?? []).map((p) => (p.index === index ? { ...p, scene: s.scene, ...(s.brief ? { brief: s.brief } : {}) } : p));
+      cfg.plan = (cfg.plan ?? []).map((p) => (p.index === index ? { ...p, scene: s.scene, ...(s.brief && !p.captionHand ? { brief: s.brief } : {}) } : p));
       await saveConfig(env, fresh ?? b, cfg);
     }
+    // Words the designer wrote (a brief's text on design, a hand-written caption) stay as they are.
+    if (post.captionHand) return (cfg.plan ?? []).find((p) => p.index === index) ?? post;
     return rewritePostIdea(
       env,
       fresh ?? b,
@@ -1072,8 +1074,9 @@ async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: num
         title: fresh.title,
         caption: fresh.caption,
         hashtags: fresh.hashtags,
-        headline: fresh.headline,
-        subline: hidesSubline(client) ? undefined : fresh.subline,
+        // A brief's text on design is the designer's: the style's words never replace it.
+        headline: current.group ? current.headline : fresh.headline,
+        subline: current.group ? current.subline : hidesSubline(client) ? undefined : fresh.subline,
         captionHand: undefined,
         captionFrom: undefined,
       }
