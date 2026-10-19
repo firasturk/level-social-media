@@ -7,6 +7,7 @@ import { REAL_PEOPLE_RULE, realRefLine } from "./realism";
 import type { PromptImages } from "./prompts";
 import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS, type PostOverlayPatch } from "./overlay";
 import { FULL_FRAME_RULE } from "./prompts";
+import { childOf } from "./cast";
 import { SAFE_WORDING_RULE } from "./safety";
 
 export const POST_TYPES = [
@@ -564,7 +565,7 @@ export function backPrintRule(notes: string[]): string {
 /** A garment whose print or graphic is on its chest or front, as its photo and description show. */
 export const FRONT_PRINT = /\b(?:on|across|at) (?:the |its )?(?:chest|front)\b|\b(?:chest|front) (?:print|graphic|design|artwork|text)\b/i;
 
-const CHILD_WORDS = /\b(child|kid|toddler|baby|girl|boy|little|years? old|\d{1,2}\s*(years?|yrs?))\b/i;
+const CHILD_WORDS = { test: (t: string) => !!childOf(t) };
 
 /** The engine prompt for one post. Deterministic: the same brief gives the same text. */
 export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImages = {}): string {
@@ -1372,7 +1373,7 @@ export function gridIdeasInstruction(r: IdeasRequest): string {
     peopleRule(r),
     PRODUCT_ONLY_IDEAS,
     r.notes ? `COPY BRIEF FROM THE DESIGNER (what the words must say: headlines, captions, tone, offers, phrases to use or avoid; it wins over the defaults): ${r.notes}` : "",
-    `MATCH EACH TILE: a post takes its tile's role. A drink tile shows one of the client's drinks, a food tile one of its dishes or sweets, a product tile a packaged product (a box, tin or bottle), ${r.hasPlaces === false ? "a place tile becomes a food or product tile (the client has no photos of its shop: never an interior, a shop, a counter, a shelf or a wall with signs or patterns; a close-up of a product on the tile's surfaces and in its light instead)" : `a place tile the client's own ${r.places ? `spaces, from its photos: ${r.places} (a post on the making, the craft or behind the scenes is set in its kitchen or factory)` : "shop or café"}`}, a person tile a brand ambassador with the product, a detail or texture tile a close-up of the product's own ingredients or surface, and a text tile is a typographic post (type quote, tip or announcement: its headline carries the message and the picture is only the tile's background). Pick the product whose photo note fits the tile's kind; reproduce the tile's items as non-food props in the month's colours.`,
+    `MATCH EACH TILE: a post takes its tile's role. A drink tile shows one of the client's drinks, a food tile one of its dishes or sweets, a product tile a packaged product (a box, tin or bottle), ${r.hasPlaces === false ? "a place tile becomes a food or product tile (the client has no photos of its shop: never an interior, a shop, a counter, a shelf or a wall with signs or patterns; a close-up of a product on the tile's surfaces and in its light instead)" : `a place tile the client's own ${r.places ? `spaces, from its photos: ${r.places} (a post on the making, the craft or behind the scenes is set in its kitchen or factory)` : "shop or café"}`}, a person tile a brand ambassador with the product, a detail or texture tile a close-up of the product's own ingredients or surface${r.ambassadors?.length && sellsClothing(Object.values(r.productNotes ?? {})) ? " (for this clothing brand: a close-up of the garment WORN by an ambassador named in \"people\", the waist, hip, sleeve or print on the body, never a garment laid flat)" : ""}, and a text tile is a typographic post (type quote, tip or announcement: its headline carries the message and the picture is only the tile's background). Pick the product whose photo note fits the tile's kind; reproduce the tile's items as non-food props in the month's colours.`,
     `Then write the ${r.count} posts in posting order, cycling through the tiles so the feed keeps the reference's rhythm (tile 1 staging for post 1, tile 2 for post 2, and so on, varying props so no two posts are identical). For each post: type (one of ${POST_TYPES.join(", ")}), title (3-6 words, internal; start it with the tile it follows, e.g. "T3 ·"), brief (4-6 sentences describing ONE photograph for the image engine: the set and its materials in the brand palette, the props, the camera angle, where the product sits and what it does, the light, the mood, and which area stays calm for the headline; concrete, visual, catalogue-safe wording, no text in the picture), headline (2-4 words that name the product or a concrete benefit or moment; never filler that fits any brand, never the same opening twice in the month), ${r.noSubline ? 'subline (always "")' : 'subline (at most 8 words or "")'}, caption (${lang} SHORT: at most 10 words in all; no hashtags inside; ends with one clear call to action), hashtags (8-12 with #), product (exact name or ""), people (names of the brand ambassadors in the picture, or []).`,
     `Return ONLY JSON: {"world": "...", "tiles": [...], "fonts": {...}, "posts": [...]} with exactly ${r.count} posts.`,
   ]

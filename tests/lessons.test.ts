@@ -29,6 +29,10 @@ describe("a child in the designer's words wins over the adult gender", () => {
     expect(childOf("8 years boy")).toBe("boy");
     expect(childOf("a 4 year old kid")).toBe("child");
     expect(childOf("tall man with a beard")).toBe("");
+    // An age of a grown-up never makes a child, whatever the wording around it.
+    expect(childOf("asian women 25 year black hair")).toBe("");
+    expect(childOf("in her late twenty, 28 years old")).toBe("");
+    expect(childOf("12 years old girl")).toBe("girl");
   });
   it("describes a girl saved as a man as a girl, without the man's dress rules", () => {
     const look = castLook({ description: "6 years old little girl with happy cute face", gender: "man" });

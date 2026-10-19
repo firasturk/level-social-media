@@ -91,6 +91,7 @@ import {
   type PostBrief,
   productKeyOf,
   gatePostText,
+  sellsClothing,
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
 import { lessonsFor } from "./lessons";
@@ -2072,6 +2073,11 @@ postRoutes.post("/generate", async (c) => {
           .filter((a): a is AmbassadorRow => !!a)
           .slice(0, 3)
           .map((a) => ({ name: a.name, description: a.description, key: a.image_key! }));
+        // A clothing brand's detail tile shows the garment on a body (the grid's tile does): with
+        // nobody cast, the month's first ambassador wears it, so it is never laid flat.
+        const wornTile = post.tileSpec?.kind === "detail" && /\b(wear|wearing|worn|person|body|waist|hip|sleeve|thigh)\b/i.test(post.tile ?? "");
+        if (!list.length && product && wornTile && sellsClothing(productSources.map((s) => s.note?.trim() || "")) && cast[0]?.image_key)
+          return [{ name: cast[0].name, description: cast[0].description, key: cast[0].image_key }];
         return list.length ? list : undefined;
       })(),
       realRef: realRefs.length && !portraitDay && post.people?.length ? realRefs[realTurn++ % realRefs.length] : undefined,

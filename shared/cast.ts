@@ -15,9 +15,21 @@ export interface CastProfile {
  * A child in the designer's words wins over the adult gender field: "6 years old little girl" on a
  * row saved as a man is a girl, and the man's dress rules do not apply to her.
  */
+/** The age a description gives ("25 year", "6 years old"), or null. */
+export function ageOf(description: string): number | null {
+  const m = /\b(\d{1,2})\s*(?:-\s*)?(?:years?|yrs?|y\/?o)\b/i.exec(description);
+  return m ? Number(m[1]) : null;
+}
+
+/** Under this age a person is a child; "25 year" is a grown woman. */
+export const CHILD_AGE = 16;
+
 export function childOf(description: string): "girl" | "boy" | "child" | "" {
   const d = description.toLowerCase();
-  const young = /\b(child|kid|toddler|baby|little|young)\b|\b\d{1,2}\s*(years?|yrs?|y\/?o)\b|\b(years?|yrs?)[- ]old\b/.test(d);
+  const age = ageOf(d);
+  // A grown-up's age ("25 year", "32 years old") makes nobody a child, whatever else is written.
+  if (age !== null && age >= CHILD_AGE) return "";
+  const young = /\b(child|kid|toddler|baby|little)\b/.test(d) || (age !== null && age < CHILD_AGE);
   if (/\b(girl|daughter)\b/.test(d)) return "girl";
   if (/\b(boy|son)\b/.test(d)) return "boy";
   return young ? "child" : "";
