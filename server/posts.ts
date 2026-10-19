@@ -170,6 +170,8 @@ interface ClientRow {
   tone: string;
   dos: string;
   donts: string;
+  /** The client's own picture rules, sent with every post. */
+  image_rules?: string | null;
   style: string;
   language: string;
   status: string;
