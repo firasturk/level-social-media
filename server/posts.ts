@@ -2684,7 +2684,8 @@ postRoutes.post("/brief", async (c) => {
       images,
     ),
   );
-  const planned = parseBriefPlan(raw, names, existing.length + 1, () => uuid().slice(0, 8));
+  const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+  const planned = parseBriefPlan(raw, names, nextIndex, () => uuid().slice(0, 8));
   if (!planned.posts.length) throw new StudioError("The planner wrote no posts from this brief. Add what each post shows and try again.", 502);
   if (existing.length + planned.posts.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this brief adds ${planned.posts.length} to ${existing.length}.`);
   const added = planned.posts.map(({ post, reference }) => ({

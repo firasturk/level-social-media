@@ -71,7 +71,7 @@ export function briefPlanInstruction(r: {
       ? `${r.references === 1 ? "The attached image is the reference" : `The ${r.references} attached images are the references`} the brief talks about, numbered in order. Every post names the reference it follows ("reference": 1..${r.references}, or 0 for none). Read what makes it work (light, composition, scale, mood) and describe each slide so a photographer could shoot it in that style with THIS brand's product.`
       : "No reference image is attached: describe each picture from the brief and the brand's style.",
     r.products.length
-      ? `THE PRODUCT PHOTOS OF THE MONTH (use the exact names; "product" is the one the picture shows, "" when the picture shows no product, for example an ingredients slide):\n${r.products.map((p) => `- ${p.name}${p.note ? `: ${p.note}` : ""}`).join("\n")}`
+      ? `THE PRODUCT PHOTOS OF THE MONTH (use the exact names; "product" is the one the picture shows, "" when the picture shows no product, for example an ingredients slide). When the brief's product is NOT among these photos (a new product not uploaded yet), never stand another product in for it: write product "" on its slides and say in the summary exactly which photo the designer must upload, then the slides are matched when it arrives:\n${r.products.map((p) => `- ${p.name}${p.note ? `: ${p.note}` : ""}`).join("\n")}`
       : "No product photo is uploaded yet: write the posts with product \"\" and say in the summary which product photos the designer must upload.",
     [
       "GROUPS:",
