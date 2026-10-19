@@ -26,6 +26,7 @@ export default function OverlayEditor({
   headline: initialHeadline,
   subline: initialSubline,
   patch: initialPatch,
+  faces,
   onClose,
   onSave,
 }: {
@@ -36,6 +37,8 @@ export default function OverlayEditor({
   headline: string;
   subline: string;
   patch: PostOverlayPatch | undefined;
+  /** Faces in the picture (from the review): the words keep off them unless dragged by hand. */
+  faces?: number[][];
   onClose: () => void;
   onSave: (r: EditorResult) => void;
 }) {
@@ -72,13 +75,13 @@ export default function OverlayEditor({
     const img = imgRef.current;
     if (!open || !ready || !c || !img) return;
     let alive = true;
-    void paintFrame(c, img, spec, { headline, subline }, logoSrc, { patch }).then((l) => {
+    void paintFrame(c, img, spec, { headline, subline }, logoSrc, { patch, faces }).then((l) => {
       if (alive) layoutRef.current = l;
     });
     return () => {
       alive = false;
     };
-  }, [open, ready, spec, headline, subline, logoSrc, patch]);
+  }, [open, ready, spec, headline, subline, logoSrc, patch, faces]);
 
   function hit(e: React.PointerEvent<HTMLCanvasElement>): "text" | "logo" | null {
     const c = canvasRef.current!;
@@ -139,7 +142,7 @@ export default function OverlayEditor({
         <DialogHeader>
           <DialogTitle>Text on image</DialogTitle>
           <DialogDescription>
-            Type the headline, drag the text block or the logo to move them, and adjust size and colour. Only this post changes.
+            Type the headline, drag the words (plain or typography) or the logo with the mouse to move them, and adjust size and colour. Only this post changes.
           </DialogDescription>
         </DialogHeader>
         <div className="overlay-editor-body">

@@ -26,11 +26,40 @@ export interface OverlayLayout {
 
 export interface DrawOptions {
   patch?: PostOverlayPatch;
+  /** Faces in the picture as [x, y, w, h] fractions (from the review): the words never sit on one. */
+  faces?: number[][];
   /** Entry animation state: progress 0..1 of the chosen preset. */
   anim?: { preset: AnimationPreset; progress: number };
 }
 
 const loadedFonts = new Map<string, Promise<void>>();
+
+/** The faces the review stored on a task's QA, for the renderer to keep the words off them. */
+export function facesOf(qa: string | null | undefined): number[][] {
+  if (!qa) return [];
+  try {
+    const f = (JSON.parse(qa) as { faces?: unknown }).faces;
+    return Array.isArray(f) ? (f as number[][]).filter((x) => Array.isArray(x) && x.length === 4) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A luminance-free reading of whether a colour is (near) white. */
+function isWhite(hex: string): boolean {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return false;
+  const v = parseInt(m[1], 16);
+  return ((v >> 16) & 255) > 235 && ((v >> 8) & 255) > 235 && (v & 255) > 235;
+}
+/** The ink that reads on a solid colour: dark on light, white on dark. */
+function inkOn(hex: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#ffffff";
+  const v = parseInt(m[1], 16);
+  const l = (0.299 * ((v >> 16) & 255) + 0.587 * ((v >> 8) & 255) + 0.114 * (v & 255)) / 255;
+  return l > 0.6 ? "#1f1a17" : "#ffffff";
+}
 
 /** Loads an uploaded brand font once; hosted Google fonts come from the stylesheet in index.html. */
 export function loadFont(name: string, url: string): Promise<void> {
@@ -121,6 +150,7 @@ export async function drawOverlay(
   }
   const margin = spec.margin * W;
   const scale = patch.scale ?? 1;
+  const faceRects: Rect[] = (opts.faces ?? []).map((f) => ({ x: f[0] * W, y: f[1] * H, w: f[2] * W, h: f[3] * H }));
   // Typography: the picture as it is, kept to draw the product back over its letters.
   const typo = !anim && headline ? patch.typo : undefined;
   const base = typo ? copyCanvas(ctx.canvas) : null;
@@ -240,7 +270,7 @@ export async function drawOverlay(
   }
 
   if (!headline && !subline) return layout;
-  const typeset = typo && base ? await drawTypography(ctx, W, H, spec, { ...typo, color: typo.color || patch.color || "" }, headline, subline, base, layout.logo, scale) : null;
+  const typeset = typo && base ? await drawTypography(ctx, W, H, spec, { ...typo, color: typo.color || patch.color || "" }, headline, subline, base, layout.logo, scale, patch, faceRects) : null;
   if (typeset) {
     layout.text = typeset;
     return layout;
@@ -283,6 +313,14 @@ export async function drawOverlay(
     const options: TextPosition[] = ["bottom", "top", "center"];
     const best = options.map((pos) => ({ pos, e: energy(yFor(pos)) })).sort((a, b) => a.e - b.e)[0];
     if (best && best.pos !== h.position && here > best.e * 1.6) y = yFor(best.pos);
+  }
+  // The words never sit on a face: a block over one moves to the first of the three places that is clear.
+  if (!patch.dx && !patch.dy && headline && faceRects.length) {
+    const onFace = (yy: number) => faceRects.some((f) => bx0 < f.x + f.w && bx0 + maxWidth > f.x && yy < f.y + f.h && yy + blockH > f.y);
+    if (onFace(y)) {
+      const clear = (["bottom", "top", "center"] as TextPosition[]).map(yFor).find((yy) => !onFace(yy));
+      if (clear !== undefined) y = clear;
+    }
   }
   // The words never sit on the logo: a block that meets it moves below it (or above a bottom logo).
   const lg = layout.logo;
@@ -475,6 +513,8 @@ async function drawTypography(
   base: HTMLCanvasElement,
   logo: Rect | null,
   scale: number,
+  patch: PostOverlayPatch = {},
+  faces: Rect[] = [],
 ): Promise<Rect | null> {
   const word = typo.word.trim() || headline;
   const weight = typoWeight(typo.font);
@@ -482,88 +522,200 @@ async function drawTypography(
   await document.fonts.load(`${weight} 64px ${family}`, word).catch(() => []);
   await document.fonts.ready;
   const subject = typo.subject ? await subjectMatte(typo.subject, W, H) : null;
+  const style = typo.style;
   // Letters behind or across the product need one clear product with room around it: scattered
   // pieces filling the picture, or a missing outline, keep the plain headline.
-  if ((typo.style === "behind" || typo.style === "overlap") && (!subject || subject.box.w * subject.box.h > W * H * 0.5)) return null;
-  // An outlined or repeated word needs a band free of the product: above it or below it.
-  if ((typo.style === "outline" || typo.style === "repeat") && subject && subject.box.h > H * 0.72) return null;
+  if ((style === "behind" || style === "overlap") && (!subject || subject.box.w * subject.box.h > W * H * 0.5)) return null;
+  // A word set in a band of its own needs a band free of the product: above it or below it.
+  if (style !== "behind" && style !== "overlap" && style !== "vertical" && subject && subject.box.h > H * 0.72) return null;
   const margin = spec.margin * W;
   const rtl = ARABIC.test(word + headline);
+  // The designer's own placement (dragged in the editor) moves the whole block.
+  const dx = (patch.dx ?? 0) * W;
+  const dy = (patch.dy ?? 0) * W;
+  const moved = !!patch.dx || !!patch.dy;
   ctx.save();
   ctx.direction = rtl ? "rtl" : "ltr";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = "0px";
-  // The big word fills the width between the margins.
-  ctx.font = `${weight} 100px ${family}`;
-  const fit = ((W - margin * 2) / Math.max(1, ctx.measureText(word).width)) * 100;
-  const rows = typo.style === "repeat" ? 4 : 1;
-  // The post's text size moves it, but the word always fits between the margins.
-  let size = Math.min(fit, W * (typo.style === "repeat" ? 0.2 : 0.34) * scale);
-  // The word's real height in this font (calligraphic faces reach far above and below).
-  ctx.font = `${weight} ${size}px ${family}`;
-  const m = ctx.measureText(word);
-  // Calligraphic faces draw wider than their advance: the ink must fit too.
-  const ink = (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0);
-  if (ink > W - margin * 2) {
-    size = (size * (W - margin * 2)) / ink;
-    ctx.font = `${weight} ${size}px ${family}`;
-  }
-  const mm = ctx.measureText(word);
-  const glyphH = (mm.actualBoundingBoxAscent || size * 0.8) + (mm.actualBoundingBoxDescent || size * 0.2);
-  const lineH = glyphH * (typo.style === "repeat" ? 1.04 : 1.1);
-  const top = logo ? logo.y + logo.h + 0.02 * W : margin;
-  const box = subject?.box;
-  // Where the big word sits: behind the product's upper part, across its lower part, or in the calmest band.
-  let cy: number;
-  if (typo.style === "behind" && box) cy = box.y + box.h * 0.3;
-  else if (typo.style === "overlap" && box) cy = box.y + box.h * 0.66;
-  else if (box) {
-    // The bigger free band, above or below the product.
-    const above = box.y - top;
-    const below = H - margin - (box.y + box.h);
-    if (above < rows * lineH && below < rows * lineH) return null;
-    cy = above >= below ? top + (rows * lineH) / 2 : box.y + box.h + (rows * lineH) / 2;
-  } else cy = rows > 1 ? H * 0.42 : H * 0.36;
-  cy = Math.max(top + (rows * lineH) / 2, Math.min(H - margin - (rows * lineH) / 2 - size * 0.4, cy));
-  const blockTop = cy - (rows * lineH) / 2;
   const color = typo.color || spec.headline.color;
   // The colour never changes by itself: the text stays white unless the designer chose a colour.
+  // A band, a sticker or a marker needs a solid colour of its own: a white choice gives a dark one.
+  const solid = isWhite(color) ? "#1f1a17" : color;
+  const box = subject?.box;
+  const top = logo ? logo.y + logo.h + 0.02 * W : margin;
+  // A block over a face (outside the product's own outline) is moved or dropped.
+  const onFace = (r: Rect) =>
+    faces.some((f) => !(box && f.x >= box.x && f.y >= box.y && f.x + f.w <= box.x + box.w && f.y + f.h <= box.y + box.h) && r.x < f.x + f.w && r.x + r.w > f.x && r.y < f.y + f.h && r.y + r.h > f.y);
+
+  /* ── the lines to set and their size ── */
+  const lines: string[] =
+    style === "stack"
+      ? (() => {
+          const words = (headline || word).split(/\s+/).filter(Boolean);
+          if (words.length <= 3) return words;
+          const per = Math.ceil(words.length / 3);
+          const out: string[] = [];
+          for (let k = 0; k < words.length; k += per) out.push(words.slice(k, k + per).join(" "));
+          return out;
+        })()
+      : style === "repeat"
+        ? [word, word, word, word]
+        : [word];
+  const rows = lines.length;
+  const measureAt = (px: number, t: string) => {
+    ctx.font = `${weight} ${px}px ${family}`;
+    const m = ctx.measureText(t);
+    return Math.max(m.width, (m.actualBoundingBoxLeft || 0) + (m.actualBoundingBoxRight || 0));
+  };
+  const longest = lines.reduce((a, b) => (measureAt(100, a) >= measureAt(100, b) ? a : b), lines[0]);
+  const room = style === "vertical" ? H - margin * 2 - (logo ? logo.h + 0.02 * W : 0) : W - margin * 2;
+  const fit = (room / Math.max(1, measureAt(100, longest))) * 100;
+  const cap = style === "repeat" ? 0.2 : style === "sticker" ? 0.15 : style === "vertical" ? 0.17 : style === "stack" ? 0.24 : style === "band" || style === "marker" ? 0.26 : 0.34;
+  const size = Math.min(fit, W * cap * scale);
+  ctx.font = `${weight} ${size}px ${family}`;
+  const mm = ctx.measureText(longest);
+  const glyphH = (mm.actualBoundingBoxAscent || size * 0.8) + (mm.actualBoundingBoxDescent || size * 0.2);
+  const lineH = glyphH * (style === "repeat" ? 1.04 : style === "stack" ? 1.02 : 1.1);
+  const shift = ((mm.actualBoundingBoxAscent || size * 0.8) - (mm.actualBoundingBoxDescent || size * 0.2)) / 2;
+  const blockH = style === "band" ? lineH * 1.3 : style === "sticker" ? size * 1.6 : rows * lineH;
+
+  /* ── vertical: along the left (or right, for Arabic) edge, reading upwards ── */
+  if (style === "vertical") {
+    const x = rtl ? W - margin - size * 0.55 + dx : margin + size * 0.55 + dx;
+    const y1 = H - margin + dy;
+    const rect: Rect = { x: x - size * 0.6, y: y1 - room, w: size * 1.2, h: room };
+    if (!moved && onFace(rect)) {
+      ctx.restore();
+      return null;
+    }
+    ctx.save();
+    ctx.translate(x, y1);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.font = `${weight} ${size}px ${family}`;
+    ctx.fillStyle = color;
+    ctx.fillText(word, 0, 0);
+    ctx.restore();
+    if (subject) drawSubject(ctx, base, subject.matte, undefined);
+    ctx.restore();
+    return rect;
+  }
+
+  /* ── where the block sits: behind the product's upper part, across its lower part, or in the calmest band ── */
+  let cy: number;
+  if (style === "behind" && box) cy = box.y + box.h * 0.3;
+  else if (style === "overlap" && box) cy = box.y + box.h * 0.66;
+  else if (box) {
+    const above = box.y - top;
+    const below = H - margin - (box.y + box.h);
+    if (above < blockH && below < blockH) {
+      ctx.restore();
+      return null;
+    }
+    cy = above >= below ? top + blockH / 2 : box.y + box.h + blockH / 2;
+  } else cy = rows > 1 ? H * 0.42 : style === "sticker" ? H * 0.2 : H * 0.36;
+  cy = Math.max(top + blockH / 2, Math.min(H - margin - blockH / 2 - size * 0.4, cy)) + dy;
+  const cx = W / 2 + dx;
+  const blockRect = (yc: number): Rect => ({ x: margin, y: yc - blockH / 2, w: W - margin * 2, h: blockH });
+  if (!moved && faces.length && style !== "behind" && style !== "overlap" && onFace(blockRect(cy))) {
+    // Try the other band, then the bottom and the top; else the plain headline.
+    const options = [box ? box.y + box.h + blockH / 2 : -1, H - margin - blockH / 2, top + blockH / 2].filter((v) => v > 0);
+    const clear = options.find((yc) => !onFace(blockRect(yc)));
+    if (clear === undefined) {
+      ctx.restore();
+      return null;
+    }
+    cy = clear;
+  } else if (!moved && (style === "behind" || style === "overlap") && onFace(blockRect(cy))) {
+    ctx.restore();
+    return null;
+  }
+  const blockTop = cy - blockH / 2;
   ctx.font = `${weight} ${size}px ${family}`;
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
   ctx.lineWidth = Math.max(1.2, size * 0.022);
   ctx.lineJoin = "round";
-  // Each row centred on its glyphs, not on the font's em box.
-  const shift = ((mm.actualBoundingBoxAscent || size * 0.8) - (mm.actualBoundingBoxDescent || size * 0.2)) / 2;
   ctx.textBaseline = "alphabetic";
-  for (let i = 0; i < rows; i++) {
-    const y = blockTop + lineH * (i + 0.5) + shift;
-    // Repeated rows: outlined, with one filled row; an outline word is only its edge.
-    if (typo.style === "outline" || (typo.style === "repeat" && i !== 1)) outlineText(ctx, word, W / 2, y, color, ctx.lineWidth);
-    else ctx.fillText(word, W / 2, y);
+  const textX = style === "stack" ? (rtl ? W - margin + dx : margin + dx) : cx;
+  if (style === "stack") ctx.textAlign = rtl ? "right" : "left";
+
+  /* ── the backgrounds of band, sticker and marker ── */
+  if (style === "band") {
+    ctx.fillStyle = solid;
+    ctx.fillRect(0, blockTop, W, blockH);
+    ctx.fillStyle = inkOn(solid);
+  } else if (style === "sticker") {
+    const tw = measureAt(size, word);
+    const pw = tw + size * 0.9;
+    const ph = size * 1.5;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.07);
+    ctx.fillStyle = solid;
+    roundRect(ctx, -pw / 2, -ph / 2, pw, ph, ph / 2);
+    ctx.fill();
+    ctx.fillStyle = inkOn(solid);
+    ctx.font = `${weight} ${size}px ${family}`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(word, 0, shift);
+    ctx.restore();
+  } else if (style === "marker") {
+    const tw = measureAt(size, word);
+    ctx.save();
+    ctx.fillStyle = solid;
+    ctx.globalAlpha = 0.88;
+    ctx.translate(cx, cy);
+    ctx.rotate(-0.02);
+    roundRect(ctx, -tw / 2 - size * 0.18, -glyphH * 0.48, tw + size * 0.36, glyphH * 0.96, size * 0.08);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = inkOn(solid);
   }
+
+  /* ── the letters ── */
+  if (style !== "sticker")
+    for (let i = 0; i < rows; i++) {
+      const y = blockTop + (style === "band" ? blockH / 2 : lineH * (i + 0.5)) + shift;
+      const t = lines[i];
+      if (style === "outline" || (style === "repeat" && i !== 1)) outlineText(ctx, t, textX, y, color, ctx.lineWidth);
+      else if (style === "shadow") {
+        const off = size * 0.055;
+        ctx.fillStyle = inkOn(color) === "#ffffff" ? "#ffffff" : "#1f1a17";
+        ctx.fillText(t, textX + off, y + off);
+        ctx.fillStyle = color;
+        ctx.fillText(t, textX, y);
+      } else ctx.fillText(t, textX, y);
+    }
   ctx.textBaseline = "middle";
-  if (subject) drawSubject(ctx, base, subject.matte, typo.style === "overlap" ? cy : undefined);
-  // The rest of the words, small, under the big word (above it when there is no room below).
-  const rest = headline !== word ? headline : subline;
-  let textRect: Rect = { x: margin, y: blockTop, w: W - margin * 2, h: rows * lineH };
+  ctx.textAlign = "center";
+  if (subject) drawSubject(ctx, base, subject.matte, style === "overlap" ? cy : undefined);
+
+  /* ── the rest of the words, small, under the big word (above it when there is no room below) ── */
+  const rest = style === "stack" ? subline : headline !== word ? headline : subline;
+  let textRect: Rect = { x: margin, y: blockTop, w: W - margin * 2, h: blockH };
   if (rest) {
     const sSize = Math.max(spec.subline.size, 0.034) * W * scale;
     ctx.font = `${spec.subline.weight} ${sSize}px ${fontStack(spec.subline.font || spec.headline.font)}`;
     ctx.direction = ARABIC.test(rest) ? "rtl" : "ltr";
-    // Under the big word, never across the product or the logo: the first place that is free.
+    // Under the big word, never across the product, a face or the logo: the first place that is free.
     const free = (y: number) =>
       y - sSize / 2 >= margin &&
       y + sSize / 2 <= H - margin &&
       !(box && y + sSize / 2 > box.y && y - sSize / 2 < box.y + box.h) &&
-      !(logo && y + sSize / 2 > logo.y && y - sSize / 2 < logo.y + logo.h);
-    const places = [blockTop + rows * lineH + sSize * 0.9, box ? box.y + box.h + sSize * 0.9 : -1, blockTop - sSize * 0.9, H - margin - sSize];
-    const ry = places.find(free) ?? places[0];
-    ctx.fillStyle = spec.subline.color;
-    ctx.fillText(rest, W / 2, ry, W - margin * 2);
+      !(logo && y + sSize / 2 > logo.y && y - sSize / 2 < logo.y + logo.h) &&
+      !onFace({ x: margin, y: y - sSize / 2, w: W - margin * 2, h: sSize });
+    const places = [blockTop + blockH + sSize * 0.9, box ? box.y + box.h + sSize * 0.9 : -1, blockTop - sSize * 0.9, H - margin - sSize];
+    const ry = (moved ? places[0] : places.find(free)) ?? places[0];
+    ctx.fillStyle = patch.subColor ?? spec.subline.color;
+    ctx.textAlign = style === "stack" ? (rtl ? "right" : "left") : "center";
+    ctx.fillText(rest, textX, ry, W - margin * 2);
     const y0 = Math.min(blockTop, ry - sSize / 2);
-    textRect = { x: margin, y: y0, w: W - margin * 2, h: Math.max(blockTop + rows * lineH, ry + sSize / 2) - y0 };
+    textRect = { x: margin, y: y0, w: W - margin * 2, h: Math.max(blockTop + blockH, ry + sSize / 2) - y0 };
   }
   ctx.restore();
   return textRect;

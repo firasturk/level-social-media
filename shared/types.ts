@@ -83,6 +83,8 @@ export interface QA {
   /** false when the studio card does not show the same face as card 1 */
   sameFace?: boolean;
   notes: string;
+  /** Faces in the picture as [x, y, w, h] fractions (from the review): the words never sit on one. */
+  faces?: number[][];
   offset?: number;
   centered?: boolean;
   automated: boolean;

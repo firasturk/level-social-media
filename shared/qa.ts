@@ -168,9 +168,20 @@ export const POST_REVIEW_SCHEMA = {
     tile: { type: "string" },
     aiLook: { type: "string" },
     staging: { type: "string" },
+    faces: { type: "array", items: { type: "array", items: { type: "number" } } },
   },
-  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging"],
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "faces"],
 };
+
+/** The faces the review saw, as [x, y, w, h] fractions of the picture (0..1), so the words never sit on one. */
+export function facesIn(raw: unknown): number[][] {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  if (!Array.isArray(d.faces)) return [];
+  return (d.faces as unknown[])
+    .map((f) => (Array.isArray(f) ? f.slice(0, 4).map((n) => Number(n)) : []))
+    .filter((f) => f.length === 4 && f.every((n) => Number.isFinite(n) && n >= 0 && n <= 1) && f[2] > 0 && f[3] > 0)
+    .slice(0, 6);
+}
 
 /** What the reviewer is told about the post it checks. */
 export interface ReviewContext {
@@ -220,6 +231,7 @@ export function postReviewInstruction(r: ReviewContext): string {
       : 'tile: "".',
     r.people.length ? AI_LOOK_CHECK : 'aiLook: "".',
     'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".',
+    "faces: every human face in the post as [x, y, width, height], each a fraction of the picture's width or height from 0 to 1 (the box around the whole face, hair line to chin); [] when there is none. The designer's words are kept off these boxes.",
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }

@@ -30,7 +30,7 @@ import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
 import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
-import { renameProduct, SHOP_INSIDE, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
+import { renameProduct, SHOP_INSIDE, facesIn, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -2553,6 +2553,51 @@ postRoutes.post("/accept", async (c) => {
   }
   await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: "Accepted by the team." }), now(), t.id);
   return c.json({ ok: true });
+});
+
+const FACES_SCHEMA = { type: "object", properties: { faces: { type: "array", items: { type: "array", items: { type: "number" } } } }, required: ["faces"] };
+
+/**
+ * Faces for pictures reviewed before the review learned to see them: one small vision call per
+ * picture, once, so the words keep off every face from now on.
+ */
+postRoutes.post("/faces", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const rows = await all<{ id: string; output: string | null; qa: string | null }>(
+    c.env.DB,
+    "SELECT id, output, qa FROM tasks WHERE batch = ? AND output IS NOT NULL AND status IN ('ready','review','approved')",
+    b.id,
+  );
+  let filled = 0;
+  for (const t of rows) {
+    let qa: Record<string, unknown> | null = null;
+    try {
+      qa = t.qa ? (JSON.parse(t.qa) as Record<string, unknown>) : null;
+    } catch {
+      qa = null;
+    }
+    if (!qa || Array.isArray(qa.faces)) continue;
+    try {
+      const obj = await c.env.BUCKET.get(t.output!);
+      if (!obj) continue;
+      const image: ImageBytes = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" };
+      const raw = parseJson<unknown>(
+        await askText(
+          c.env,
+          "List every human face in the attached picture as [x, y, width, height], each a fraction of the picture's width or height from 0 to 1 (the box around the whole face, hair line to chin). Return ONLY JSON: {\"faces\": [[x, y, w, h], ...]}; [] when there is none.",
+          FACES_SCHEMA,
+          [image],
+        ),
+      );
+      qa.faces = facesIn(raw);
+      await run(c.env.DB, "UPDATE tasks SET qa = ? WHERE id = ? AND output = ?", JSON.stringify(qa), t.id, t.output);
+      filled++;
+    } catch (e) {
+      console.error("[faces]", t.id, errorMessage(e));
+    }
+  }
+  return c.json({ ok: true, filled });
 });
 
 /**

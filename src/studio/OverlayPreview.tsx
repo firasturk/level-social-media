@@ -9,6 +9,7 @@ export default function OverlayPreview({
   text,
   logoSrc,
   patch,
+  faces,
   width = 720,
   alt = "",
   className,
@@ -18,6 +19,8 @@ export default function OverlayPreview({
   text: OverlayText;
   logoSrc: string | null;
   patch?: PostOverlayPatch;
+  /** Faces in the picture (from the review): the words keep off them. */
+  faces?: number[][];
   width?: number;
   alt?: string;
   className?: string;
@@ -36,11 +39,11 @@ export default function OverlayPreview({
     io.observe(el);
     return () => io.disconnect();
   }, [seen]);
-  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width, patch, seen]);
+  const key = JSON.stringify([src, spec, text.headline ?? "", text.subline ?? "", logoSrc, width, patch, faces, seen]);
   useEffect(() => {
     if (!seen) return;
     let alive = true;
-    renderOverlay(src, spec, text, logoSrc, width, { patch })
+    renderOverlay(src, spec, text, logoSrc, width, { patch, faces })
       .then((canvas) => alive && setUrl(canvas.toDataURL("image/jpeg", 0.86)))
       .catch(() => alive && setUrl(null));
     return () => {

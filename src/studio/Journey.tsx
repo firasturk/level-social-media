@@ -421,7 +421,7 @@ export default function Journey(p: JourneyProps) {
           const x = p.plan.find((q) => q.index === i)!;
           const j = p.posts.find((q) => q.index === i)!;
           try {
-            const canvas = await renderOverlay(j.url!, p.overlay, { headline: x.headline, subline: x.subline }, x.overlay === false ? null : p.logoSrc, 900, { patch: x.ov });
+            const canvas = await renderOverlay(j.url!, p.overlay, { headline: x.headline, subline: x.subline }, x.overlay === false ? null : p.logoSrc, 900, { patch: x.ov, faces: j.faces });
             const image = canvas.toDataURL("image/jpeg", 0.82);
             await post("/api/studio/posts/text-check", { batch: p.batchId, index: i, image });
           } catch (e) {

@@ -38,6 +38,7 @@ import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
 import OverlayPreview from "./OverlayPreview";
+import { facesOf } from "@/lib/overlay";
 import {
   decodeEntities,
   MAX_POST_COUNT,
@@ -723,6 +724,7 @@ export default function PlanView({
                         text={{ headline: p.headline, subline: p.subline }}
                         logoSrc={logoSrc}
                         patch={p.ov}
+                        faces={facesOf(t?.qa)}
                         width={720}
                         alt={p.title}
                       />
@@ -1190,6 +1192,7 @@ export default function PlanView({
             headline={p.headline ?? ""}
             subline={p.subline ?? ""}
             patch={p.ov}
+            faces={facesOf(t.qa)}
             onClose={() => setEditing(null)}
             onSave={(r: EditorResult) => {
               const next = draft.map((x) =>

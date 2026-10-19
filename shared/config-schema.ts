@@ -42,7 +42,7 @@ export const postSchema = z.object({
       position: z.enum(["top", "center", "bottom"]).optional(),
       typo: z
         .object({
-          style: z.enum(["behind", "overlap", "repeat", "outline"]),
+          style: z.enum(["behind", "overlap", "repeat", "outline", "stack", "band", "sticker", "vertical", "shadow", "marker"]),
           word: z.string().max(80),
           font: z.string().max(60),
           color: z.string().max(12).optional(),

@@ -10,7 +10,7 @@ import { del, get, post, postForm, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
-import { canvasBlob, loadFont, loadImage, renderOverlay } from "@/lib/overlay";
+import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/overlay";
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
@@ -540,6 +540,25 @@ export default function Workspace({
       .catch((e) => console.error("[captions]", (e as Error).message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batch?.id, tasks, plan]);
+  // Pictures reviewed before the review learned to see faces get them once, so the words keep off faces.
+  const facesAsked = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!batch) return;
+    const missing = tasks.some((t) => {
+      if (!t.output || !t.qa || ["queued", "processing", "finalizing"].includes(t.status)) return false;
+      try {
+        return !Array.isArray((JSON.parse(t.qa) as { faces?: unknown }).faces);
+      } catch {
+        return false;
+      }
+    });
+    if (!missing || facesAsked.current.has(batch.id)) return;
+    facesAsked.current.add(batch.id);
+    void post<{ filled: number }>("/api/studio/posts/faces", { batch: batch.id })
+      .then((r) => (r.filled ? refresh() : undefined))
+      .catch((e) => console.error("[faces]", (e as Error).message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, tasks]);
   async function rewritePost(index: number, next: Post[]) {
     if (!batch) return;
     setBusy("reidea");
@@ -766,6 +785,7 @@ export default function Workspace({
           output: old ? null : (t?.output ?? null),
           error: t?.error ?? null,
           flags: qa?.automated ? (qa.flags ?? []) : null,
+          faces: qa?.faces ?? [],
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -861,7 +881,7 @@ export default function Workspace({
             { headline: p?.headline, subline: p?.subline },
             logoSrc,
             undefined,
-            { patch: p?.ov },
+            { patch: p?.ov, faces: facesOf(t.qa) },
           );
           entries.push({
             name: postFileName(client.slug, month, t.post!, "jpg"),
@@ -922,7 +942,7 @@ export default function Workspace({
               { headline: p.headline, subline: p.subline },
               logoSrc,
               1080,
-              { patch: p.ov },
+              { patch: p.ov, faces: facesOf(t.qa) },
             )
           : await loadImage(outputUrl(t));
         posts.push({ post: p, image });

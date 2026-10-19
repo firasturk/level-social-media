@@ -23,6 +23,8 @@ export interface JourneyPost {
   error: string | null;
   /** What the automatic review found (null while it has not run). */
   flags: PostFlag[] | null;
+  /** Faces in the picture, from the review: the words keep off them. */
+  faces?: number[][];
 }
 
 export const MAKING = ["queued", "processing", "finalizing"];
@@ -159,7 +161,7 @@ export function MakeStep({
                 {j?.url && (
                   <button type="button" className={`make-open ${busy ? "fading" : ""}`} onClick={() => setOpen(p.index)} title="Open large" aria-label={`Open post ${p.index}`}>
                     {overlay && p.overlay !== false && (p.headline || logoSrc) ? (
-                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc ?? null} patch={p.ov} width={520} alt={p.title} />
+                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc ?? null} patch={p.ov} faces={j.faces} width={520} alt={p.title} />
                     ) : (
                       <img src={j.url} alt={p.title} />
                     )}
@@ -335,7 +337,7 @@ function CaptionCard({
         <span className="caption-thumb big">
           {job?.url ? (
             post.overlay !== false && (post.headline || logoSrc) ? (
-              <OverlayPreview src={job.url} spec={overlay} text={{ headline: post.headline, subline: post.subline }} logoSrc={logoSrc} patch={post.ov} width={360} alt={post.title} />
+              <OverlayPreview src={job.url} spec={overlay} text={{ headline: post.headline, subline: post.subline }} logoSrc={logoSrc} patch={post.ov} faces={job.faces} width={360} alt={post.title} />
             ) : (
               <img src={job.url} alt="" />
             )
@@ -501,7 +503,7 @@ export function FeedStep({
                   {approvals[String(p.index)] && <span className={`feed-mark ${approvals[String(p.index)].status}`}>{approvals[String(p.index)].status === "approved" ? "✓" : "!"}</span>}
                   {j?.url ? (
                     p.overlay !== false && (p.headline || logoSrc) ? (
-                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} width={420} alt={p.title} />
+                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={j.faces} width={420} alt={p.title} />
                     ) : (
                       <img src={j.url} alt={p.title} loading="lazy" />
                     )

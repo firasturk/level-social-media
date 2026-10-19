@@ -229,6 +229,14 @@ export const HEADLINE_FONTS: FontChoice[] = [
   { family: "Rakkas", weight: 400, style: "Bold display" },
   { family: "Lemonada", weight: 700, style: "Rounded, playful" },
   { family: "Cairo", weight: 900, style: "Bold modern" },
+  { family: "Marhey", weight: 700, style: "Bold rounded display" },
+  { family: "Blaka", weight: 400, style: "Expressive, raw" },
+  { family: "Beiruti", weight: 800, style: "Modern geometric" },
+  { family: "Baloo Bhaijaan 2", weight: 800, style: "Chunky rounded" },
+  { family: "Zain", weight: 800, style: "Soft display" },
+  { family: "Kufam", weight: 700, style: "Kufi display" },
+  { family: "Mada", weight: 700, style: "Clean heavy" },
+  { family: "Rubik", weight: 800, style: "Rounded sans" },
 ];
 
 /** Ten readable Arabic text faces for the second line and body copy. */
@@ -249,6 +257,20 @@ export const BODY_FONTS: FontChoice[] = [
 export const LATIN_FONTS: FontChoice[] = [
   { family: "Montserrat", weight: 600, style: "Latin" },
   { family: "Inter", weight: 600, style: "Latin" },
+  { family: "Poppins", weight: 700, style: "Latin geometric" },
+  { family: "Bebas Neue", weight: 400, style: "Latin condensed display" },
+  { family: "Anton", weight: 400, style: "Latin heavy display" },
+  { family: "Oswald", weight: 700, style: "Latin condensed" },
+  { family: "Archivo Black", weight: 400, style: "Latin black" },
+  { family: "Unbounded", weight: 800, style: "Latin wide display" },
+  { family: "Playfair Display", weight: 700, style: "Latin serif" },
+  { family: "DM Serif Display", weight: 400, style: "Latin serif display" },
+  { family: "Abril Fatface", weight: 400, style: "Latin fat serif" },
+  { family: "Fredoka", weight: 700, style: "Latin rounded, playful" },
+  { family: "Righteous", weight: 400, style: "Latin retro" },
+  { family: "Pacifico", weight: 400, style: "Latin script" },
+  { family: "Caveat", weight: 700, style: "Latin handwritten" },
+  { family: "Permanent Marker", weight: 400, style: "Latin marker" },
 ];
 
 /** Google Fonts families the overlay may use without a file; everything else needs an uploaded font. */

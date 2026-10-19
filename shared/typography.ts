@@ -6,7 +6,7 @@
  */
 import { HEADLINE_FONTS, LATIN_FONTS } from "./overlay";
 
-export const TYPO_STYLES = ["behind", "overlap", "repeat", "outline"] as const;
+export const TYPO_STYLES = ["behind", "overlap", "repeat", "outline", "stack", "band", "sticker", "vertical", "shadow", "marker"] as const;
 export type TypoStyle = (typeof TYPO_STYLES)[number];
 
 export const TYPO_LABELS: Record<TypoStyle, string> = {
@@ -14,6 +14,12 @@ export const TYPO_LABELS: Record<TypoStyle, string> = {
   overlap: "Crossing the product",
   repeat: "Repeated",
   outline: "Big outline",
+  stack: "Stacked editorial",
+  band: "Colour band",
+  sticker: "Sticker pill",
+  vertical: "Vertical side",
+  shadow: "Retro shadow",
+  marker: "Marker highlight",
 };
 
 export interface PostTypography {
@@ -75,6 +81,12 @@ export function typographyInstruction(r: {
       "- overlap: one big word crossing the product's lower part, the product's top standing over the letters. For a tall product (a cup, a bottle, a person holding the product) with calm space beside it.",
       "- repeat: the word repeated three or four times down the post, outlined with one filled row. For a plain or softly textured background with the product small or low in the frame, or a typographic post.",
       "- outline: one big outlined word in a calm, even area (a plain wall, sky, cloth or empty surface) away from the product.",
+      "- stack: the headline's words stacked in two or three huge lines, left-aligned at the margin, editorial magazine style. For a calm vertical band on one side of the picture (the product on the other side).",
+      "- band: the word knocked out in white inside a solid colour band across the post. For a busy or textured picture where plain letters would not read; the band sits in a strip free of the product and faces.",
+      "- sticker: the word in a rounded pill, like a sticker on the picture, small to medium, playful. For lifestyle shots, kids, snacks, offers; it sits in a corner or a calm spot, never on a face.",
+      "- vertical: the word set along one side of the post, reading upwards, tall and narrow. For portrait pictures with a calm edge beside the product or the person.",
+      "- shadow: one big word with a hard offset shadow in a second colour, retro poster feel. For bold, plain backgrounds and playful brands.",
+      "- marker: the word in the headline font with a highlighter stroke behind it, like a marker on paper. For scrapbook, handmade or paper looks.",
       "- none: the plain headline is best: a face would be covered, the picture is busy (many pieces, patterns, strong texture), or there is no calm space. Letters over a busy picture never read.",
     ].join("\n"),
     "THE WORDS NEVER COVER the product, the food, a face or the logo, and never sit under the logo at the top: the big word goes where the picture is calm (sky, wall, cloth, empty surface) or deliberately behind the product. When no such place exists, answer none.",

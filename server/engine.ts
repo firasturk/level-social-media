@@ -10,7 +10,7 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction } from "@shared/qa";
+import { facesIn, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction } from "@shared/qa";
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLessons } from "./lessons";
@@ -1949,11 +1949,13 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
   } else if (openai) text = await askVisionOpenAI(openai, instruction, all);
   else return manualQA();
   const cleaned = text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-  const flags = parsePostReview(JSON.parse(cleaned), ctx);
+  const parsed = JSON.parse(cleaned) as unknown;
+  const flags = parsePostReview(parsed, ctx);
   return {
     found: false,
     count: 0,
     box: [],
+    faces: facesIn(parsed),
     productConcern: flags.some((f) => f.kind === "product" || f.kind === "size" || f.kind === "invented"),
     notes: flags.length
       ? `${flags.length} thing${flags.length > 1 ? "s" : ""} to check before publishing.`
