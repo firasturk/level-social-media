@@ -32,6 +32,7 @@ import { askConfirm, askInput } from "@/lib/confirm";
 import { confetti } from "@/lib/celebrate";
 import type { Ambassador, Client, GalleryItem, QA, Source, Theme, User } from "@shared/types";
 import type { BriefNote, BriefStep, Config } from "@shared/config";
+import { briefMonth } from "@shared/campaign";
 import {
   FORMATS,
   FORMAT_INFO,
@@ -612,6 +613,10 @@ export default function Journey(p: JourneyProps) {
     return [];
   }
 
+  // The brief typed on the Products screen (planned on Next, or with "Plan from the brief").
+  const [briefText, setBriefText] = useState("");
+  const [briefFiles, setBriefFiles] = useState<File[]>([]);
+  const briefTyped = briefText.trim().length >= 20;
   function issuesFor(k: string): Issue[] {
     const out: Issue[] = [];
     switch (k) {
@@ -620,12 +625,13 @@ export default function Journey(p: JourneyProps) {
         break;
       case "products":
         if (p.uploading) out.push({ text: "Wait for the photos to finish uploading." });
-        if (!p.products.length && !client?.service?.trim())
+        // A brief picks its products from the client's Drive: no upload is needed before it is planned.
+        if (!p.products.length && !client?.service?.trim() && !briefTyped && !p.config?.campaign)
           out.push({
             text: "No products yet.",
-            how: "Upload product photos, pick them from the gallery, or tick \"sells a service\" and describe what the client offers.",
+            how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\" and describe what the client offers.",
           });
-        else out.push(...analysisIssues("products"));
+        else if (p.products.length) out.push(...analysisIssues("products"));
         break;
       case "count": {
         if (p.postCount < 1) out.push({ text: "Pick how many posts this month has." });
@@ -691,9 +697,8 @@ export default function Journey(p: JourneyProps) {
         }
         const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
         // A month made from a brief is the brief's posts: no reading, grid or count makes them stale.
-        const briefMonth = !!p.config?.campaign?.only && p.plan.some((x) => x.group);
         // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
-        if (briefMonth) {
+        if (briefMonth(p.config)) {
           /* the brief's posts stand as written */
         } else if ((p.config?.gridAt ?? 0) > plannedAt)
           out.push({ text: "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite });
@@ -865,8 +870,6 @@ export default function Journey(p: JourneyProps) {
   }
 
   /* ── The campaign brief (Products step): planned by its button, or by Next when it is still unsent ── */
-  const [briefText, setBriefText] = useState("");
-  const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [briefPlanning, setBriefPlanning] = useState(false);
   /** The month is the brief's posts alone (the default for a month with no ideas yet). */
   const [briefOnly, setBriefOnly] = useState<boolean | null>(null);
@@ -1567,7 +1570,7 @@ export default function Journey(p: JourneyProps) {
               productNames={p.products.map((x) => displayName(x.name))}
               onNotes={(notes) => p.onSettings({ notes })}
               onGenerate={async (notes) => {
-                if (p.config?.campaign?.only && p.plan.some((x) => x.group)) {
+                if (briefMonth(p.config)) {
                   const ok = await askConfirm("This month is your brief's posts. Write new ideas in their place? (Change the brief instead to plan it again.)", { ok: "Replace them", danger: true });
                   if (!ok) return;
                   void p.onGenerateIdeas(true, notes);
@@ -2811,7 +2814,7 @@ function IdeasStep({
       .filter(([k]) => k !== "shots")
       .map(([, n]) => n?.at ?? 0),
   );
-  const stale = plan.length > 0 && Math.max(briefAt, config?.gridAt ?? 0) > (config?.plannedAt ?? 0);
+  const stale = plan.length > 0 && !briefMonth(config) && Math.max(briefAt, config?.gridAt ?? 0) > (config?.plannedAt ?? 0);
   const [copy, setCopy] = useState(config?.notes ?? "");
   const [copyOpen, setCopyOpen] = useState(false);
   useEffect(() => setCopy(config?.notes ?? ""), [config?.notes]);

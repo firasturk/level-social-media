@@ -76,7 +76,7 @@ export interface Config {
   /** Designer notes that steer the ideas of this month. */
   notes?: string;
   /** The campaign brief the designer gave, and what the planner made of it (or why it failed). */
-  campaign?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean };
+  campaign?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean; /** The brief's reference pictures, kept as private styles (reused when the brief is planned again without files). */ styles?: string[] };
   /** When the plan was last written by the ideas writer; posts generated before it are stale. */
   plannedAt?: number;
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */

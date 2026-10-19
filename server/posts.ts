@@ -17,7 +17,7 @@ import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo 
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
-import { BRIEF_PLAN_SCHEMA, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
+import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
@@ -1126,7 +1126,7 @@ postRoutes.post("/ideas", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   // A month made from a brief is the brief's posts: nothing rewrites them by itself.
-  if (config.campaign?.only && (config.plan ?? []).some((p) => p.group) && !d.force)
+  if (briefMonth(config) && !d.force)
     throw new StudioError("This month is your brief's posts. Change the brief to plan it again, or confirm writing new ideas in their place.", 409);
   const client = await clientRow(c.env, config.client);
   const theme = config.theme
@@ -1276,7 +1276,7 @@ postRoutes.post("/grid-ideas", async (c) => {
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
-  if (config.campaign?.only && (config.plan ?? []).some((p) => p.group))
+  if (briefMonth(config))
     throw new StudioError("This month is your brief's posts. Change the brief to plan it again.", 409);
   const ref = await gridImage(c.env, d.ref);
   const obj = ref ? await c.env.BUCKET.get(ref.key) : null;
@@ -2793,6 +2793,17 @@ postRoutes.post("/campaign", async (c) => {
     );
     styleIds.push(id);
   }
+  // The brief planned again without its pictures: the references it had are used again.
+  if (!styleIds.length && config.campaign?.styles?.length) {
+    for (const id of config.campaign.styles) {
+      const st = await styleRow(c.env, id);
+      if (!st?.image_key) continue;
+      const obj = await c.env.BUCKET.get(st.image_key);
+      if (!obj) continue;
+      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      styleIds.push(id);
+    }
+  }
   const existing = only ? [] : (config.plan ?? []);
   const raw = parseJson<unknown>(
     await askText(
@@ -2870,7 +2881,9 @@ postRoutes.post("/campaign", async (c) => {
   config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
   // The month is exactly these posts: the count follows, and the ideas count as freshly written.
   config.postCount = config.plan.length;
-  config.plannedAt = now();
+  // The brief and the plan share one stamp: the month is the brief's posts until the ideas are written again.
+  const stamp = now();
+  config.plannedAt = stamp;
   // The outcome in the studio's own words: what was planned and what came in from Drive. The
   // planner's instructions to "the designer" are dropped when the studio already did the work.
   const groups = [...new Map(added.filter((p) => p.group).map((p) => [p.group!.id, p.group!])).values()];
@@ -2885,7 +2898,7 @@ postRoutes.post("/campaign", async (c) => {
     .join(" ")
     .trim();
   const summary = [`Planned ${shape}.`, pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
-  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary, only: only || undefined };
+  config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).

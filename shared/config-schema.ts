@@ -113,7 +113,7 @@ export const configSchema = z.object({
   format: z.enum(FORMATS).optional(),
   plan: z.array(postSchema).max(MAX_POST_COUNT).optional(),
   notes: z.string().max(2000).optional(),
-  campaign: z.object({ text: z.string().max(6000), at: z.number(), added: z.number().int().optional(), summary: z.string().max(600).optional(), error: z.string().max(300).optional(), only: z.boolean().optional() }).optional(),
+  campaign: z.object({ text: z.string().max(6000), at: z.number(), added: z.number().int().optional(), summary: z.string().max(600).optional(), error: z.string().max(300).optional(), only: z.boolean().optional(), styles: z.array(z.string().max(80)).max(8).optional() }).optional(),
   plannedAt: z.number().int().nonnegative().optional(),
   ambassadors: z.array(z.string().max(80)).max(3).optional(),
   exact: z.boolean().optional(),

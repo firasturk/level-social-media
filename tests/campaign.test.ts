@@ -115,3 +115,26 @@ describe("a campaign brief wins over the month", () => {
     expect(buildPostPrompt({ ...base, editRef: { key: "styles/x.jpg" } })).not.toContain("attached for this take");
   });
 });
+
+import { briefMonth } from "../shared/campaign";
+
+describe("a month stays its brief's posts by its stamps", () => {
+  it("is the brief's while nothing wrote the ideas again, whatever the posts' groups", () => {
+    expect(briefMonth({ campaign: { at: 100, only: true }, plannedAt: 100 })).toBe(true);
+    expect(briefMonth({ campaign: { at: 100, only: true }, plannedAt: 90 })).toBe(true);
+    expect(briefMonth({ campaign: { at: 100, only: true }, plannedAt: 101 })).toBe(false);
+    expect(briefMonth({ campaign: { at: 100 }, plannedAt: 100 })).toBe(false);
+    expect(briefMonth(null)).toBe(false);
+  });
+  it("plans a separator as a plain post with no product", () => {
+    const r = parseBriefPlan(
+      { summary: "", posts: [{ type: "quote", group: "single", slide: 1, of: 1, role: "separator", title: "Separator", headline: "أبو صالح", subline: "", brief: "A plain teal backdrop.", product: "Cup", products: [], ingredients: "", exact: false, reference: 0, caption: "c", hashtags: "#a" }] },
+      ["Cup"],
+      4,
+      () => "g",
+    );
+    expect(r.posts[0].post.product).toBeUndefined();
+    expect(r.posts[0].post.type).toBe("quote");
+    expect(briefPlanInstruction({ client: "x", brief: "b", month: "2026-11", products: [], references: 0, brand: {}, language: "ar", existing: 0 })).toContain('role "separator"');
+  });
+});

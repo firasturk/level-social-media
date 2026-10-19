@@ -78,6 +78,7 @@ export function briefPlanInstruction(r: {
       '- "carousel": slides of ONE Instagram carousel, posted together; the same visual style on every slide, different information on each; group them with the same slide numbering (slide 1..N of N) and give each a role (teaser, ingredients, reveal, detail, offer, cta).',
       '- "series": several separate feed posts on the SAME product side by side, each a different visual (another angle, set, scale or moment), same style; slide 1..N of N.',
       '- "single": one post on its own (slide 1 of 1).',
+      '- A SEPARATOR (when the brief asks for one between carousels or posts): a single post with role "separator", type "quote", product "", no ingredients; its brief is a plain, seamless backdrop in one of the brand\'s colours, softly lit, nothing in frame (the words are added later); its headline is a short line from the brief or the brand\'s tagline.',
       "When the brief says the product must stay the real photo (no AI replacement), set exact: true on the posts that show it whole.",
       "An ingredients slide (no cup, no packaging) names the ingredients in \"ingredients\" exactly as the brief lists them, and nothing the brief does not mention; product stays \"\".",
       "A teaser slide hints at the product without revealing it whole (a part of the cup, a silhouette, the ingredients gathering).",
@@ -102,6 +103,15 @@ export function briefPlanInstruction(r: {
     .join("\n\n");
 }
 
+/**
+ * A month that is its brief's posts: the brief planned it and nothing wrote the ideas again since.
+ * No reading, grid, colour or count change makes these posts stale.
+ */
+export function briefMonth(config: { campaign?: { at: number; only?: boolean } | null; plannedAt?: number | null } | null | undefined): boolean {
+  if (!config?.campaign?.only) return false;
+  return (config.plannedAt ?? 0) <= config.campaign.at;
+}
+
 export interface PlannedPost {
   post: Post;
   reference: number;
@@ -124,8 +134,10 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
     const role = String(x.role ?? "").trim().toLowerCase();
     // An ingredients slide shows the ingredients on their own: no product photo joins it, whatever
     // the planner wrote in "product" (a cup in the picture would defeat the slide).
-    const lead = role === "ingredients" ? undefined : matchProduct(String(x.product ?? ""), products);
-    const extras = role === "ingredients" ? [] : (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n && n !== lead);
+    // An ingredients slide and a separator carry no product photo.
+    const bare = role === "ingredients" || role === "separator";
+    const lead = bare ? undefined : matchProduct(String(x.product ?? ""), products);
+    const extras = bare ? [] : (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n && n !== lead);
     const kindRaw = String(x.group ?? "single");
     const kind: GroupKind | null = kindRaw === "carousel" || kindRaw === "series" ? kindRaw : null;
     const of = Math.max(1, Math.min(10, Math.round(Number(x.of) || 1)));

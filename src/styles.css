@@ -11747,3 +11747,8 @@ button.shot-product:hover {
 .batches-bin li small { color: var(--ink-500); font-size: 12px; }
 .batches-bin .row-actions { display: flex; gap: 6px; flex: none; }
 .batches-bin .row-actions button { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 6px 10px; }
+
+/* A result card whose picture is still loading reads as loading, never as empty. */
+.make-image::before { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.35) 50%, transparent 80%) var(--surface-2); background-size: 200% 100%; animation: make-shimmer 1.6s linear infinite; }
+.make-image > * { position: relative; }
+@keyframes make-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
