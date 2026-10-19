@@ -2629,6 +2629,12 @@ postRoutes.post("/brief", async (c) => {
   );
   await describeProducts(c.env, sources);
   const names = [...new Set(sources.map(productName))];
+  // The client's Drive is part of the studio: its product photos are offered to the planner too,
+  // and the ones it picks join the month as its own copies.
+  const drivePhotos = (await clientDrivePhotos(c.env, client.id).catch(() => [] as Awaited<ReturnType<typeof clientDrivePhotos>>)).filter(
+    (p) => !p.video && !!p.kind && PRODUCT_KINDS.has(p.kind) && !names.some((n) => n.toLowerCase() === p.name.toLowerCase()),
+  );
+  const driveOptions = [...new Map(drivePhotos.map((p) => [p.name.toLowerCase(), p])).values()].slice(0, 60);
   // The references: read into private styles of this client (never listed in the gallery).
   const styleIds: string[] = [];
   const images: ImageBytes[] = [];
@@ -2678,7 +2684,10 @@ postRoutes.post("/brief", async (c) => {
         client: client.name,
         brief: text,
         month: config.month ?? "",
-        products: sources.map((s) => ({ name: productName(s), note: s.note ?? "" })),
+        products: [
+          ...sources.map((s) => ({ name: productName(s), note: s.note ?? "" })),
+          ...driveOptions.map((p) => ({ name: p.name, note: `${p.note ?? ""} (in the client's Drive, not in this month yet: name it and it joins the month)`.trim() })),
+        ],
         references: images.length,
         brand: { style: client.style, tone: client.tone, dos: client.dos, donts: client.donts },
         language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both",
@@ -2689,7 +2698,27 @@ postRoutes.post("/brief", async (c) => {
     ),
   );
   const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
-  const planned = parseBriefPlan(raw, names, nextIndex, () => uuid().slice(0, 8));
+  const planned = parseBriefPlan(raw, [...names, ...driveOptions.map((p) => p.name)], nextIndex, () => uuid().slice(0, 8));
+  // Drive products the planner picked: imported once into the month, with what vision read in them.
+  const imported = new Map<string, string>();
+  const taken = new Set(sources.map((s) => s.stem));
+  for (const { post } of planned.posts)
+    for (const n of [post.product, ...(post.products ?? [])]) {
+      if (!n || imported.has(n) || names.includes(n)) continue;
+      const photo = driveOptions.find((p) => p.name === n);
+      if (!photo) continue;
+      try {
+        const row = await importDrivePhoto(c.env, user.id, b.id, photo.id, photo.name, taken);
+        if (photo.note || photo.kind) await run(c.env.DB, "UPDATE sources SET note = ?, category = ? WHERE id = ?", photo.note ?? null, photo.kind ?? null, row.id);
+        imported.set(n, productName(row as unknown as SourceRow));
+      } catch (e) {
+        console.error("[brief] drive import", photo.name, errorMessage(e));
+      }
+    }
+  for (const { post } of planned.posts) {
+    if (post.product && imported.has(post.product)) post.product = imported.get(post.product);
+    if (post.products) post.products = post.products.map((n) => imported.get(n) ?? n);
+  }
   const failed = async (message: string) => {
     // What went wrong stays on the month, so the box can show it after a reload.
     const cfgNow = JSON.parse((await ownedPlan(c.env, user, b.id)).config) as Config;
