@@ -1336,6 +1336,7 @@ export default function Journey(p: JourneyProps) {
                 />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
+              <BriefBox batchId={p.batchId} refresh={p.refresh} onPlanned={go("ideas")} />
             </>
           )}
 
@@ -1963,6 +1964,87 @@ function ProductsBox(p: JourneyProps & { client: Client }) {
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A campaign brief (optional): the designer's own plan for a product, with reference pictures.
+ * The system picks the products, writes the posts (a carousel slide by slide, a series on one
+ * product, or a single post) and keeps the references as the posts' style.
+ */
+function BriefBox({ batchId, refresh, onPlanned }: { batchId: string | null; refresh: () => Promise<void>; onPlanned: () => void }) {
+  const [text, setText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  async function plan() {
+    if (!batchId || text.trim().length < 20) {
+      toast.error("Write the brief first: what the posts are about, how many, and the text on each.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.set("batch", batchId);
+      form.set("brief", text);
+      for (const f of files.slice(0, 4)) form.append("file", f);
+      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/brief", form);
+      await refresh();
+      toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from the brief.${r.summary ? ` ${r.summary}` : ""}`, { duration: 9000 });
+      setText("");
+      setFiles([]);
+      onPlanned();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className={`journey-box journey-brief ${open ? "open" : ""}`}>
+      <BoxTitle
+        kit="voice"
+        actions={
+          <button type="button" className="text-button" onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide" : "Write a brief"}
+          </button>
+        }
+      >
+        Brief (optional)
+      </BoxTitle>
+      {open ? (
+        <>
+          <p className="field-hint">
+            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and plan every slide; the pictures you attach become the style the posts follow.
+          </p>
+          <textarea
+            dir="auto"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={8}
+            placeholder={"Carousel for the new spicy hot chocolate, 3 slides: 1 teaser (the cup not fully revealed) — text: مكس مش عادي أبداً! 2 ingredients close-up — text: درينك الموسم… بطريقة جديدة! 3 reveal with the real cup — text: سبايسي هوت تشوكلت. Follow the attached reference's look; use the real cup photo; only the real ingredients."}
+          />
+          <div className="brief-files">
+            <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 4))} />
+            <button type="button" className="secondary" onClick={() => input.current?.click()} disabled={busy}>
+              {files.length ? `${files.length} reference picture${files.length > 1 ? "s" : ""}` : "Attach reference pictures"}
+            </button>
+            {files.length > 0 && (
+              <button type="button" className="text-button" onClick={() => setFiles([])} disabled={busy}>
+                Clear
+              </button>
+            )}
+            <span className="spacer" />
+            <button type="button" className="primary" onClick={() => void plan()} disabled={busy || !batchId}>
+              {busy ? <LoaderCircle className="spinning" size={13} /> : null} Plan from the brief
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures and I plan it after this month's posts.</p>
+      )}
     </div>
   );
 }

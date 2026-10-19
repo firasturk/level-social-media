@@ -11622,3 +11622,41 @@ button.shot-product:hover {
   line-height: 1.35;
   color: var(--ink-500, #6b6b6b);
 }
+
+
+/* ───────────── Brief box (journey, Products step) ───────────── */
+.journey-brief {
+  margin-top: 14px;
+  flex: none;
+}
+.journey-brief textarea {
+  width: 100%;
+  min-height: 150px;
+  margin-top: 8px;
+  resize: vertical;
+}
+.brief-files {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.brief-files .spacer { flex: 1; }
+
+/* A carousel's slide or a series' post, on the card and the client page */
+.post-group,
+.share-group {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+  white-space: nowrap;
+}
+.post-group.series { background: rgba(16, 185, 129, 0.18); color: #a7f3d0; }
+.share-group { background: #eef2ff; color: #3730a3; margin-left: 6px; }

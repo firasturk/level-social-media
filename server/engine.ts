@@ -1650,7 +1650,11 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
   try {
     const { askText, parseJson } = await import("./posts");
     const scene = pb.shot?.trim() || pb.brief.trim();
-    const products = pb.hasProduct ? [pb.product ?? "", ...(pb.extraProducts ?? []).map((e) => e.note ?? e.name)].filter(Boolean) : [];
+    const products = pb.hasProduct
+      ? [pb.product ?? "", ...(pb.extraProducts ?? []).map((e) => e.note ?? e.name)].filter(Boolean)
+      : pb.ingredients
+        ? [`an ingredients slide: only these ingredients of the product, on their own, no cup or packaging: ${pb.ingredients}`]
+        : [];
     const attachable = !pb.refIsSource && !pb.noRefImage;
     const reference: "style" | "tile" | "grid" | "" = pb.styleKey && attachable ? "style" : pb.tileKey && attachable ? "tile" : pb.ref && pb.grid && attachable ? "grid" : "";
     const images: ImageBytes[] = [];
@@ -1929,6 +1933,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     type: pb.type,
     people: (pb.ambassadors ?? []).map((a) => ({ name: a.name, description: a.description })),
     sellsDrinks: pb.sellsDrinks,
+    ingredients: pb.ingredients,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.

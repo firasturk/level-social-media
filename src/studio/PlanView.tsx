@@ -628,6 +628,12 @@ export default function PlanView({
                       <header className="post-head">
                         <span className="post-num">{String(p.index).padStart(2, "0")}</span>
                         <span className="post-type-pill">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
+                        {p.group && (
+                          <span className={`post-group ${p.group.kind}`} title={p.group.role ? `${p.group.kind}: ${p.group.role}` : p.group.kind}>
+                            {p.group.kind === "carousel" ? "Carousel" : "Series"} {p.group.slide}/{p.group.of}
+                            {p.group.role ? ` · ${p.group.role}` : ""}
+                          </span>
+                        )}
                         {p.date && (
                           <span className="post-day" title={occasionOn(p.date) || "Posting day"}>
                             <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}

@@ -20,6 +20,8 @@ interface SharedPost {
   hashtags: string;
   /** Faces in the picture as [x, y, w, h] fractions: the words keep off them. */
   faces?: number[][];
+  /** A carousel's slide or a series' post. */
+  group?: { kind: "carousel" | "series"; slide: number; of: number } | null;
   image: number | null;
   approval: Approval | null;
 }
@@ -212,6 +214,11 @@ function SharedCard({
           <div className="share-pending">Being prepared</div>
         )}
         <span className="share-index">{String(post.index).padStart(2, "0")}</span>
+        {post.group && (
+          <span className="share-group">
+            {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+          </span>
+        )}
       </div>
       <div className="share-body">
         {post.date && <span className="share-date">{shortDate(post.date)}</span>}

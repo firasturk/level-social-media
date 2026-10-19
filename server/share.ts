@@ -96,6 +96,7 @@ shareRoutes.get("/:token", async (c) => {
       caption: caption.text,
       hashtags: caption.hashtags,
       faces: facesOf(t?.qa),
+      group: p.group ?? null,
       image: t ? t.updated : null,
       approval: config.approvals?.[String(p.index)] ?? null,
     };

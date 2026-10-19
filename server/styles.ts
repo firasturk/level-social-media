@@ -277,7 +277,7 @@ async function storeImage(env: Env, row: StyleRow): Promise<Stored> {
 }
 
 /** A style's picture (a pin's or an upload), kept with its thumbnail. */
-async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime: string): Promise<Stored> {
+export async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime: string): Promise<Stored> {
   const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
   const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
   let thumbBytes: Uint8Array;
@@ -301,7 +301,7 @@ async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime: string
 type Reading = { keep: boolean; score: number; kind: StyleKind; category: string; title: string; tags: string; prompt: string; tiles: number };
 
 /** One picture read into a style: a photo style, or a whole feed for the Grids shelf. */
-async function readPicture(env: Env, image: { bytes: ArrayBuffer; mime: string }, note: string, grid: boolean, previous?: { title: string; prompt: string }): Promise<Reading> {
+export async function readPicture(env: Env, image: { bytes: ArrayBuffer; mime: string }, note: string, grid: boolean, previous?: { title: string; prompt: string }): Promise<Reading> {
   const clean = (t: string) => JSON.parse(t.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as unknown;
   if (grid) {
     const g = parseGridStyle(clean(await askText(env, gridStyleInstruction(note, previous), GRID_STYLE_SCHEMA, [image])));

@@ -219,6 +219,8 @@ export interface ReviewContext {
   style?: string;
   /** The grid tile this post follows: its role and staging in the feed. */
   tile?: string;
+  /** An ingredients slide: these ingredients on their own are the picture, never foreign food. */
+  ingredients?: string;
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -239,7 +241,9 @@ export function postReviewInstruction(r: ReviewContext): string {
     `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "". Plain unprinted garments and shoes worn to complete an outfit around a clothing product (a plain t-shirt or top, trousers, socks, sneakers) are NOT invented products; only printed, branded or packaged items are.${r.style ? " Extra copies of the same photographed product are part of the picked style, never invented." : ""} Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
     "text: quote or describe any letters, words, numbers, logos or labels anywhere in the post that are NOT the product's own printed packaging from its photo (signs, invented brand names, gibberish lettering, price tags), else \"\".",
     "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
-    r.sellsDrinks || r.coffeeDay
+    r.ingredients
+      ? `foreign: [] (this is an ingredients slide: ${r.ingredients} shown on their own are the picture; list only food or drink that is NOT one of them).`
+      : r.sellsDrinks || r.coffeeDay
       ? 'foreign: [] (the brand may show drinks here).'
       : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do, and neither do the product's own ingredients (its nuts, syrup, cream, fruit or pieces of the product itself, as its photo and description show).",
     r.people.length

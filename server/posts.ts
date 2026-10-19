@@ -16,7 +16,8 @@ import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
-import { styleRow, type StyleRow } from "./styles";
+import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
+import { BRIEF_PLAN_SCHEMA, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
@@ -1849,7 +1850,7 @@ postRoutes.post("/generate", async (c) => {
     // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
     // Only a photo on a plain background is set in exactly; any other is drawn from its photo.
     const exactProduct =
-      config.exact && product && !extraProducts.length && post.type !== "offer" && (refId || styled) && (await import("./exact").then((m) => m.cutsCleanly(c.env, product)))
+      (config.exact || post.exact) && product && !extraProducts.length && post.type !== "offer" && (refId || styled) && (await import("./exact").then((m) => m.cutsCleanly(c.env, product)))
         ? product
         : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
@@ -1977,6 +1978,7 @@ postRoutes.post("/generate", async (c) => {
       occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: portraitDay } : undefined,
       offer: post.type === "offer" ? post.offer : undefined,
       sellsDrinks: sellsDrinks || undefined,
+      ingredients: !product && post.ingredients?.trim() ? post.ingredients.trim() : undefined,
       occasionId: post.occasion || undefined,
       ambassadors: (() => {
         if (portraitDay) return undefined;
@@ -2597,6 +2599,119 @@ postRoutes.post("/faces", async (c) => {
     }
   }
   return c.json({ ok: true, filled });
+});
+
+/**
+ * A campaign brief: the designer's text (a carousel, a series on one product, a single post) with
+ * reference pictures. The references become this client's private styles, the planner turns the
+ * brief into posts after the month's existing ones, and each post's shot is written in its
+ * reference's style for the real products.
+ */
+postRoutes.post("/brief", async (c) => {
+  const form = await c.req.formData();
+  const batchId = String(form.get("batch") ?? "");
+  const text = String(form.get("brief") ?? "").trim();
+  if (!batchId) throw new StudioError("Batch id is required.");
+  if (text.length < 20) throw new StudioError("Write the brief first (what the posts are about, how many, the text on each).");
+  const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 4);
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, batchId);
+  const config = JSON.parse(b.config) as Config;
+  const client = await clientRow(c.env, config.client);
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(c.env, sources);
+  const names = [...new Set(sources.map(productName))];
+  // The references: read into private styles of this client (never listed in the gallery).
+  const styleIds: string[] = [];
+  const images: ImageBytes[] = [];
+  for (const file of files) {
+    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) continue;
+    const id = uuid();
+    const stored = await storeBytes(c.env, id, await file.arrayBuffer(), file.type);
+    images.push({ bytes: stored.bytes, mime: stored.mime });
+    let prompt = "Follow the attached reference closely: its composition, light, scale, surfaces and mood, with this brand's product in place of its product.";
+    let title = "Brief reference";
+    let kind = "product";
+    let category = "lifestyle";
+    try {
+      const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, "brief reference", false);
+      if (st.prompt.length > 40) prompt = st.prompt;
+      if (st.title) title = st.title;
+      kind = st.kind;
+      category = st.category;
+    } catch (e) {
+      console.error("[brief] reference read", errorMessage(e));
+    }
+    await run(
+      c.env.DB,
+      "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, source, note, image_key, thumb_key, position, created, updated, client) VALUES (?, ?, 'brief', ?, 9, 0, ?, ?, ?, '', ?, ?, ?, ?, ?, -1, ?, ?, ?)",
+      id,
+      kind,
+      category,
+      stored.w,
+      stored.h,
+      title,
+      prompt,
+      file.name.slice(0, 200),
+      "brief reference",
+      stored.image,
+      stored.thumb,
+      now(),
+      now(),
+      client.id,
+    );
+    styleIds.push(id);
+  }
+  const existing = config.plan ?? [];
+  const raw = parseJson<unknown>(
+    await askText(
+      c.env,
+      briefPlanInstruction({
+        client: client.name,
+        brief: text,
+        month: config.month ?? "",
+        products: sources.map((s) => ({ name: productName(s), note: s.note ?? "" })),
+        references: images.length,
+        brand: { style: client.style, tone: client.tone, dos: client.dos, donts: client.donts },
+        language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both",
+        existing: existing.length,
+      }),
+      BRIEF_PLAN_SCHEMA,
+      images,
+    ),
+  );
+  const planned = parseBriefPlan(raw, names, existing.length + 1, () => uuid().slice(0, 8));
+  if (!planned.posts.length) throw new StudioError("The planner wrote no posts from this brief. Add what each post shows and try again.", 502);
+  if (existing.length + planned.posts.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this brief adds ${planned.posts.length} to ${existing.length}.`);
+  const added = planned.posts.map(({ post, reference }) => ({
+    ...post,
+    style: styleIds[reference - 1] ?? styleIds[0] ?? undefined,
+  }));
+  config.plan = withPortraits(withDates([...existing, ...added], config.month ?? ""), config, b.id);
+  await saveConfig(c.env, b, config);
+  // Each new post's shot, written in its reference's style for its real products.
+  const assign = added.filter((p) => p.style).map((p) => ({ index: p.index, style: p.style! }));
+  if (assign.length) {
+    const fresh = await ownedPlan(c.env, user, b.id);
+    const cfg = JSON.parse(fresh.config) as Config;
+    try {
+      const scenes = await writeStyleScenes(c.env, fresh, cfg, assign);
+      cfg.plan = (cfg.plan ?? []).map((p) => {
+        const s = scenes.get(p.index);
+        // The planner's brief is the designer's idea: only the shot comes from the style writer.
+        return s?.scene ? { ...p, scene: s.scene } : p;
+      });
+      await saveConfig(c.env, fresh, cfg);
+    } catch (e) {
+      console.error("[brief] scenes", errorMessage(e));
+    }
+  }
+  const done = await ownedPlan(c.env, user, b.id);
+  return c.json({ ok: true, added: added.length, summary: planned.summary, plan: (JSON.parse(done.config) as Config).plan });
 });
 
 /**
@@ -3693,6 +3808,8 @@ async function writeStyleScenes(
         .map((n) => sources.find((x) => productName(x) === n))
         .filter((x): x is SourceRow => !!x);
       const productText = [src?.note?.trim() || "", ...extras.map((x) => x.note?.trim() || "")].filter(Boolean);
+      // An ingredients slide: the ingredients themselves are "the product" the style is written for.
+      if (!productText.length && post.ingredients?.trim()) productText.push(`ONLY THE INGREDIENTS of the brand's product, on their own, no cup, glass or packaging: ${post.ingredients.trim()}`);
       const text = await askText(
         env,
         adaptStyleInstruction({

@@ -134,6 +134,12 @@ export interface Post {
   textCheck?: { ok: boolean; note: string; for: string; at: number };
   /** What the gate took out of the idea or the shot before the last Generate, so no credit was spent on it. */
   prechecks?: { at: number; notes: string[] };
+  /** A carousel's slide or a series' post: the group it belongs to and its place in it. */
+  group?: { id: string; kind: "carousel" | "series"; slide: number; of: number; role?: string };
+  /** The real product photo is set into the picture (exact mode) for this post, whatever the month says. */
+  exact?: boolean;
+  /** An ingredients slide: the picture shows only these ingredients of the product, no cup or packaging. */
+  ingredients?: string;
   /** Which tile of a reference grid this post follows (grid mode). */
   tile?: string;
   /** That tile read in detail: what it shows, its background and how its text is set. */
@@ -229,6 +235,8 @@ export interface PostBrief {
   offer?: PostOffer;
   /** The client sells drinks (the review then allows cups and glasses). */
   sellsDrinks?: boolean;
+  /** An ingredients slide: only these ingredients, shown on their own. */
+  ingredients?: string;
   /** The post's occasion id (Coffee Day may show coffee). */
   occasionId?: string;
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
@@ -708,6 +716,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.`,
     );
   if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+  else if (b.ingredients?.trim())
+    parts.push(
+      `INGREDIENTS SLIDE: the picture shows ONLY these ingredients of the brand's product, real and natural, close up and beautifully lit: ${b.ingredients.trim()}. No cup, glass, box, packaging, logo or brand item, and no other food or drink; nothing is written anywhere.`,
+    );
   else
     parts.push(
       "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
@@ -739,7 +751,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   if (edit.trim() && !fresh) parts.push(`REVISION: ${edit.trim()}`);
   if (b.exact && !images.revision)
     parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
-  parts.push(b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID);
+  const avoid = b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID;
+  parts.push(b.ingredients?.trim() ? avoid.replace("other food or drinks, ", "") : avoid);
   return parts.join("\n\n");
 }
 
