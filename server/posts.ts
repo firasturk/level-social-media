@@ -2754,7 +2754,16 @@ postRoutes.post("/brief", async (c) => {
   // The month is exactly these posts: the count follows, and the ideas count as freshly written.
   config.postCount = config.plan.length;
   config.plannedAt = now();
-  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary: planned.summary || undefined };
+  // The outcome in the studio's own words: what was planned and what came in from Drive. The
+  // planner's instructions to "the designer" are dropped when the studio already did the work.
+  const groups = [...new Map(added.filter((p) => p.group).map((p) => [p.group!.id, p.group!])).values()];
+  const shape = groups.length
+    ? groups.map((g) => `a ${g.of}-${g.kind === "carousel" ? "slide carousel" : "post series"}`).join(", ")
+    : `${added.length} post${added.length === 1 ? "" : "s"}`;
+  const pulled = [...new Set([...imported.values()])];
+  const plannerNote = /\b(designer|upload|must|needs? to|should)\b/i.test(planned.summary) && pulled.length ? "" : planned.summary;
+  const summary = [`Planned ${shape}.`, pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
+  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).
