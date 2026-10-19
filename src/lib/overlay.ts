@@ -523,9 +523,10 @@ async function drawTypography(
   await document.fonts.ready;
   const subject = typo.subject ? await subjectMatte(typo.subject, W, H) : null;
   const style = typo.style;
-  // Letters behind or across the product need one clear product with room around it: scattered
-  // pieces filling the picture, or a missing outline, keep the plain headline.
-  if ((style === "behind" || style === "overlap") && (!subject || subject.box.w * subject.box.h > W * H * 0.5)) return null;
+  // Letters behind or across the subject need an outline and room for some letters to show: a
+  // subject filling the whole frame edge to edge, or a missing outline, keeps the plain headline.
+  // A person wearing the product is a tall subject: the word still reads behind their sides.
+  if ((style === "behind" || style === "overlap") && (!subject || subject.box.w > W * 0.82 || subject.box.w * subject.box.h > W * H * 0.78)) return null;
   // A word set in a band of its own needs a band free of the product: above it or below it.
   if (style !== "behind" && style !== "overlap" && style !== "vertical" && subject && subject.box.h > H * 0.72) return null;
   const margin = spec.margin * W;
