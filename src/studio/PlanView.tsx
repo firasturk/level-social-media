@@ -354,10 +354,15 @@ export default function PlanView({
     refitDue.current.clear();
     if (due.length && onRefit) await onRefit(due);
   }
-  function removePost(index: number) {
-    const next = draft.filter((x) => x.index !== index).map((x, i) => ({ ...x, index: i + 1 }));
-    setDraft(next);
-    onSavePlan(next);
+  /** The post leaves the month on the server, which moves the later posts' pictures up with them. */
+  async function removePost(index: number) {
+    if (!batchId) return;
+    try {
+      await post("/api/studio/posts/remove", { batch: batchId, index });
+      await onRefresh?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove the post.");
+    }
   }
   function addPost() {
     const next: Post = {
@@ -1229,7 +1234,7 @@ export default function PlanView({
                         className="icon-button danger"
                         aria-label="Remove post"
                         title="Remove this post from the month"
-                        onClick={() => removePost(p.index)}
+                        onClick={() => void removePost(p.index)}
                         disabled={inFlight}
                       >
                         <Trash2 size={13} />

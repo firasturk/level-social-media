@@ -1387,6 +1387,64 @@ postRoutes.post("/grid-ideas", async (c) => {
 });
 
 /** The designer's edits of the plan. */
+/**
+ * One post taken out of the month. The posts after it move up one number together with their
+ * pictures, comments and videos (a picture belongs to its post, never to a number), and the
+ * removed post's picture is kept under Earlier versions. A carousel's slides are counted again.
+ */
+postRoutes.post("/remove", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  if (!plan.some((p) => p.index === d.index)) throw new StudioError("That post is not in the month.", 404);
+  const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND post = ? AND status IN ('queued','processing','finalizing') LIMIT 1", b.id, d.index);
+  if (busy) throw new StudioError("This post is being made: wait for it, then remove it.", 409);
+  // The removed post's picture stays reachable under Earlier versions.
+  const gone = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ?", b.id, d.index);
+  if (gone?.output) {
+    const title = plan.find((p) => p.index === d.index)?.title ?? `Post ${d.index}`;
+    await run(
+      c.env.DB,
+      "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)",
+      uuid(),
+      b.id,
+      `Removed: ${title}`.slice(0, 80),
+      JSON.stringify({ [String(d.index)]: gone.output }),
+      JSON.stringify([{ post: d.index, key: gone.output, at: now() }]),
+      now(),
+    );
+  }
+  if (gone) await run(c.env.DB, "DELETE FROM tasks WHERE id = ?", gone.id);
+  await run(c.env.DB, "DELETE FROM post_comments WHERE batch = ? AND post = ?", b.id, d.index);
+  await run(c.env.DB, "DELETE FROM videos WHERE batch = ? AND post = ?", b.id, d.index);
+  // The later posts move up one number, lowest first so no two rows share a number on the way.
+  const later = plan.filter((p) => p.index > d.index).map((p) => p.index).sort((a, z) => a - z);
+  for (const n of later) {
+    await run(c.env.DB, "UPDATE tasks SET post = ? WHERE batch = ? AND post = ?", n - 1, b.id, n);
+    await run(c.env.DB, "UPDATE post_comments SET post = ? WHERE batch = ? AND post = ?", n - 1, b.id, n);
+    await run(c.env.DB, "UPDATE videos SET post = ? WHERE batch = ? AND post = ?", n - 1, b.id, n);
+  }
+  const fresh = await ownedPlan(c.env, user, d.batch);
+  const cfg = JSON.parse(fresh.config) as Config;
+  const kept = (cfg.plan ?? []).filter((p) => p.index !== d.index).map((p, i) => ({ ...p, index: i + 1 }));
+  // A carousel or series counts its slides again.
+  const groups = new Map<string, number>();
+  for (const p of kept) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  cfg.plan = kept.map((p) => {
+    if (!p.group) return p;
+    const slide = (seen.get(p.group.id) ?? 0) + 1;
+    seen.set(p.group.id, slide);
+    const of = groups.get(p.group.id) ?? 1;
+    return of > 1 ? { ...p, group: { ...p.group, slide, of } } : { ...p, group: undefined };
+  });
+  cfg.postCount = cfg.plan.length;
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, plan: cfg.plan, postCount: cfg.postCount });
+});
+
 postRoutes.put("/plan", async (c) => {
   const d = await body(
     c,
