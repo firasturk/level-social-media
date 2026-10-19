@@ -139,3 +139,28 @@ describe("a month stays its brief's posts by its stamps", () => {
     expect(briefPlanInstruction({ client: "x", brief: "b", month: "2026-11", products: [], references: 0, brand: {}, language: "ar", existing: 0 })).toContain('role "separator"');
   });
 });
+
+describe("quote posts and references keep the brand's truth", () => {
+  it("gives a quote without a product a texture backdrop of the brand's foods, never a flat colour", () => {
+    const p = buildPostPrompt({ ...base, type: "quote", styleKey: undefined, hasProduct: false, product: undefined, shot: undefined, brandFoods: "a mango drink; a strawberry slushie" });
+    expect(p).toContain("TEXTURE BACKDROP");
+    expect(p).toContain("a mango drink; a strawberry slushie");
+    expect(p).toContain("never a plain flat colour");
+  });
+  it("keeps the product's own container shape next to a brief reference", () => {
+    const p = buildPostPrompt({ ...base, campaign: {} });
+    expect(p).toContain("THE REFERENCE'S CONTAINER IS NOT THIS PRODUCT");
+    expect(buildPostPrompt(base)).not.toContain("THE REFERENCE'S CONTAINER");
+  });
+  it("keeps a product post's own ingredients from the planner", () => {
+    const r = parseBriefPlan(
+      { summary: "", posts: [{ type: "product", group: "carousel", slide: 1, of: 2, role: "teaser", title: "T", headline: "h", subline: "", brief: "Mango cup on mangoes.", product: "Cup", products: [], ingredients: "mango pieces, whole mangoes", exact: false, reference: 1, caption: "c", hashtags: "#a" }] },
+      ["Cup"],
+      1,
+      () => "g",
+    );
+    expect(r.posts[0].post.ingredients).toBe("mango pieces, whole mangoes");
+    expect(r.posts[0].post.product).toBe("Cup");
+    expect(briefPlanInstruction({ client: "x", brief: "b", month: "2026-11", products: [], references: 1, brand: {}, language: "ar", existing: 0 })).toContain("INGREDIENTS AROUND THE PRODUCT");
+  });
+});

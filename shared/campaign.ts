@@ -78,7 +78,8 @@ export function briefPlanInstruction(r: {
       '- "carousel": slides of ONE Instagram carousel, posted together; the same visual style on every slide, different information on each; group them with the same slide numbering (slide 1..N of N) and give each a role (teaser, ingredients, reveal, detail, offer, cta).',
       '- "series": several separate feed posts on the SAME product side by side, each a different visual (another angle, set, scale or moment), same style; slide 1..N of N.',
       '- "single": one post on its own (slide 1 of 1).',
-      '- A SEPARATOR (when the brief asks for one between carousels or posts): a single post with role "separator", type "quote", product "", no ingredients; its brief is a plain, seamless backdrop in one of the brand\'s colours, softly lit, nothing in frame (the words are added later); its headline is a short line from the brief or the brand\'s tagline.',
+      '- A SEPARATOR (when the brief asks for one between carousels or posts): a single post with role "separator", type "quote", product "", exact false; its picture is a full-frame TEXTURE of the brand\'s own world, never a plain colour: its ingredients and foods close up filling the frame (fruit pieces and whole fruit, berries, chocolate, marshmallows, coffee beans, crushed ice, as the brand sells) or a material of its world (its cups\' texture, wood, linen, marble), softly lit, with a calmer third of the frame for the words; no cup, packaging or logo in the picture. Its headline is a short line from the brief or the brand\'s tagline.',
+      "INGREDIENTS AROUND THE PRODUCT: on every post, \"ingredients\" lists the product's OWN ingredients that appear around or in the picture (from its description and name: mango pieces for a mango drink, strawberries for a strawberry drink, chili only for a chili product), or \"\" when nothing edible is around it. A reference's ingredients are never carried over to a product that does not have them: a chili beside a mango drink becomes mango pieces, lychees beside a strawberry drink become strawberries. The brief never names an ingredient the product does not have.",
       "When the brief says the product must stay the real photo (no AI replacement), set exact: true on the posts that show it whole.",
       "An ingredients slide (no cup, no packaging) names the ingredients in \"ingredients\" exactly as the brief lists them, and nothing the brief does not mention; product stays \"\".",
       "A teaser slide hints at the product without revealing it whole (a part of the cup, a silhouette, the ingredients gathering).",
@@ -149,8 +150,8 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
       if (slide === 1 || !groups.has(key)) groups.set(key, groupId());
       group = { id: groups.get(key)!, kind, slide, of, role: String(x.role ?? "").trim().slice(0, 30) || undefined };
     }
-    // Only an ingredients slide shows ingredients on their own; a teaser or a reveal shows the product.
-    const ingredients = role === "ingredients" ? String(x.ingredients ?? "").trim().slice(0, 300) : "";
+    // An ingredients slide shows them on their own; any other post names the product's own ingredients around it.
+    const ingredients = role === "separator" ? "" : String(x.ingredients ?? "").trim().slice(0, 300);
     const post: Post = {
       index: index++,
       type,

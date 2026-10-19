@@ -251,6 +251,8 @@ export interface PostBrief {
   sellsDrinks?: boolean;
   /** An ingredients slide: only these ingredients, shown on their own. */
   ingredients?: string;
+  /** A quote or tip post without a product: what the brand's products are, so the backdrop is made of their foods and textures. */
+  brandFoods?: string;
   /**
    * The post comes from a campaign brief: the designer's own reference picture and brief decide the
    * look, the colours and the ingredients around the product; the month's palette and the client's
@@ -509,6 +511,8 @@ function postTypeRule(b: PostBrief): string {
     return b.occasion.portrait
       ? `OCCASION (${b.occasion.name}): a dignified greeting design in the month's colours and the theme's light, built from ${b.occasion.elements}. The upper middle of the frame stays an empty, calm, softly lit space framed by the design: an official portrait is placed there later. No person, face, silhouette, portrait, photo frame with a person, crown, coat of arms or text is drawn anywhere.`
       : `OCCASION (${b.occasion.name}): a greeting picture for this occasion in the theme's world, built from ${b.occasion.elements}, in the month's colours and the theme's light. No text.`;
+  if ((b.type === "tip" || b.type === "quote") && !b.hasProduct && !b.exact)
+    return `TEXT-LED POST, TEXTURE BACKDROP: the whole frame is a rich, real texture that belongs to this brand, never a plain flat colour, a gradient or an empty wall: ${b.brandFoods ? `the brand's own foods and ingredients close up and filling the frame (the brand sells: ${b.brandFoods}; so fruit pieces and whole fruit, berries, chocolate, marshmallows, coffee beans, cream, crushed ice, as fits), or a material of its world (its paper cups' texture, a wooden counter, linen, marble)` : "a material or ingredient texture of the brand's world (fruit, beans, chocolate, crushed ice, wood, linen, marble)"}, softly and evenly lit, in the month's colours where they fit. About a third of the frame (the middle or the upper middle) stays calmer and lower in contrast (a soft-focus or lightly misted part of the same texture) for the words added later. No packaging, cup, logo or product in the picture, and no words.`;
   if (b.type === "tip" || b.type === "quote")
     return "TEXT-LED POST: a calm, minimal picture with one large clean area (about half the frame, a plain wall or surface) for the words added later; the product, when attached, is small and to one side, never crowded.";
   if (b.type === "offer" && b.offer)
@@ -755,6 +759,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.hasProduct) {
     parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+    if (b.campaign && b.styleKey)
+      parts.push(
+        "THE REFERENCE'S CONTAINER IS NOT THIS PRODUCT: the cup, can, glass, bottle or box in the reference picture is only a stand-in for where the product goes. The product keeps the exact shape of its own photo (image 1): its height against its width, taper, rim, lid or no lid, smooth or ribbed walls, material, transparency, fill and the print and logo in the same place, size and colour. A short smooth cup stays short and smooth even when the reference's is tall and ribbed.",
+      );
     if (b.campaign?.ingredients?.trim())
       parts.push(
         `THE BRIEF'S INGREDIENTS (the one exception to the rule above): the designer's brief shows the product's own ingredients around it, real and natural, the way the reference picture stages its own: ${b.campaign.ingredients.trim()}. They appear as the shot describes them (whole, broken, scattered, in small bowls, a splash of the drink's own liquid); nothing else edible joins them, and nothing is added onto or into the product itself beyond what its photo shows.`,

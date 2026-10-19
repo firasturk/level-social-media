@@ -110,6 +110,20 @@ export async function productCutout(env: Env, source: { key: string; mime?: stri
 }
 
 /**
+ * The product can be set in exactly: a plain background cuts cleanly, and a busy one (a shop, a
+ * marble wall) is masked once by the image model and kept. False when no cut-out can be made.
+ */
+export async function canCutOut(env: Env, source: { key: string; reference_key?: string | null; mime?: string }): Promise<boolean> {
+  if (await cutsCleanly(env, source)) return true;
+  try {
+    await productCutout(env, source);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The product photo can be cut out exactly: it stands on a plain studio background (or its cut-out
  * is already made). A photo with a scene behind it is drawn by the engine from the photo instead,
  * since a model-drawn mask never lines up with it pixel for pixel.

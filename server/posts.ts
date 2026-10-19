@@ -1558,6 +1558,7 @@ interface TaskLite {
   status: string;
   output: string | null;
   brief: string | null;
+  qa?: string | null;
 }
 
 /** A plain background in one colour, the size of the post: a typographic tile's picture. */
@@ -1700,7 +1701,7 @@ postRoutes.post("/generate", async (c) => {
   const sellsDrinks = sources.some((s) => s.kind === "product" && FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const tasks = await all<TaskLite>(
     c.env.DB,
-    "SELECT id, post, status, output, brief FROM tasks WHERE batch = ?",
+    "SELECT id, post, status, output, brief, qa FROM tasks WHERE batch = ?",
     b.id,
   );
   const byPost = new Map(tasks.filter((t) => t.post).map((t) => [t.post!, t]));
@@ -1864,10 +1865,13 @@ postRoutes.post("/generate", async (c) => {
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
     // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
     // Only a photo on a plain background is set in exactly; any other is drawn from its photo.
-    const exactProduct =
-      (config.exact || post.exact) && product && !extraProducts.length && post.type !== "offer" && (refId || styled) && (await import("./exact").then((m) => m.cutsCleanly(c.env, product)))
-        ? product
-        : undefined;
+    // The real photo is set in when the month or the post asks for it, and when the designer makes
+    // the post again after the review found the product itself wrong (its shape, its print): the
+    // engine redraws a cup from a photo badly next to a strong reference, a cut-out never does.
+    // A photo on a busy background is cut out once by the image model and kept.
+    const productFlagged = !!d.note?.trim() && !!existing?.qa && /"kind":"product"/.test(existing.qa);
+    const wantsExact = !!(config.exact || post.exact || productFlagged) && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
+    const exactProduct = wantsExact && (await import("./exact").then((m) => m.canCutOut(c.env, product!))) ? product : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
       // No product photo in the picture: the style's own picture is image 1.
@@ -1993,6 +1997,8 @@ postRoutes.post("/generate", async (c) => {
       occasion: occasion ? { name: occasion.name, elements: occasion.elements, portrait: portraitDay } : undefined,
       offer: post.type === "offer" ? post.offer : undefined,
       sellsDrinks: sellsDrinks || undefined,
+      // A quote or tip without a product: its backdrop is made of the brand's own foods and textures.
+      brandFoods: !product && (post.type === "quote" || post.type === "tip") ? productSources.map((s) => s.note?.trim()).filter((n): n is string => !!n).slice(0, 8).join("; ") || undefined : undefined,
       ingredients: !product && post.ingredients?.trim() ? post.ingredients.trim() : undefined,
       campaign,
       // The designer's own reference for this post: attached to every take until it is taken off.
