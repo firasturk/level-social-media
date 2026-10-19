@@ -612,11 +612,13 @@ async function drawTypography(
   else if (box) {
     const above = box.y - top;
     const below = H - margin - (box.y + box.h);
-    if (above < blockH && below < blockH) {
+    // A sticker or a marker may sit on the body or the clothes (never on a face); the others need a free band.
+    if (above < blockH && below < blockH && style !== "sticker" && style !== "marker") {
       ctx.restore();
       return null;
     }
     cy = above >= below ? top + blockH / 2 : box.y + box.h + blockH / 2;
+    if (above < blockH && below < blockH) cy = H - margin - blockH / 2 - H * 0.08;
   } else cy = rows > 1 ? H * 0.42 : style === "sticker" ? H * 0.2 : H * 0.36;
   // Behind a person, the row sits under the face (at the shoulders or the chest), never across it:
   // the face stays whole and the letters tuck behind the body.
@@ -659,7 +661,7 @@ async function drawTypography(
   if ((style === "behind" || style === "overlap") && box && word.replace(/\s+/g, "").length >= 3) {
     const subjectX = box.x + box.w / 2 + dx;
     // The gap is a little narrower than the subject, so each side's inner letter is partly hidden.
-    const gap = Math.max(size * 0.35, box.w * 0.72);
+    const gap = Math.max(size * 0.35, box.w * 0.62);
     // Split at the space nearest the middle, else at the character nearest the middle by width.
     const halves = (t: string): [string, string] => {
       const ws = t.split(/\s+/).filter(Boolean);
@@ -697,7 +699,7 @@ async function drawTypography(
     const fitL = (roomL / Math.max(1, measureAt(100, left))) * 100;
     const fitR = (roomR / Math.max(1, measureAt(100, right))) * 100;
     const s2 = Math.min(size, fitL * 0.97, fitR * 0.97);
-    if (s2 >= size * 0.45 && roomL > 0 && roomR > 0) {
+    if (s2 >= size * 0.3 && roomL > 0 && roomR > 0) {
       const y = blockTop + lineH * 0.5 + shift;
       split = { left, right, leftX: subjectX - gap / 2, rightX: subjectX + gap / 2, size: s2, y };
     }

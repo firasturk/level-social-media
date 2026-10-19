@@ -45,7 +45,10 @@ export default function OverlayPreview({
     let alive = true;
     renderOverlay(src, spec, text, logoSrc, width, { patch, faces })
       .then((canvas) => alive && setUrl(canvas.toDataURL("image/jpeg", 0.86)))
-      .catch(() => alive && setUrl(null));
+      .catch((e) => {
+        console.error("[overlay] could not draw the words:", e);
+        if (alive) setUrl(null);
+      });
     return () => {
       alive = false;
     };
