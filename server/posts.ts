@@ -2763,7 +2763,7 @@ postRoutes.post("/brief", async (c) => {
   const pulled = [...new Set([...imported.values()])];
   const plannerNote = /\b(designer|upload|must|needs? to|should)\b/i.test(planned.summary) && pulled.length ? "" : planned.summary;
   const summary = [`Planned ${shape}.`, pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
-  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary };
+  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary, only: only || undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).

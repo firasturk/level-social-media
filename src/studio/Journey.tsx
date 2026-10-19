@@ -2039,30 +2039,67 @@ function BriefBox({
 }) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [showText, setShowText] = useState(false);
   const showing = open || text.trim().length > 0;
+  const planned = outcome && !outcome.error && (outcome.added ?? 0) > 0;
   return (
     <div className={`journey-box journey-brief ${showing ? "open" : ""}`}>
       <BoxTitle
         kit="voice"
         actions={
-          <button type="button" className="text-button" onClick={() => setOpen((v) => !v)}>
-            {showing ? "Hide" : "Write a brief"}
-          </button>
+          showing ? (
+            <button type="button" className="text-button" onClick={() => setOpen(false)}>
+              Hide
+            </button>
+          ) : null
         }
       >
         Brief (optional)
       </BoxTitle>
-      {outcome && (
-        <p className={`brief-outcome ${outcome.error ? "error" : "ok"}`}>
-          {outcome.error
-            ? `The last brief could not be planned: ${outcome.error}`
-            : `Your brief was planned: ${outcome.added ?? 0} post${outcome.added === 1 ? "" : "s"} added after this month's posts.${outcome.summary ? ` ${outcome.summary}` : ""}`}
-        </p>
+      {outcome?.error && <p className="brief-outcome error">The last brief could not be planned: {outcome.error}</p>}
+      {planned && !showing && (
+        <div className="brief-done">
+          <p className="brief-outcome ok">
+            <strong>{outcome.only ? `This month is your brief's ${outcome.added} post${outcome.added === 1 ? "" : "s"}.` : `${outcome.added} post${outcome.added === 1 ? "" : "s"} from your brief sit after this month's posts.`}</strong>{" "}
+            {outcome.summary}
+          </p>
+          {showText && <pre className="brief-text">{outcome.text}</pre>}
+          <div className="brief-files">
+            <button type="button" className="text-button" onClick={() => setShowText((v) => !v)}>
+              {showText ? "Hide the brief" : "Show the brief"}
+            </button>
+            <span className="spacer" />
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setText(outcome.text);
+                setOnly(true);
+                setOpen(true);
+              }}
+              title="Change the brief and plan it again: the month becomes its posts (earlier pictures stay under Earlier versions)"
+            >
+              Change this brief
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setText("");
+                setOnly(false);
+                setOpen(true);
+              }}
+              title="Write another brief: its posts are added after the posts already in the month"
+            >
+              Add another brief
+            </button>
+          </div>
+        </div>
       )}
       {showing ? (
         <>
           <p className="field-hint">
-            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and plan every slide; the pictures you attach become the style the posts follow. Press "Plan from the brief", or Next, and the posts are added after this month's.
+            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and the client's Drive, plan every slide, and the pictures you attach become the style the posts follow. Press "Plan from the brief", or Next.
           </p>
           <textarea
             dir="auto"
@@ -2075,8 +2112,8 @@ function BriefBox({
           <label className="brief-only">
             <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} disabled={busy} />
             <span>
-              Only the brief's posts this month
-              {existing > 0 ? ` (replaces the ${existing} idea${existing === 1 ? "" : "s"} here; their pictures stay under Earlier versions)` : " (no other ideas are written)"}
+              Only this brief's posts this month
+              {existing > 0 ? ` (replaces the ${existing} post${existing === 1 ? "" : "s"} here; their pictures stay under Earlier versions)` : " (no other ideas are written)"}
             </span>
           </label>
           <div className="brief-files">
@@ -2095,8 +2132,14 @@ function BriefBox({
             </button>
           </div>
         </>
-      ) : (
-        <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures and I plan it after this month's posts.</p>
+      ) : planned ? null : (
+        <div className="brief-files">
+          <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures; I plan it with this month's photos and the client's Drive.</p>
+          <span className="spacer" />
+          <button type="button" className="secondary" onClick={() => setOpen(true)}>
+            <Wand2 size={13} /> Write a brief
+          </button>
+        </div>
       )}
     </div>
   );

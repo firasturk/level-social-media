@@ -11680,3 +11680,18 @@ button.shot-product:hover {
   line-height: 1.4;
 }
 .brief-only input { margin-top: 2px; }
+
+.brief-done { display: grid; gap: 6px; }
+.brief-text {
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2, #f6f6f6);
+  color: var(--ink-900);
+  max-height: 260px;
+  overflow: auto;
+}
