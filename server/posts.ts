@@ -2688,17 +2688,39 @@ postRoutes.post("/brief", async (c) => {
   const planned = parseBriefPlan(raw, names, nextIndex, () => uuid().slice(0, 8));
   if (!planned.posts.length) throw new StudioError("The planner wrote no posts from this brief. Add what each post shows and try again.", 502);
   if (existing.length + planned.posts.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this brief adds ${planned.posts.length} to ${existing.length}.`);
-  const added = planned.posts.map(({ post, reference }) => ({
-    ...post,
-    style: styleIds[reference - 1] ?? styleIds[0] ?? undefined,
-  }));
-  config.plan = withPortraits(withDates([...existing, ...added], config.month ?? ""), config, b.id);
+  // The new posts come after the month's last day: a carousel's slides share one day (one post on
+  // Instagram), a series takes consecutive days. The month's numbering follows the dates.
+  const month = config.month ?? "";
+  const lastDay = /^\d{4}-\d{2}$/.test(month) ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate() : 28;
+  const dayOf = (d: string | undefined) => (d && d.startsWith(month) ? Number(d.slice(8, 10)) || 0 : 0);
+  let day = Math.min(lastDay, Math.max(1, existing.reduce((m, p) => Math.max(m, dayOf(p.date)), 0) + 1));
+  const dayDate = (n: number) => `${month}-${String(Math.min(lastDay, n)).padStart(2, "0")}`;
+  let lastGroup = "";
+  const added = planned.posts.map(({ post, reference }) => {
+    const style = styleIds[reference - 1] ?? styleIds[0] ?? undefined;
+    if (post.group?.kind === "carousel") {
+      if (post.group.id !== lastGroup && lastGroup) day = Math.min(lastDay, day + 1);
+      lastGroup = post.group.id;
+      return { ...post, style, date: month ? dayDate(day) : undefined };
+    }
+    if (lastGroup && post.group?.id !== lastGroup) day = Math.min(lastDay, day + 1);
+    lastGroup = post.group?.id ?? "";
+    const dated = { ...post, style, date: month ? dayDate(day) : undefined };
+    day = Math.min(lastDay, day + 1);
+    return dated;
+  });
+  config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
   await saveConfig(c.env, b, config);
-  // Each new post's shot, written in its reference's style for its real products.
-  const assign = added.filter((p) => p.style).map((p) => ({ index: p.index, style: p.style! }));
+  // Each new post's shot, written in its reference's style for its real products (the posts are
+  // found again by their words: the dates renumbered the month).
+  const fresh0 = await ownedPlan(c.env, user, b.id);
+  const cfg0 = JSON.parse(fresh0.config) as Config;
+  const sig = (p: Post) => `${p.title}|${p.headline ?? ""}|${p.brief}`;
+  const mine = new Set(added.map(sig));
+  const assign = (cfg0.plan ?? []).filter((p) => mine.has(sig(p)) && p.style).map((p) => ({ index: p.index, style: p.style! }));
   if (assign.length) {
-    const fresh = await ownedPlan(c.env, user, b.id);
-    const cfg = JSON.parse(fresh.config) as Config;
+    const fresh = fresh0;
+    const cfg = cfg0;
     try {
       const scenes = await writeStyleScenes(c.env, fresh, cfg, assign);
       cfg.plan = (cfg.plan ?? []).map((p) => {

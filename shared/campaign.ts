@@ -134,7 +134,9 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
       if (slide === 1 || !groups.has(key)) groups.set(key, groupId());
       group = { id: groups.get(key)!, kind, slide, of, role: String(x.role ?? "").trim().slice(0, 30) || undefined };
     }
-    const ingredients = String(x.ingredients ?? "").trim().slice(0, 300);
+    const role = String(x.role ?? "").trim().toLowerCase();
+    // Only an ingredients slide shows ingredients on their own; a teaser or a reveal shows the product.
+    const ingredients = role === "ingredients" ? String(x.ingredients ?? "").trim().slice(0, 300) : "";
     const post: Post = {
       index: index++,
       type,
@@ -147,7 +149,7 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
       product: lead,
       products: extras.length ? extras.slice(0, 3) : undefined,
       ingredients: ingredients || undefined,
-      exact: x.exact === true && !!lead ? true : undefined,
+      exact: x.exact === true ? true : undefined,
       group,
       captionHand: true,
     };
