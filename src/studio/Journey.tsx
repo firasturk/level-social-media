@@ -2031,7 +2031,7 @@ function BriefBox({
   busy: boolean;
   plan: () => Promise<boolean>;
   /** What the last brief of this month came to (stored on the month). */
-  outcome?: { text: string; at: number; added?: number; summary?: string; error?: string };
+  outcome?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean };
   /** The month is the brief's posts alone (else they come after the month's ideas). */
   only: boolean;
   setOnly: (v: boolean) => void;
