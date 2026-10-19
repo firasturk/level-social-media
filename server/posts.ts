@@ -2039,6 +2039,7 @@ postRoutes.post("/generate", async (c) => {
       })(),
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
+      rules: client.image_rules?.trim() || undefined,
       lessons: lessons.length ? lessons : undefined,
       // A post with a style follows the style alone: the grid gives it only the month's colours.
       grid: config.gridRef && !styled ? config.gridNotes || undefined : undefined,

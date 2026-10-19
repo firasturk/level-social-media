@@ -201,3 +201,13 @@ describe("a reference's foreign ingredients are named as absent", () => {
     expect(e).toContain("NOT IN THE PICTURE: chili peppers");
   });
 });
+
+describe("a client's own image rules", () => {
+  it("go into every post's prompt and the preflight", () => {
+    const p = buildPostPrompt({ ...base, rules: "FLAT PRINTED GRAPHICS, NOT EMBROIDERY." });
+    expect(p).toContain("THE CLIENT'S OWN IMAGE RULES");
+    expect(p).toContain("FLAT PRINTED GRAPHICS, NOT EMBROIDERY.");
+    const pf = preflightInstruction({ client: "Abira", scene: "s", products: ["a bra"], people: [], reference: "", lessons: [], rules: "FLAT PRINTED GRAPHICS" });
+    expect(pf).toContain("FLAT PRINTED GRAPHICS");
+  });
+});

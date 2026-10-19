@@ -1676,6 +1676,7 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
             reference,
             // In exact mode the product is a photo set in afterwards: lessons about drawing it do not apply.
             lessons: (pb.lessons ?? []).filter((l) => !pb.exact || !/^(Product truth|True size|No writing)/.test(l)),
+            rules: pb.rules,
             campaign: pb.campaign,
             exact: !!pb.exact,
           }),

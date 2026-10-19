@@ -25,6 +25,8 @@ interface ClientRow {
   tone: string;
   dos: string;
   donts: string;
+  /** The client's own picture rules, sent to the engine with every post. */
+  image_rules?: string | null;
   style: string;
   service?: string | null;
   grid_rhythm: string;
@@ -56,6 +58,7 @@ function toClient(r: ClientRow): Client {
     tone: r.tone,
     dos: r.dos,
     donts: r.donts,
+    imageRules: r.image_rules ?? "",
     style: r.style,
     service: r.service ?? "",
     gridRhythm: r.grid_rhythm,
@@ -170,6 +173,7 @@ const patch = z.object({
   tone: z.string().trim().max(2000).optional(),
   dos: z.string().trim().max(4000).optional(),
   donts: z.string().trim().max(4000).optional(),
+  imageRules: z.string().trim().max(8000).optional(),
   style: z.string().trim().max(20000).optional(),
   service: z.string().trim().max(600).optional(),
   gridRhythm: z.string().trim().max(4000).optional(),
@@ -199,6 +203,7 @@ clientRoutes.put("/:id", async (c) => {
   if (d.tone !== undefined) set("tone", d.tone);
   if (d.dos !== undefined) set("dos", d.dos);
   if (d.donts !== undefined) set("donts", d.donts);
+  if (d.imageRules !== undefined) set("image_rules", d.imageRules);
   if (d.style !== undefined) set("style", d.style);
   if (d.service !== undefined) set("service", d.service);
   if (d.gridRhythm !== undefined) set("grid_rhythm", d.gridRhythm);

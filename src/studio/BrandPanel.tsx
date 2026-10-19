@@ -260,6 +260,7 @@ interface KitDraft {
   language: Client["language"];
   dos: string;
   donts: string;
+  imageRules: string;
   style: string;
 }
 
@@ -271,6 +272,7 @@ function draftOf(c: Client): KitDraft {
     language: c.language,
     dos: c.dos,
     donts: c.donts,
+    imageRules: c.imageRules ?? "",
     style: c.style,
   };
 }
@@ -361,6 +363,7 @@ export function BrandKit({
         language: draft.language,
         dos: draft.dos,
         donts: draft.donts,
+        imageRules: draft.imageRules,
         style: draft.style,
       });
       onClientsChanged(r.clients);
@@ -557,6 +560,19 @@ export function BrandKit({
         onBlur={() => void save(true)}
           />
         </div>
+      </div>
+      <div>
+        <label className="field-label" htmlFor="image-rules">
+          Image rules
+        </label>
+        <textarea
+          id="image-rules"
+          rows={6}
+          value={draft.imageRules}
+          placeholder="The client's own picture rules, sent to the engine with every post: realism, light, how its products must be kept (for example: the graphics are flat prints, never embroidery)."
+          onChange={(e) => setDraft((d) => ({ ...d, imageRules: e.target.value }))}
+          onBlur={() => void save(true)}
+        />
       </div>
       </Group>
       <Group kit="identity">

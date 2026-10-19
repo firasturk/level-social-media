@@ -477,6 +477,8 @@ export function preflightInstruction(r: {
   reference: "style" | "tile" | "grid" | "";
   /** The client's lessons: what went wrong before. */
   lessons: string[];
+  /** The client's own picture rules: the scene is checked against them too. */
+  rules?: string;
   /** The post follows a campaign brief: its reference picture and ingredients are the designer's and stay. */
   campaign?: { ingredients?: string };
   /** Exact mode: the real product photo is set in afterwards, so the scene never describes the product. */
@@ -499,6 +501,7 @@ export function preflightInstruction(r: {
       ? `THIS POST FOLLOWS A CAMPAIGN BRIEF: its ingredients (${r.campaign.ingredients.trim()}) are wanted around or in the product and are never foreign; its staging is the designer's choice.`
       : "No style or tile image is attached.",
     r.lessons.length ? `WHAT WENT WRONG IN THIS CLIENT'S EARLIER PICTURES:\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
+    r.rules?.trim() ? `THE CLIENT'S OWN IMAGE RULES (the scene must agree with them; a word in the scene that contradicts them, like embroidery for a printed graphic, is a problem):\n${r.rules.trim().slice(0, 3000)}` : "",
     [
       "Check, strictly:",
       "- people: the scene, the tile and the reference agree with the allowed people in number, age and gender (one allowed person means a single portrait, never friends, a group or a crowd; children stay children, a girl stays a girl); a reference showing adults when the people are children, more people than allowed, or people when none are allowed, is a problem;",

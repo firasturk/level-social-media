@@ -229,6 +229,8 @@ export interface PostBrief {
   /** The client's ALWAYS and NEVER rules from the brand kit. */
   always?: string;
   never?: string;
+  /** The client's own picture rules, verbatim: they stand above the defaults for everything about the picture. */
+  rules?: string;
   /** Mistakes the review found in this client's earlier pictures, worded as rules (see server/lessons). */
   lessons?: string[];
   /**
@@ -720,6 +722,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
         ? `CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):\n${rules.join("\n")}`
         : `CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):\n${rules.join("\n")}`,
     );
+  if (b.rules?.trim())
+    parts.push(`THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):\n${b.rules.trim()}`);
   const library = b.library && !b.styleKey && !b.grid ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim() && !b.styleKey)
