@@ -661,7 +661,7 @@ async function drawTypography(
   if ((style === "behind" || style === "overlap") && box && word.replace(/\s+/g, "").length >= 3) {
     const subjectX = box.x + box.w / 2 + dx;
     // The gap is a little narrower than the subject, so each side's inner letter is partly hidden.
-    const gap = Math.max(size * 0.35, box.w * 0.62);
+    const gap = Math.max(size * 0.35, box.w * 0.86, box.w - size * 0.5);
     // Split at the space nearest the middle, else at the character nearest the middle by width.
     const halves = (t: string): [string, string] => {
       const ws = t.split(/\s+/).filter(Boolean);
@@ -762,7 +762,7 @@ async function drawTypography(
     }
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
-  if (subject) drawSubject(ctx, base, subject.matte, style === "overlap" ? cy : undefined);
+  if (subject && style !== "sticker" && style !== "band" && style !== "marker") drawSubject(ctx, base, subject.matte, style === "overlap" ? cy : undefined);
 
   /* ── the rest of the words, small, under the big word (above it when there is no room below) ── */
   const rest = style === "stack" ? subline : headline !== word ? headline : subline;
