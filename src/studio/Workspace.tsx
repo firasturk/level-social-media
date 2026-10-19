@@ -343,7 +343,7 @@ export default function Workspace({
   const outputUrl = (t: Task) =>
     `/api/studio/file?batch=${batch?.id}&id=${t.id}&kind=result&v=${t.output?.split("/").at(-1)}`;
   /** The same picture at card size: a smaller JPEG the server keeps, so the grid opens fast. */
-  const outputThumb = (t: Task) => `${outputUrl(t)}&w=720`;
+  const outputThumb = (t: Task) => `${outputUrl(t)}&w=1080`;
 
   /** The month's plan, created on first use. */
   async function ensurePlan(): Promise<string> {

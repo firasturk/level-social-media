@@ -6,7 +6,7 @@
 import type { Env } from "./env";
 
 /** Widths a page may ask for: a card, a phone-wide card, a lightbox. */
-export const THUMB_WIDTHS = [480, 720, 1080] as const;
+export const THUMB_WIDTHS = [480, 720, 1080, 1440] as const;
 export type ThumbWidth = (typeof THUMB_WIDTHS)[number];
 
 export function thumbWidth(raw: string | undefined): ThumbWidth | null {
@@ -28,14 +28,14 @@ export async function resizedPicture(env: Env, key: string, w: ThumbWidth): Prom
     const width = img.get_width();
     const height = img.get_height();
     if (width <= w) {
-      const same = img.get_bytes_jpeg(86);
+      const same = img.get_bytes_jpeg(90);
       const bytes = same.buffer.slice(same.byteOffset, same.byteOffset + same.byteLength) as ArrayBuffer;
       await env.BUCKET.put(cacheKey, bytes, { httpMetadata: { contentType: "image/jpeg" } });
       return { bytes, mime: "image/jpeg" };
     }
     const small = resize(img, w, Math.round((height * w) / width), SamplingFilter.Lanczos3);
     try {
-      const jpeg = small.get_bytes_jpeg(86);
+      const jpeg = small.get_bytes_jpeg(90);
       const bytes = jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer;
       await env.BUCKET.put(cacheKey, bytes, { httpMetadata: { contentType: "image/jpeg" } });
       return { bytes, mime: "image/jpeg" };
