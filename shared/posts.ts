@@ -614,6 +614,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   const picked = b.campaign
     ? `the reference picture the designer attached to the campaign brief (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surfaces, colours, light, props, effects and mood closely, with this brand's product in place of its product${b.campaign.ingredients?.trim() ? ` and the brief's ingredients (${b.campaign.ingredients.trim()}) where it shows its own` : ""}; never its product, packaging, text, logo, price, buttons or the identity of its people, and nothing of the page or app it was saved from`
     : `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
+  // In exact mode the reference's own product is never drawn: its place stays empty for the real photo.
+  const exactRef = b.exact
+    ? " ITS PRODUCT IS NOT DRAWN: the cup, can, glass, bottle, box or dish it shows is left out entirely, with no stand-in of any kind; where it stands, the scene's own surface is left empty for the real product that is set in afterwards. Nothing of its print, logo or lettering appears anywhere."
+    : "";
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
   let n = 0;
   if (b.hasProduct && extras.length) {
@@ -626,7 +630,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     parts.push("Image 1 is the product photo: the product is the source of truth and is reproduced exactly.");
   } else if (b.ref || b.styleKey || b.tileKey) {
     n = 1;
-    parts.push(`No product is attached. Image 1 is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
+    parts.push(`No product is attached. Image 1 is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.${exactRef}`);
   } else parts.push("No product is attached.");
   if (people.length) {
     const first = n + 1;

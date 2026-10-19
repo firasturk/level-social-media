@@ -183,3 +183,11 @@ describe("exact mode and references in a brief month", () => {
     expect(rv).toContain("the cup open without its lid");
   });
 });
+
+describe("exact mode next to a reference", () => {
+  it("tells the engine the reference's own product is not drawn", () => {
+    const p = buildPostPrompt({ ...base, hasProduct: false, refIsSource: true, exact: { source: "x" }, campaign: {} });
+    expect(p).toContain("ITS PRODUCT IS NOT DRAWN");
+    expect(buildPostPrompt({ ...base, hasProduct: false, refIsSource: true })).not.toContain("ITS PRODUCT IS NOT DRAWN");
+  });
+});

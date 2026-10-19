@@ -1870,7 +1870,9 @@ postRoutes.post("/generate", async (c) => {
     // engine redraws a cup from a photo badly next to a strong reference, a cut-out never does.
     // A photo on a busy background is cut out once by the image model and kept.
     const productFlagged = !!d.note?.trim() && !!existing?.qa && /"kind":"product"/.test(existing.qa);
-    const wantsExact = !!(config.exact || post.exact || productFlagged) && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
+    // A product in someone's hand cannot be set in afterwards: such a post is always drawn.
+    const held = /\b(hands?|held|holding|holds|lifts?|lifting|grips?)\b/i.test(`${post.brief} ${post.scene ?? ""}`);
+    const wantsExact = !!(config.exact || post.exact || productFlagged) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
     const exactProduct = wantsExact && (await import("./exact").then((m) => m.canCutOut(c.env, product!))) ? product : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
