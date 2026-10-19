@@ -1442,7 +1442,7 @@ export default function Workspace({
           cast={castIds}
           onCast={(ids) => void updateSettings({ ambassadors: ids })}
           plan={plan}
-          onGenerateIdeas={(force) => generateIdeas(config?.notes ?? "", force)}
+          onGenerateIdeas={(force, notes) => generateIdeas(notes ?? config?.notes ?? "", force)}
           onSavePlan={(next) => void savePlan(next)}
           ideasBusy={busy === "ideas"}
           rewriting={busy === "reidea"}

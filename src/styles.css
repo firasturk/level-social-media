@@ -11695,3 +11695,6 @@ button.shot-product:hover {
   max-height: 260px;
   overflow: auto;
 }
+
+.copy-brief { margin-bottom: 12px; flex: none; }
+.copy-brief textarea { width: 100%; min-height: 96px; margin-top: 8px; resize: vertical; }

@@ -191,6 +191,7 @@ export interface JourneyProps {
   onSettings: (patch: {
     postCount?: number;
     exact?: boolean;
+    notes?: string;
     format?: Format;
     shots?: string[];
     gridRef?: string | null;
@@ -206,7 +207,7 @@ export interface JourneyProps {
   cast: string[];
   onCast: (ids: string[]) => void;
   plan: Post[];
-  onGenerateIdeas: (force?: boolean) => Promise<boolean>;
+  onGenerateIdeas: (force?: boolean, notes?: string) => Promise<boolean>;
   onSavePlan: (plan: Post[]) => void;
   ideasBusy: boolean;
   /** A single post is being written again (its type changed or its offer was filled). */
@@ -1564,14 +1565,15 @@ export default function Journey(p: JourneyProps) {
               batchId={p.batchId}
               refresh={p.refresh}
               productNames={p.products.map((x) => displayName(x.name))}
-              onGenerate={async () => {
+              onNotes={(notes) => p.onSettings({ notes })}
+              onGenerate={async (notes) => {
                 if (p.config?.campaign?.only && p.plan.some((x) => x.group)) {
                   const ok = await askConfirm("This month is your brief's posts. Write new ideas in their place? (Change the brief instead to plan it again.)", { ok: "Replace them", danger: true });
                   if (!ok) return;
-                  void p.onGenerateIdeas(true);
+                  void p.onGenerateIdeas(true, notes);
                   return;
                 }
-                void p.onGenerateIdeas();
+                void p.onGenerateIdeas(undefined, notes);
               }}
               onSavePlan={p.onSavePlan}
               onRewrite={p.onRewrite}
@@ -2754,6 +2756,7 @@ function IdeasStep({
   refresh,
   productNames,
   onGenerate,
+  onNotes,
   onSavePlan,
   onRewrite,
 }: {
@@ -2764,7 +2767,9 @@ function IdeasStep({
   batchId: string | null;
   refresh: () => Promise<void>;
   productNames: string[];
-  onGenerate: () => void;
+  /** The copy brief of the month (saved on the month; the writers follow it). */
+  onNotes: (notes: string) => void;
+  onGenerate: (notes?: string) => void;
   onSavePlan: (plan: Post[]) => void;
   onRewrite: (index: number, plan: Post[]) => void;
 }) {
@@ -2807,6 +2812,9 @@ function IdeasStep({
       .map(([, n]) => n?.at ?? 0),
   );
   const stale = plan.length > 0 && Math.max(briefAt, config?.gridAt ?? 0) > (config?.plannedAt ?? 0);
+  const [copy, setCopy] = useState(config?.notes ?? "");
+  const [copyOpen, setCopyOpen] = useState(false);
+  useEffect(() => setCopy(config?.notes ?? ""), [config?.notes]);
   const started = useRef(false);
   // Ideas are written by themselves only for a month that has none, once it has loaded (a reload
   // that lands here must never overwrite ideas that are still on their way).
@@ -2834,10 +2842,54 @@ function IdeasStep({
                   : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type. The captions are written after the pictures, from what each one shows."}
           </p>
         </div>
-        <button type="button" className="secondary journey-head-action" onClick={onGenerate} disabled={busy}>
+        <button type="button" className="secondary journey-head-action" onClick={() => onGenerate(copy)} disabled={busy}>
           {busy ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
           {plan.length ? "Write the ideas again" : "Generate ideas"}
         </button>
+      </div>
+      <div className={`journey-box copy-brief ${copyOpen || copy.trim() ? "open" : ""}`}>
+        <BoxTitle
+          kit="voice"
+          actions={
+            <button type="button" className="text-button" onClick={() => setCopyOpen((v) => !v)}>
+              {copyOpen || copy.trim() ? "Hide" : "Brief the words"}
+            </button>
+          }
+        >
+          Copy brief (optional)
+        </BoxTitle>
+        {copyOpen || copy.trim() ? (
+          <>
+            <p className="field-hint">
+              Tell the writer what the words must say before the ideas are written: the headlines you want, the tone, an offer or a launch to mention, phrases to use or to avoid, Arabic or English. It is saved on the month, and every idea, caption and rewrite follows it.
+            </p>
+            <textarea
+              dir="auto"
+              value={copy}
+              onChange={(e) => setCopy(e.target.value)}
+              onBlur={() => copy.trim() !== (config?.notes ?? "").trim() && onNotes(copy.trim())}
+              rows={5}
+              placeholder={"Headlines short and playful, Levantine Arabic. Mention the October offer: 2 for 1 on hot drinks after 6pm. Never use the word 'cheap'. End captions with a question."}
+            />
+            <div className="brief-files">
+              <span className="field-hint">{copy.trim() === (config?.notes ?? "").trim() ? "Saved on the month." : "Saves when you leave the box."}</span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || copy.trim().length < 10}
+                onClick={() => {
+                  onNotes(copy.trim());
+                  onGenerate(copy.trim());
+                }}
+              >
+                {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {plan.length ? "Write the ideas again with this brief" : "Write the ideas with this brief"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="field-hint">No copy brief yet: the words follow the brand kit's tone. Open the box to tell the writer what to say.</p>
+        )}
       </div>
       {busy && !plan.length ? (
         <div className="journey-boxes idea-grid" style={grid}>
