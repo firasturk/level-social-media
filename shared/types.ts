@@ -41,6 +41,8 @@ export interface Batch {
   queued?: number;
   /** Up to three latest result task ids, for previews on the batches page. */
   thumbs?: string[];
+  /** When the month went to the bin; null or absent for a live month. */
+  deleted?: number | null;
 }
 
 export interface EngineModel {
@@ -234,6 +236,8 @@ export interface ModeOverride {
 export interface StateResponse {
   user: User;
   batches: Batch[];
+  /** Deleted months still in the bin, restorable. */
+  trash?: Batch[];
   spendThreshold: number;
   zaidDirection: string;
   /** Creative direction's Mood board entry (name, tagline, hidden, starred). */

@@ -76,7 +76,7 @@ function toClient(r: ClientRow): Client {
 export async function listClients(env: Env, includeArchived = false): Promise<Client[]> {
   const rows = await all<ClientRow>(
     env.DB,
-    `SELECT c.*, (SELECT COUNT(*) FROM batches b WHERE b.client = c.id) AS batches
+    `SELECT c.*, (SELECT COUNT(*) FROM batches b WHERE b.client = c.id AND b.deleted IS NULL) AS batches
      FROM clients c ${includeArchived ? "" : "WHERE c.status = 'active'"}
      ORDER BY c.position, c.created`,
   );

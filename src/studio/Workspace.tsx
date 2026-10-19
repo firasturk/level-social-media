@@ -111,6 +111,8 @@ export default function Workspace({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [batches, setBatches] = useState<Batch[]>([]);
+  /** Deleted months waiting in the bin, restorable. */
+  const [trash, setTrash] = useState<Batch[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [models, setModels] = useState<EngineModel[]>([]);
@@ -197,6 +199,7 @@ export default function Workspace({
     try {
       const d = await get<StateResponse>("/api/studio/state");
       setBatches(d.batches);
+      setTrash(d.trash ?? []);
       setEngine(d.engine);
       const list = d.clients ?? [];
       setClients(list);
@@ -1104,11 +1107,33 @@ export default function Workspace({
 
   async function deletePlan() {
     if (!batch || active) return;
-    if (!(await askConfirm(`Delete ${client?.name ?? ""} · ${month} with its products and posts?`, { ok: "Delete" }))) return;
+    if (!(await askConfirm(`Move ${client?.name ?? ""} · ${month} to the bin? Its posts and pictures stay there and you can bring the month back from the Months page for 30 days.`, { ok: "Move to the bin" }))) return;
     try {
       await remove();
       await loadState();
-      toast.success("Month deleted.");
+      toast.success("Month moved to the bin. Restore it from the Months page.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  /** A month back from the bin. */
+  async function restorePlan(b: Batch) {
+    try {
+      await post(`/api/studio/batch/restore`, { batch: b.id });
+      await loadState();
+      toast.success(`${b.name} is back.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  /** A month purged from the bin for good: its pictures and rows are gone. */
+  async function purgePlan(b: Batch) {
+    if (!(await askConfirm(`Delete "${b.name}" for good? Its pictures, products and posts cannot be brought back after this.`, { ok: "Delete for good" }))) return;
+    try {
+      await del(`/api/studio/batch?batch=${encodeURIComponent(b.id)}&forever=1`);
+      await loadState();
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1131,7 +1156,7 @@ export default function Workspace({
   }
 
   async function deletePlanById(b: Batch) {
-    if (!(await askConfirm(`Delete "${b.name}" with its products and posts?`, { ok: "Delete" }))) return;
+    if (!(await askConfirm(`Move "${b.name}" to the bin? You can bring it back from here for 30 days.`, { ok: "Move to the bin" }))) return;
     try {
       if (batch?.id === b.id) await remove();
       else await del(`/api/studio/batch?batch=${encodeURIComponent(b.id)}`);
@@ -1243,6 +1268,9 @@ export default function Workspace({
                   busyId={openingId}
                   onOpen={(id) => void openPlan(id)}
                   onDelete={(b) => void deletePlanById(b)}
+                  trash={trash}
+                  onRestore={(b) => void restorePlan(b)}
+                  onPurge={(b) => void purgePlan(b)}
                 />
               </Suspense>
             </section>

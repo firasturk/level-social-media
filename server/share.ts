@@ -23,7 +23,7 @@ async function sharedBatch(env: Env, token: string | undefined): Promise<{ b: Sh
   if (!token || !/^[0-9a-f]{32}$/.test(token)) throw new StudioError("This link is not valid.", 404);
   const b = await first<SharedBatch>(
     env.DB,
-    "SELECT id, config, client, month FROM batches WHERE config LIKE ? LIMIT 1",
+    "SELECT id, config, client, month FROM batches WHERE config LIKE ? AND deleted IS NULL LIMIT 1",
     `%"shareToken":"${token}"%`,
   );
   if (!b) throw new StudioError("This link is not valid any more.", 404);

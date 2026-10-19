@@ -2593,12 +2593,12 @@ async function settleIdle(env: Env, batch: BatchRow, config: Config): Promise<vo
 export async function activeBatchIds(env: Env): Promise<string[]> {
   const rows = await all<{ id: string }>(
     env.DB,
-    "SELECT DISTINCT b.id FROM batches b LEFT JOIN tasks t ON t.batch = b.id AND t.status IN ('processing','finalizing') WHERE b.state = 'running' OR t.id IS NOT NULL LIMIT 50",
+    "SELECT DISTINCT b.id FROM batches b LEFT JOIN tasks t ON t.batch = b.id AND t.status IN ('processing','finalizing') WHERE b.deleted IS NULL AND (b.state = 'running' OR t.id IS NOT NULL) LIMIT 50",
   );
   // A month of posts left idle with posts still queued has nothing to wait for: it runs again.
   const stuck = await all<{ id: string }>(
     env.DB,
-    "SELECT DISTINCT b.id FROM batches b JOIN tasks t ON t.batch = b.id AND t.status = 'queued' WHERE b.state = 'idle' AND b.config LIKE '%\"mode\":\"post\"%' LIMIT 20",
+    "SELECT DISTINCT b.id FROM batches b JOIN tasks t ON t.batch = b.id AND t.status = 'queued' WHERE b.deleted IS NULL AND b.state = 'idle' AND b.config LIKE '%\"mode\":\"post\"%' LIMIT 20",
   );
   for (const r of stuck)
     await run(env.DB, "UPDATE batches SET state = 'running', updated = ? WHERE id = ? AND state = 'idle'", now(), r.id);

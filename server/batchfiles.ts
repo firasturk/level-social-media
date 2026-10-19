@@ -6,6 +6,22 @@
 import type { Env } from "./env";
 import { all } from "./db";
 
+/** Days a deleted month waits in the bin before its rows and files are purged for good. */
+export const TRASH_DAYS = 30;
+
+/** A month gone for good: its files, then every row that belongs to it. */
+export async function purgeBatch(env: Env, batch: { id: string; owner: string }): Promise<void> {
+  await deleteBatchFiles(env, batch);
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(batch.id),
+    env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(batch.id),
+    env.DB.prepare("DELETE FROM month_versions WHERE batch = ?").bind(batch.id),
+    env.DB.prepare("DELETE FROM post_comments WHERE batch = ?").bind(batch.id),
+    env.DB.prepare("DELETE FROM videos WHERE batch = ?").bind(batch.id),
+    env.DB.prepare("DELETE FROM batches WHERE id = ?").bind(batch.id),
+  ]);
+}
+
 export async function deleteBatchFiles(env: Env, batch: { id: string; owner: string }): Promise<void> {
   const prefix = `${batch.owner}/${batch.id}/`;
   let cursor: string | undefined;

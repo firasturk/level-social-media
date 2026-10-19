@@ -56,7 +56,7 @@ import {
   NP_BACKGROUNDS,
 } from "@shared/config";
 import { configSchema } from "@shared/config-schema";
-import { deleteBatchFiles } from "./batchfiles";
+import { purgeBatch } from "./batchfiles";
 import { buildPrompt } from "@shared/prompts";
 import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/naming";
 import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User } from "@shared/types";
@@ -100,9 +100,20 @@ async function ownedBatch(env: Env, user: User, id: string | undefined): Promise
   if (!id) throw new StudioError("Batch id is required.");
   const b =
     user.role === "admin"
-      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", id)
-      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ?", id, user.id);
+      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND deleted IS NULL", id)
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ? AND deleted IS NULL", id, user.id);
   if (!b) throw new StudioError("Batch not found.", 404);
+  return b;
+}
+
+/** A month in the bin (deleted, not yet purged): its owner's, or any for an admin. */
+async function binnedBatch(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
+  if (!id) throw new StudioError("Batch id is required.");
+  const b =
+    user.role === "admin"
+      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND deleted IS NOT NULL", id)
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ? AND deleted IS NOT NULL", id, user.id);
+  if (!b) throw new StudioError("That month is not in the bin.", 404);
   return b;
 }
 
@@ -149,7 +160,14 @@ studioRoutes.get("/state", async (c) => {
        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
        SUM(CASE WHEN t.status IN ('queued','processing','finalizing') THEN 1 ELSE 0 END) AS queued
      FROM batches b LEFT JOIN tasks t ON t.batch = b.id
-     WHERE ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
+     WHERE b.deleted IS NULL AND ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
+    ...(user.role === "admin" ? [] : [user.id]),
+  );
+  // The bin: deleted months that can still come back (purged after TRASH_DAYS).
+  const trash = await all<Batch>(
+    c.env.DB,
+    `SELECT id, name, config, client, month, theme, state, created, updated, deleted FROM batches
+     WHERE deleted IS NOT NULL AND ${user.role === "admin" ? "1 = 1" : "owner = ?"} ORDER BY deleted DESC LIMIT 50`,
     ...(user.role === "admin" ? [] : [user.id]),
   );
   const thumbRows = await all<{ batch: string; id: string }>(
@@ -169,6 +187,7 @@ studioRoutes.get("/state", async (c) => {
   return c.json({
     user,
     batches,
+    trash,
     spendThreshold: adminSettings.spendThreshold,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),
@@ -1071,15 +1090,30 @@ studioRoutes.get("/batch", async (c) => {
   return c.json(await batchPayload(c.env, b, c.get("user")));
 });
 
+/**
+ * Delete a month: it goes to the bin, out of every list, with its pictures and rows untouched, and
+ * can come back for TRASH_DAYS. "forever" purges a month that is already in the bin.
+ */
 studioRoutes.delete("/batch", async (c) => {
-  const b = await ownedBatch(c.env, c.get("user"), c.req.query("batch"));
-  await deleteBatchFiles(c.env, b);
-  await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(b.id),
-    c.env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(b.id),
-    c.env.DB.prepare("DELETE FROM batches WHERE id = ? AND owner = ?").bind(b.id, b.owner),
-  ]);
-  return c.json({ ok: true });
+  const user = c.get("user");
+  if (c.req.query("forever") === "1") {
+    const b = await binnedBatch(c.env, user, c.req.query("batch"));
+    await purgeBatch(c.env, b);
+    return c.json({ ok: true, purged: true });
+  }
+  const b = await ownedBatch(c.env, user, c.req.query("batch"));
+  if (b.state === "running") throw new StudioError("Posts are being made: pause the month first.", 409);
+  await run(c.env.DB, "UPDATE batches SET deleted = ?, state = 'idle', updated = ? WHERE id = ?", now(), now(), b.id);
+  return c.json({ ok: true, binned: true });
+});
+
+/** A month back from the bin, exactly as it was. */
+studioRoutes.post("/batch/restore", async (c) => {
+  const user = c.get("user");
+  const { batch } = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await binnedBatch(c.env, user, batch);
+  await run(c.env.DB, "UPDATE batches SET deleted = NULL, updated = ? WHERE id = ?", now(), b.id);
+  return c.json(await batchPayload(c.env, await ownedBatch(c.env, user, b.id), user));
 });
 
 function checkImage(f: unknown, max: number, label: string): File {

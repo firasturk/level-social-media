@@ -744,8 +744,8 @@ async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<
   if (!id) throw new StudioError("Plan id is required.");
   const b =
     user.role === "admin"
-      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", id)
-      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ?", id, user.id);
+      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND deleted IS NULL", id)
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ? AND deleted IS NULL", id, user.id);
   if (!b) throw new StudioError("Plan not found.", 404);
   const config = JSON.parse(b.config) as Config;
   if (config.mode !== "post") throw new StudioError("This is not a month of posts.", 409);
@@ -3640,19 +3640,19 @@ postRoutes.post("/continue", async (c) => {
   // An admin continues from any team member's month; a member from their own.
   const admin = user.role === "admin";
   const taken = admin
-    ? await first(c.env.DB, "SELECT id FROM batches WHERE client = ? AND month = ?", d.client, d.month)
-    : await first(c.env.DB, "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ?", user.id, d.client, d.month);
+    ? await first(c.env.DB, "SELECT id FROM batches WHERE client = ? AND month = ? AND deleted IS NULL", d.client, d.month)
+    : await first(c.env.DB, "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ? AND deleted IS NULL", user.id, d.client, d.month);
   if (taken) throw new StudioError("This month already has a plan.", 409);
   const prev = admin
     ? await first<BatchRow>(
         c.env.DB,
-        "SELECT * FROM batches WHERE client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
+        "SELECT * FROM batches WHERE client = ? AND month IS NOT NULL AND month < ? AND deleted IS NULL ORDER BY month DESC, updated DESC LIMIT 1",
         d.client,
         d.month,
       )
     : await first<BatchRow>(
         c.env.DB,
-        "SELECT * FROM batches WHERE owner = ? AND client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
+        "SELECT * FROM batches WHERE owner = ? AND client = ? AND month IS NOT NULL AND month < ? AND deleted IS NULL ORDER BY month DESC, updated DESC LIMIT 1",
         user.id,
         d.client,
         d.month,

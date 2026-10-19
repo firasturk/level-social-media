@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen, LoaderCircle, Trash2 } from "lucide-react";
+import { FolderOpen, LoaderCircle, RotateCcw, Trash2 } from "lucide-react";
 import type { Batch, Client, SkillInfo } from "@shared/types";
 import { isSkillCampaign, type Config } from "@shared/config";
 
@@ -26,11 +26,18 @@ export default function BatchesView({
   busyId,
   onOpen,
   onDelete,
+  trash = [],
+  onRestore,
+  onPurge,
   skills = [],
   clients = [],
   modes = MODES,
 }: {
   batches: Batch[];
+  /** Deleted months waiting in the bin. */
+  trash?: Batch[];
+  onRestore?: (b: Batch) => void;
+  onPurge?: (b: Batch) => void;
   skills?: SkillInfo[];
   /** Every client, archived ones included, so old batches still show a name. */
   clients?: Client[];
@@ -64,15 +71,50 @@ export default function BatchesView({
       </span>
     </div>
   );
+  const bin = trash.length > 0 && (
+    <section className="batches-bin" aria-label="Deleted months">
+      <h3>
+        <Trash2 size={15} /> Bin · {trash.length} deleted {trash.length === 1 ? "month" : "months"}
+      </h3>
+      <p className="muted small">A deleted month waits here for 30 days with its pictures, then it is gone for good.</p>
+      <ul>
+        {trash.map((b) => (
+          <li key={b.id}>
+            <span>
+              <strong>{b.name}</strong>
+              <small>
+                {clientName(b.client)} · deleted {ago(b.deleted ?? b.updated)}
+              </small>
+            </span>
+            <span className="row-actions">
+              {onRestore && (
+                <button type="button" className="primary" onClick={() => onRestore(b)}>
+                  <RotateCcw size={14} /> Restore
+                </button>
+              )}
+              {onPurge && (
+                <button type="button" className="secondary danger" onClick={() => onPurge(b)} aria-label={`Delete ${b.name} for good`} title="Delete for good">
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
   if (!batches.length) {
     return (
-      <div className="empty-results">
-        <div className="empty-grid-icon">
-          <FolderOpen size={36} />
+      <>
+        <div className="empty-results">
+          <div className="empty-grid-icon">
+            <FolderOpen size={36} />
+          </div>
+          <h3>No months yet.</h3>
+          <p>Pick a client, upload products or generate ideas: the month appears here with its progress.</p>
         </div>
-        <h3>No months yet.</h3>
-        <p>Pick a client, upload products or generate ideas: the month appears here with its progress.</p>
-      </div>
+        {bin}
+      </>
     );
   }
   return (
@@ -182,6 +224,7 @@ export default function BatchesView({
         );
       })}
       </div>
+      {bin}
     </>
   );
 }

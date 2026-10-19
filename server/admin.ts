@@ -17,7 +17,7 @@ import {
   heroStamp,
 } from "./settings";
 import { notify } from "./notify";
-import { deleteBatchFiles } from "./batchfiles";
+import { purgeBatch, TRASH_DAYS } from "./batchfiles";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -166,18 +166,13 @@ export async function cleanupOldBatches(env: Env): Promise<number> {
   if (now() - last < 24 * 60 * 60 * 1000) return 0;
   await setSetting(env, "last_cleanup", String(now()));
   const cutoff = now() - days * 24 * 60 * 60 * 1000;
+  // Untouched months go to the bin first; what has waited in the bin long enough is purged.
+  await run(env.DB, "UPDATE batches SET deleted = ?, state = 'idle' WHERE deleted IS NULL AND updated < ? AND state != 'running'", now(), cutoff);
   const old = await all<{ id: string; owner: string }>(
     env.DB,
-    "SELECT id, owner FROM batches WHERE updated < ? AND state != 'running' LIMIT 20",
-    cutoff,
+    "SELECT id, owner FROM batches WHERE deleted IS NOT NULL AND deleted < ? LIMIT 20",
+    now() - TRASH_DAYS * 24 * 60 * 60 * 1000,
   );
-  for (const b of old) {
-    await deleteBatchFiles(env, b);
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(b.id),
-      env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(b.id),
-      env.DB.prepare("DELETE FROM batches WHERE id = ?").bind(b.id),
-    ]);
-  }
+  for (const b of old) await purgeBatch(env, b);
   return old.length;
 }
