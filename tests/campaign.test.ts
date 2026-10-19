@@ -164,3 +164,22 @@ describe("quote posts and references keep the brand's truth", () => {
     expect(briefPlanInstruction({ client: "x", brief: "b", month: "2026-11", products: [], references: 1, brand: {}, language: "ar", existing: 0 })).toContain("INGREDIENTS AROUND THE PRODUCT");
   });
 });
+
+describe("exact mode and references in a brief month", () => {
+  it("tells the preflight never to describe a product that is set in afterwards, and to drop the reference's foreign ingredients", () => {
+    const pf = preflightInstruction({ client: "Abu Saleh", scene: "a hand holds the cup", products: [], people: [], reference: "style", lessons: [], campaign: { ingredients: "mango pieces" }, exact: true });
+    expect(pf).toContain("THE PRODUCT IS NOT DRAWN");
+    expect(pf).toContain("chilies beside a mango drink are not in the picture");
+    expect(pf).toContain("whatever the reference shows is allowed");
+  });
+  it("lets a brief's drink be shown open for a splash and keeps the reference's chili out", () => {
+    const p = buildPostPrompt({ ...base, campaign: { ingredients: "strawberries, crushed ice" } });
+    expect(p).toContain("without its dome lid");
+    expect(p).toContain("are NOT in the picture: these ingredients take their places");
+    const e = buildPostPrompt({ ...base, hasProduct: false, refIsSource: true, exact: { source: "x" }, campaign: { ingredients: "mango pieces, whole mangoes" } });
+    expect(e).toContain("AROUND THE EMPTY PLACE");
+    expect(e).toContain("mango pieces, whole mangoes");
+    const rv = postReviewInstruction({ products: 1, productNotes: ["a cup"], type: "product", people: [], campaignStaging: true });
+    expect(rv).toContain("the cup open without its lid");
+  });
+});

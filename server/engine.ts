@@ -1650,7 +1650,9 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
   try {
     const { askText, parseJson } = await import("./posts");
     const scene = pb.shot?.trim() || pb.brief.trim();
-    const products = pb.hasProduct
+    const products = pb.exact
+      ? []
+      : pb.hasProduct
       ? [pb.product ?? "", ...(pb.extraProducts ?? []).map((e) => e.note ?? e.name)].filter(Boolean)
       : pb.ingredients
         ? [`an ingredients slide: only these ingredients of the product, on their own, no cup or packaging: ${pb.ingredients}`]
@@ -1674,8 +1676,10 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
             products,
             people: (pb.ambassadors ?? []).map((a) => `${a.name} (${a.description})`),
             reference,
-            lessons: pb.lessons ?? [],
+            // In exact mode the product is a photo set in afterwards: lessons about drawing it do not apply.
+            lessons: (pb.lessons ?? []).filter((l) => !pb.exact || !/^(Product truth|True size|No writing)/.test(l)),
             campaign: pb.campaign,
+            exact: !!pb.exact,
           }),
           PREFLIGHT_SCHEMA,
           images,
@@ -1942,6 +1946,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     sellsDrinks: pb.sellsDrinks,
     ingredients: pb.ingredients,
     allowedFood: pb.campaign?.ingredients,
+    campaignStaging: !!pb.campaign && !!pb.styleKey,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.

@@ -202,6 +202,16 @@ export async function placeProduct(
     ? { bytes: await ref.arrayBuffer(), mime: ref.httpMetadata?.contentType || "image/jpeg" }
     : { bytes: own(toPng(cut)), mime: "image/png" };
   const spot = await findSpot(env, productBytes, scene, note);
+  // The product is the hero of a post: a place read too small is widened around its base.
+  const [y0, x0, y1, x1] = spot.box;
+  const w = x1 - x0;
+  if (w < 320) {
+    const cx = (x0 + x1) / 2;
+    const nw = 420;
+    const nh = Math.min(900, ((y1 - y0) * nw) / Math.max(w, 1));
+    const ny1 = Math.min(1000, y1);
+    spot.box = [Math.max(0, ny1 - nh), Math.max(0, cx - nw / 2), ny1, Math.min(1000, cx + nw / 2)];
+  }
   const s = decode(scene.bytes);
   const at = placement(spot.box, s.raster, cut);
   const cutImg = new PhotonImage(cut.data, cut.width, cut.height);
