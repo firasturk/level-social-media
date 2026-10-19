@@ -925,9 +925,7 @@ async function sourceEngineUrl(
   source: SourceRow,
 ): Promise<string> {
   if (source.engine_url) return source.engine_url;
-  const obj =
-    (await env.BUCKET.get(source.reference_key || source.key)) ??
-    (await env.BUCKET.get(source.key));
+  const obj = (await env.BUCKET.get(await engineKeyOf(env, source))) ?? (await env.BUCKET.get(source.key));
   if (!obj) throw new StudioError("Original unavailable.", 404);
   const url = await client.upload(
     await obj.arrayBuffer(),
@@ -1912,11 +1910,19 @@ async function submitTask(
   return client.submit(job);
 }
 
-/** Bytes of the inference reference for a source (downsized JPEG when available). */
+/** Originals up to this size go to the engine as they are: a print or a logo stays readable. */
+const ENGINE_ORIGINAL_MAX = 7 * 1024 * 1024;
+
+/** The R2 key the engine is given for a source: the original while it is light enough, else the small copy. */
+export async function engineKeyOf(env: Env, source: { key: string; reference_key?: string | null; size?: number | null }): Promise<string> {
+  if (!source.reference_key) return source.key;
+  const size = source.size ?? (await env.BUCKET.head(source.key))?.size ?? Infinity;
+  return size <= ENGINE_ORIGINAL_MAX ? source.key : source.reference_key;
+}
+
+/** Bytes of a source for the engine: the original (a print stays readable), the small copy when the original is heavy. */
 async function sourceBytes(env: Env, source: SourceRow): Promise<ImageBytes> {
-  const obj =
-    (await env.BUCKET.get(source.reference_key || source.key)) ??
-    (await env.BUCKET.get(source.key));
+  const obj = (await env.BUCKET.get(await engineKeyOf(env, source))) ?? (await env.BUCKET.get(source.reference_key || source.key)) ?? (await env.BUCKET.get(source.key));
   if (!obj) throw new StudioError("Original unavailable.", 404);
   return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || source.mime };
 }
@@ -2430,7 +2436,7 @@ async function collectReferenceKeys(
 ): Promise<{ keys: string[]; roles: PromptImages; source: SourceRow }> {
   const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", task.source);
   if (!source) throw new StudioError("Original unavailable.", 404);
-  const keys: string[] = [source.reference_key || source.key];
+  const keys: string[] = [await engineKeyOf(env, source)];
   const roles = {
     identity: false,
     firstCard: false,

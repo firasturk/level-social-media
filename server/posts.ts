@@ -765,7 +765,13 @@ interface SourceRow {
   /** What the product photo shows, read by vision (null until read). */
   note?: string | null;
   category?: string | null;
+  /** Bytes of the original (a light original goes to the engine as it is; a heavy one as its small copy). */
+  size?: number | null;
 }
+
+/** Originals up to this size go to the engine as they are, so a print or a logo stays readable. */
+const ENGINE_ORIGINAL_MAX = 7 * 1024 * 1024;
+const engineKey = (s: SourceRow) => (s.reference_key && (s.size ?? 0) > ENGINE_ORIGINAL_MAX ? s.reference_key : s.key);
 
 const MAX_NOTE_BYTES = 6 * 1024 * 1024;
 
@@ -1707,7 +1713,7 @@ postRoutes.post("/generate", async (c) => {
     : [];
   const sources = await all<SourceRow>(
     c.env.DB,
-    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ?",
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category, size FROM sources WHERE batch = ?",
     b.id,
   );
   // A post may name a product this month does not have (removed, or from another month): it is
@@ -1907,7 +1913,7 @@ postRoutes.post("/generate", async (c) => {
           .map((s) => ({
             name: productName(s).trim(),
             note: s.note?.trim() || undefined,
-            key: s.reference_key || s.key,
+            key: engineKey(s),
           }))
       : [];
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
