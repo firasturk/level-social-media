@@ -702,6 +702,11 @@ async function drawTypography(
     if (s2 >= size * 0.3 && roomL > 0 && roomR > 0) {
       const y = blockTop + lineH * 0.5 + shift;
       split = { left, right, leftX: subjectX - gap / 2, rightX: subjectX + gap / 2, size: s2, y };
+    } else {
+      // No room beside the subject for both halves to read: a word mostly hidden says nothing,
+      // so the plain headline takes over.
+      ctx.restore();
+      return null;
     }
   }
 
