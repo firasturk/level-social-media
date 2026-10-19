@@ -2865,7 +2865,9 @@ postRoutes.post("/campaign", async (c) => {
   const dayDate = (n: number) => `${month}-${String(Math.min(lastDay, n)).padStart(2, "0")}`;
   let lastGroup = "";
   const added = planned.posts.map(({ post, reference }) => {
-    const style = styleIds[reference - 1] ?? styleIds[0] ?? undefined;
+    // A separator (a plain backdrop with no product) follows no reference picture.
+    const separator = post.type === "quote" && !post.product && !post.group;
+    const style = separator ? undefined : (styleIds[reference - 1] ?? styleIds[0] ?? undefined);
     if (post.group?.kind === "carousel") {
       if (post.group.id !== lastGroup && lastGroup) day = Math.min(lastDay, day + 1);
       lastGroup = post.group.id;

@@ -167,7 +167,8 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
       group,
       captionHand: true,
     };
-    out.push({ post, reference: Math.max(0, Math.round(Number(x.reference) || 0)) });
+    // A separator is a plain backdrop: no reference picture shapes it.
+    out.push({ post, reference: role === "separator" ? 0 : Math.max(0, Math.round(Number(x.reference) || 0)) });
   }
   return { summary: String(d.summary ?? "").trim().slice(0, 600), posts: out };
 }

@@ -135,6 +135,7 @@ describe("a month stays its brief's posts by its stamps", () => {
     );
     expect(r.posts[0].post.product).toBeUndefined();
     expect(r.posts[0].post.type).toBe("quote");
+    expect(r.posts[0].reference).toBe(0);
     expect(briefPlanInstruction({ client: "x", brief: "b", month: "2026-11", products: [], references: 0, brand: {}, language: "ar", existing: 0 })).toContain('role "separator"');
   });
 });
