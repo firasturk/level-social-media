@@ -3833,6 +3833,8 @@ async function writeStyleScenes(
       const productText = [src?.note?.trim() || "", ...extras.map((x) => x.note?.trim() || "")].filter(Boolean);
       // An ingredients slide: the ingredients themselves are "the product" the style is written for.
       if (!productText.length && post.ingredients?.trim()) productText.push(`ONLY THE INGREDIENTS of the brand's product, on their own, no cup, glass or packaging: ${post.ingredients.trim()}`);
+      // A campaign's slides share its ingredients: nothing else edible joins the product on any slide.
+      const onlyFood = post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined);
       const text = await askText(
         env,
         adaptStyleInstruction({
@@ -3850,6 +3852,7 @@ async function writeStyleScenes(
           service: sources.length ? undefined : client.service || undefined,
           theme: config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
           lessons: styleLessons,
+          onlyFood,
         }),
         ADAPT_SCHEMA,
       );

@@ -201,6 +201,8 @@ export interface AdaptRequest {
   theme?: string;
   /** Mistakes the review found in this client's earlier pictures: the shot leads to none of them. */
   lessons?: string[];
+  /** A campaign's own ingredients: the only food, spice or garnish that may appear around the product. */
+  onlyFood?: string;
 }
 
 /** The style rewritten for one post's real product: its ingredients, packaging, colours and people. */
@@ -235,6 +237,9 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
     r.people.length
       ? `PEOPLE: only ${r.people.join("; ")}, each as described (their own gender, a man never in a headscarf or dress, modest clothing when their look says so).`
       : "PEOPLE: nobody appears; a hand is the most the picture shows.",
+    r.onlyFood?.trim()
+      ? `ONLY THESE INGREDIENTS may appear around or in the product, and nothing else edible (no other spice, garnish, powder, stick, fruit or sweet): ${r.onlyFood.trim()}.`
+      : "",
     r.sellsDrinks ? "" : "NEVER a drink, cup, glass, bottle or food that is not the brand's product.",
     r.brand.style?.trim() ? `BRAND STYLE: ${r.brand.style.trim().slice(0, 500)}` : "",
     r.brand.always?.trim() ? `ALWAYS: ${r.brand.always.trim().slice(0, 400)}` : "",
