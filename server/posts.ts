@@ -1869,11 +1869,11 @@ postRoutes.post("/generate", async (c) => {
     // the post again after the review found the product itself wrong (its shape, its print): the
     // engine redraws a cup from a photo badly next to a strong reference, a cut-out never does.
     // A photo on a busy background is cut out once by the image model and kept.
-    const productFlagged = !!d.note?.trim() && !!existing?.qa && /"kind":"product"/.test(existing.qa);
-    // A product in someone's hand cannot be set in afterwards: such a post is always drawn.
+    // Only a photo on a plain background (or a cut-out PNG) is set in: a cut-out guessed from a busy
+    // photo never looks right. A product in someone's hand cannot be set in: such a post is drawn.
     const held = /\b(hands?|held|holding|holds|lifts?|lifting|grips?)\b/i.test(`${post.brief} ${post.scene ?? ""}`);
-    const wantsExact = !!(config.exact || post.exact || productFlagged) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
-    const exactProduct = wantsExact && (await import("./exact").then((m) => m.canCutOut(c.env, product!))) ? product : undefined;
+    const wantsExact = !!(config.exact || post.exact) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
+    const exactProduct = wantsExact && (await import("./exact").then((m) => m.cutsCleanly(c.env, product!))) ? product : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
       // No product photo in the picture: the style's own picture is image 1.
@@ -1962,9 +1962,10 @@ postRoutes.post("/generate", async (c) => {
       shot: textured ? spec!.background : post.scene?.trim() || (post.shot ? monthShots(config, theme)[post.shot - 1] : undefined),
       // What the shot or the idea added to the product (a biscuit dipped in, syrup, rolls beside it): named so the engine leaves it out.
       notInPicture: (() => {
-        if (!product || exactProduct) return undefined;
-        const shotText = `${post.scene ?? ""} ${post.brief ?? ""}`;
-        const own = [product, ...extraProducts.map((e) => productSources.find((s) => (s.reference_key || s.key) === e.key))]
+        if ((!product || exactProduct) && !campaign) return undefined;
+        // A brief's reference brings its own ingredients (its chilies, its lychees): named so they stay out.
+        const shotText = `${post.scene ?? ""} ${post.brief ?? ""} ${campaign && styled ? styled.prompt ?? "" : ""}`;
+        const own = [...(product ? [product] : []), ...extraProducts.map((e) => productSources.find((s) => (s.reference_key || s.key) === e.key))]
           .filter((x): x is SourceRow => !!x)
           .map((x) => `${productName(x)} ${x.note ?? ""} ${(x as { category?: string | null }).category ?? ""}`)
           .join(" ");

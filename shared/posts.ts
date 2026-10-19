@@ -725,7 +725,11 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     parts.push(
       `REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: ${clean(withoutWordsSentences(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}\nThe client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.${b.hasProduct ? " Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it." : ""}`,
     );
-  if (b.hasProduct && b.notInPicture?.length)
+  if (b.campaign && b.notInPicture?.length)
+    parts.push(
+      `NOT IN THE PICTURE: ${b.notInPicture.join(", ")}. The reference or the idea shows them, but this product does not have them: none of them appears anywhere in the picture, not beside the product, not tucked into the fruit, not on the surface. ${b.campaign.ingredients?.trim() ? `Only ${b.campaign.ingredients.trim()} surround the product.` : "Nothing edible surrounds the product."}`,
+    );
+  else if (b.hasProduct && b.notInPicture?.length)
     parts.push(
       `NOT IN THE PICTURE: ${b.notInPicture.join(", ")}. The shot or the idea names them, but the product photo does not have them: nothing is dipped into, poured over, sprinkled on or set beside the product. The product appears exactly as photographed, by itself, with its own toppings and colours only.`,
     );

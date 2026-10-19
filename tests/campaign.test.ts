@@ -191,3 +191,13 @@ describe("exact mode next to a reference", () => {
     expect(buildPostPrompt({ ...base, hasProduct: false, refIsSource: true })).not.toContain("ITS PRODUCT IS NOT DRAWN");
   });
 });
+
+describe("a reference's foreign ingredients are named as absent", () => {
+  it("writes the NOT IN THE PICTURE line for a brief post, drawn or set in", () => {
+    const p = buildPostPrompt({ ...base, campaign: { ingredients: "mango pieces" }, notInPicture: ["chili peppers"] });
+    expect(p).toContain("NOT IN THE PICTURE: chili peppers");
+    expect(p).toContain("Only mango pieces surround the product");
+    const e = buildPostPrompt({ ...base, hasProduct: false, refIsSource: true, exact: { source: "x" }, campaign: {}, notInPicture: ["chili peppers"] });
+    expect(e).toContain("NOT IN THE PICTURE: chili peppers");
+  });
+});
