@@ -123,7 +123,7 @@ export default function SharePage({ token }: { token: string }) {
           {(data.order ?? data.posts.map((p) => p.index)).map((i) => {
             const p = data.posts.find((x) => x.index === i);
             if (!p) return null;
-            const src = p.image ? `${base}/image/${p.index}?v=${p.image}` : null;
+            const src = p.image ? `${base}/image/${p.index}?v=${p.image}&w=720` : null;
             return (
               <a key={i} href={`#post-${i}`} className={`share-feed-cell ${p.approval?.status ?? ""}`} title={`Post ${i}`}>
                 {src ? (
@@ -180,7 +180,7 @@ function SharedCard({
   const reasons = ["Change the words", "Change the picture", "The colours", "The product looks wrong", "Another date"];
   const toggleReason = (r: string) => setNote((n) => (n.includes(r) ? n.replace(new RegExp(`${r}\\.?\\s*`), "").trim() : `${r}. ${n}`.trim()));
   const [sending, setSending] = useState(false);
-  const src = post.image ? `${base}/image/${post.index}?v=${post.image}` : null;
+  const src = post.image ? `${base}/image/${post.index}?v=${post.image}&w=1080` : null;
 
   async function answer(status: Approval["status"]) {
     setSending(true);

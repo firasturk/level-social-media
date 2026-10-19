@@ -107,7 +107,10 @@ export default function PlanView({
   batchId = null,
   user = null,
   onRefresh,
+  outputThumb,
 }: {
+  /** The picture at card size (a smaller copy the server keeps); the full picture opens in the dialogs. */
+  outputThumb?: (t: Task) => string;
   /** The month's notes for the ideas writer (kept in the side panel). */
   notes?: string;
   /** The month's batch id (the video dialog talks to its routes). */
@@ -641,7 +644,7 @@ export default function PlanView({
           <div className={`post-grid f-${format.replace(":", "x")}`} onBlur={autosave}>
             {draft.map((p) => {
               const t = taskOf(p.index);
-              const img = t?.output ? outputUrl(t) : null;
+              const img = t?.output ? (outputThumb ?? outputUrl)(t) : null;
               const inFlight = !!t && (t.status === "queued" || t.status === "processing");
               const product = products.find(
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),

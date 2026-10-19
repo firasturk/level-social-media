@@ -57,6 +57,7 @@ import {
 } from "@shared/config";
 import { configSchema } from "@shared/config-schema";
 import { purgeBatch } from "./batchfiles";
+import { resizedPicture, thumbWidth } from "./thumbs";
 import { buildPrompt } from "@shared/prompts";
 import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/naming";
 import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User } from "@shared/types";
@@ -1231,12 +1232,20 @@ studioRoutes.get("/file", async (c) => {
     key = row?.output ?? null;
   }
   if (!key) throw new StudioError("Image not found.", 404);
+  // A card asks for a smaller copy (made once, kept); a versioned address is kept for a year.
+  const w = kind === "result" ? thumbWidth(c.req.query("w")) : null;
+  const keep = c.req.query("v") ? "private, max-age=31536000, immutable" : "private, max-age=3600";
+  if (w) {
+    const small = await resizedPicture(c.env, key, w);
+    if (!small) throw new StudioError("Image not found.", 404);
+    return new Response(small.bytes, { headers: { "Content-Type": small.mime, "Cache-Control": keep, "X-Content-Type-Options": "nosniff" } });
+  }
   const obj = await c.env.BUCKET.get(key);
   if (!obj) throw new StudioError("Image not found.", 404);
   return new Response(obj.body, {
     headers: {
       "Content-Type": obj.httpMetadata?.contentType || "image/png",
-      "Cache-Control": "private, max-age=3600",
+      "Cache-Control": keep,
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(filename)}`,
     },

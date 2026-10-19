@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, now, run } from "./db";
+import { resizedPicture, thumbWidth } from "./thumbs";
 import type { Config } from "@shared/config";
 
 export const shareRoutes = new Hono<{ Bindings: Env }>();
@@ -136,7 +137,18 @@ function imageResponse(obj: R2ObjectBody): Response {
   });
 }
 
+/**
+ * A post's picture for the client's page. With `w` it is a smaller JPEG made once and kept; the
+ * address carries the picture's version, so the browser and the edge keep it for a year.
+ */
 shareRoutes.get("/:token/image/:index", async (c) => {
+  const versioned = !!c.req.query("v");
+  const cache = versioned ? await caches.open("share-pictures") : null;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit;
+  }
   const { b } = await sharedBatch(c.env, c.req.param("token"));
   const row = await first<{ output: string | null }>(
     c.env.DB,
@@ -144,9 +156,21 @@ shareRoutes.get("/:token/image/:index", async (c) => {
     b.id,
     Number(c.req.param("index")) || 0,
   );
-  const obj = row?.output ? await c.env.BUCKET.get(row.output) : null;
-  if (!obj) throw new StudioError("Image not found.", 404);
-  return imageResponse(obj);
+  if (!row?.output) throw new StudioError("Image not found.", 404);
+  const w = thumbWidth(c.req.query("w"));
+  let res: Response;
+  if (w) {
+    const small = await resizedPicture(c.env, row.output, w);
+    if (!small) throw new StudioError("Image not found.", 404);
+    res = new Response(small.bytes, { headers: { "Content-Type": small.mime, "X-Content-Type-Options": "nosniff" } });
+  } else {
+    const obj = await c.env.BUCKET.get(row.output);
+    if (!obj) throw new StudioError("Image not found.", 404);
+    res = imageResponse(obj);
+  }
+  res.headers.set("Cache-Control", versioned ? "public, max-age=31536000, immutable" : "private, max-age=3600");
+  if (cache) c.executionCtx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
 });
 
 shareRoutes.get("/:token/subject/:index", async (c) => {

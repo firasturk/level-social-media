@@ -342,6 +342,8 @@ export default function Workspace({
     `/api/studio/file?batch=${batch?.id}&id=${id}&kind=${kind}`;
   const outputUrl = (t: Task) =>
     `/api/studio/file?batch=${batch?.id}&id=${t.id}&kind=result&v=${t.output?.split("/").at(-1)}`;
+  /** The same picture at card size: a smaller JPEG the server keeps, so the grid opens fast. */
+  const outputThumb = (t: Task) => `${outputUrl(t)}&w=720`;
 
   /** The month's plan, created on first use. */
   async function ensurePlan(): Promise<string> {
@@ -1374,6 +1376,7 @@ export default function Workspace({
                 batchId={batch?.id ?? null}
                 user={user}
                 onRefresh={refresh}
+                outputThumb={outputThumb}
                 onStyles={assignStyles}
                 client={client}
                 month={month}
