@@ -865,7 +865,7 @@ export default function Journey(p: JourneyProps) {
   const [briefPlanning, setBriefPlanning] = useState(false);
   /** The month is the brief's posts alone (the default for a month with no ideas yet). */
   const [briefOnly, setBriefOnly] = useState<boolean | null>(null);
-  const briefOnlyOn = briefOnly ?? p.plan.length === 0;
+  const briefOnlyOn = briefOnly ?? true;
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
   async function planBrief(): Promise<boolean> {
     if (!p.batchId || briefText.trim().length < 20) {
@@ -2039,9 +2039,8 @@ function BriefBox({
 }) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const [showText, setShowText] = useState(false);
   const showing = open || text.trim().length > 0;
-  const planned = outcome && !outcome.error && (outcome.added ?? 0) > 0;
+  void outcome;
   return (
     <div className={`journey-box journey-brief ${showing ? "open" : ""}`}>
       <BoxTitle
@@ -2056,46 +2055,6 @@ function BriefBox({
       >
         Brief (optional)
       </BoxTitle>
-      {outcome?.error && <p className="brief-outcome error">The last brief could not be planned: {outcome.error}</p>}
-      {planned && !showing && (
-        <div className="brief-done">
-          <p className="brief-outcome ok">
-            <strong>{outcome.only ? `This month is your brief's ${outcome.added} post${outcome.added === 1 ? "" : "s"}.` : `${outcome.added} post${outcome.added === 1 ? "" : "s"} from your brief sit after this month's posts.`}</strong>{" "}
-            {outcome.summary}
-          </p>
-          {showText && <pre className="brief-text">{outcome.text}</pre>}
-          <div className="brief-files">
-            <button type="button" className="text-button" onClick={() => setShowText((v) => !v)}>
-              {showText ? "Hide the brief" : "Show the brief"}
-            </button>
-            <span className="spacer" />
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setText(outcome.text);
-                setOnly(true);
-                setOpen(true);
-              }}
-              title="Change the brief and plan it again: the month becomes its posts (earlier pictures stay under Earlier versions)"
-            >
-              Change this brief
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setText("");
-                setOnly(false);
-                setOpen(true);
-              }}
-              title="Write another brief: its posts are added after the posts already in the month"
-            >
-              Add another brief
-            </button>
-          </div>
-        </div>
-      )}
       {showing ? (
         <>
           <p className="field-hint">
@@ -2132,7 +2091,7 @@ function BriefBox({
             </button>
           </div>
         </>
-      ) : planned ? null : (
+      ) : (
         <div className="brief-files">
           <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures; I plan it with this month's photos and the client's Drive.</p>
           <span className="spacer" />

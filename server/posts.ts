@@ -2788,7 +2788,7 @@ postRoutes.post("/brief", async (c) => {
     }
   }
   const done = await ownedPlan(c.env, user, b.id);
-  return c.json({ ok: true, added: added.length, summary: planned.summary, plan: (JSON.parse(done.config) as Config).plan });
+  return c.json({ ok: true, added: added.length, summary, plan: (JSON.parse(done.config) as Config).plan });
 });
 
 /**
