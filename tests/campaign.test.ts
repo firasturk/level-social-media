@@ -41,7 +41,7 @@ describe("a campaign brief becomes posts", () => {
     const t = briefPlanInstruction({ client: "Abu Saleh", brief: "Carousel of 3 for the new cup.", month: "2026-11", products: [{ name: "Cup", note: "a paper cup" }], references: 2, brand: {}, language: "ar", existing: 12 });
     expect(t).toContain('"carousel"');
     expect(t).toContain("copy it EXACTLY");
-    expect(t).toContain("set exact: true");
+    expect(t).toContain("exact: true ONLY when the brief itself says");
     expect(t).toContain("already has 12 posts");
   });
 });
