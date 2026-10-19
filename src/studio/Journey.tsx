@@ -2048,7 +2048,7 @@ function BriefBox({
   busy: boolean;
   plan: () => Promise<boolean>;
   /** What the last brief of this month came to (stored on the month). */
-  outcome?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean };
+  outcome?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean; styles?: string[] };
   /** The month is the brief's posts alone (else they come after the month's ideas). */
   only: boolean;
   setOnly: (v: boolean) => void;
@@ -2057,7 +2057,8 @@ function BriefBox({
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const showing = open || text.trim().length > 0;
-  void outcome;
+  // The reference pictures of the last planning stay on the month: shown here so nobody thinks they were lost.
+  const kept = !files.length && outcome?.styles?.length ? outcome.styles : [];
   return (
     <div className={`journey-box journey-brief ${showing ? "open" : ""}`}>
       <BoxTitle
@@ -2107,6 +2108,21 @@ function BriefBox({
               {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {busy ? "Planning your brief…" : "Plan from the brief"}
             </button>
           </div>
+          {kept.length > 0 && (
+            <div className="brief-kept">
+              <span className="brief-kept-thumbs">
+                {kept.map((id) => (
+                  <img key={id} src={styleThumb({ id, updated: outcome?.at ?? 0 })} alt="" />
+                ))}
+              </span>
+              <span className="brief-kept-text">
+                <strong>
+                  {kept.length} reference picture{kept.length > 1 ? "s" : ""} kept on the month
+                </strong>
+                <small>{outcome?.summary ? `${outcome.summary} ` : ""}Planning again uses the same pictures; attach new ones only to replace them.</small>
+              </span>
+            </div>
+          )}
         </>
       ) : (
         <div className="brief-files">

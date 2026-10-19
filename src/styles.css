@@ -11752,3 +11752,12 @@ button.shot-product:hover {
 .make-image::before { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 20%, rgb(255 255 255 / 0.35) 50%, transparent 80%) var(--surface-2); background-size: 200% 100%; animation: make-shimmer 1.6s linear infinite; }
 .make-image > * { position: relative; }
 @keyframes make-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* The brief box: the checkbox stays small, and the references of the last planning stay in view. */
+.brief-only input { width: auto; flex: none; margin-top: 2px; }
+.brief-only span { flex: 1 1 auto; min-width: 0; }
+.brief-kept { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.brief-kept-thumbs { display: flex; gap: 6px; flex: none; }
+.brief-kept-thumbs img { width: 44px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
+.brief-kept-text { display: grid; gap: 2px; min-width: 0; font-size: 12.5px; }
+.brief-kept-text small { color: var(--ink-500); }
