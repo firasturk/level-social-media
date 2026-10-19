@@ -95,14 +95,13 @@ interface BatchRow extends Batch {
   last_error: string | null;
 }
 
+/** A member's own months; an admin opens every month of the team (the maker stays its owner). */
 async function ownedBatch(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
   if (!id) throw new StudioError("Batch id is required.");
-  const b = await first<BatchRow>(
-    env.DB,
-    "SELECT * FROM batches WHERE id = ? AND owner = ?",
-    id,
-    user.id,
-  );
+  const b =
+    user.role === "admin"
+      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", id)
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ?", id, user.id);
   if (!b) throw new StudioError("Batch not found.", 404);
   return b;
 }
@@ -150,16 +149,16 @@ studioRoutes.get("/state", async (c) => {
        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
        SUM(CASE WHEN t.status IN ('queued','processing','finalizing') THEN 1 ELSE 0 END) AS queued
      FROM batches b LEFT JOIN tasks t ON t.batch = b.id
-     WHERE b.owner = ? GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
-    user.id,
+     WHERE ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
+    ...(user.role === "admin" ? [] : [user.id]),
   );
   const thumbRows = await all<{ batch: string; id: string }>(
     c.env.DB,
     `SELECT batch, id FROM (
        SELECT t.batch, t.id, ROW_NUMBER() OVER (PARTITION BY t.batch ORDER BY t.updated DESC) AS rn
-       FROM tasks t JOIN batches b ON b.id = t.batch WHERE b.owner = ? AND t.output IS NOT NULL
+       FROM tasks t JOIN batches b ON b.id = t.batch WHERE ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} AND t.output IS NOT NULL
      ) WHERE rn <= 3`,
-    user.id,
+    ...(user.role === "admin" ? [] : [user.id]),
   );
   const thumbsByBatch = new Map<string, string[]>();
   for (const r of thumbRows)
@@ -416,9 +415,9 @@ studioRoutes.post("/looks", async (c) => {
     output: string | null;
   }>(
     c.env.DB,
-    "SELECT t.brief, t.batch, t.source, t.output FROM tasks t JOIN batches b ON b.id = t.batch WHERE t.id = ? AND b.owner = ?",
+    `SELECT t.brief, t.batch, t.source, t.output FROM tasks t JOIN batches b ON b.id = t.batch WHERE t.id = ?${c.get("user").role === "admin" ? "" : " AND b.owner = ?"}`,
     task,
-    c.get("user").id,
+    ...(c.get("user").role === "admin" ? [] : [c.get("user").id]),
   );
   if (!t?.brief) throw new StudioError("This image has no skill prompt to save.", 404);
   const b = await first<{ config: string }>(

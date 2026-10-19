@@ -739,14 +739,13 @@ interface BatchRow {
   month: string | null;
 }
 
+/** A member's own months; an admin opens every month of the team (the maker stays its owner). */
 async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
   if (!id) throw new StudioError("Plan id is required.");
-  const b = await first<BatchRow>(
-    env.DB,
-    "SELECT * FROM batches WHERE id = ? AND owner = ?",
-    id,
-    user.id,
-  );
+  const b =
+    user.role === "admin"
+      ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ?", id)
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ?", id, user.id);
   if (!b) throw new StudioError("Plan not found.", 404);
   const config = JSON.parse(b.config) as Config;
   if (config.mode !== "post") throw new StudioError("This is not a month of posts.", 409);
@@ -3450,15 +3449,26 @@ postRoutes.post("/continue", async (c) => {
   const d = await body(c, z.object({ client: z.string().min(1).max(80), month: z.string().regex(/^\d{4}-\d{2}$/) }));
   const user = c.get("user");
   await requireActiveClient(c.env, d.client);
-  const taken = await first(c.env.DB, "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ?", user.id, d.client, d.month);
+  // An admin continues from any team member's month; a member from their own.
+  const admin = user.role === "admin";
+  const taken = admin
+    ? await first(c.env.DB, "SELECT id FROM batches WHERE client = ? AND month = ?", d.client, d.month)
+    : await first(c.env.DB, "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ?", user.id, d.client, d.month);
   if (taken) throw new StudioError("This month already has a plan.", 409);
-  const prev = await first<BatchRow>(
-    c.env.DB,
-    "SELECT * FROM batches WHERE owner = ? AND client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
-    user.id,
-    d.client,
-    d.month,
-  );
+  const prev = admin
+    ? await first<BatchRow>(
+        c.env.DB,
+        "SELECT * FROM batches WHERE client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
+        d.client,
+        d.month,
+      )
+    : await first<BatchRow>(
+        c.env.DB,
+        "SELECT * FROM batches WHERE owner = ? AND client = ? AND month IS NOT NULL AND month < ? ORDER BY month DESC, updated DESC LIMIT 1",
+        user.id,
+        d.client,
+        d.month,
+      );
   if (!prev) throw new StudioError("There is no earlier month for this account yet.", 404);
   const old = JSON.parse(prev.config) as Config;
   const keep = (["products", "brand", "theme", "colours"] as const).filter((k) => old.brief?.[k]);
