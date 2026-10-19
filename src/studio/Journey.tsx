@@ -2020,6 +2020,9 @@ function BriefBox({
   busy,
   plan,
   outcome,
+  only,
+  setOnly,
+  existing,
 }: {
   text: string;
   setText: (t: string) => void;
