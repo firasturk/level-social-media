@@ -879,7 +879,7 @@ export default function Journey(p: JourneyProps) {
       form.set("brief", briefText);
       for (const f of briefFiles.slice(0, 4)) form.append("file", f);
       if (briefOnlyOn) form.set("only", "1");
-      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/brief", form);
+      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/campaign", form);
       await p.refresh();
       toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from your brief.${r.summary ? ` ${r.summary}` : ""}`, { duration: 10000 });
       setBriefFiles([]);

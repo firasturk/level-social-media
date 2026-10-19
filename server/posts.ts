@@ -2609,7 +2609,7 @@ postRoutes.post("/faces", async (c) => {
  * brief into posts after the month's existing ones, and each post's shot is written in its
  * reference's style for the real products.
  */
-postRoutes.post("/brief", async (c) => {
+postRoutes.post("/campaign", async (c) => {
   const form = await c.req.formData();
   const batchId = String(form.get("batch") ?? "");
   const text = String(form.get("brief") ?? "").trim();
