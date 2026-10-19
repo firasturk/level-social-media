@@ -56,6 +56,8 @@ export interface PromptImages {
   studio?: boolean;
   /** true when the latest result is attached as the last image for a revision */
   revision?: boolean;
+  /** true when the designer's own reference picture for this take is attached (before the revision image) */
+  reference?: boolean;
   /** true when a reference-library photo is attached after the garment photo */
   mood?: boolean;
   /** true when an already generated image of the same product set is attached after the reference */

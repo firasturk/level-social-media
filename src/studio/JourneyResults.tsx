@@ -145,15 +145,14 @@ export function MakeStep({
           const busy = !!j && MAKING.includes(j.status);
           const flags = j?.flags ?? [];
           return (
-            <article key={p.index} className={`journey-box make-card ${flags.length ? "flagged" : ""}`} style={{ "--i": i } as React.CSSProperties}>
+            <article key={p.index} className={`journey-box make-card ${j?.url && !busy && j.flags ? (flags.length ? "qa-warn" : "qa-ok") : ""}`} style={{ "--i": i } as React.CSSProperties} title={flags.length ? flags.map((f) => f.text).join("\n") : undefined}>
               <div className="idea-meta">
                 <span className="idea-index">{String(p.index).padStart(2, "0")}</span>
                 {p.date && <span className="journey-tag">{shortDate(p.date)}</span>}
                 <span className="make-type">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                {j?.url && !busy && j.flags && (
-                  <span className={`make-state ${flags.length ? "warn" : "ok"}`} title={flags.length ? flags.map((f) => f.text).join("\n") : "Passed the automatic review"}>
-                    {flags.length ? <TriangleAlert size={12} /> : <Check size={12} />}
-                    {flags.length ? `${flags.length} to check` : "Checked"}
+                {j?.url && !busy && j.flags && flags.length > 0 && (
+                  <span className="make-state warn" title={flags.map((f) => f.text).join("\n")}>
+                    <TriangleAlert size={12} />
                   </span>
                 )}
               </div>

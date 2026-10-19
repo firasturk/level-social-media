@@ -121,8 +121,11 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
     if (!brief) continue;
     const written = String(x.type ?? "lifestyle");
     const type: PostType = (POST_TYPES as readonly string[]).includes(written) && written !== "offer" && written !== "greeting" ? (written as PostType) : "lifestyle";
-    const lead = matchProduct(String(x.product ?? ""), products);
-    const extras = (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n && n !== lead);
+    const role = String(x.role ?? "").trim().toLowerCase();
+    // An ingredients slide shows the ingredients on their own: no product photo joins it, whatever
+    // the planner wrote in "product" (a cup in the picture would defeat the slide).
+    const lead = role === "ingredients" ? undefined : matchProduct(String(x.product ?? ""), products);
+    const extras = role === "ingredients" ? [] : (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n && n !== lead);
     const kindRaw = String(x.group ?? "single");
     const kind: GroupKind | null = kindRaw === "carousel" || kindRaw === "series" ? kindRaw : null;
     const of = Math.max(1, Math.min(10, Math.round(Number(x.of) || 1)));
@@ -134,7 +137,6 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
       if (slide === 1 || !groups.has(key)) groups.set(key, groupId());
       group = { id: groups.get(key)!, kind, slide, of, role: String(x.role ?? "").trim().slice(0, 30) || undefined };
     }
-    const role = String(x.role ?? "").trim().toLowerCase();
     // Only an ingredients slide shows ingredients on their own; a teaser or a reveal shows the product.
     const ingredients = role === "ingredients" ? String(x.ingredients ?? "").trim().slice(0, 300) : "";
     const post: Post = {

@@ -1854,6 +1854,12 @@ postRoutes.post("/generate", async (c) => {
     const gridRef = await gridImage(c.env, config.gridRef);
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
     const styled = post.style ? styles.get(post.style) : undefined;
+    // A post from a campaign brief: the designer's reference picture and brief decide the look, the
+    // colours and the ingredients; a carousel's slides share the ingredients of its ingredients slide.
+    const campaign =
+      post.group || styled?.status === "brief"
+        ? { ingredients: (post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined)) || undefined }
+        : undefined;
     const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
     // Exact product mode: one product, set into the picture afterwards; the reference is image 1.
@@ -1956,7 +1962,7 @@ postRoutes.post("/generate", async (c) => {
           .filter((x): x is SourceRow => !!x)
           .map((x) => `${productName(x)} ${x.note ?? ""} ${(x as { category?: string | null }).category ?? ""}`)
           .join(" ");
-        const found = foreignFood(shotText, own);
+        const found = foreignFood(shotText, `${own} ${campaign?.ingredients ?? ""}`);
         return found.length ? found : undefined;
       })(),
       always: client.dos?.trim() || undefined,
@@ -1988,6 +1994,9 @@ postRoutes.post("/generate", async (c) => {
       offer: post.type === "offer" ? post.offer : undefined,
       sellsDrinks: sellsDrinks || undefined,
       ingredients: !product && post.ingredients?.trim() ? post.ingredients.trim() : undefined,
+      campaign,
+      // The designer's own reference for this post: attached to every take until it is taken off.
+      editRef: post.reference?.key ? { key: post.reference.key, note: post.reference.note?.trim() || undefined } : undefined,
       occasionId: post.occasion || undefined,
       ambassadors: (() => {
         if (portraitDay) return undefined;
@@ -2571,6 +2580,107 @@ postRoutes.post("/accept", async (c) => {
  * Faces for pictures reviewed before the review learned to see them: one small vision call per
  * picture, once, so the words keep off every face from now on.
  */
+/**
+ * A reference for one post: the designer attaches a picture (and what to take from it) and the
+ * next take or revision of the post gets it as an extra image. It stays on the post until taken off.
+ */
+postRoutes.post("/reference", async (c) => {
+  const form = await c.req.formData();
+  const batchId = String(form.get("batch") ?? "");
+  const index = Math.round(Number(form.get("index")));
+  const note = String(form.get("note") ?? "").trim().slice(0, 600);
+  const file = form.get("file");
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, batchId);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  if (!post) throw new StudioError("That post is not in the month.", 404);
+  let reference = post.reference;
+  if (typeof file === "object" && file !== null && "arrayBuffer" in file) {
+    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) throw new StudioError("Attach a picture (JPG, PNG or WebP, up to 15 MB).");
+    const id = uuid();
+    const stored = await storeBytes(c.env, id, await file.arrayBuffer(), file.type);
+    if (post.reference?.key) await c.env.BUCKET.delete([post.reference.key, post.reference.thumb]).catch(() => undefined);
+    reference = { key: stored.image, thumb: stored.thumb, name: file.name.slice(0, 200), at: now() };
+  }
+  if (!reference) throw new StudioError("Attach a picture first.");
+  reference = { ...reference, note: note || undefined };
+  const fresh = await ownedPlan(c.env, user, batchId);
+  const cfg = JSON.parse(fresh.config) as Config;
+  cfg.plan = (cfg.plan ?? []).map((p) => (p.index === index ? { ...p, reference } : p));
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, reference });
+});
+
+/** The reference of one post taken off (its picture is deleted). */
+postRoutes.delete("/reference", async (c) => {
+  const batchId = c.req.query("batch") ?? "";
+  const index = Math.round(Number(c.req.query("index")));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, batchId);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  if (post?.reference?.key) await c.env.BUCKET.delete([post.reference.key, post.reference.thumb]).catch(() => undefined);
+  config.plan = (config.plan ?? []).map((p) => {
+    if (p.index !== index) return p;
+    const { reference: _r, ...rest } = p;
+    void _r;
+    return rest;
+  });
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true });
+});
+
+/** The thumbnail of a post's reference. */
+postRoutes.get("/reference/image", async (c) => {
+  const batchId = c.req.query("batch") ?? "";
+  const index = Math.round(Number(c.req.query("index")));
+  const b = await ownedPlan(c.env, c.get("user"), batchId);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  const key = c.req.query("size") === "full" ? post?.reference?.key : post?.reference?.thumb || post?.reference?.key;
+  const obj = key ? await c.env.BUCKET.get(key) : null;
+  if (!obj) throw new StudioError("No picture.", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=86400" },
+  });
+});
+
+export interface PostComment {
+  id: string;
+  post: number;
+  user: string;
+  name: string;
+  text: string;
+  created: number;
+}
+
+/** The team's comments on the posts of a month. */
+postRoutes.get("/comments", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch") ?? "");
+  const rows = await all<PostComment>(c.env.DB, "SELECT id, post, user, name, text, created FROM post_comments WHERE batch = ? ORDER BY created ASC", b.id);
+  return c.json({ comments: rows });
+});
+
+postRoutes.post("/comments", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT), text: z.string().trim().min(1).max(2000) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const row: PostComment = { id: uuid(), post: d.index, user: user.id, name: user.name || user.email, text: d.text, created: now() };
+  await run(c.env.DB, "INSERT INTO post_comments (id, batch, post, user, name, text, created) VALUES (?, ?, ?, ?, ?, ?, ?)", row.id, b.id, row.post, row.user, row.name, row.text, row.created);
+  return c.json({ ok: true, comment: row });
+});
+
+postRoutes.delete("/comments/:id", async (c) => {
+  const user = c.get("user");
+  const row = await first<{ id: string; batch: string; user: string }>(c.env.DB, "SELECT id, batch, user FROM post_comments WHERE id = ?", c.req.param("id"));
+  if (!row) return c.json({ ok: true });
+  await ownedPlan(c.env, user, row.batch);
+  if (row.user !== user.id && user.role !== "admin") throw new StudioError("Only the person who wrote it can delete it.", 403);
+  await run(c.env.DB, "DELETE FROM post_comments WHERE id = ?", row.id);
+  return c.json({ ok: true });
+});
+
 postRoutes.post("/faces", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), force: z.boolean().optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -3910,6 +4020,7 @@ async function writeStyleScenes(
       if (!a.style) return scenes.set(a.index, {});
       const style = await styleRow(env, a.style);
       if (!style || !style.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
+      const reference = style.status === "brief" || !!post.group;
       const m = matchProduct(post.type === "offer" ? post.offer?.products[0] : post.product, names);
       const src = m ? sources.find((x) => productName(x) === m) : undefined;
       // A post with more products shows them all together: the style is written for the set.
@@ -3931,16 +4042,17 @@ async function writeStyleScenes(
           category: src?.category || undefined,
           post: { type: POST_TYPE_INFO[post.type]?.label ?? post.type, headline: post.headline ?? "", brief: withoutProductNames(post.brief, names).slice(0, 500) },
           brand: { name: client.name, style: client.style, always: photoRules(client.dos), never: photoRules(client.donts) },
-          palette,
+          palette: reference ? [] : palette,
           people: (post.people ?? [])
             .map((n) => cast.find((x) => x.name.toLowerCase() === n.toLowerCase()))
             .filter((x): x is AmbassadorRow => !!x)
             .map((x) => `${x.name} (${x.description})`),
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
-          theme: config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
+          theme: reference ? undefined : config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
           lessons: styleLessons,
           onlyFood,
+          reference,
         }),
         ADAPT_SCHEMA,
       );
@@ -3948,7 +4060,8 @@ async function writeStyleScenes(
       const scene = withoutProductNames(String(answer.prompt ?? "").trim(), names).slice(0, 1500);
       if (!scene) throw new StudioError("The model returned no shot. Try again.", 502);
       // The post's idea becomes the style's own, so the old idea's staging never joins the picture.
-      const brief = String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
+      // A campaign post keeps the designer's brief: only its shot is written.
+      const brief = reference ? "" : String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
       scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}) });
     }),
   );
@@ -4000,7 +4113,8 @@ postRoutes.post("/style", async (c) => {
       const latest = await ownedPlan(c.env, user, d.batch);
       const latestCfg = JSON.parse(latest.config) as Config;
       const post = (latestCfg.plan ?? []).find((p) => p.index === a.index);
-      if (!post) continue;
+      // A campaign post's words are the designer's brief: they are never written again for a style.
+      if (!post || post.group) continue;
       const names = [post.product, ...(post.products ?? [])].filter(Boolean);
       await rewritePostIdea(
         c.env,

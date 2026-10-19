@@ -108,6 +108,18 @@ export const DEFAULT_POST_COUNT = 12;
 export const MAX_POST_COUNT = 60;
 
 /** One planned post of a month. Edited by the designer before and after generation. */
+/** A reference the designer attached to one post: the picture to take something from, and what. */
+export interface PostReference {
+  /** R2 key of the picture. */
+  key: string;
+  /** R2 key of its thumbnail. */
+  thumb: string;
+  /** What to take from it, in the designer's words. */
+  note?: string;
+  name?: string;
+  at: number;
+}
+
 export interface Post {
   index: number;
   type: PostType;
@@ -140,6 +152,8 @@ export interface Post {
   exact?: boolean;
   /** An ingredients slide: the picture shows only these ingredients of the product, no cup or packaging. */
   ingredients?: string;
+  /** A picture the designer attached to this post as a reference for its next take or revision. */
+  reference?: PostReference;
   /** Which tile of a reference grid this post follows (grid mode). */
   tile?: string;
   /** That tile read in detail: what it shows, its background and how its text is set. */
@@ -237,6 +251,14 @@ export interface PostBrief {
   sellsDrinks?: boolean;
   /** An ingredients slide: only these ingredients, shown on their own. */
   ingredients?: string;
+  /**
+   * The post comes from a campaign brief: the designer's own reference picture and brief decide the
+   * look, the colours and the ingredients around the product; the month's palette and the client's
+   * look step back, and the brief's ingredients are never foreign.
+   */
+  campaign?: { ingredients?: string };
+  /** The designer's own reference picture for this take, attached after the style reference. */
+  editRef?: { key: string; note?: string };
   /** The post's occasion id (Coffee Day may show coffee). */
   occasionId?: string;
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
@@ -577,14 +599,17 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // reference's branded bag, logo and all).
   const unbagged = (t: string) => withoutBags(t);
   const clean = (t: string) => withoutLettering(unbagged(withoutProductNames(t, names)));
-  const chosen = !!b.paletteChosen && b.palette.length > 0;
+  // A campaign brief keeps its reference's own colours: the month's palette does not apply.
+  const chosen = !!b.paletteChosen && b.palette.length > 0 && !b.campaign;
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
   // A grid month's own tile: its composition is the picture, the brand is not.
   const tileRef =
     "the tile of the month's reference grid that this post recreates: recreate its composition, camera angle and distance, arrangement, set, surface and light closely, with this brand's product in place of its products; never its products, packaging, bags, cups, cards, text, logo, brand or the identity of its people";
   // A style picked from the gallery is the picture to make, not just a mood.
-  const picked = `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
+  const picked = b.campaign
+    ? `the reference picture the designer attached to the campaign brief (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surfaces, colours, light, props, effects and mood closely, with this brand's product in place of its product${b.campaign.ingredients?.trim() ? ` and the brief's ingredients (${b.campaign.ingredients.trim()}) where it shows its own` : ""}; never its product, packaging, text, logo, price, buttons or the identity of its people, and nothing of the page or app it was saved from`
+    : `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
   // Images are attached in this order: products, ambassador portraits, style reference, revision.
   let n = 0;
   if (b.hasProduct && extras.length) {
@@ -620,6 +645,13 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     n += 1;
     parts.push(`Image ${n} is ${b.styleKey ? picked : b.tileKey ? tileRef : `a style reference: ${styleRef}`}.`);
   }
+  if (b.editRef && images.reference) {
+    n += 1;
+    const note = b.editRef.note?.trim();
+    parts.push(
+      `Image ${n} is a reference picture the designer attached for this take${note ? `, with this note on what to take from it: "${note}"` : ""}. ${note ? "Do exactly what the note says with it" : "Take its composition, light, colour world, props and mood"} and keep everything else as the brief below says. Nothing of the reference's own product, packaging, text, logo or people is copied: the product stays this brand's product exactly as photographed.`,
+    );
+  }
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
   if (b.exact && !images.revision)
     parts.push(
@@ -651,7 +683,9 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
-  if (edit.trim() && fresh)
+  if (edit.trim() && fresh && b.editRef && images.reference)
+    parts.push(`NEW TAKE: the designer asks for this post again with the attached reference. Make the picture again from the brief: ${edit.trim()}`);
+  else if (edit.trim() && fresh)
     parts.push(
       `NEW TAKE: the earlier picture of this post was rejected by the review for the problems below. Make the picture again from the brief, and make sure none of these problems is in it: ${edit.trim()}`,
     );
@@ -661,7 +695,9 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // A grid month follows its grid: the theme's pins and their visual language step back too.
   const theme = b.styleKey || b.grid ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
-  if (style && b.styleKey)
+  if (b.campaign && b.styleKey) {
+    // The designer's reference is the look: the client's usual finish would pull the picture away from it.
+  } else if (style && b.styleKey)
     parts.push(`CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):\n${style}`);
   else if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
@@ -701,7 +737,9 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial" || b.wordsSpace)
     parts.push(HEADLINE_SPACE_RULE);
-  const palette = paletteRule(b.palette, !!b.paletteChosen);
+  const palette = b.campaign
+    ? `COLOURS: this post follows a campaign brief, so the month's palette does not apply. The backdrop, surfaces, props and light keep the colours, contrast and mood of the attached reference picture (a dark moody scene stays dark); the product keeps the exact colours of its photo and is never recoloured.`
+    : paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
   if (chosen)
     parts.push(
@@ -715,7 +753,13 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     parts.push(
       `EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.`,
     );
-  if (b.hasProduct) parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+  if (b.hasProduct) {
+    parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+    if (b.campaign?.ingredients?.trim())
+      parts.push(
+        `THE BRIEF'S INGREDIENTS (the one exception to the rule above): the designer's brief shows the product's own ingredients around it, real and natural, the way the reference picture stages its own: ${b.campaign.ingredients.trim()}. They appear as the shot describes them (whole, broken, scattered, in small bowls, a splash of the drink's own liquid); nothing else edible joins them, and nothing is added onto or into the product itself beyond what its photo shows.`,
+      );
+  }
   else if (b.ingredients?.trim())
     parts.push(
       `INGREDIENTS SLIDE: the picture shows ONLY these ingredients of the brand's product, real and natural, close up and beautifully lit: ${b.ingredients.trim()}. No cup, glass, box, packaging, logo or brand item, and no other food or drink; nothing is written anywhere.`,
@@ -752,7 +796,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   if (b.exact && !images.revision)
     parts.push("FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.");
   const avoid = b.styleKey ? AVOID.replace("duplicated products, ", "") : AVOID;
-  parts.push(b.ingredients?.trim() ? avoid.replace("other food or drinks, ", "") : avoid);
+  parts.push(b.ingredients?.trim() || b.campaign?.ingredients?.trim() ? avoid.replace("other food or drinks, ", "") : avoid);
   return parts.join("\n\n");
 }
 

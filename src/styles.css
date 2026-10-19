@@ -11698,3 +11698,41 @@ button.shot-product:hover {
 
 .copy-brief { margin-bottom: 12px; flex: none; }
 .copy-brief textarea { width: 100%; min-height: 96px; margin-top: 8px; resize: vertical; }
+
+/* The review's verdict as the card's outline: red to check, green passed. */
+.post-card.qa-warn { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
+.post-card.qa-ok { border-color: var(--success); box-shadow: 0 0 0 2px var(--success); }
+.make-card.qa-warn { border-color: var(--danger); box-shadow: 0 0 0 2px var(--danger); }
+.make-card.qa-ok { border-color: var(--success); box-shadow: 0 0 0 2px var(--success); }
+.make-state.warn { color: var(--danger); background: var(--danger-soft); }
+
+/* A reference attached to one post for its next picture. */
+.post-ref-row { padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.post-ref-row .text-button { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.post-ref { display: grid; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 12px; }
+.post-ref.on { background: #eef7ff; }
+:root[data-theme="dark"] .post-ref.on { background: rgb(60 110 180 / 0.18); }
+.post-ref-head { display: flex; align-items: center; gap: 10px; }
+.post-ref-pick { flex: none; width: 44px; height: 52px; border-radius: 8px; border: 1px dashed var(--line); background: var(--surface); display: inline-flex; align-items: center; justify-content: center; padding: 0; overflow: hidden; cursor: pointer; color: var(--ink-500); }
+.post-ref-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.post-ref-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.post-ref-text strong { font-size: 12.5px; }
+.post-ref-text small { color: var(--ink-500); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.post-ref textarea { width: 100%; resize: vertical; font-size: 12.5px; min-height: 48px; }
+.post-ref-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.post-ref-actions button { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 10px; }
+
+/* The team's comments on a post. */
+.post-comments { border-bottom: 1px solid var(--line); font-size: 12px; }
+.post-comments-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; background: none; border: 0; color: var(--ink-500); font-size: 12px; cursor: pointer; width: 100%; text-align: left; }
+.post-comments-toggle:hover { color: var(--ink-900); }
+.post-comments-body { display: grid; gap: 8px; padding: 0 12px 10px; }
+.post-comment-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.post-comment-list li { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; padding: 6px 8px; border-radius: 8px; background: var(--surface-2); }
+.post-comment-meta { color: var(--ink-500); font-size: 11px; }
+.post-comment-text { grid-column: 1; white-space: pre-wrap; word-break: break-word; }
+.post-comment-delete { grid-column: 2; grid-row: 1 / span 2; align-self: start; background: none; border: 0; color: var(--ink-500); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.post-comment-delete:hover { color: var(--danger); }
+.post-comment-write { display: flex; gap: 6px; align-items: flex-end; }
+.post-comment-write textarea { flex: 1; resize: vertical; font-size: 12.5px; min-height: 40px; }
+.post-comment-write button { flex: none; padding: 6px 9px; display: inline-flex; align-items: center; }

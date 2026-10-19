@@ -3,6 +3,8 @@ import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import { fixNote } from "@shared/qa";
+import { del, get, post } from "@/api";
+import { PostComments, PostReferenceBox, type PostComment } from "./PostTools";
 import {
   Clapperboard,
   Download,
@@ -31,7 +33,7 @@ import {
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
-import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
+import type { Ambassador, Client, QA, Source, Task, User } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import type { OverlaySpec } from "@shared/overlay";
@@ -103,11 +105,17 @@ export default function PlanView({
   rewriting = [],
   notes = "",
   batchId = null,
+  user = null,
+  onRefresh,
 }: {
   /** The month's notes for the ideas writer (kept in the side panel). */
   notes?: string;
   /** The month's batch id (the video dialog talks to its routes). */
   batchId?: string | null;
+  /** Who is looking (their own comments can be deleted). */
+  user?: User | null;
+  /** The month read again after a card changed it on the server (a reference attached). */
+  onRefresh?: () => Promise<void>;
   client: Client;
   month: string;
   onMonth: (m: string) => void;
@@ -187,6 +195,34 @@ export default function PlanView({
   const [editing, setEditing] = useState<number | null>(null);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
+  // The team's comments on the month's posts.
+  const [comments, setComments] = useState<PostComment[]>([]);
+  useEffect(() => {
+    if (!batchId) {
+      setComments([]);
+      return;
+    }
+    let live = true;
+    get<{ comments: PostComment[] }>(`/api/studio/posts/comments?batch=${encodeURIComponent(batchId)}`)
+      .then((r) => live && setComments(r.comments))
+      .catch(() => live && setComments([]));
+    return () => {
+      live = false;
+    };
+  }, [batchId]);
+  async function addComment(index: number, text: string) {
+    if (!batchId) return;
+    const r = await post<{ comment: PostComment }>("/api/studio/posts/comments", { batch: batchId, index, text });
+    setComments((c) => [...c, r.comment]);
+  }
+  async function deleteComment(id: string) {
+    try {
+      await del(`/api/studio/posts/comments/${id}`);
+      setComments((c) => c.filter((x) => x.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete the comment.");
+    }
+  }
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
@@ -609,7 +645,11 @@ export default function PlanView({
                 <article
                   key={p.index}
                   id={`post-card-${p.index}`}
-                  className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type}`}
+                  className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${(() => {
+                    // The review's verdict is the card's outline: red when something is to check, green when it passed.
+                    const flags = t?.output && !inFlight ? reviewFlags(t) : null;
+                    return flags ? (flags.length ? "qa-warn" : "qa-ok") : "";
+                  })()}`}
                 >
                   {(() => {
                     const flags = t?.output && !inFlight ? reviewFlags(t) : null;
@@ -617,13 +657,11 @@ export default function PlanView({
                       ? { cls: "making", icon: <LoaderCircle className="spinning" size={12} />, text: makingLabel(t) }
                       : t?.status === "failed"
                         ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
-                        : flags && flags.length
-                          ? { cls: "warn", icon: <AlertTriangle size={12} />, text: `${flags.length} to check` }
-                          : flags
-                            ? { cls: "ok", icon: <Check size={12} />, text: "Checked" }
-                            : t?.output
-                              ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
-                              : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
+                        : flags
+                          ? null
+                          : t?.output
+                            ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
+                            : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                     return (
                       <header className="post-head">
                         <span className="post-num">{String(p.index).padStart(2, "0")}</span>
@@ -639,9 +677,11 @@ export default function PlanView({
                             <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}
                           </span>
                         )}
-                        <span className={`post-state ${state.cls}`} title={flags?.length ? flags.map((f) => f.text).join("\n") : undefined}>
-                          {state.icon} {state.text}
-                        </span>
+                        {state && (
+                          <span className={`post-state ${state.cls}`}>
+                            {state.icon} {state.text}
+                          </span>
+                        )}
                       </header>
                     );
                   })()}
@@ -803,6 +843,27 @@ export default function PlanView({
                         </li>
                       )}
                     </ul>
+                  )}
+                  {batchId && onFix && (
+                    <PostReferenceBox
+                      batchId={batchId}
+                      index={p.index}
+                      reference={p.reference}
+                      hasPicture={!!t?.output && !inFlight}
+                      disabled={inFlight || running || !!busy}
+                      onMake={onFix}
+                      onChanged={() => onRefresh?.()}
+                    />
+                  )}
+                  {batchId && (
+                    <PostComments
+                      index={p.index}
+                      comments={comments.filter((c) => c.post === p.index)}
+                      userId={user?.id ?? ""}
+                      isAdmin={user?.role === "admin"}
+                      onAdd={addComment}
+                      onDelete={deleteComment}
+                    />
                   )}
                   <div className="post-fields">
                     {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (

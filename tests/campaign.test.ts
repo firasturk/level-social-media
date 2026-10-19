@@ -26,11 +26,92 @@ describe("a campaign brief becomes posts", () => {
     expect(r.posts[2].post.product).toBe("Spicy hot chocolate cup");
     expect(r.posts.every((p) => p.reference === 1)).toBe(true);
   });
+  it("keeps a product off an ingredients slide even when the planner names one", () => {
+    const r = parseBriefPlan(
+      { summary: "", posts: [{ type: "product", group: "carousel", slide: 2, of: 3, role: "ingredients", title: "Ingredients", headline: "x", subline: "", brief: "Chili over chocolate.", product: "Cup", products: ["Cup"], ingredients: "red chili, liquid chocolate", exact: false, reference: 2, caption: "c", hashtags: "#a" }] },
+      ["Cup"],
+      1,
+      () => "g",
+    );
+    expect(r.posts[0].post.product).toBeUndefined();
+    expect(r.posts[0].post.products).toBeUndefined();
+    expect(r.posts[0].post.ingredients).toBe("red chili, liquid chocolate");
+  });
   it("tells the planner the groups, the exact rule and the text on design", () => {
     const t = briefPlanInstruction({ client: "Abu Saleh", brief: "Carousel of 3 for the new cup.", month: "2026-11", products: [{ name: "Cup", note: "a paper cup" }], references: 2, brand: {}, language: "ar", existing: 12 });
     expect(t).toContain('"carousel"');
     expect(t).toContain("copy it EXACTLY");
     expect(t).toContain("set exact: true");
     expect(t).toContain("already has 12 posts");
+  });
+});
+
+import { buildPostPrompt, type PostBrief } from "../shared/posts";
+import { preflightInstruction, postReviewInstruction } from "../shared/qa";
+import { adaptStyleInstruction } from "../shared/styles";
+
+const base: PostBrief = {
+  post: true,
+  index: 1,
+  type: "product",
+  title: "Cup Teaser",
+  brief: "The cup among chilies on dark wood.",
+  palette: ["pale yellow #f5f3d3", "amber #fdbd11"],
+  paletteChosen: true,
+  style: "Pop-art studio shots on saturated backgrounds.",
+  theme: "",
+  format: "4:5",
+  ref: null,
+  styleKey: "styles/ref.jpg",
+  refIsSource: false,
+  hasProduct: true,
+  product: "A teal paper cup of hot chocolate with a chili on the rim.",
+  shot: "An overhead flat lay of the cup on dark wood surrounded by whole red chilies and splashes of liquid chocolate.",
+};
+
+describe("a campaign brief wins over the month", () => {
+  it("keeps the reference's colours and ingredients, and drops the month's palette and client look", () => {
+    const p = buildPostPrompt({ ...base, campaign: { ingredients: "red chili pepper, liquid chocolate" } });
+    expect(p).toContain("reference picture the designer attached to the campaign brief");
+    expect(p).not.toContain("ITS COLOURS ARE NOT COPIED");
+    expect(p).not.toContain("chosen by the designer for this month");
+    expect(p).not.toContain("BACKGROUND: the backdrop");
+    expect(p).not.toContain("CLIENT LOOK");
+    expect(p).toContain("THE BRIEF'S INGREDIENTS");
+    expect(p).toContain("red chili pepper, liquid chocolate");
+    expect(p).not.toContain("other food or drinks, ");
+    // An ordinary styled post still takes the month's palette.
+    const q = buildPostPrompt(base);
+    expect(q).toContain("ITS COLOURS ARE NOT COPIED");
+    expect(q).toContain("CLIENT LOOK");
+  });
+  it("tells the preflight and the review that the brief's reference and ingredients stay", () => {
+    const pf = preflightInstruction({ client: "Abu Saleh", scene: "chilies around the cup", products: ["a cup"], people: [], reference: "style", lessons: [], campaign: { ingredients: "red chili" } });
+    expect(pf).toContain("dropReference is always false");
+    expect(pf).toContain("never foreign");
+    const rv = postReviewInstruction({ products: 1, productNotes: ["a cup"], type: "product", people: [], allowedFood: "red chili, liquid chocolate" });
+    expect(rv).toContain("brief's own ingredients");
+  });
+  it("makes the style writer follow the brief and keep the reference's look", () => {
+    const t = adaptStyleInstruction({
+      style: { title: "Ingredient Rain", kind: "product", prompt: "Flat lay on dark wood with ingredients scattered." },
+      product: "",
+      post: { type: "Product", headline: "x", brief: "No cup is visible: only chili over chocolate." },
+      brand: { name: "Abu Saleh" },
+      palette: [],
+      people: [],
+      reference: true,
+    });
+    expect(t).toContain("THE DESIGNER'S BRIEF FOR THIS PICTURE");
+    expect(t).toContain("DESIGNER'S OWN REFERENCE PICTURE");
+    expect(t).not.toContain("REPLACES THE EARLIER ONE");
+  });
+  it("attaches the designer's reference for a take and says what to take from it", () => {
+    const p = buildPostPrompt({ ...base, editRef: { key: "styles/x.jpg", note: "the low camera angle and the warm light" } }, "FRESH TAKE: Use the attached reference: the low camera angle", { reference: true });
+    expect(p).toContain("reference picture the designer attached for this take");
+    expect(p).toContain("the low camera angle and the warm light");
+    expect(p).toContain("NEW TAKE: the designer asks for this post again with the attached reference");
+    // Without the image attached, the paragraph is not written.
+    expect(buildPostPrompt({ ...base, editRef: { key: "styles/x.jpg" } })).not.toContain("attached for this take");
   });
 });

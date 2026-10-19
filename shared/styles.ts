@@ -203,6 +203,8 @@ export interface AdaptRequest {
   lessons?: string[];
   /** A campaign's own ingredients: the only food, spice or garnish that may appear around the product. */
   onlyFood?: string;
+  /** The style is the designer's own reference picture for a campaign brief: the brief is the picture, the reference the look. */
+  reference?: boolean;
 }
 
 /** The style rewritten for one post's real product: its ingredients, packaging, colours and people. */
@@ -220,10 +222,14 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
     r.service?.trim()
       ? `THE BRAND SELLS A SERVICE, NOT PRODUCTS: ${r.service.trim()}. Replace 'the product' with an object of the service's moment (keys, a phone, a folder), never a drink or food.`
       : `THE PRODUCT (as photographed): ${r.product || "the brand's product"}${r.category ? ` (kind: ${r.category})` : ""}.`,
-    `THE POST (${r.post.type}): headline "${r.post.headline}". Its earlier idea (for its message only, never its picture): ${r.post.brief}`,
-    "THE STYLE'S OWN IDEA REPLACES THE EARLIER ONE: the picture is the style's concept, done with this brand's product. Nothing of the earlier idea's staging is carried over: none of its gestures, props, objects or poses (no cups held to the eyes, no extra cups, bags or boxes); the product appears only the way the style shows it, once unless the style itself repeats it.",
+    r.reference
+      ? `THE POST (${r.post.type}): headline "${r.post.headline}". THE DESIGNER'S BRIEF FOR THIS PICTURE (it decides what is in frame and what is not; when it says no cup or no packaging is visible, none is): ${r.post.brief}`
+      : `THE POST (${r.post.type}): headline "${r.post.headline}". Its earlier idea (for its message only, never its picture): ${r.post.brief}`,
+    r.reference
+      ? "THE STYLE ABOVE IS THE DESIGNER'S OWN REFERENCE PICTURE for a campaign: the brief is the picture and the reference is its look. Keep the reference's colours, surfaces, light, camera, effects and mood exactly as they are (a dark scene stays dark; a splash, a pool of liquid, a floating ingredient or an ingredient rain are the designer's choice and stay), with this brand's product and the brief's ingredients in place of the reference's. Never name a colour the reference does not have."
+      : "THE STYLE'S OWN IDEA REPLACES THE EARLIER ONE: the picture is the style's concept, done with this brand's product. Nothing of the earlier idea's staging is carried over: none of its gestures, props, objects or poses (no cups held to the eyes, no extra cups, bags or boxes); the product appears only the way the style shows it, once unless the style itself repeats it.",
     "KEEP the style's camera angle, composition, set, effects and light: the picture must read as this style.",
-    "WHEN THE STYLE'S ACTION CANNOT HAPPEN WITH THIS PRODUCT (a garment does not pour, flow, melt, splash or stack like sweets; a box does not get worn), keep the style's set, camera, scale, effects and mood and stage the product the way it is really presented (worn, folded, held, set down). Never write a product doing something its material cannot do, and never let it float, hang in the air or fall unless the style is a levitation shot. A cup, glass or bottle stands upright on its base (or is held upright), never balanced on a corner, an edge or its rim.",
+    `WHEN THE STYLE'S ACTION CANNOT HAPPEN WITH THIS PRODUCT (a garment does not pour, flow, melt, splash or stack like sweets; a box does not get worn), keep the style's set, camera, scale, effects and mood and stage the product the way it is really presented (worn, folded, held, set down). Never write a product doing something its material cannot do, and never let it float, hang in the air or fall unless the style is a levitation shot${r.reference ? " or the reference itself shows an ingredient in the air" : ""}. A cup, glass or bottle stands upright on its base (or is held upright), never balanced on a corner, an edge or its rim.`,
     r.lessons?.length ? `MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES (the review rejected them; the shot leads to none of them):\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
     r.theme?.trim() ? `THE MONTH'S THEME (its mood for the set, never more products): ${r.theme.trim().slice(0, 400)}` : "",
     "INGREDIENTS: replace 'the product's own key ingredients' and every generic ingredient with this product's real ingredients and flavours as its description shows them (for example pistachios, kunafa threads, sesame, rose petals, dates), never ones it does not have. An effect built on an ingredient keeps working with the real one (raspberries frozen in ice become pistachios frozen in ice).",

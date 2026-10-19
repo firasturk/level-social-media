@@ -1675,6 +1675,7 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
             people: (pb.ambassadors ?? []).map((a) => `${a.name} (${a.description})`),
             reference,
             lessons: pb.lessons ?? [],
+            campaign: pb.campaign,
           }),
           PREFLIGHT_SCHEMA,
           images,
@@ -1688,7 +1689,8 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
         else pb.brief = pf.scene;
         notes.push("the shot was written again without them");
       }
-      if (pf.dropReference && reference) {
+      // A campaign brief's reference is the designer's own picture: it is never left out.
+      if (pf.dropReference && reference && !pb.campaign) {
         pb.noRefImage = true;
         notes.push(`the ${reference} image was left out so the engine copies nothing from it`);
       }
@@ -1815,6 +1817,7 @@ async function submitTask(
     set: false,
     background: false,
     pose: false,
+    reference: false,
   };
 
   if (config.mode === "3" && config.identity) {
@@ -1882,6 +1885,10 @@ async function submitTask(
       imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
       roles.mood = true;
     }
+    if (pb.editRef?.key) {
+      imageUrls.push(await signObjectUrl(env, pb.editRef.key));
+      roles.reference = true;
+    }
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
@@ -1934,6 +1941,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     people: (pb.ambassadors ?? []).map((a) => ({ name: a.name, description: a.description })),
     sellsDrinks: pb.sellsDrinks,
     ingredients: pb.ingredients,
+    allowedFood: pb.campaign?.ingredients,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.
@@ -2004,6 +2012,7 @@ async function submitOpenAITask(
     set: false,
     background: false,
     pose: false,
+    reference: false,
   };
 
   if (config.mode === "1" && task.card > 1 && task.card < FABRIC_CARD) {
@@ -2077,6 +2086,13 @@ async function submitOpenAITask(
     } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
       images.push(await referenceBytes(env, pb.ref));
       roles.mood = true;
+    }
+    if (pb.editRef?.key) {
+      const obj = await env.BUCKET.get(pb.editRef.key);
+      if (obj) {
+        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+        roles.reference = true;
+      }
     }
   }
   const edit = task.edit?.trim() ?? "";
@@ -2419,6 +2435,7 @@ async function collectReferenceKeys(
     set: false,
     background: false,
     pose: false,
+    reference: false,
   };
   if (config.mode === "1" && task.card > 1 && task.card < FABRIC_CARD) {
     const firstCard = await first<{ output: string | null }>(
@@ -2493,6 +2510,10 @@ async function collectReferenceKeys(
         keys.push(ref.key);
         roles.mood = true;
       }
+    }
+    if (pb.editRef?.key) {
+      keys.push(pb.editRef.key);
+      roles.reference = true;
     }
   }
   const edit = task.edit?.trim() ?? "";

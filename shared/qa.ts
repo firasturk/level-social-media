@@ -221,6 +221,8 @@ export interface ReviewContext {
   tile?: string;
   /** An ingredients slide: these ingredients on their own are the picture, never foreign food. */
   ingredients?: string;
+  /** A campaign brief's ingredients, wanted around the product: never foreign food. */
+  allowedFood?: string;
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -243,6 +245,8 @@ export function postReviewInstruction(r: ReviewContext): string {
     "bag: true when a product is in or next to a shopping bag, paper bag, carrier, basket or tote.",
     r.ingredients
       ? `foreign: [] (this is an ingredients slide: ${r.ingredients} shown on their own are the picture; list only food or drink that is NOT one of them).`
+      : r.allowedFood
+      ? `foreign: list only a drink, cup, glass or food that is neither the brand's product nor one of the brief's own ingredients (${r.allowedFood}, wanted around the product and never foreign), else [].`
       : r.sellsDrinks || r.coffeeDay
       ? 'foreign: [] (the brand may show drinks here).'
       : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do, and neither do the product's own ingredients (its nuts, syrup, cream, fruit or pieces of the product itself, as its photo and description show).",
@@ -469,14 +473,20 @@ export function preflightInstruction(r: {
   reference: "style" | "tile" | "grid" | "";
   /** The client's lessons: what went wrong before. */
   lessons: string[];
+  /** The post follows a campaign brief: its reference picture and ingredients are the designer's and stay. */
+  campaign?: { ingredients?: string };
 }): string {
   return [
     `You are the art director of "${r.client}" reading what an image engine is about to be paid to make. Nothing has been generated yet: your job is to catch, in the words and in the attached reference, what the engine would get wrong, and to fix it in writing now.`,
     `THE SCENE THE ENGINE WILL MAKE:\n${r.scene}`,
     r.products.length ? `THE PRODUCTS (as photographed; they are reproduced exactly):\n${r.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}` : "THE POST HAS NO PRODUCT PHOTO.",
     r.people.length ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.` : "NO PEOPLE are allowed (a hand at most).",
-    r.reference
+    r.reference && r.campaign
+      ? `THE ATTACHED IMAGE is the designer's own reference picture for a campaign brief: the engine recreates it with the brand's product${r.campaign.ingredients?.trim() ? ` and the brief's ingredients (${r.campaign.ingredients.trim()}, wanted around or in the product, never foreign)` : ""}. It stays attached whatever words, prices, buttons or products it carries (the engine's own rules keep those out), so dropReference is always false. Its staging (a splash, a pool of the drink, an ingredient in the air, an ingredient rain) is the designer's choice and never a problem.`
+      : r.reference
       ? `THE ATTACHED IMAGE is the ${r.reference === "style" ? "style the designer picked" : r.reference === "tile" ? "grid tile this post recreates" : "whole feed grid the month follows (many posts side by side)"}; the engine sees it too and tends to copy everything in it: its people (their age and gender, how many), its words, its bags, its products.`
+      : r.campaign?.ingredients?.trim()
+      ? `THIS POST FOLLOWS A CAMPAIGN BRIEF: its ingredients (${r.campaign.ingredients.trim()}) are wanted around or in the product and are never foreign; its staging is the designer's choice.`
       : "No style or tile image is attached.",
     r.lessons.length ? `WHAT WENT WRONG IN THIS CLIENT'S EARLIER PICTURES:\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
     [
@@ -485,7 +495,7 @@ export function preflightInstruction(r: {
       "- words: nothing in the scene asks for a headline, slogan, sign, label or arrow, and the reference carries no big words the engine would copy. The product's OWN printed text, as its photo and description show it (a slogan on a sweatshirt, the name on a box), is part of the product and is never a problem: keep it in the scene exactly as the description words it;",
       "- product: each product is staged as its photo shows it (a garment printed on the back is seen from behind; a box stays closed; nothing added, recoloured or invented; no plain item is described as a second product);",
       "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
-      "- foreign: no food, drink, cup or glass the brand does not sell.",
+      r.campaign ? "- foreign: no food, drink, cup or glass the brand does not sell, except the brief's own ingredients, which stay exactly as the scene has them." : "- foreign: no food, drink, cup or glass the brand does not sell.",
       'Return JSON: ok (true when nothing is wrong); problems (one short sentence each, "" none); scene: when any problem lives in the words, THE SCENE WRITTEN AGAIN in full (same length and style, same set, camera and idea) with the problems removed, else ""; dropReference: true when the attached image itself would make the engine copy wrong people or words, else false; note: one sentence for the designer.',
     ].join("\n"),
     "Return ONLY the JSON.",

@@ -1344,6 +1344,8 @@ export default function Workspace({
                 <PlanView
                 notes={monthNotes}
                 batchId={batch?.id ?? null}
+                user={user}
+                onRefresh={refresh}
                 onStyles={assignStyles}
                 client={client}
                 month={month}
