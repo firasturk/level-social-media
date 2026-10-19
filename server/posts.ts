@@ -2685,8 +2685,15 @@ postRoutes.post("/brief", async (c) => {
   );
   const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
   const planned = parseBriefPlan(raw, names, nextIndex, () => uuid().slice(0, 8));
-  if (!planned.posts.length) throw new StudioError("The planner wrote no posts from this brief. Add what each post shows and try again.", 502);
-  if (existing.length + planned.posts.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this brief adds ${planned.posts.length} to ${existing.length}.`);
+  const failed = async (message: string) => {
+    // What went wrong stays on the month, so the box can show it after a reload.
+    const cfgNow = JSON.parse((await ownedPlan(c.env, user, b.id)).config) as Config;
+    cfgNow.campaign = { text: text.slice(0, 6000), at: now(), error: message.slice(0, 300) };
+    await saveConfig(c.env, b, cfgNow);
+    return new StudioError(message, 502);
+  };
+  if (!planned.posts.length) throw await failed("The planner wrote no posts from this brief. Say what each post or slide shows and the text on it, then try again.");
+  if (existing.length + planned.posts.length > MAX_POST_COUNT) throw await failed(`The month can hold ${MAX_POST_COUNT} posts; this brief adds ${planned.posts.length} to ${existing.length}.`);
   // The new posts come after the month's last day: a carousel's slides share one day (one post on
   // Instagram), a series takes consecutive days. The month's numbering follows the dates.
   const month = config.month ?? "";
@@ -2709,6 +2716,7 @@ postRoutes.post("/brief", async (c) => {
     return dated;
   });
   config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
+  config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary: planned.summary || undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).

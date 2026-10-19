@@ -859,7 +859,42 @@ export default function Journey(p: JourneyProps) {
     }
   }
 
+  /* ── The campaign brief (Products step): planned by its button, or by Next when it is still unsent ── */
+  const [briefText, setBriefText] = useState("");
+  const [briefFiles, setBriefFiles] = useState<File[]>([]);
+  const [briefPlanning, setBriefPlanning] = useState(false);
+  const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
+  async function planBrief(): Promise<boolean> {
+    if (!p.batchId || briefText.trim().length < 20) {
+      toast.error("Write the brief first: what the posts are about, how many, and the text on each.");
+      return false;
+    }
+    setBriefPlanning(true);
+    try {
+      const form = new FormData();
+      form.set("batch", p.batchId);
+      form.set("brief", briefText);
+      for (const f of briefFiles.slice(0, 4)) form.append("file", f);
+      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/brief", form);
+      await p.refresh();
+      toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from your brief.${r.summary ? ` ${r.summary}` : ""}`, { duration: 10000 });
+      setBriefFiles([]);
+      return true;
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 10000 });
+      await p.refresh().catch(() => undefined);
+      return false;
+    } finally {
+      setBriefPlanning(false);
+    }
+  }
+
   async function next() {
+    // A brief written but not sent is planned first: Next never drops it.
+    if (key === "products" && briefUnsent) {
+      const ok = await planBrief();
+      if (!ok) return;
+    }
     if (blocking.length) {
       // Next fixes what it can by itself once, then tries again; only what needs a person stays.
       if (!autoTried && blocking.every((i) => i.fix)) {
@@ -1336,7 +1371,7 @@ export default function Journey(p: JourneyProps) {
                 />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
-              <BriefBox batchId={p.batchId} refresh={p.refresh} onPlanned={go("ideas")} />
+              <BriefBox text={briefText} setText={setBriefText} files={briefFiles} setFiles={setBriefFiles} busy={briefPlanning} plan={() => planBrief()} outcome={p.config?.campaign} />
             </>
           )}
 
@@ -1973,57 +2008,57 @@ function ProductsBox(p: JourneyProps & { client: Client }) {
  * The system picks the products, writes the posts (a carousel slide by slide, a series on one
  * product, or a single post) and keeps the references as the posts' style.
  */
-function BriefBox({ batchId, refresh, onPlanned }: { batchId: string | null; refresh: () => Promise<void>; onPlanned: () => void }) {
-  const [text, setText] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
-  const [busy, setBusy] = useState(false);
+function BriefBox({
+  text,
+  setText,
+  files,
+  setFiles,
+  busy,
+  plan,
+  outcome,
+}: {
+  text: string;
+  setText: (t: string) => void;
+  files: File[];
+  setFiles: (f: File[]) => void;
+  busy: boolean;
+  plan: () => Promise<boolean>;
+  /** What the last brief of this month came to (stored on the month). */
+  outcome?: { text: string; at: number; added?: number; summary?: string; error?: string };
+}) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  async function plan() {
-    if (!batchId || text.trim().length < 20) {
-      toast.error("Write the brief first: what the posts are about, how many, and the text on each.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const form = new FormData();
-      form.set("batch", batchId);
-      form.set("brief", text);
-      for (const f of files.slice(0, 4)) form.append("file", f);
-      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/brief", form);
-      await refresh();
-      toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from the brief.${r.summary ? ` ${r.summary}` : ""}`, { duration: 9000 });
-      setText("");
-      setFiles([]);
-      onPlanned();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const showing = open || text.trim().length > 0;
   return (
-    <div className={`journey-box journey-brief ${open ? "open" : ""}`}>
+    <div className={`journey-box journey-brief ${showing ? "open" : ""}`}>
       <BoxTitle
         kit="voice"
         actions={
           <button type="button" className="text-button" onClick={() => setOpen((v) => !v)}>
-            {open ? "Hide" : "Write a brief"}
+            {showing ? "Hide" : "Write a brief"}
           </button>
         }
       >
         Brief (optional)
       </BoxTitle>
-      {open ? (
+      {outcome && (
+        <p className={`brief-outcome ${outcome.error ? "error" : "ok"}`}>
+          {outcome.error
+            ? `The last brief could not be planned: ${outcome.error}`
+            : `Your brief was planned: ${outcome.added ?? 0} post${outcome.added === 1 ? "" : "s"} added after this month's posts.${outcome.summary ? ` ${outcome.summary}` : ""}`}
+        </p>
+      )}
+      {showing ? (
         <>
           <p className="field-hint">
-            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and plan every slide; the pictures you attach become the style the posts follow.
+            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and plan every slide; the pictures you attach become the style the posts follow. Press "Plan from the brief", or Next, and the posts are added after this month's.
           </p>
           <textarea
             dir="auto"
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
+            disabled={busy}
             placeholder={"Carousel for the new spicy hot chocolate, 3 slides: 1 teaser (the cup not fully revealed) — text: مكس مش عادي أبداً! 2 ingredients close-up — text: درينك الموسم… بطريقة جديدة! 3 reveal with the real cup — text: سبايسي هوت تشوكلت. Follow the attached reference's look; use the real cup photo; only the real ingredients."}
           />
           <div className="brief-files">
@@ -2037,8 +2072,8 @@ function BriefBox({ batchId, refresh, onPlanned }: { batchId: string | null; ref
               </button>
             )}
             <span className="spacer" />
-            <button type="button" className="primary" onClick={() => void plan()} disabled={busy || !batchId}>
-              {busy ? <LoaderCircle className="spinning" size={13} /> : null} Plan from the brief
+            <button type="button" className="primary" onClick={() => void plan()} disabled={busy || text.trim().length < 20}>
+              {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {busy ? "Planning your brief…" : "Plan from the brief"}
             </button>
           </div>
         </>
@@ -2760,6 +2795,8 @@ function IdeasStep({
               ? "Writing the month from the whole brief: products, colours, pins and the occasions…"
               : adding
                 ? `Adding the greeting post${missing.length > 1 ? "s" : ""} for ${missing.map((o) => o.name).join(", ")}…`
+                : config?.campaign?.added
+                  ? `${config.campaign.added} post${config.campaign.added === 1 ? "" : "s"} at the end come from your brief (carousel slides share a day). The rest: every post is lifestyle with your product by default; change a type to rewrite it.`
                 : stale
                   ? "The brief changed after these ideas were written. Write them again to follow it."
                   : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type. The captions are written after the pictures, from what each one shows."}
@@ -2833,6 +2870,12 @@ function IdeaCard({
     <article className={`journey-box idea-card ${compact ? "compact" : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="idea-meta">
         <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
+        {post.group && (
+          <span className={`post-group ${post.group.kind}`} title={post.group.role ? `${post.group.kind}: ${post.group.role}` : post.group.kind}>
+            {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+            {post.group.role ? ` · ${post.group.role}` : ""}
+          </span>
+        )}
         {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
         <select
           className="idea-type"
