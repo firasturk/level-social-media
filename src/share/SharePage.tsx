@@ -18,6 +18,8 @@ interface SharedPost {
   ov: PostOverlayPatch | null;
   caption: string;
   hashtags: string;
+  /** Faces in the picture as [x, y, w, h] fractions: the words keep off them. */
+  faces?: number[][];
   image: number | null;
   approval: Approval | null;
 }
@@ -124,7 +126,7 @@ export default function SharePage({ token }: { token: string }) {
               <a key={i} href={`#post-${i}`} className={`share-feed-cell ${p.approval?.status ?? ""}`} title={`Post ${i}`}>
                 {src ? (
                   p.overlay && spec.template !== "none" ? (
-                    <OverlayPreview src={src} spec={spec} text={{ headline: p.headline, subline: p.subline }} logoSrc={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null} patch={p.ov ?? undefined} width={420} />
+                    <OverlayPreview src={src} spec={spec} text={{ headline: p.headline, subline: p.subline }} logoSrc={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null} patch={p.ov ?? undefined} faces={p.faces} width={420} />
                   ) : (
                     <img src={src} alt="" loading="lazy" />
                   )
@@ -202,7 +204,7 @@ function SharedCard({
       <div className="share-media">
         {src ? (
           post.overlay && spec.template !== "none" ? (
-            <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} width={720} />
+            <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} />
           ) : (
             <img src={src} alt="" loading="lazy" />
           )

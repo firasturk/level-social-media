@@ -179,3 +179,12 @@ describe("a tile follows the post's people", () => {
     expect(tileForPeople("Tile 2 (row 1, col 2): flat lay Product: center Items: wooden tray, linen napkin Background: cream", 1)).toContain("Items: wooden tray, linen napkin");
   });
 });
+
+describe("faces from the review", () => {
+  it("reads Gemini's box_2d grid and plain fractions", async () => {
+    const { facesIn } = await import("../shared/qa");
+    expect(facesIn({ faces: [{ box_2d: [100, 200, 300, 400] }] })).toEqual([[0.2, 0.1, 0.2, 0.2]]);
+    expect(facesIn({ faces: [[0.1, 0.2, 0.3, 0.4]] })).toEqual([[0.1, 0.2, 0.3, 0.4]]);
+    expect(facesIn({ faces: [] })).toEqual([]);
+  });
+});

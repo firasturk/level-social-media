@@ -528,7 +528,7 @@ async function drawTypography(
   // A person wearing the product is a tall subject: the word still reads behind their sides.
   if ((style === "behind" || style === "overlap") && (!subject || subject.box.w > W * 0.82 || subject.box.w * subject.box.h > W * H * 0.78)) return null;
   // A word set in a band of its own needs a band free of the product: above it or below it.
-  if (style !== "behind" && style !== "overlap" && style !== "vertical" && subject && subject.box.h > H * 0.72) return null;
+  if (style !== "behind" && style !== "overlap" && style !== "vertical" && style !== "sticker" && style !== "marker" && subject && subject.box.h > H * 0.72) return null;
   const margin = spec.margin * W;
   const rtl = ARABIC.test(word + headline);
   // The designer's own placement (dragged in the editor) moves the whole block.
@@ -618,6 +618,15 @@ async function drawTypography(
     }
     cy = above >= below ? top + blockH / 2 : box.y + box.h + blockH / 2;
   } else cy = rows > 1 ? H * 0.42 : style === "sticker" ? H * 0.2 : H * 0.36;
+  // Behind a person, the row sits under the face (at the shoulders or the chest), never across it:
+  // the face stays whole and the letters tuck behind the body.
+  if ((style === "behind" || style === "overlap") && box) {
+    const inside = faces.filter((f) => f.x + f.w / 2 > box.x && f.x + f.w / 2 < box.x + box.w && f.y + f.h / 2 > box.y && f.y + f.h / 2 < box.y + box.h);
+    if (inside.length) {
+      const chin = Math.max(...inside.map((f) => f.y + f.h));
+      cy = Math.max(cy, chin + glyphH * 0.62);
+    }
+  }
   cy = Math.max(top + blockH / 2, Math.min(H - margin - blockH / 2 - size * 0.4, cy)) + dy;
   const cx = W / 2 + dx;
   const blockRect = (yc: number): Rect => ({ x: margin, y: yc - blockH / 2, w: W - margin * 2, h: blockH });
@@ -643,6 +652,56 @@ async function drawTypography(
   ctx.textBaseline = "alphabetic";
   const textX = style === "stack" ? (rtl ? W - margin + dx : margin + dx) : cx;
   if (style === "stack") ctx.textAlign = rtl ? "right" : "left";
+
+  /* ── behind and overlap: the word opens around the subject ("LO  VE"), so the whole word still
+        reads and only the inner edges of the letters tuck under the person or the product ── */
+  let split: { left: string; right: string; leftX: number; rightX: number; size: number; y: number } | null = null;
+  if ((style === "behind" || style === "overlap") && box && word.replace(/\s+/g, "").length >= 3) {
+    const subjectX = box.x + box.w / 2 + dx;
+    // The gap is a little narrower than the subject, so each side's inner letter is partly hidden.
+    const gap = Math.max(size * 0.35, box.w * 0.72);
+    // Split at the space nearest the middle, else at the character nearest the middle by width.
+    const halves = (t: string): [string, string] => {
+      const ws = t.split(/\s+/).filter(Boolean);
+      if (ws.length >= 2) {
+        let best = 1;
+        let bestDiff = Infinity;
+        for (let k = 1; k < ws.length; k++) {
+          const d = Math.abs(measureAt(100, ws.slice(0, k).join(" ")) - measureAt(100, ws.slice(k).join(" ")));
+          if (d < bestDiff) {
+            bestDiff = d;
+            best = k;
+          }
+        }
+        return [ws.slice(0, best).join(" "), ws.slice(best).join(" ")];
+      }
+      const chars = [...t];
+      let best = 1;
+      let bestDiff = Infinity;
+      for (let k = 1; k < chars.length; k++) {
+        const d = Math.abs(measureAt(100, chars.slice(0, k).join("")) - measureAt(100, chars.slice(k).join("")));
+        if (d < bestDiff) {
+          bestDiff = d;
+          best = k;
+        }
+      }
+      return [chars.slice(0, best).join(""), chars.slice(best).join("")];
+    };
+    const [a, bb] = halves(word);
+    // Reading order: the first half sits on the left for Latin, on the right for Arabic.
+    const left = rtl ? bb : a;
+    const right = rtl ? a : bb;
+    // The size that fits each half beside the subject, inside the margins.
+    const roomL = subjectX - gap / 2 - margin;
+    const roomR = W - margin - (subjectX + gap / 2);
+    const fitL = (roomL / Math.max(1, measureAt(100, left))) * 100;
+    const fitR = (roomR / Math.max(1, measureAt(100, right))) * 100;
+    const s2 = Math.min(size, fitL * 0.97, fitR * 0.97);
+    if (s2 >= size * 0.45 && roomL > 0 && roomR > 0) {
+      const y = blockTop + lineH * 0.5 + shift;
+      split = { left, right, leftX: subjectX - gap / 2, rightX: subjectX + gap / 2, size: s2, y };
+    }
+  }
 
   /* ── the backgrounds of band, sticker and marker ── */
   if (style === "band") {
@@ -679,7 +738,14 @@ async function drawTypography(
   }
 
   /* ── the letters ── */
-  if (style !== "sticker")
+  if (split) {
+    ctx.font = `${weight} ${split.size}px ${family}`;
+    ctx.fillStyle = color;
+    ctx.textAlign = "right";
+    ctx.fillText(split.left, split.leftX, split.y);
+    ctx.textAlign = "left";
+    ctx.fillText(split.right, split.rightX, split.y);
+  } else if (style !== "sticker")
     for (let i = 0; i < rows; i++) {
       const y = blockTop + (style === "band" ? blockH / 2 : lineH * (i + 0.5)) + shift;
       const t = lines[i];

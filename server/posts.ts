@@ -30,7 +30,7 @@ import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
 import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
-import { renameProduct, SHOP_INSIDE, facesIn, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
+import { renameProduct, SHOP_INSIDE, FACES_ASK, FACES_SCHEMA, facesIn, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -2555,14 +2555,13 @@ postRoutes.post("/accept", async (c) => {
   return c.json({ ok: true });
 });
 
-const FACES_SCHEMA = { type: "object", properties: { faces: { type: "array", items: { type: "array", items: { type: "number" } } } }, required: ["faces"] };
 
 /**
  * Faces for pictures reviewed before the review learned to see them: one small vision call per
  * picture, once, so the words keep off every face from now on.
  */
 postRoutes.post("/faces", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const d = await body(c, z.object({ batch: z.string().min(1), force: z.boolean().optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const rows = await all<{ id: string; output: string | null; qa: string | null }>(
     c.env.DB,
@@ -2577,7 +2576,7 @@ postRoutes.post("/faces", async (c) => {
     } catch {
       qa = null;
     }
-    if (!qa || Array.isArray(qa.faces)) continue;
+    if (!qa || (Array.isArray(qa.faces) && !(d.force && !(qa.faces as unknown[]).length))) continue;
     try {
       const obj = await c.env.BUCKET.get(t.output!);
       if (!obj) continue;
@@ -2585,7 +2584,7 @@ postRoutes.post("/faces", async (c) => {
       const raw = parseJson<unknown>(
         await askText(
           c.env,
-          "List every human face in the attached picture as [x, y, width, height], each a fraction of the picture's width or height from 0 to 1 (the box around the whole face, hair line to chin). Return ONLY JSON: {\"faces\": [[x, y, w, h], ...]}; [] when there is none.",
+          `Look at the attached picture. ${FACES_ASK} Return ONLY JSON: {"faces": [...]}.`,
           FACES_SCHEMA,
           [image],
         ),

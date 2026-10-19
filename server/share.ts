@@ -54,11 +54,20 @@ shareRoutes.get("/:token", async (c) => {
     "SELECT id, name FROM brand_assets WHERE client = ? AND kind = 'font'",
     client.id,
   );
-  const tasks = await all<{ post: number | null; output: string | null; caption: string | null; updated: number }>(
+  const tasks = await all<{ post: number | null; output: string | null; caption: string | null; updated: number; qa: string | null }>(
     c.env.DB,
-    "SELECT post, output, caption, updated FROM tasks WHERE batch = ? AND post IS NOT NULL",
+    "SELECT post, output, caption, updated, qa FROM tasks WHERE batch = ? AND post IS NOT NULL",
     b.id,
   );
+  // The faces the review saw: the words keep off them on this page too.
+  const facesOf = (qa: string | null | undefined): number[][] => {
+    try {
+      const f = qa ? (JSON.parse(qa) as { faces?: unknown }).faces : undefined;
+      return Array.isArray(f) ? (f as number[][]).filter((x) => Array.isArray(x) && x.length === 4) : [];
+    } catch {
+      return [];
+    }
+  };
   const posts = (config.plan ?? []).map((p) => {
     const t = tasks.find((x) => x.post === p.index && x.output);
     let caption = { text: p.caption, hashtags: p.hashtags };
@@ -86,6 +95,7 @@ shareRoutes.get("/:token", async (c) => {
         : null,
       caption: caption.text,
       hashtags: caption.hashtags,
+      faces: facesOf(t?.qa),
       image: t ? t.updated : null,
       approval: config.approvals?.[String(p.index)] ?? null,
     };

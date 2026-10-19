@@ -168,19 +168,38 @@ export const POST_REVIEW_SCHEMA = {
     tile: { type: "string" },
     aiLook: { type: "string" },
     staging: { type: "string" },
-    faces: { type: "array", items: { type: "array", items: { type: "number" } } },
+    faces: { type: "array", items: { type: "object", properties: { box_2d: { type: "array", items: { type: "integer" } } }, required: ["box_2d"] } },
   },
   required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "faces"],
 };
+
+export const FACES_SCHEMA = {
+  type: "object",
+  properties: { faces: { type: "array", items: { type: "object", properties: { box_2d: { type: "array", items: { type: "integer" } } }, required: ["box_2d"] } } },
+  required: ["faces"],
+};
+export const FACES_ASK =
+  "faces: every human face in the picture, each as {\"box_2d\": [ymin, xmin, ymax, xmax]} on a 0-1000 grid (the box around the whole face, hair line to chin); [] when there is none.";
 
 /** The faces the review saw, as [x, y, w, h] fractions of the picture (0..1), so the words never sit on one. */
 export function facesIn(raw: unknown): number[][] {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   if (!Array.isArray(d.faces)) return [];
-  return (d.faces as unknown[])
-    .map((f) => (Array.isArray(f) ? f.slice(0, 4).map((n) => Number(n)) : []))
-    .filter((f) => f.length === 4 && f.every((n) => Number.isFinite(n) && n >= 0 && n <= 1) && f[2] > 0 && f[3] > 0)
-    .slice(0, 6);
+  const out: number[][] = [];
+  for (const f of d.faces as unknown[]) {
+    // Gemini's box: [ymin, xmin, ymax, xmax] on a 0-1000 grid; a plain [x, y, w, h] fraction is kept too.
+    const b = f && typeof f === "object" && Array.isArray((f as { box_2d?: unknown }).box_2d) ? ((f as { box_2d: unknown[] }).box_2d as unknown[]) : Array.isArray(f) ? f : null;
+    if (!b || b.length !== 4) continue;
+    const n = b.map((v) => Number(v));
+    if (!n.every((v) => Number.isFinite(v))) continue;
+    if (n.every((v) => v >= 0 && v <= 1) && !(f && typeof f === "object" && !Array.isArray(f))) {
+      if (n[2] > 0 && n[3] > 0) out.push(n);
+      continue;
+    }
+    const [ymin, xmin, ymax, xmax] = n.map((v) => Math.max(0, Math.min(1000, v)) / 1000);
+    if (xmax > xmin && ymax > ymin) out.push([xmin, ymin, xmax - xmin, ymax - ymin].map((v) => Math.round(v * 1000) / 1000));
+  }
+  return out.slice(0, 6);
 }
 
 /** What the reviewer is told about the post it checks. */
@@ -231,7 +250,7 @@ export function postReviewInstruction(r: ReviewContext): string {
       : 'tile: "".',
     r.people.length ? AI_LOOK_CHECK : 'aiLook: "".',
     'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".',
-    "faces: every human face in the post as [x, y, width, height], each a fraction of the picture's width or height from 0 to 1 (the box around the whole face, hair line to chin); [] when there is none. The designer's words are kept off these boxes.",
+    `${FACES_ASK} The designer's words are kept off these boxes.`,
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }
