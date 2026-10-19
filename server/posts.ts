@@ -2610,6 +2610,8 @@ postRoutes.post("/brief", async (c) => {
   const form = await c.req.formData();
   const batchId = String(form.get("batch") ?? "");
   const text = String(form.get("brief") ?? "").trim();
+  // "Only these posts": the month is the brief's posts alone; earlier ideas (and their pictures) are kept as a version.
+  const only = form.get("only") === "1";
   if (!batchId) throw new StudioError("Batch id is required.");
   if (text.length < 20) throw new StudioError("Write the brief first (what the posts are about, how many, the text on each).");
   const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 4);
@@ -2665,7 +2667,7 @@ postRoutes.post("/brief", async (c) => {
     );
     styleIds.push(id);
   }
-  const existing = config.plan ?? [];
+  const existing = only ? [] : (config.plan ?? []);
   const raw = parseJson<unknown>(
     await askText(
       c.env,
@@ -2715,7 +2717,11 @@ postRoutes.post("/brief", async (c) => {
     day = Math.min(lastDay, day + 1);
     return dated;
   });
+  if (only && config.plan?.length) await keepMonthVersion(c.env, b);
   config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
+  // The month is exactly these posts: the count follows, and the ideas count as freshly written.
+  config.postCount = config.plan.length;
+  config.plannedAt = now();
   config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary: planned.summary || undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are

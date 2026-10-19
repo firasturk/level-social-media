@@ -863,6 +863,9 @@ export default function Journey(p: JourneyProps) {
   const [briefText, setBriefText] = useState("");
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [briefPlanning, setBriefPlanning] = useState(false);
+  /** The month is the brief's posts alone (the default for a month with no ideas yet). */
+  const [briefOnly, setBriefOnly] = useState<boolean | null>(null);
+  const briefOnlyOn = briefOnly ?? p.plan.length === 0;
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
   async function planBrief(): Promise<boolean> {
     if (!p.batchId || briefText.trim().length < 20) {
@@ -875,6 +878,7 @@ export default function Journey(p: JourneyProps) {
       form.set("batch", p.batchId);
       form.set("brief", briefText);
       for (const f of briefFiles.slice(0, 4)) form.append("file", f);
+      if (briefOnlyOn) form.set("only", "1");
       const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/brief", form);
       await p.refresh();
       toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from your brief.${r.summary ? ` ${r.summary}` : ""}`, { duration: 10000 });
@@ -1371,7 +1375,7 @@ export default function Journey(p: JourneyProps) {
                 />
                 <Analysis step="products" note={brief.products} busy={briefBusy === "products"} onRun={() => void runBrief("products")} empty="Add products and I will read them: kinds, packaging and how each is best shown." />
               </div>
-              <BriefBox text={briefText} setText={setBriefText} files={briefFiles} setFiles={setBriefFiles} busy={briefPlanning} plan={() => planBrief()} outcome={p.config?.campaign} />
+              <BriefBox text={briefText} setText={setBriefText} files={briefFiles} setFiles={setBriefFiles} busy={briefPlanning} plan={() => planBrief()} outcome={p.config?.campaign} only={briefOnlyOn} setOnly={setBriefOnly} existing={p.plan.length} />
             </>
           )}
 
@@ -2025,6 +2029,10 @@ function BriefBox({
   plan: () => Promise<boolean>;
   /** What the last brief of this month came to (stored on the month). */
   outcome?: { text: string; at: number; added?: number; summary?: string; error?: string };
+  /** The month is the brief's posts alone (else they come after the month's ideas). */
+  only: boolean;
+  setOnly: (v: boolean) => void;
+  existing: number;
 }) {
   const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -2061,6 +2069,13 @@ function BriefBox({
             disabled={busy}
             placeholder={"Carousel for the new spicy hot chocolate, 3 slides: 1 teaser (the cup not fully revealed) — text: مكس مش عادي أبداً! 2 ingredients close-up — text: درينك الموسم… بطريقة جديدة! 3 reveal with the real cup — text: سبايسي هوت تشوكلت. Follow the attached reference's look; use the real cup photo; only the real ingredients."}
           />
+          <label className="brief-only">
+            <input type="checkbox" checked={only} onChange={(e) => setOnly(e.target.checked)} disabled={busy} />
+            <span>
+              Only the brief's posts this month
+              {existing > 0 ? ` (replaces the ${existing} idea${existing === 1 ? "" : "s"} here; their pictures stay under Earlier versions)` : " (no other ideas are written)"}
+            </span>
+          </label>
           <div className="brief-files">
             <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 4))} />
             <button type="button" className="secondary" onClick={() => input.current?.click()} disabled={busy}>
