@@ -856,8 +856,6 @@ export interface IdeasRequest {
   count: number;
   /** Extra wishes typed by the designer for this month. */
   notes?: string;
-  /** The campaign brief the designer gave, and what the planner made of it (or why it failed). */
-  campaign?: { text: string; at: number; added?: number; summary?: string; error?: string };
   /** Post types to prefer, when the designer limited them. */
   types?: PostType[];
   /** The occasions the designer picked for this month: each gets one greeting post. */
