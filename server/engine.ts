@@ -443,9 +443,15 @@ async function storeResultBytes(
       try {
         const product = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact.source);
         if (!product) throw new StudioError("the product photo of this post was removed");
-        const { placeProduct } = await import("./exact");
+        const { placeProduct, harmonize } = await import("./exact");
         const placed = await placeProduct(env, product, result, pb.product ?? "");
-        result = placed.image;
+        // A second pass makes the set-in product sit in the scene (shadows, light, the foreground
+        // over its base); it is paid like a revision of the picture.
+        const size = sizeOf(config, task);
+        const blended = await harmonize(env, placed.image, config.ratio, size, pb.product ?? "");
+        if (blended !== placed.image)
+          await run(env.DB, "UPDATE tasks SET cost = cost + ? WHERE id = ?", estimateCost({ ...config, model: "gemini-3-pro-image", size }, 1, [task.card]).total, task.id);
+        result = blended;
         url = null;
         if (!placed.empty) exactNote = "The empty place was not clear: check that nothing stands behind the product.";
       } catch (e) {

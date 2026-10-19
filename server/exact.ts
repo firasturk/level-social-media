@@ -186,6 +186,27 @@ async function findSpot(env: Env, product: ImageBytes, scene: ImageBytes, note: 
   };
 }
 
+/**
+ * The set-in product made to belong: the image model adds its real shadows, reflections, the
+ * scene's light on it and the foreground overlapping its base, with the product itself untouched.
+ * The composite is returned unchanged when the model fails.
+ */
+export async function harmonize(env: Env, composite: ImageBytes, aspectRatio: string, size: "1K" | "2K" | "4K", note: string): Promise<ImageBytes> {
+  const { makeGoogleClient } = await import("./engine");
+  const engine = await makeGoogleClient(env);
+  const prompt = [
+    `Image 1 is a finished photograph with the real product set into it${note ? ` (${note})` : ""}. The product is the one real thing in the picture and stays EXACTLY as it is, pixel for pixel: same shape, size, position, proportions, colours, contents, print and logo. Nothing is added onto it, nothing of it is redrawn, resized or moved.`,
+    "Make it belong to the scene: a true contact shadow under its base and a cast shadow in the direction of the scene's light; the scene's light, warmth and contrast on its surface; the scene's colours reflected softly in it where its material would reflect; condensation or gloss only where the product already shows it; and the objects that stand in front of it (fruit, ice, leaves) overlapping its base naturally so it sits among them instead of in front of them. Its edges meet the scene cleanly, with no halo, cut line or outline.",
+    "Everything else in the picture stays as it is: the same set, props, framing, colours and light. No new objects, no text, letters or logos anywhere.",
+  ].join("\n\n");
+  try {
+    return await engine.edit({ model: "gemini-3-pro-image", prompt, images: [composite], aspectRatio: aspectRatio as never, size: size === "4K" ? "2K" : size });
+  } catch (e) {
+    console.error("[exact] harmonize failed", e);
+    return composite;
+  }
+}
+
 /** The place the prompt asks the engine to leave empty: lower middle of the frame. */
 export const EXACT_SPOT: Box = [430, 270, 860, 730];
 
@@ -207,9 +228,10 @@ export async function placeProduct(
   const w = x1 - x0;
   if (w < 320) {
     const cx = (x0 + x1) / 2;
-    const nw = 420;
-    const nh = Math.min(900, ((y1 - y0) * nw) / Math.max(w, 1));
-    const ny1 = Math.min(1000, y1);
+    const nw = 400;
+    const nh = Math.min(880, ((y1 - y0) * nw) / Math.max(w, 1));
+    // The base stays above the frame's edge so its shadow and the surface in front of it show.
+    const ny1 = Math.min(930, y1);
     spot.box = [Math.max(0, ny1 - nh), Math.max(0, cx - nw / 2), ny1, Math.min(1000, cx + nw / 2)];
   }
   const s = decode(scene.bytes);
