@@ -787,7 +787,7 @@ export default function Workspace({
           taskId: t?.id ?? null,
           // A take that failed keeps the last picture: it is shown as failed, never as this idea's image.
           status: old ? "none" : t?.error && !["queued", "processing", "finalizing"].includes(t.status) ? "failed" : (t?.status ?? "none"),
-          url: t?.output && !old ? outputUrl(t) : null,
+          url: t?.output && !old ? outputThumb(t) : null,
           output: old ? null : (t?.output ?? null),
           error: t?.error ?? null,
           flags: qa?.automated ? (qa.flags ?? []) : null,
