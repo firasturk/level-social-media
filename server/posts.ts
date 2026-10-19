@@ -2768,7 +2768,12 @@ postRoutes.post("/campaign", async (c) => {
     ? groups.map((g) => `a ${g.of}-${g.kind === "carousel" ? "slide carousel" : "post series"}`).join(", ")
     : `${added.length} post${added.length === 1 ? "" : "s"}`;
   const pulled = [...new Set([...imported.values()])];
-  const plannerNote = /\b(designer|upload|must|needs? to|should)\b/i.test(planned.summary) && pulled.length ? "" : planned.summary;
+  // The planner's sentences addressed to the designer are dropped: the studio did or will do that work.
+  const plannerNote = planned.summary
+    .split(/(?<=[.!?])\s+/)
+    .filter((x) => !/\b(designer|upload|must|needs? to|should|ensure|make sure)\b/i.test(x))
+    .join(" ")
+    .trim();
   const summary = [`Planned ${shape}.`, pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
   config.campaign = { text: text.slice(0, 6000), at: now(), added: added.length, summary, only: only || undefined };
   await saveConfig(c.env, b, config);
@@ -2784,6 +2789,17 @@ postRoutes.post("/campaign", async (c) => {
     const cfg = cfg0;
     try {
       const scenes = await writeStyleScenes(c.env, fresh, cfg, assign);
+      // A slide the writer missed is asked for once more on its own.
+      for (const a of assign)
+        if (!scenes.get(a.index)?.scene) {
+          try {
+            const again = await writeStyleScenes(c.env, fresh, cfg, [a]);
+            const s = again.get(a.index);
+            if (s?.scene) scenes.set(a.index, s);
+          } catch (e) {
+            console.error("[brief] scene retry", a.index, errorMessage(e));
+          }
+        }
       cfg.plan = (cfg.plan ?? []).map((p) => {
         const s = scenes.get(p.index);
         // The planner's brief is the designer's idea: only the shot comes from the style writer.
