@@ -89,21 +89,25 @@ export default function SharePage({ token }: { token: string }) {
   return (
     <div className="share-page">
       {allDone && (
-        <div className="share-thanks" role="status">
-          <Check size={18} />
-          <div>
-            <strong>Everything is approved. Thank you!</strong>
+        <div className="share-thanks text-finding ok" role="status">
+          <span className="text-finding-icon" aria-hidden>
+            <Check size={15} />
+          </span>
+          <span className="text-finding-text">
+            <b>Everything is approved. Thank you!</b>
             <span>The team schedules the posts now; you will see them on {data.client.name}'s page on their days.</span>
-          </div>
+          </span>
         </div>
       )}
       {!allDone && approved + changes > 0 && approved + changes === ready.length && (
-        <div className="share-thanks pending" role="status">
-          <MessageSquare size={18} />
-          <div>
-            <strong>Thank you! {changes} post{changes > 1 ? "s" : ""} will be changed.</strong>
+        <div className="share-thanks text-finding warn" role="status">
+          <span className="text-finding-icon" aria-hidden>
+            <MessageSquare size={15} />
+          </span>
+          <span className="text-finding-text">
+            <b>Thank you! {changes} post{changes > 1 ? "s" : ""} will be changed.</b>
             <span>The team makes the changes and sends you this link again.</span>
-          </div>
+          </span>
         </div>
       )}
       <header className="share-head">
@@ -203,8 +207,8 @@ function SharedCard({
   }
 
   return (
-    <article id={`post-${post.index}`} className={`share-card ${post.approval?.status ?? ""}`}>
-      <div className="share-media">
+    <article id={`post-${post.index}`} className={`design-card share-card ${post.approval?.status === "approved" ? "text-ok" : post.approval?.status === "changes" ? "text-warn" : ""}`}>
+      <div className="design-card-picture share-media">
         {src ? (
           post.overlay && spec.template !== "none" ? (
             <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} />
@@ -212,25 +216,52 @@ function SharedCard({
             <img src={src} alt="" loading="lazy" />
           )
         ) : (
-          <div className="share-pending">Being prepared</div>
+          <span className="design-card-empty">
+            <Orb size={28} status={null} /> Being prepared
+          </span>
         )}
-        <span className="share-index">{String(post.index).padStart(2, "0")}</span>
-        {post.group && (
-          <span className="share-group">
-            {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+        <span className="design-card-badges">
+          <span className="design-card-index">{String(post.index).padStart(2, "0")}</span>
+          {post.date && <span className="design-card-date">{shortDate(post.date)}</span>}
+          {post.group && (
+            <span className="design-card-type">
+              {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+            </span>
+          )}
+        </span>
+        {post.approval && (
+          <span className={`design-card-mark ${post.approval.status === "approved" ? "ok" : "warn"}`} title={post.approval.status === "approved" ? "Approved" : "A change was asked"}>
+            {post.approval.status === "approved" ? <Check size={14} /> : <MessageSquare size={14} />}
           </span>
         )}
       </div>
-      <div className="share-body">
-        {post.date && <span className="share-date">{shortDate(post.date)}</span>}
-        <p className="share-caption" dir="auto">
-          {post.caption}
-        </p>
-        <p className="share-tags" dir="auto">
-          {post.hashtags}
-        </p>
+      <div className="design-card-body">
+        {(post.headline || post.subline) && (
+          <div className="design-card-title">
+            <strong dir="auto">{post.headline || post.subline}</strong>
+            {post.headline && post.subline && (
+              <small dir="auto" className="design-card-subline">
+                {post.subline}
+              </small>
+            )}
+          </div>
+        )}
+        <div className="design-card-caption">
+          <span className="design-card-label">
+            <MessageSquare size={12} /> Caption
+          </span>
+          <p className="share-caption" dir="auto">
+            {post.caption}
+          </p>
+          <p className="share-tags" dir="auto">
+            {post.hashtags}
+          </p>
+        </div>
         {asking ? (
-          <div className="share-ask">
+          <div className="design-card-caption share-ask">
+            <span className="design-card-label">
+              <MessageSquare size={12} /> What would you like changed?
+            </span>
             <div className="share-reasons" aria-label="What to change">
               {reasons.map((r) => (
                 <button key={r} type="button" className={`share-reason ${note.includes(r) ? "on" : ""}`} onClick={() => toggleReason(r)}>
@@ -238,35 +269,52 @@ function SharedCard({
                 </button>
               ))}
             </div>
-            <textarea dir="auto" rows={3} value={note} placeholder="Tap a reason above, or write what you would like changed" onChange={(e) => setNote(e.target.value)} />
-            <div className="share-actions">
-              <button type="button" className="secondary" onClick={() => setAsking(false)} disabled={sending}>
-                Cancel
+            <textarea className="design-card-text" dir="auto" rows={3} value={note} placeholder="Tap a reason above, or write what you would like changed" onChange={(e) => setNote(e.target.value)} />
+            <div className="design-card-actions">
+              <button type="button" className="primary btn-pill" onClick={() => void answer("changes")} disabled={sending || !note.trim()}>
+                {sending ? <Orb size={13} /> : <MessageSquare size={13} />} Send
               </button>
-              <button type="button" className="primary" onClick={() => void answer("changes")} disabled={sending || !note.trim()}>
-                Send
+              <button type="button" className="secondary btn-pill" onClick={() => setAsking(false)} disabled={sending}>
+                Cancel
               </button>
             </div>
           </div>
         ) : (
-          <div className="share-actions">
+          <div className="design-card-actions">
             <button
               type="button"
-              className={post.approval?.status === "approved" ? "primary" : "secondary"}
+              className={`${post.approval?.status === "approved" ? "primary" : "secondary"} btn-pill`}
               onClick={() => void answer("approved")}
               disabled={sending || !src}
             >
-              <Check size={15} /> {post.approval?.status === "approved" ? "Approved" : "Approve"}
+              {sending ? <Orb size={13} /> : <Check size={13} />} {post.approval?.status === "approved" ? "Approved" : "Approve"}
             </button>
-            <button type="button" className={post.approval?.status === "changes" ? "primary warn" : "secondary"} onClick={() => setAsking(true)} disabled={sending || !src}>
-              <MessageSquare size={15} /> {post.approval?.status === "changes" ? "Change asked" : "Ask for a change"}
+            <button type="button" className={`${post.approval?.status === "changes" ? "primary warn" : "secondary"} btn-pill`} onClick={() => setAsking(true)} disabled={sending || !src}>
+              <MessageSquare size={13} /> {post.approval?.status === "changes" ? "Change asked" : "Ask for a change"}
             </button>
           </div>
         )}
         {post.approval?.status === "changes" && post.approval.note && !asking && (
-          <p className="share-note" dir="auto">
-            “{post.approval.note}”
-          </p>
+          <div className="text-finding warn">
+            <span className="text-finding-icon" aria-hidden>
+              <MessageSquare size={15} />
+            </span>
+            <span className="text-finding-text">
+              <b>You asked for a change</b>
+              <span dir="auto">“{post.approval.note}”</span>
+            </span>
+          </div>
+        )}
+        {post.approval?.status === "approved" && !asking && (
+          <div className="text-finding ok">
+            <span className="text-finding-icon" aria-hidden>
+              <Check size={15} />
+            </span>
+            <span className="text-finding-text">
+              <b>Approved</b>
+              <span>Thank you. This post goes out on its day.</span>
+            </span>
+          </div>
         )}
       </div>
     </article>

@@ -12681,3 +12681,193 @@ select {
   border-radius: 16px;
   overflow: hidden;
 }
+
+/* ───────────── The client's page: the same cards ───────────── */
+.share-page {
+  background: var(--canvas);
+}
+.share-head {
+  padding: 16px 18px;
+  border-radius: 22px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: var(--shadow-sm);
+}
+.share-head h1 {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.share-thanks {
+  max-width: 1200px;
+  margin: 0 auto 16px;
+  padding: 12px 14px;
+}
+.share-grid {
+  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  align-items: start;
+}
+.share-card .share-caption {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.share-card .share-tags {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 12.5px;
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.share-card .share-reasons {
+  margin: 0;
+}
+.share-card .share-reason {
+  background: var(--surface);
+  border-color: transparent;
+  box-shadow: var(--shadow-sm);
+}
+.share-card .share-reason.on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.share-card .design-card-actions .btn-pill {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.share-card .primary.warn {
+  background: var(--warning);
+  border-color: var(--warning);
+}
+.share-feed-grid {
+  gap: 8px;
+}
+.share-feed-cell {
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.share-feed-mark {
+  width: 24px;
+  height: 24px;
+  top: 8px;
+  right: 8px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+.share-feed-mark:not(.changes) {
+  background: var(--success);
+}
+
+/* ───────────── Liquid glass bars ───────────── */
+.glass-bar,
+.journey-foot,
+.journey-top,
+.topbar {
+  background: rgb(255 255 255 / 0.52);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  -webkit-backdrop-filter: blur(26px) saturate(190%);
+  backdrop-filter: blur(26px) saturate(190%);
+  box-shadow:
+    0 12px 34px -14px rgb(26 26 26 / 0.28),
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    inset 0 -1px 0 rgb(255 255 255 / 0.35),
+    inset 1px 0 0 rgb(255 255 255 / 0.45);
+}
+.journey-foot {
+  margin: 0 16px 12px;
+  padding: 12px 22px 14px;
+  border-radius: 28px;
+  position: relative;
+  z-index: 2;
+}
+.journey-top {
+  margin: 10px 16px 0;
+  padding: 10px 22px;
+  border-radius: 999px;
+}
+.topbar {
+  border-bottom: 0;
+  border-radius: 0 0 24px 24px;
+}
+/* The colour the glass refracts: a soft blurred haze behind the bars. */
+.journey::before {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -60px;
+  height: 260px;
+  pointer-events: none;
+  background:
+    radial-gradient(40% 60% at 15% 70%, rgb(255 63 164 / 0.55), transparent 70%),
+    radial-gradient(45% 60% at 50% 90%, rgb(10 125 255 / 0.6), transparent 70%),
+    radial-gradient(40% 60% at 85% 70%, rgb(255 106 42 / 0.5), transparent 70%);
+  filter: blur(40px);
+  opacity: 0.55;
+  z-index: 0;
+}
+.journey > * {
+  position: relative;
+  z-index: 1;
+}
+.journey-seg i {
+  height: 8px;
+  background: rgb(26 26 26 / 0.08);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.08);
+}
+.journey-seg i::after,
+.journey-seg.done i::after,
+.make-progress i,
+.setup-bar i {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.6), rgb(255 255 255 / 0.05) 55%, rgb(255 255 255 / 0) 100%),
+    #2038e2;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    inset 0 -1px 0 rgb(0 0 0 / 0.12);
+  animation: none;
+}
+.journey-seg.now i::after {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.65), rgb(255 255 255 / 0.05) 55%, rgb(255 255 255 / 0) 100%),
+    #007bff;
+  animation: j-grow 700ms var(--ease-out) both;
+}
+.journey-seg.now i {
+  box-shadow: 0 0 0 3px rgb(0 123 255 / 0.14), inset 0 1px 1px rgb(0 0 0 / 0.08);
+}
+.setup-bar,
+.make-progress {
+  background: rgb(26 26 26 / 0.08);
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.08);
+}
+:root[data-theme="dark"] .glass-bar,
+:root[data-theme="dark"] .journey-foot,
+:root[data-theme="dark"] .journey-top,
+:root[data-theme="dark"] .topbar {
+  background: rgb(28 28 30 / 0.55);
+  border-color: rgb(255 255 255 / 0.14);
+  box-shadow:
+    0 12px 34px -14px rgb(0 0 0 / 0.7),
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 -1px 0 rgb(255 255 255 / 0.05);
+}
+:root[data-theme="dark"] .journey-seg i,
+:root[data-theme="dark"] .setup-bar,
+:root[data-theme="dark"] .make-progress {
+  background: rgb(255 255 255 / 0.1);
+}
+@media (max-width: 760px) {
+  .journey-foot {
+    margin: 0 8px 8px;
+    border-radius: 22px;
+  }
+  .journey-top {
+    margin: 8px 8px 0;
+  }
+}
