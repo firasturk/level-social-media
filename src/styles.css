@@ -11792,3 +11792,293 @@ button.shot-product:hover {
 .post-change-row textarea { flex: 1; min-height: 40px; font-size: 12.5px; resize: vertical; }
 .post-change-row button { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 6px 10px; white-space: nowrap; }
 .post-idea-row { background: var(--info-soft); }
+
+/* ───────────── Text on design: one card per post, Apple-like ───────────── */
+.btn-pill {
+  border-radius: 999px;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.text-stats {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-right: 4px;
+}
+.text-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--ink-500);
+}
+.text-stat.warn {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.text-stat.ok {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.journey-boxes.idea-grid.results.design-cards {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 18px;
+  padding: 4px 6px 24px 2px;
+  overflow-y: auto;
+}
+.design-card {
+  display: flex;
+  flex-direction: column;
+  color: var(--ink-900);
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm), 0 10px 30px -18px rgb(25 27 29 / 0.25);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.design-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+.design-card.text-warn {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--line));
+}
+.design-card.text-ok {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--line));
+}
+.design-card-picture {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  background: var(--surface-2);
+}
+.design-card-picture img,
+.design-card-picture canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.design-card-picture > :first-child {
+  width: 100%;
+  height: 100%;
+}
+.design-card-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--ink-400);
+  font-size: 12.5px;
+}
+.design-card-badges {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.design-card-index,
+.design-card-date,
+.design-card-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgb(20 20 22 / 0.55);
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+.design-card-date {
+  font-weight: 600;
+  background: rgb(139 92 246 / 0.75);
+}
+.design-card-mark {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  padding: 0;
+}
+.design-card-mark.ok {
+  background: rgb(46 139 87 / 0.9);
+}
+.design-card-mark.warn {
+  background: rgb(247 92 3 / 0.9);
+}
+.design-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 16px;
+}
+.design-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.design-card-title strong {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.design-card-subline {
+  color: var(--ink-500);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.text-finding {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  --tone: var(--ink-400);
+  --tone-soft: var(--surface-3);
+}
+.text-finding.warn {
+  background: var(--warning-soft);
+  --tone: var(--warning);
+  --tone-soft: #ffd9c2;
+}
+.text-finding.ok {
+  background: var(--success-soft);
+  --tone: var(--success);
+  --tone-soft: #cde9d8;
+}
+.text-finding.busy {
+  background: color-mix(in srgb, #3b82f6 10%, var(--surface));
+  --tone: #3b82f6;
+  --tone-soft: #d6e4ff;
+}
+.text-finding-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tone-soft);
+  color: var(--tone);
+}
+.text-finding-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-700);
+}
+.text-finding-text b {
+  color: var(--tone);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+.text-finding.none .text-finding-text b,
+.text-finding.empty .text-finding-text b {
+  color: var(--ink-500);
+}
+.design-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.design-card-actions .btn-pill {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.design-card-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+.design-card-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.design-card-label small {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 11.5px;
+  color: var(--ink-400);
+}
+.design-card-label small.warn {
+  color: var(--danger);
+}
+.design-card-text,
+.design-card-tags {
+  width: 100%;
+  resize: none;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-900);
+  field-sizing: content;
+  overflow: hidden;
+}
+.design-card-tags {
+  font-size: 12.5px;
+  color: var(--ink-500);
+}
+.design-card-text:focus,
+.design-card-tags:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+:root[data-theme="dark"] .design-card {
+  box-shadow: 0 10px 30px -18px rgb(0 0 0 / 0.6);
+}
+:root[data-theme="dark"] .text-finding.warn {
+  --tone-soft: rgb(247 92 3 / 0.22);
+  background: rgb(247 92 3 / 0.12);
+}
+:root[data-theme="dark"] .text-finding.ok {
+  --tone-soft: rgb(46 139 87 / 0.25);
+  background: rgb(46 139 87 / 0.12);
+}
+:root[data-theme="dark"] .text-finding.busy {
+  --tone-soft: rgb(59 130 246 / 0.25);
+}
+@media (max-width: 760px) {
+  .journey-boxes.idea-grid.results.design-cards {
+    grid-template-columns: 1fr !important;
+    grid-auto-rows: max-content !important;
+  }
+}

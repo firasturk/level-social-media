@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, Check, Download, LoaderCircle, Maximize2, RotateCcw, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { ArrowUpRight, Check, Download, Eye, ImageOff, LoaderCircle, Maximize2, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
@@ -284,10 +284,11 @@ export function CaptionsStep({
   checking: number[];
   onCheck: (indexes?: number[]) => void;
 }) {
-  const grid = gridOf(plan.length);
   const busy = writing.length > 0 || checking.length > 0;
   const made = plan.filter((p) => posts.find((x) => x.index === p.index)?.url);
-  const bad = made.filter((p) => p.textCheck && !p.textCheck.ok);
+  const checked = made.filter((p) => p.textCheck && p.textCheck.for === posts.find((x) => x.index === p.index)?.output);
+  const bad = checked.filter((p) => !p.textCheck!.ok);
+  const good = checked.length - bad.length;
   return (
     <>
       <Head
@@ -295,10 +296,23 @@ export function CaptionsStep({
         title="Text on design"
         action={
           <span className="journey-head-actions">
-            <button type="button" className="secondary journey-head-action" disabled={busy || !made.length} onClick={() => onCheck(made.map((p) => p.index))} title="Look at every post with its words drawn on, and move or recolour the words where they do not read">
+            <span className="text-stats" aria-label="Text check summary">
+              {bad.length > 0 && (
+                <span className="text-stat warn">
+                  <TriangleAlert size={13} /> {bad.length} to look at
+                </span>
+              )}
+              {good > 0 && (
+                <span className="text-stat ok">
+                  <Check size={13} /> {good} clear
+                </span>
+              )}
+              {made.length - checked.length > 0 && <span className="text-stat none">{made.length - checked.length} not checked</span>}
+            </span>
+            <button type="button" className="primary btn-pill journey-head-action" disabled={busy || !made.length} onClick={() => onCheck(made.map((p) => p.index))} title="Look at every post with its words drawn on, and move or recolour the words where they do not read">
               {checking.length ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} Check the text again
             </button>
-            <button type="button" className="text-button journey-head-action" disabled={busy} onClick={() => onWrite(plan.map((p) => p.index), true)}>
+            <button type="button" className="secondary btn-pill journey-head-action" disabled={busy} onClick={() => onWrite(plan.map((p) => p.index), true)}>
               <Wand2 size={14} /> Rewrite the captions
             </button>
           </span>
@@ -312,7 +326,7 @@ export function CaptionsStep({
               ? `${bad.length} post${bad.length > 1 ? "s" : ""} had words on the product or hard to read: the text was moved or recoloured. Open the feed to see them.`
               : "Every post is checked with its words drawn on; the caption under each is at most ten words. Edit anything."}
       </Head>
-      <div className={`journey-boxes idea-grid results ${grid.rows > 2 ? "scrolls" : ""}`} style={grid.style}>
+      <div className="journey-boxes idea-grid results scrolls design-cards">
         {plan.map((p, i) => (
           <CaptionCard
             key={`${p.index}:${p.captionFrom ?? ""}:${p.caption.length}:${p.textCheck?.at ?? 0}`}
@@ -372,65 +386,93 @@ function CaptionCard({
   const current = captionCurrent(post, job);
   const words = wordCount(caption);
   const check = post.textCheck && job?.output && post.textCheck.for === job.output ? post.textCheck : null;
+  const state = checking ? "busy" : check ? (check.ok ? "ok" : "warn") : job?.url ? "none" : "empty";
+  const note = checking
+    ? "Looking at the post as it will be published: are the words readable, off the product, in the right place…"
+    : check
+      ? check.note
+      : job?.url
+        ? "Not checked yet. Check the text to see whether the words read well and sit off the product."
+        : "No picture yet: make the post first.";
   return (
-    <article className={`journey-box idea-card caption-card ${check ? (check.ok ? "text-ok" : "text-warn") : ""}`} style={{ "--i": order } as React.CSSProperties}>
-      <div className="caption-top">
-        <span className="caption-thumb big">
-          {job?.url ? (
-            post.overlay !== false && (post.headline || logoSrc) ? (
-              <OverlayPreview src={job.url} spec={overlay} text={{ headline: post.headline, subline: post.subline }} logoSrc={logoSrc} patch={post.ov} faces={job.faces} width={360} alt={post.title} />
-            ) : (
-              <img src={job.url} alt="" />
-            )
-          ) : null}
-          {checking && (
-            <span className="caption-checking">
-              <LoaderCircle className="spinning" size={16} /> Checking the text
-            </span>
-          )}
+    <article className={`design-card ${check ? (check.ok ? "text-ok" : "text-warn") : ""}`} style={{ "--i": order } as React.CSSProperties}>
+      <div className="design-card-picture">
+        {job?.url ? (
+          post.overlay !== false && (post.headline || logoSrc) ? (
+            <OverlayPreview src={job.url} spec={overlay} text={{ headline: post.headline, subline: post.subline }} logoSrc={logoSrc} patch={post.ov} faces={job.faces} width={560} alt={post.title} />
+          ) : (
+            <img src={job.url} alt="" />
+          )
+        ) : (
+          <span className="design-card-empty">
+            <ImageOff size={22} /> No picture yet
+          </span>
+        )}
+        <span className="design-card-badges">
+          <span className="design-card-index">{String(post.index).padStart(2, "0")}</span>
+          {post.date && <span className="design-card-date">{shortDate(post.date)}</span>}
         </span>
-        <div className="caption-what">
-          <div className="idea-meta">
-            <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
-            {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
-          </div>
-          {post.headline && (
-            <strong className="caption-headline" dir="auto">
-              {post.headline}
-            </strong>
+        {check && !checking && (
+          <span className={`design-card-mark ${check.ok ? "ok" : "warn"}`} title={check.ok ? "The text reads well" : "The text needs a look"}>
+            {check.ok ? <Check size={14} /> : <TriangleAlert size={14} />}
+          </span>
+        )}
+        {checking && (
+          <span className="caption-checking">
+            <LoaderCircle className="spinning" size={18} /> Checking the text
+          </span>
+        )}
+      </div>
+      <div className="design-card-body">
+        <div className="design-card-title">
+          <strong dir="auto">{post.headline || post.title}</strong>
+          {post.headline && post.subline && (
+            <small dir="auto" className="design-card-subline">
+              {post.subline}
+            </small>
           )}
-          <p className={`caption-check ${check ? (check.ok ? "ok" : "warn") : "none"}`}>
-            {check ? (check.ok ? <Check size={13} /> : <TriangleAlert size={13} />) : null}
-            <span>{checking ? "Looking at the post as it will be published…" : check ? check.note : job?.url ? "Text not checked yet." : "No picture yet."}</span>
-          </p>
-          <button type="button" className="text-button" disabled={checking || !job?.url} onClick={onCheck} title="Look at this post with its words drawn on; move or recolour them if they do not read">
-            <Check size={13} /> Check the text
+        </div>
+        <div className={`text-finding ${state}`}>
+          <span className="text-finding-icon" aria-hidden>
+            {state === "busy" ? <LoaderCircle className="spinning" size={15} /> : state === "ok" ? <Check size={15} /> : state === "warn" ? <TriangleAlert size={15} /> : state === "none" ? <Eye size={15} /> : <ImageOff size={15} />}
+          </span>
+          <span className="text-finding-text">
+            <b>{state === "busy" ? "Checking" : state === "ok" ? "Reads well" : state === "warn" ? "Needs a look" : state === "none" ? "Not checked" : "No picture"}</b>
+            <span>{note}</span>
+          </span>
+        </div>
+        <div className="design-card-actions">
+          <button type="button" className="secondary btn-pill" disabled={checking || !job?.url} onClick={onCheck} title="Look at this post with its words drawn on; move or recolour them if they do not read">
+            {checking ? <LoaderCircle className="spinning" size={13} /> : <ScanSearch size={13} />} {check ? "Check again" : "Check the text"}
+          </button>
+          <button type="button" className="secondary btn-pill" disabled={writing || !job?.url} onClick={onWrite} title="Look at the picture again and write a new caption">
+            {writing ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Caption from the picture
           </button>
         </div>
-      </div>
-      {writing ? (
-        <div className="analysis-skeleton caption-skeleton">
-          <i />
-          <i />
-          <i />
+        <div className="design-card-caption">
+          <span className="design-card-label">
+            <KitIcon kit="voice" size={12} /> Caption
+            <small className={failed || words > 10 ? "warn" : ""}>
+              {writing
+                ? "writing from the picture…"
+                : failed
+                  ? "could not be written, try again"
+                  : `${words} of 10 words${words > 10 ? " · too long" : ""}${post.captionHand ? " · your words" : current && post.captionFrom ? " · from the picture" : job?.url ? " · the idea's draft" : ""}`}
+            </small>
+          </span>
+          {writing ? (
+            <div className="analysis-skeleton caption-skeleton">
+              <i />
+              <i />
+              <i />
+            </div>
+          ) : (
+            <>
+              <textarea className="design-card-text" dir="auto" rows={Math.max(2, Math.ceil(caption.length / 42))} value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} aria-label="Caption" placeholder="The caption under the post…" />
+              <textarea className="design-card-tags" dir="auto" rows={Math.max(1, Math.ceil(hashtags.length / 46))} value={hashtags} onChange={(e) => setHashtags(e.target.value)} onBlur={save} aria-label="Hashtags" placeholder="#hashtags" />
+            </>
+          )}
         </div>
-      ) : (
-        <>
-          <textarea className="idea-caption" dir="auto" value={caption} onChange={(e) => setCaption(e.target.value)} onBlur={save} aria-label="Caption" />
-          <input className="caption-tags" dir="auto" value={hashtags} onChange={(e) => setHashtags(e.target.value)} onBlur={save} aria-label="Hashtags" />
-        </>
-      )}
-      <div className="caption-foot">
-        <small className={failed ? "caption-note warn" : words > 10 ? "caption-note warn" : "caption-note"}>
-          {writing
-            ? "Writing from the picture…"
-            : failed
-              ? "Could not be written. Try again."
-              : `${words} of 10 words${words > 10 ? ": too long, shorten it" : ""}${post.captionHand ? " · your words" : current && post.captionFrom ? " · from the picture" : job?.url ? " · the idea's draft" : ""}`}
-        </small>
-        <button type="button" className="text-button" disabled={writing || !job?.url} onClick={onWrite} title="Look at the picture again and write a new caption">
-          <Wand2 size={13} /> From the picture
-        </button>
       </div>
     </article>
   );
