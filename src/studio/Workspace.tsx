@@ -37,7 +37,7 @@ import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
-import { Compass, PanelLeft } from "lucide-react";
+import { Compass, FolderOpen, PanelLeft } from "lucide-react";
 import { useBatch } from "./useBatch";
 import { ACCEPTED_TYPES, MAX_UPLOAD_BYTES } from "./constants";
 import type { EngineInfo } from "./ConnectionDialog";
@@ -1290,22 +1290,47 @@ export default function Workspace({
           </div>
         ) : (
           <>
-            {hero && (
-              <div className="hero-banner" aria-hidden="true">
-                <video src={`/api/studio/hero?v=${hero}`} autoPlay muted loop playsInline preload="metadata" />
-                <div className="hero-veil" />
-              </div>
-            )}
-            <div className="workspace-head">
-              <div>
-                <div className="eyebrow">Client</div>
-                <h1>{client.name}</h1>
-                <p>Brand kit and theme on the left; the month's products and posts on the right.</p>
-              </div>
-              <button type="button" className="secondary" onClick={() => setJourney(true)}>
-                <Compass size={15} /> Start journey
-              </button>
-            </div>
+            {(() => {
+              /** "Start new journey" begins at the first screen; "Open the journey" resumes where it was left. */
+              const startNew = () => {
+                try {
+                  localStorage.setItem("lsm-journey-step", JSON.stringify({ client: clientId, month, step: 0 }));
+                } catch {
+                  /* private mode */
+                }
+                setJourney(true);
+              };
+              const actions = (
+                <div className="hero-actions">
+                  <button type="button" className="secondary" onClick={startNew}>
+                    <Compass size={15} /> Start new journey
+                  </button>
+                  <button type="button" className="primary" onClick={() => setJourney(true)} title="Open the journey where it was left, to go through its screens and change things">
+                    <FolderOpen size={15} /> Open the journey
+                  </button>
+                </div>
+              );
+              const text = (
+                <div className="hero-text">
+                  <div className="eyebrow">Client</div>
+                  <h1>{client.name}</h1>
+                  <p>Brand kit and theme on the left; the month's products and posts on the right.</p>
+                </div>
+              );
+              return hero ? (
+                <div className="hero-banner">
+                  <video src={`/api/studio/hero?v=${hero}`} autoPlay muted loop playsInline preload="metadata" aria-hidden="true" />
+                  <div className="hero-veil" />
+                  {text}
+                  {actions}
+                </div>
+              ) : (
+                <div className="workspace-head">
+                  {text}
+                  {actions}
+                </div>
+              );
+            })()}
             <SetupChecklist
               client={client}
               ambassadors={ambassadors}

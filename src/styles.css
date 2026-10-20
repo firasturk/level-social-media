@@ -11761,3 +11761,18 @@ button.shot-product:hover {
 .brief-kept-thumbs img { width: 44px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); }
 .brief-kept-text { display: grid; gap: 2px; min-width: 0; font-size: 12.5px; }
 .brief-kept-text small { color: var(--ink-500); }
+
+/* The hero banner carries the client's name and the journey buttons; without a video they sit in the head. */
+.hero-banner .hero-text { position: absolute; left: 28px; right: 28px; bottom: 22px; z-index: 1; color: #fff; }
+.hero-banner .hero-text .eyebrow { color: rgb(255 255 255 / 0.75); margin-bottom: 6px; }
+.hero-banner .hero-text h1 { color: #fff; margin: 0; text-shadow: 0 2px 18px rgb(0 0 0 / 0.45); }
+.hero-banner .hero-text p { color: rgb(255 255 255 / 0.82); margin-top: 6px; font-size: 14px; text-shadow: 0 1px 12px rgb(0 0 0 / 0.45); }
+.hero-banner .hero-actions { position: absolute; top: 18px; right: 18px; z-index: 1; }
+.hero-banner .hero-veil { background: linear-gradient(180deg, rgb(16 16 24 / 0.15) 0%, transparent 35%, rgb(16 16 24 / 0.7) 100%); }
+.hero-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.hero-actions button { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 900px) {
+  .hero-banner .hero-text { left: 16px; right: 16px; bottom: 14px; }
+  .hero-banner .hero-text p { display: none; }
+  .hero-banner .hero-actions { top: 12px; right: 12px; }
+}
