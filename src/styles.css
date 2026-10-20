@@ -12398,3 +12398,84 @@ select {
   flex-wrap: wrap;
   row-gap: 6px;
 }
+
+/* ───────────── Your posts: the same cards as Text on design ───────────── */
+.design-card-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  position: relative;
+}
+.design-card-open img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  transition: opacity var(--dur-slow), filter var(--dur-slow);
+}
+.design-card-open .make-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  color: #fff;
+  opacity: 0;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.5));
+  transition: opacity var(--dur-fast);
+}
+.design-card-open:hover .make-zoom {
+  opacity: 1;
+}
+.design-card.busy .design-card-open img {
+  opacity: 0.35;
+  filter: blur(3px);
+}
+.design-card-wait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.design-card-type {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgb(20 20 22 / 0.5);
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+.design-card-mark.failed {
+  background: rgb(209 43 43 / 0.92);
+}
+.design-card.text-failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+.text-finding-list {
+  margin: 2px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.text-finding.warn .text-finding-list {
+  color: var(--warning-text);
+}
+.design-card-change .btn-pill {
+  align-self: flex-end;
+}
+.make-card2 .design-card-empty {
+  gap: 8px;
+}

@@ -36,20 +36,6 @@ export function captionCurrent(p: Post, j: JourneyPost | undefined): boolean {
 }
 
 /** Every post on one screen: up to six across, the rows share the height. */
-function gridOf(count: number) {
-  const n = Math.max(1, count);
-  const cols = n <= 4 ? n : n <= 8 ? Math.ceil(n / 2) : 6;
-  const rows = Math.ceil(n / cols);
-  return {
-    rows,
-    style: {
-      gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-      gridTemplateRows: rows <= 2 ? `repeat(${rows}, minmax(0, 1fr))` : undefined,
-      gridAutoRows: rows > 2 ? "minmax(300px, 1fr)" : undefined,
-    },
-  };
-}
-
 function Head({ kit, title, children, action }: { kit: "output" | "voice"; title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="journey-head">
@@ -120,7 +106,6 @@ export function MakeStep({
   const waiting = posts.filter((x) => x.status === "queued").length;
   const failed = posts.filter((x) => x.status === "failed").length;
   const eta = useEta(done, making);
-  const grid = gridOf(plan.length);
   const act = async (index: number, run: () => Promise<void>) => {
     setActing(index);
     try {
@@ -149,104 +134,141 @@ export function MakeStep({
           {eta ? ` · about ${eta} min left` : ""}
         </p>
       )}
-      <div className={`journey-boxes idea-grid results ${grid.rows > 2 ? "scrolls" : ""}`} style={grid.style}>
+      <div className="journey-boxes idea-grid results scrolls design-cards">
         {plan.map((p, i) => {
           const j = posts.find((x) => x.index === p.index);
           const busy = !!j && MAKING.includes(j.status);
           const flags = j?.flags ?? [];
+          const reviewed = !!j?.url && !busy && !!j.flags;
+          const failed = j?.status === "failed" && !busy;
+          const state = busy ? "busy" : failed ? "warn" : reviewed ? (flags.length ? "warn" : "ok") : j?.url ? "none" : "empty";
+          const heading = busy ? (j?.status === "queued" ? "Waiting its turn" : "Making it") : failed ? "Failed" : reviewed ? (flags.length ? "The review found something" : "Review passed") : j?.url ? "Not reviewed yet" : "Not made yet";
+          const words = busy
+            ? "The engine is painting this post; it is checked against its product photo as soon as it arrives."
+            : failed
+              ? (j?.error ?? "Try again.").replace(/\.$/, "") + "."
+              : reviewed
+                ? flags.length
+                  ? null
+                  : "The product, the people and the words are as the brief asks."
+                : j?.url
+                  ? "The picture is here; its review is on the way."
+                  : "Make it to see it here.";
           return (
-            <article key={p.index} className={`journey-box make-card ${j?.url && !busy && j.flags ? (flags.length ? "qa-warn" : "qa-ok") : ""}`} style={{ "--i": i } as React.CSSProperties} title={flags.length ? flags.map((f) => f.text).join("\n") : undefined}>
-              <div className="idea-meta">
-                <span className="idea-index">{String(p.index).padStart(2, "0")}</span>
-                {p.date && <span className="journey-tag">{shortDate(p.date)}</span>}
-                <span className="make-type">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                {j?.url && !busy && j.flags && flags.length > 0 && (
-                  <span className="make-state warn" title={flags.map((f) => f.text).join("\n")}>
-                    <TriangleAlert size={12} />
-                  </span>
-                )}
-              </div>
-              <div className="make-image" style={{ aspectRatio: format.replace(":", " / ") }}>
-                {j?.url && (
-                  <button type="button" className={`make-open ${busy ? "fading" : ""}`} onClick={() => setOpen(p.index)} title="Open large" aria-label={`Open post ${p.index}`}>
+            <article key={p.index} className={`design-card make-card2 ${reviewed ? (flags.length ? "text-warn" : "text-ok") : ""} ${failed ? "text-failed" : ""} ${busy ? "busy" : ""}`} style={{ "--i": i } as React.CSSProperties}>
+              <div className="design-card-picture" style={{ aspectRatio: format.replace(":", " / ") }}>
+                {j?.url ? (
+                  <button type="button" className="design-card-open" onClick={() => setOpen(p.index)} title="Open large" aria-label={`Open post ${p.index}`}>
                     {overlay && p.overlay !== false && (p.headline || logoSrc) ? (
-                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc ?? null} patch={p.ov} faces={j.faces} width={520} alt={p.title} />
+                      <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc ?? null} patch={p.ov} faces={j.faces} width={560} alt={p.title} />
                     ) : (
                       <img src={j.url} alt={p.title} />
                     )}
                     <Maximize2 size={14} className="make-zoom" />
                   </button>
+                ) : !busy ? (
+                  <span className="design-card-empty">
+                    {failed ? <TriangleAlert size={22} /> : <ImageOff size={22} />} {failed ? "Could not be made" : "Not made yet"}
+                  </span>
+                ) : null}
+                <span className="design-card-badges">
+                  <span className="design-card-index">{String(p.index).padStart(2, "0")}</span>
+                  {p.date && <span className="design-card-date">{shortDate(p.date)}</span>}
+                  <span className="design-card-type">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
+                </span>
+                {(reviewed || failed) && (
+                  <span className={`design-card-mark ${failed ? "failed" : flags.length ? "warn" : "ok"}`} title={failed ? "Failed" : flags.length ? "The review found something" : "Review passed"}>
+                    {failed ? <X size={14} /> : flags.length ? <TriangleAlert size={14} /> : <Check size={14} />}
+                  </span>
                 )}
-                {busy ? (
-                  <span className="make-wait">
+                {busy && (
+                  <span className="design-card-wait">
                     <Orb variant="generate" size={76} stacked status={j?.status === "queued" ? "Waiting its turn…" : undefined} />
                   </span>
-                ) : j?.status === "failed" ? (
-                  <span className="make-wait failed">Failed: {(j.error ?? "try again").replace(/\.$/, "")}</span>
-                ) : !j?.url ? (
-                  <span className="make-wait">Not made yet</span>
-                ) : null}
-              </div>
-              <strong className="idea-title" title={p.title}>
-                {p.title}
-              </strong>
-              {flags.length > 0 && !busy && (
-                <ul className="make-flags">
-                  {flags.map((f, n) => (
-                    <li key={n}>{f.text}</li>
-                  ))}
-                </ul>
-              )}
-              <div className="make-actions">
-                {flags.length > 0 && !busy && j?.taskId && (
-                  <>
-                    <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))}>
-                      {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make again
-                    </button>
-                    {onAccept && (
-                      <button type="button" className="text-button" disabled={acting !== null} title="Keep this picture as it is and go on" onClick={() => void act(p.index, () => onAccept(p.index))}>
-                        <Check size={13} /> Proceed anyway
-                      </button>
-                    )}
-                  </>
-                )}
-                {(j?.status === "failed" || !j?.url) && !busy && (
-                  <>
-                    <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onRetake(p.index))}>
-                      {acting === p.index ? <Orb size={13} /> : <RotateCcw size={13} />} Make it
-                    </button>
-                    {j?.status === "failed" && onRemove && (
-                      <button type="button" className="text-button" disabled={acting !== null} title="Leave this post out and go on with the rest of the month" onClick={() => void act(p.index, () => onRemove(p.index))}>
-                        <X size={13} /> Leave it out
-                      </button>
-                    )}
-                  </>
                 )}
               </div>
-              {j?.url && !busy && (
-                <div className="make-change">
-                  <textarea
-                    rows={2}
-                    value={changes[p.index] ?? ""}
-                    placeholder="Write what to change…"
-                    onChange={(e) => setChanges((c) => ({ ...c, [p.index]: e.target.value }))}
-                    disabled={acting !== null}
-                  />
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={acting !== null || !changes[p.index]?.trim()}
-                    title="Make the picture again with this change"
-                    onClick={() => {
-                      const note = (changes[p.index] ?? "").trim();
-                      if (!note) return;
-                      void act(p.index, () => onFix(p.index, note)).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
-                    }}
-                  >
-                    {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Change it
-                  </button>
+              <div className="design-card-body">
+                <div className="design-card-title">
+                  <strong title={p.title}>{p.title}</strong>
+                  {p.headline && (
+                    <small dir="auto" className="design-card-subline">
+                      {p.headline}
+                    </small>
+                  )}
                 </div>
-              )}
+                <div className={`text-finding ${state}`}>
+                  <span className="text-finding-icon" aria-hidden>
+                    {state === "busy" ? <Orb size={15} status={null} /> : state === "ok" ? <Check size={15} /> : state === "warn" ? <TriangleAlert size={15} /> : state === "none" ? <Eye size={15} /> : <ImageOff size={15} />}
+                  </span>
+                  <span className="text-finding-text">
+                    <b>{heading}</b>
+                    {words ? (
+                      <span>{words}</span>
+                    ) : (
+                      <ul className="text-finding-list">
+                        {flags.map((f, n) => (
+                          <li key={n}>{f.text}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </span>
+                </div>
+                {!busy && (flags.length > 0 || failed || !j?.url) && (
+                  <div className="design-card-actions">
+                    {flags.length > 0 && j?.taskId ? (
+                      <>
+                        <button type="button" className="primary btn-pill" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))} title="Make the picture again with the review's findings fixed">
+                          {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make again
+                        </button>
+                        {onAccept && (
+                          <button type="button" className="secondary btn-pill" disabled={acting !== null} title="Keep this picture as it is and go on" onClick={() => void act(p.index, () => onAccept(p.index))}>
+                            <Check size={13} /> Proceed anyway
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="primary btn-pill" disabled={acting !== null} onClick={() => void act(p.index, () => onRetake(p.index))}>
+                          {acting === p.index ? <Orb size={13} /> : <RotateCcw size={13} />} Make it
+                        </button>
+                        {failed && onRemove && (
+                          <button type="button" className="secondary btn-pill" disabled={acting !== null} title="Leave this post out and go on with the rest of the month" onClick={() => void act(p.index, () => onRemove(p.index))}>
+                            <X size={13} /> Leave it out
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+                {j?.url && !busy && (
+                  <div className="design-card-caption design-card-change">
+                    <span className="design-card-label">
+                      <Wand2 size={12} /> Change the picture
+                    </span>
+                    <textarea
+                      className="design-card-text"
+                      rows={Math.max(2, Math.ceil((changes[p.index] ?? "").length / 42))}
+                      value={changes[p.index] ?? ""}
+                      placeholder="Write what to change…"
+                      onChange={(e) => setChanges((c) => ({ ...c, [p.index]: e.target.value }))}
+                      disabled={acting !== null}
+                    />
+                    <button
+                      type="button"
+                      className="secondary btn-pill"
+                      disabled={acting !== null || !changes[p.index]?.trim()}
+                      title="Make the picture again with this change"
+                      onClick={() => {
+                        const note = (changes[p.index] ?? "").trim();
+                        if (!note) return;
+                        void act(p.index, () => onFix(p.index, note)).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
+                      }}
+                    >
+                      {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Change it
+                    </button>
+                  </div>
+                )}
+              </div>
             </article>
           );
         })}
