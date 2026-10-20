@@ -703,16 +703,20 @@ export default function Journey(p: JourneyProps) {
           break;
         }
         const rewrite = { label: "Write the ideas again", run: () => void p.onGenerateIdeas() };
+        // A month with pictures is never rewritten by itself: its ideas being older than a screen's
+        // reading is worth a word, not a block, so Next never throws the pictures away. Only a month
+        // with nothing made yet is fixed on its own.
+        const made = p.posts.some((x) => !!x.url);
         // A month made from a brief is the brief's posts: no reading, grid or count makes them stale.
         // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
         if (briefMonth(p.config)) {
           /* the brief's posts stand as written */
         } else if ((p.config?.gridAt ?? 0) > plannedAt)
-          out.push({ text: "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite });
+          out.push({ text: made ? "The month's grid changed after these ideas were written; the posts stay as they are unless you write the ideas again." : "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
-          out.push({ text: "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite });
+          out.push({ text: made ? "A screen was read again after these ideas were written; the posts stay as they are unless you write the ideas again." : "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (p.plan.length !== p.postCount)
-          out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite });
+          out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite, warn: made });
         const missing = pickedOccasions(p.month, p.config?.occasions).filter(
           (o) => !p.plan.some((x) => x.type === "greeting" && x.occasion === o.id),
         );
@@ -752,7 +756,7 @@ export default function Journey(p: JourneyProps) {
         }
         const needsScene = !!theme?.shots.length || gridMonth;
         if (needsScene && (p.plan.some((x) => !x.scene) || p.config?.shotsFor !== shotsSig))
-          out.push({ text: "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) } });
+          out.push({ text: p.posts.some((x) => !!x.url) ? "The shots were written before the current posts; the pictures stay as they are unless you write the shots again." : "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) }, warn: p.posts.some((x) => !!x.url) });
         else
           for (const x of p.plan)
             for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene, hasPlaces: !!client?.places?.length || !!client?.drivePlaces }))
@@ -920,7 +924,8 @@ export default function Journey(p: JourneyProps) {
     }
     if (blocking.length) {
       // Next fixes what it can by itself once, then tries again; only what needs a person stays.
-      if (!autoTried && blocking.every((i) => i.fix)) {
+      const rewritesIdeas = (i: Issue) => i.fix?.label === "Write the ideas again" || i.fix?.label === "Write the shots";
+      if (!autoTried && blocking.every((i) => i.fix) && !(p.posts.some((x) => !!x.url) && blocking.some(rewritesIdeas))) {
         setAutoTried(true);
         toast(`Fixing ${blocking.length === 1 ? "1 thing" : `${blocking.length} things`} for you…`);
         await fixAll(blocking);
