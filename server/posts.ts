@@ -17,6 +17,7 @@ import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo 
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
+import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
@@ -2824,6 +2825,34 @@ postRoutes.post("/campaign", async (c) => {
   const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 4);
   const user = c.get("user");
   const b = await ownedPlan(c.env, user, batchId);
+  // The references: the attached pictures, and the slides of any Instagram post linked in the brief.
+  const refs: { name: string; bytes: ArrayBuffer; mime: string }[] = [];
+  for (const file of files) {
+    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) continue;
+    refs.push({ name: file.name, bytes: await file.arrayBuffer(), mime: file.type });
+  }
+  const links = [...new Set((text.match(/https?:\/\/(?:www\.)?instagram\.com\/[^\s)]+/gi) ?? []))].slice(0, 2);
+  const linkNotes: string[] = [];
+  for (const link of links) {
+    const post = await instagramPostSlides(c.env, link);
+    let n = 0;
+    for (const slide of post.slides.slice(0, 6)) {
+      if (refs.length >= 8) break;
+      try {
+        const r = await fetch(slide.url, { signal: AbortSignal.timeout(20_000) });
+        if (!r.ok) continue;
+        const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0];
+        if (!mime.startsWith("image/")) continue;
+        refs.push({ name: `@${post.username} slide ${++n}.jpg`, bytes: await r.arrayBuffer(), mime });
+      } catch (e) {
+        console.error("[brief] instagram slide", errorMessage(e));
+      }
+    }
+    if (!n) throw new StudioError(`The pictures of ${link} could not be fetched. Attach the slides as pictures instead.`, 502);
+    linkNotes.push(`${link} → @${post.username}, ${n} slide${n === 1 ? "" : "s"}${post.partial ? ` (${post.partial})` : ""}`);
+  }
+  // The planner reads the slides themselves: the link in the text becomes a plain mention of them.
+  const briefText = links.reduce((t, link, i) => t.split(link).join(`(the attached Instagram carousel ${i + 1}: its slides are the reference pictures)`), text);
   const config = JSON.parse(b.config) as Config;
   const client = await clientRow(c.env, config.client);
   const sources = await all<SourceRow>(
@@ -2842,10 +2871,9 @@ postRoutes.post("/campaign", async (c) => {
   // The references: read into private styles of this client (never listed in the gallery).
   const styleIds: string[] = [];
   const images: ImageBytes[] = [];
-  for (const file of files) {
-    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) continue;
+  for (const file of refs) {
     const id = uuid();
-    const stored = await storeBytes(c.env, id, await file.arrayBuffer(), file.type);
+    const stored = await storeBytes(c.env, id, file.bytes, file.mime);
     images.push({ bytes: stored.bytes, mime: stored.mime });
     let prompt = "Follow the attached reference closely: its composition, light, scale, surfaces and mood, with this brand's product in place of its product.";
     let title = "Brief reference";
@@ -2897,7 +2925,7 @@ postRoutes.post("/campaign", async (c) => {
       c.env,
       briefPlanInstruction({
         client: client.name,
-        brief: text,
+        brief: briefText,
         month: config.month ?? "",
         products: [
           ...sources.map((s) => ({ name: productName(s), note: s.note ?? "" })),
@@ -2986,7 +3014,7 @@ postRoutes.post("/campaign", async (c) => {
     .filter((x) => !/\b(designer|upload|must|needs? to|should|ensure|make sure)\b/i.test(x))
     .join(" ")
     .trim();
-  const summary = [`Planned ${shape}.`, pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
+  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
   config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are

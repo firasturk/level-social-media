@@ -253,3 +253,53 @@ metaRoutes.get("/instagram/:username", async (c) => {
     throw new StudioError(`Instagram could not be read: ${errorMessage(e)}`, 502);
   }
 });
+
+
+/** An Instagram post link (a post, a reel or a carousel): its shortcode, or null. */
+export function instagramShortcode(link: string): string | null {
+  const m = link.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(?:p|reel|reels)\/([A-Za-z0-9_-]{5,})/i);
+  return m ? m[1] : null;
+}
+
+export interface InstagramSlides {
+  username: string;
+  caption: string;
+  /** Every slide of a carousel (one picture for a single post; a video gives its cover). */
+  slides: { url: string; type: string }[];
+  /** Why only the first picture could be read, when that is the case. */
+  partial?: string;
+}
+
+/**
+ * The pictures of one public Instagram post. Instagram's public oEmbed names the account and gives
+ * the first picture; the agency's Meta connection then reads the whole carousel through Business
+ * Discovery (public business and creator accounts only).
+ */
+export async function instagramPostSlides(env: Env, link: string): Promise<InstagramSlides> {
+  const code = instagramShortcode(link);
+  if (!code) throw new StudioError("That is not an Instagram post link.");
+  const oe = await fetch(`https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(`https://www.instagram.com/p/${code}/`)}`, {
+    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const od = (await oe.json().catch(() => ({}))) as { author_name?: string; title?: string; thumbnail_url?: string };
+  if (!oe.ok || !od.author_name) throw new StudioError("Instagram did not give that post up: it may be private, deleted, or the link is wrong. Attach the slides as pictures instead.", 404);
+  const first = od.thumbnail_url ? [{ url: od.thumbnail_url, type: "IMAGE" }] : [];
+  const c = await connection(env);
+  if (!c) return { username: od.author_name, caption: od.title ?? "", slides: first, partial: "Instagram is not connected in the studio, so only the first picture of the post could be read." };
+  type Media = { permalink?: string; media_type?: string; media_url?: string; thumbnail_url?: string; caption?: string; children?: { data?: { media_url?: string; media_type?: string; thumbnail_url?: string }[] } };
+  let found: Media | undefined;
+  try {
+    const d = await graph<{ business_discovery?: { media?: { data?: Media[] } } }>(
+      `${c.account.igId}?fields=business_discovery.username(${od.author_name}){media.limit(50){permalink,media_type,media_url,thumbnail_url,caption,children{media_url,media_type,thumbnail_url}}}`,
+      c.token,
+    );
+    found = (d.business_discovery?.media?.data ?? []).find((x) => (x.permalink ?? "").includes(`/${code}/`) || (x.permalink ?? "").endsWith(`/${code}`));
+  } catch (e) {
+    return { username: od.author_name, caption: od.title ?? "", slides: first, partial: `Only the first picture could be read: ${errorMessage(e)}` };
+  }
+  if (!found) return { username: od.author_name, caption: od.title ?? "", slides: first, partial: "The post is older than the account's last 50, so only its first picture could be read." };
+  const pick = (x: { media_url?: string; media_type?: string; thumbnail_url?: string }) => ({ url: (x.media_type === "VIDEO" ? x.thumbnail_url : x.media_url) ?? "", type: x.media_type ?? "IMAGE" });
+  const slides = (found.children?.data?.length ? found.children.data.map(pick) : [pick(found)]).filter((x) => x.url);
+  return { username: od.author_name, caption: found.caption ?? od.title ?? "", slides: slides.length ? slides : first };
+}

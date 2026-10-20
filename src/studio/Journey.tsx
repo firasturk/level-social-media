@@ -2139,7 +2139,7 @@ function BriefBox({
         </>
       ) : (
         <div className="brief-files">
-          <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures; I plan it with this month's photos and the client's Drive.</p>
+          <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures, or paste an Instagram post link in the text and its slides become the references; I plan it with this month's photos and the client's Drive.</p>
           <span className="spacer" />
           <button type="button" className="secondary" onClick={() => setOpen(true)}>
             <Wand2 size={13} /> Write a brief
