@@ -108,7 +108,7 @@ app.onError((e, c) => {
   c.header("X-Build", BUILD_ID);
   if (e instanceof StudioError) return c.json({ error: e.message }, e.status as 400);
   console.error("[studio]", e instanceof Error ? e.stack || e.message : e);
-  return c.json({ error: "Studio request failed. Retry shortly." }, 500);
+  return c.json({ error: `Studio request failed. Retry shortly. (${c.req.method} ${c.req.path.replace(/^\/api\/studio\//, "")})` }, 500);
 });
 
 export default {

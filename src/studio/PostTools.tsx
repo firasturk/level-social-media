@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ImagePlus, LoaderCircle, MessageSquare, RefreshCw, Send, Wand2, X } from "lucide-react";
 import { del, postForm } from "@/api";
+import { rasterize } from "@/lib/image";
 import { FRESH_TAKE, type PostReference } from "@shared/posts";
 
 export interface PostComment {
@@ -64,7 +65,11 @@ export function PostReferenceBox({
     form.set("batch", batchId);
     form.set("index", String(index));
     form.set("note", note.trim());
-    if (file) form.set("file", file);
+    // The browser redraws the picture first (a logo as SVG, a phone photo, a huge PNG): the server reads a plain PNG or JPEG.
+    if (file) {
+      const ready = await rasterize(file);
+      form.set("file", ready, ready.name);
+    }
     await postForm("/api/studio/posts/reference", form);
     setFile(null);
     await onChanged();

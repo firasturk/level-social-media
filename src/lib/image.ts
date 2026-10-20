@@ -131,3 +131,67 @@ export function uniformBorders(
     bottom: Math.round(bottom * back),
   };
 }
+
+/**
+ * A picture the studio can read for sure. The browser draws the file (a PNG, a JPG, a WebP, an SVG
+ * logo, a HEIC photo where the browser opens it) on a canvas no wider than `maxEdge` and hands back
+ * a PNG when the picture may have transparency (a logo), a JPEG otherwise. A file the browser
+ * cannot draw is refused here with a clear message, never sent as bytes the server cannot decode.
+ */
+export async function rasterize(file: File, maxEdge = 2048): Promise<File> {
+  const keepAlpha = /png|svg|webp|gif/i.test(file.type) || /\.(png|svg|webp|gif)$/i.test(file.name);
+  const source = await drawable(file);
+  try {
+    const w = source.width;
+    const h = source.height;
+    if (!w || !h) throw new Error("This picture has no size the browser can read. Save it as PNG or JPG and attach it again.");
+    const scale = Math.min(1, maxEdge / Math.max(w, h));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable.");
+    if (!keepAlpha) {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(source.image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Unable to prepare the picture."))), keepAlpha ? "image/png" : "image/jpeg", 0.94),
+    );
+    const stem = file.name.replace(/\.[^.]+$/, "") || "picture";
+    return new File([blob], `${stem}.${keepAlpha ? "png" : "jpg"}`, { type: blob.type });
+  } finally {
+    source.close();
+  }
+}
+
+type Drawable = { image: CanvasImageSource; width: number; height: number; close: () => void };
+
+/** The file as something a canvas draws: a bitmap when the browser decodes it, an <img> otherwise (an SVG). */
+async function drawable(file: Blob): Promise<Drawable> {
+  if (!/svg/i.test(file.type)) {
+    try {
+      const bmp = await createImageBitmap(file);
+      return { image: bmp, width: bmp.width, height: bmp.height, close: () => bmp.close() };
+    } catch {
+      /* an <img> may still read it */
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("This picture can't be read by the browser. Save it as PNG or JPG and attach it again."));
+      el.src = url;
+    });
+    // An SVG with no size of its own is drawn 1600 wide.
+    const width = img.naturalWidth || 1600;
+    const height = img.naturalHeight || 1600;
+    return { image: img, width, height, close: () => URL.revokeObjectURL(url) };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+}

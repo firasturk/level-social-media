@@ -278,8 +278,16 @@ async function storeImage(env: Env, row: StyleRow): Promise<Stored> {
 
 /** A style's picture (a pin's or an upload), kept with its thumbnail. */
 export async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime: string): Promise<Stored> {
+  // Only a picture the decoder reads: an SVG, a HEIC or a PDF would crash it (a wasm trap, not an error).
+  if (!/^image\/(jpeg|png|webp|gif|bmp)$/i.test(mime)) throw new StudioError("Attach the picture as JPG, PNG or WebP. An SVG, HEIC or PDF can't be read here.", 415);
   const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
-  const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
+  let img: InstanceType<typeof PhotonImage>;
+  try {
+    img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
+  } catch (e) {
+    console.error("[styles] picture not readable", mime, bytes.byteLength, e instanceof Error ? e.message : e);
+    throw new StudioError("This picture can't be read. Save it as PNG or JPG, at most 4000 px wide, and attach it again.", 415);
+  }
   let thumbBytes: Uint8Array;
   const w = img.get_width();
   const h = img.get_height();

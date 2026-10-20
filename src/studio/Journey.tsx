@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import MonthVersions from "./MonthVersions";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
+import { rasterize } from "@/lib/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -889,7 +890,11 @@ export default function Journey(p: JourneyProps) {
       const form = new FormData();
       form.set("batch", p.batchId);
       form.set("brief", briefText);
-      for (const f of briefFiles.slice(0, 4)) form.append("file", f);
+      // Every reference is redrawn by the browser first, so an SVG logo or a phone photo reaches the server as a plain PNG or JPEG.
+      for (const f of briefFiles.slice(0, 4)) {
+        const ready = await rasterize(f);
+        form.append("file", ready, ready.name);
+      }
       if (briefOnlyOn) form.set("only", "1");
       const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/campaign", form);
       await p.refresh();
