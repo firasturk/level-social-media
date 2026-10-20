@@ -54,8 +54,11 @@
   --orange: #ff5a00;
   --beige: #ffe6d0;
   --charcoal: #1a1a1a;
-  --gradient: linear-gradient(90deg, #7fb8ff 0%, #ffffff 14%, #ffe6d0 24%, #ff5a00 40%, #2038e2 72%, #1a1a1a 100%);
-  --crossroads: var(--gradient);
+  /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
+  --gradient: linear-gradient(135deg, #ff2d9a 0%, #ff63b5 12%, #7a4dff 28%, #0a7dff 42%, #22c3ff 52%, #f3f3f6 66%, #ffc38a 80%, #ff6a2a 100%);
+  --gradient-bar: linear-gradient(90deg, #ff2d9a 0%, #7a4dff 26%, #0a7dff 44%, #22c3ff 55%, #ffd6b8 70%, #ff6a2a 100%);
+  --gradient-mesh: radial-gradient(60% 55% at 12% 8%, #ff3fa4 0%, rgb(255 63 164 / 0) 62%), radial-gradient(55% 50% at 88% 12%, #0a7dff 0%, #22c3ff 28%, rgb(34 195 255 / 0) 66%), radial-gradient(50% 45% at 82% 92%, #ff6a2a 0%, rgb(255 106 42 / 0) 62%), radial-gradient(65% 55% at 25% 85%, #f6f4f3 0%, rgb(246 244 243 / 0) 70%), linear-gradient(180deg, #ff8fc6 0%, #dfe6f6 45%, #ffb98f 100%);
+  --aurora: var(--gradient);
   /* Accent (type, outlines, labels) = the ink family */
   --accent: var(--blue);
   --accent-hover: var(--blue-hover);
@@ -2929,7 +2932,10 @@ textarea:focus {
   --blue-pale: #2c3a8a;
   --sky: #3d9bff;
   --sky-soft: #10243d;
-  --gradient: linear-gradient(90deg, #7fb8ff 0%, #ffffff 14%, #ffe6d0 24%, #ff5a00 40%, #2038e2 72%, #1a1a1a 100%);
+  /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
+  --gradient: linear-gradient(135deg, #ff2d9a 0%, #ff63b5 12%, #7a4dff 28%, #0a7dff 42%, #22c3ff 52%, #f3f3f6 66%, #ffc38a 80%, #ff6a2a 100%);
+  --gradient-bar: linear-gradient(90deg, #ff2d9a 0%, #7a4dff 26%, #0a7dff 44%, #22c3ff 55%, #ffd6b8 70%, #ff6a2a 100%);
+  --gradient-mesh: radial-gradient(60% 55% at 12% 8%, #ff3fa4 0%, rgb(255 63 164 / 0) 62%), radial-gradient(55% 50% at 88% 12%, #0a7dff 0%, #22c3ff 28%, rgb(34 195 255 / 0) 66%), radial-gradient(50% 45% at 82% 92%, #ff6a2a 0%, rgb(255 106 42 / 0) 62%), radial-gradient(65% 55% at 25% 85%, #f6f4f3 0%, rgb(246 244 243 / 0) 70%), linear-gradient(180deg, #ff8fc6 0%, #dfe6f6 45%, #ffb98f 100%);
   --accent: #4d6cff;
   --accent-hover: #6b85ff;
   --accent-deep: #9fb2ff;
@@ -5654,7 +5660,7 @@ label.num select {
   height: 24px;
   border-radius: 8px;
   color: #fff;
-  background: linear-gradient(135deg, #2038e2, #ff5a00);
+  background: var(--gradient);
 }
 .analysis-summary {
   margin: 0;
@@ -5747,7 +5753,7 @@ label.num select {
   display: inline-block;
   /* Room for the descenders (g, p): background-clip text cuts whatever sits outside the box. */
   padding: 0 0.06em 0.16em;
-  background: linear-gradient(100deg, #1a1a1a 0%, #2038e2 35%, #ff5a00 60%, #1a1a1a 100%);
+  background: var(--gradient);
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
@@ -6283,7 +6289,7 @@ label.num select {
   padding: 14px 34px;
   border-radius: 999px;
   flex: none;
-  background: linear-gradient(120deg, #1a1a1a 0%, #2038e2 60%, #ff5a00 100%);
+  background: var(--gradient);
   border: 0;
   box-shadow: 0 16px 34px -14px rgb(124 58 237 / 0.7);
 }
@@ -6332,7 +6338,7 @@ label.num select {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, #2038e2, #ff5a00);
+  background: var(--gradient-bar);
   transform: scaleX(0);
   transform-origin: left;
   transition: transform var(--dur-slow) var(--ease-out);
@@ -6939,7 +6945,7 @@ label.num select {
   border-color: transparent;
   background:
     linear-gradient(180deg, #eef2ff, var(--surface)) padding-box,
-    linear-gradient(120deg, #2038e2, #ff5a00, #007bff, #2038e2) border-box;
+    var(--gradient) border-box;
   background-size:
     100% 100%,
     300% 300%;
@@ -6991,7 +6997,7 @@ label.num select {
 
 /* The step bar: the done part flows, the current step shimmers and grows in. */
 .journey-seg.done i::after {
-  background: linear-gradient(90deg, #2038e2, #ff5a00, #2038e2);
+  background: var(--gradient-bar);
   background-size: 200% 100%;
   animation: j-flow 3s linear infinite;
 }
@@ -7130,7 +7136,7 @@ label.num select {
   }
 }
 .magic-big {
-  background: linear-gradient(120deg, #1a1a1a, #2038e2);
+  background: var(--gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -7145,7 +7151,7 @@ label.num select {
   animation-delay: calc(400ms + var(--i, 0) * 120ms);
 }
 .journey-generate {
-  background: linear-gradient(120deg, #1a1a1a 0%, #2038e2 40%, #ff5a00 70%, #1a1a1a 100%);
+  background: var(--gradient);
   background-size: 250% 100%;
   animation:
     j-up 600ms var(--ease-out) 700ms both,
@@ -7509,7 +7515,7 @@ label.num select {
   color: var(--danger);
 }
 .radio-button.resume {
-  background: linear-gradient(120deg, #2038e2, #ff5a00);
+  background: var(--gradient);
   color: #fff;
   border-color: transparent;
   animation: j-glow 2.2s ease-in-out infinite;
@@ -7889,7 +7895,7 @@ label.num select {
   font-size: 26px;
   font-weight: 800;
   letter-spacing: -0.03em;
-  background: linear-gradient(90deg, #ff5a00, #2038e2 55%, #1a1a1a);
+  background: var(--gradient-bar);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -8093,7 +8099,7 @@ label.num select {
   top: 11px;
   padding: 2px 7px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ff5a00, #2038e2);
+  background: var(--gradient-bar);
   color: #fff;
   font-size: 10.5px;
   font-weight: 700;
@@ -8588,7 +8594,7 @@ label.num select {
   -webkit-mask-size: 100% 100%;
   mask-repeat: no-repeat;
   -webkit-mask-repeat: no-repeat;
-  background: linear-gradient(100deg, transparent 32%, #ff5a00 44%, #2038e2 52%, transparent 64%);
+  background: linear-gradient(100deg, transparent 30%, #ff2d9a 40%, #7a4dff 47%, #22c3ff 54%, transparent 66%);
   background-size: 260% 100%;
   background-position: 130% 0;
   animation: logo-shine 4.2s ease-in-out 1.1s infinite;
@@ -8784,7 +8790,7 @@ label.num select {
   font-weight: 700;
 }
 .sidebar-nav .count.waiting {
-  background: linear-gradient(90deg, #ff5a00, #2038e2);
+  background: var(--gradient-bar);
   color: #fff;
 }
 
@@ -9646,7 +9652,7 @@ label.num select {
   min-width: 20px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #ff5a00, #2038e2);
+  background: var(--gradient-bar);
   color: #fff;
   font-size: 12px;
   line-height: 18px;
@@ -9725,7 +9731,7 @@ label.num select {
   position: absolute;
   left: 6px;
   top: 6px;
-  background: linear-gradient(90deg, #ff5a00, #2038e2);
+  background: var(--gradient-bar);
   color: #fff;
 }
 .drive-more {
@@ -10088,7 +10094,7 @@ button.shot-product:hover {
   border-radius: 14px;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
-    linear-gradient(90deg, #ff5a00, #2038e2) border-box;
+    var(--gradient-bar) border-box;
   text-align: left;
   animation: j-up 520ms var(--ease-out) both;
 }
@@ -10118,7 +10124,7 @@ button.shot-product:hover {
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: linear-gradient(135deg, #ff5a00, #2038e2);
+  background: var(--gradient);
 }
 .autopilot-panel {
   position: fixed;
@@ -10746,7 +10752,7 @@ button.shot-product:hover {
 .setup-bar i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #2038e2, #ff5a00);
+  background: var(--gradient-bar);
   border-radius: inherit;
 }
 .setup-checklist ul {
@@ -12142,7 +12148,7 @@ select {
 }
 .journey-seg i::after,
 .make-progress i {
-  background: linear-gradient(90deg, #007bff 0%, #2038e2 45%, #ff5a00 100%);
+  background: var(--gradient-bar);
 }
 .journey-seg i {
   background: color-mix(in srgb, var(--line) 80%, transparent);
@@ -12478,4 +12484,16 @@ select {
 }
 .make-card2 .design-card-empty {
   gap: 8px;
+}
+
+/* The aurora on the large surfaces */
+.hero-banner {
+  background: var(--gradient-mesh);
+}
+.boot-screen {
+  background: var(--gradient-mesh);
+}
+.boot-screen span,
+.boot-screen .orb-status {
+  color: #1a1a1a;
 }
