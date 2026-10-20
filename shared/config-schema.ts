@@ -88,6 +88,7 @@ export const postSchema = z.object({
   captionHand: z.boolean().optional(),
   textCheck: z.object({ ok: z.boolean(), note: z.string().max(400), for: z.string().max(400), at: z.number() }).optional(),
   prechecks: z.object({ at: z.number(), notes: z.array(z.string().max(300)).max(12) }).optional(),
+  ideaAt: z.number().optional(),
   group: z.object({ id: z.string().max(40), kind: z.enum(["carousel", "series"]), slide: z.number().int().min(1).max(10), of: z.number().int().min(1).max(10), role: z.string().max(30).optional() }).optional(),
   exact: z.boolean().optional(),
   ingredients: z.string().max(300).optional(),

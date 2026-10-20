@@ -1463,6 +1463,11 @@ postRoutes.put("/plan", async (c) => {
   const config = JSON.parse(b.config) as Config;
   const before = new Map((config.plan ?? []).map((p) => [p.index, p]));
   config.plan = d.plan.map((p, i) => ({ ...p, index: i + 1 }));
+  // An idea or shot edited by hand is stamped: a picture made before it is offered an update.
+  for (const p of config.plan) {
+    const old = before.get(p.index);
+    if (old && (old.brief !== p.brief || (old.scene ?? "") !== (p.scene ?? ""))) p.ideaAt = now();
+  }
   // A caption edited by hand is the designer's: the post's task carries it, and a new image keeps it.
   for (const p of config.plan) {
     const old = before.get(p.index);

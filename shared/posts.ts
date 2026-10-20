@@ -155,6 +155,8 @@ export interface Post {
   ingredients?: string;
   /** A picture the designer attached to this post as a reference for its next take or revision. */
   reference?: PostReference;
+  /** When the designer last changed the idea or the shot by hand: a picture older than this is offered an update. */
+  ideaAt?: number;
   /** Which tile of a reference grid this post follows (grid mode). */
   tile?: string;
   /** That tile read in detail: what it shows, its background and how its text is set. */

@@ -1144,6 +1144,29 @@ export default function PlanView({
                         </div>
                       );
                     })()}
+                    {(() => {
+                      // The idea was edited (and saved) after this picture was made: the picture is offered an update.
+                      const stale = !!p.ideaAt && !!t?.output && !inFlight && p.ideaAt > t.updated && !!onFix;
+                      if (!stale) return null;
+                      const text = (p.scene?.trim() || p.brief).slice(0, 700);
+                      return (
+                        <div className="post-save-row post-idea-row">
+                          <span>The idea changed after this picture was made.</span>
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={fixing !== null || running}
+                            title="Changes the picture to match the idea as it is written now, keeping what still fits"
+                            onClick={() => {
+                              setFixing(p.index);
+                              void onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`).finally(() => setFixing(null));
+                            }}
+                          >
+                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Update the picture
+                          </button>
+                        </div>
+                      );
+                    })()}
                     <div className="post-actions">
                       {t?.output ? (
                         <button

@@ -11791,3 +11791,4 @@ button.shot-product:hover {
 .post-change-row { display: flex; gap: 6px; align-items: flex-end; }
 .post-change-row textarea { flex: 1; min-height: 40px; font-size: 12.5px; resize: vertical; }
 .post-change-row button { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 6px 10px; white-space: nowrap; }
+.post-idea-row { background: var(--info-soft); }
