@@ -13498,13 +13498,12 @@ select {
   position: absolute;
   left: 28px;
   right: 28px;
-  top: 50%;
-  transform: translateY(-58%);
+  top: 26px;
   z-index: 1;
   margin: 0;
   color: #fff;
   font-weight: 900;
-  font-size: clamp(34px, 5.2vw, 76px);
+  font-size: clamp(30px, 4.4vw, 64px);
   line-height: 0.98;
   letter-spacing: -0.03em;
   text-transform: uppercase;
@@ -13522,7 +13521,7 @@ select {
   .hero-banner .hero-claim {
     left: 16px;
     right: 16px;
-    transform: translateY(-70%);
-    font-size: clamp(26px, 8vw, 40px);
+    top: 14px;
+    font-size: clamp(22px, 7vw, 34px);
   }
 }
