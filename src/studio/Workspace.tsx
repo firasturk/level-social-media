@@ -116,6 +116,8 @@ export default function Workspace({
   const [clients, setClients] = useState<Client[]>([]);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [models, setModels] = useState<EngineModel[]>([]);
+  /** Version stamp of the admin's hero video, shown at the top of the studio ("" for none). */
+  const [hero, setHero] = useState("");
   const [engine, setEngine] = useState<EngineInfo>({
     model: "",
     configured: false,
@@ -201,6 +203,7 @@ export default function Workspace({
       setBatches(d.batches);
       setTrash(d.trash ?? []);
       setEngine(d.engine);
+      setHero(d.hero ?? "");
       const list = d.clients ?? [];
       setClients(list);
       setClientId((id) => {
@@ -1287,6 +1290,12 @@ export default function Workspace({
           </div>
         ) : (
           <>
+            {hero && (
+              <div className="hero-banner" aria-hidden="true">
+                <video src={`/api/studio/hero?v=${hero}`} autoPlay muted loop playsInline preload="metadata" />
+                <div className="hero-veil" />
+              </div>
+            )}
             <div className="workspace-head">
               <div>
                 <div className="eyebrow">Client</div>
