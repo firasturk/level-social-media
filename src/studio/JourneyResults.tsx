@@ -246,21 +246,22 @@ export function MakeStep({
                   <textarea
                     rows={2}
                     value={changes[p.index] ?? ""}
-                    placeholder="What to change in this picture… (empty = a new take of the same idea)"
+                    placeholder="Write what to change…"
                     onChange={(e) => setChanges((c) => ({ ...c, [p.index]: e.target.value }))}
                     disabled={acting !== null}
                   />
                   <button
                     type="button"
                     className="secondary"
-                    disabled={acting !== null}
-                    title={changes[p.index]?.trim() ? "Change this picture as written, keeping the rest" : "A new take of the same idea"}
+                    disabled={acting !== null || !changes[p.index]?.trim()}
+                    title="Make the picture again with this change"
                     onClick={() => {
                       const note = (changes[p.index] ?? "").trim();
-                      void act(p.index, () => (note ? onFix(p.index, note) : onRetake(p.index))).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
+                      if (!note) return;
+                      void act(p.index, () => onFix(p.index, note)).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
                     }}
                   >
-                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {changes[p.index]?.trim() ? "Change it" : "New take"}
+                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Change it
                   </button>
                 </div>
               )}
