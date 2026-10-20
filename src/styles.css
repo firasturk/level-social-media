@@ -13472,3 +13472,23 @@ select {
 .hero-banner {
   background: linear-gradient(135deg, #3b4fd8 0%, #6f84d9 40%, #a9c6a9 72%, #d2ea7a 100%);
 }
+
+/* A planned month: every step on the bar opens */
+.journey-seg.open {
+  cursor: pointer;
+}
+.journey-seg.open small {
+  color: var(--ink-500);
+}
+.journey-seg.open:hover small,
+.journey-seg.done:hover small {
+  color: var(--blue);
+}
+.journey-seg.open:hover i,
+.journey-seg.done:hover i {
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+.journey-seg:disabled {
+  opacity: 1;
+  cursor: default;
+}

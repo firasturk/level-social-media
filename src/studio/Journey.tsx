@@ -265,6 +265,8 @@ export default function Journey(p: JourneyProps) {
   const [autoNext, setAutoNext] = useState(false);
   const key = STEPS[step].key;
   const last = step === STEPS.length - 1;
+  /** A month that has its ideas is open to roam: every step on the bar can be opened and changed. */
+  const free = p.plan.length > 0;
 
   // The journey is always light, whatever the studio uses; the studio's choice comes back after.
   useEffect(() => {
@@ -1738,10 +1740,11 @@ export default function Journey(p: JourneyProps) {
             <button
               type="button"
               key={s.key}
-              className={`journey-seg ${i < step ? "done" : i === step ? "now" : ""}`}
-              onClick={() => i < step && setStep(i)}
-              disabled={i >= step}
+              className={`journey-seg ${i < step ? "done" : i === step ? "now" : free ? "open" : ""}`}
+              onClick={() => (i < step || free) && i !== step && setStep(i)}
+              disabled={i === step || (!free && i > step)}
               aria-label={s.title}
+              title={i === step ? undefined : i < step || free ? `Go to ${s.title}` : undefined}
             >
               <i />
               <small>{s.title}</small>
