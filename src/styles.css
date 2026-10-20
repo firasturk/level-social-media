@@ -11776,3 +11776,11 @@ button.shot-product:hover {
   .hero-banner .hero-text p { display: none; }
   .hero-banner .hero-actions { top: 12px; right: 12px; }
 }
+
+/* The results card: what to change in the picture, sent as a revision of it. */
+.make-change { display: flex; gap: 6px; align-items: flex-end; margin-top: 6px; }
+.make-change textarea { flex: 1; min-height: 40px; font-size: 12.5px; resize: vertical; }
+.make-change button { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 6px 10px; white-space: nowrap; }
+.make-card .post-comments { border: 0; border-top: 1px solid var(--line); margin-top: 6px; }
+.make-card .post-comments-toggle { padding: 6px 0; }
+.make-card .post-comments-body { padding: 0 0 6px; }

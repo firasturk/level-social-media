@@ -597,6 +597,18 @@ async function settleFailedAttempt(
   }
   if (isContentPolicyError(message) && (await retryAfterRefusal(env, config, task, message)))
     return;
+  // "IMAGE_RECITATION": the engine judged its picture too close to a published one. One more try
+  // asks for an original arrangement; a second refusal fails the post as usual.
+  if (/RECITATION/i.test(message) && !/original composition/i.test(task.error ?? "")) {
+    await run(
+      env.DB,
+      "UPDATE tasks SET prompt = prompt || ? WHERE id = ?",
+      "\n\nORIGINAL COMPOSITION: this is an original photograph made for this brand, never a reproduction of any published picture: change the exact arrangement, angle, distance and props a little so it is its own picture, keeping the brief, the product and the look.",
+      task.id,
+    );
+    await requeue(env, task, `the engine held its picture back as too close to a published one; trying an original composition. ${message}`);
+    return;
+  }
   // A vendor rate limit is not the image's fault: new submissions wait as long as the vendor
   // asked, the engine narrows (two fewer at once, never under two) and widens again step by
   // step while the vendor stays quiet; the image keeps its place and gets its attempt back.

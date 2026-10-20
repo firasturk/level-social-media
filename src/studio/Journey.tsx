@@ -232,6 +232,10 @@ export interface JourneyProps {
   posts: JourneyPost[];
   onRetake: (index: number) => Promise<void>;
   onFix: (index: number, edit: string) => Promise<void>;
+  /** The review found something, the designer keeps the picture as it is. */
+  onAccept?: (index: number) => Promise<void>;
+  /** A failed post leaves the month: the rest goes on with fewer posts. */
+  onRemovePost?: (index: number) => Promise<void>;
   onShare: () => Promise<void>;
   onExport: () => Promise<void>;
   /** The month's typography: its style menu and its on/off switch. */
@@ -793,7 +797,7 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: `Wait: ${making.length} post${making.length > 1 ? "s are" : " is"} still being made.`, how: "You can close the page; they keep going and are here when you come back." });
         for (const x of p.posts) {
           if (x.status === "failed")
-            out.push({ text: `Post ${x.index} failed: ${(x.error ?? "the engine gave no image").replace(/\.$/, "")}.`, fix: { label: "Make it again", run: () => p.onRetake(x.index) } });
+            out.push({ warn: true, text: `Post ${x.index} failed: ${(x.error ?? "the engine gave no image").replace(/\.$/, "")}. Make it again, or leave it out on its card and go on with fewer posts.`, fix: { label: "Make it again", run: () => p.onRetake(x.index) } });
           else if (x.status === "none")
             out.push({ text: `Post ${x.index} has no image.`, fix: { label: "Make it", run: () => p.onRetake(x.index) } });
           else if (x.flags?.length && !MAKING.includes(x.status))
@@ -1609,7 +1613,7 @@ export default function Journey(p: JourneyProps) {
             />
           )}
 
-          {key === "make" && <MakeStep plan={p.plan} posts={p.posts} format={p.format} overlay={p.overlay} logoSrc={p.logoSrc} onRetake={p.onRetake} onFix={p.onFix} />}
+          {key === "make" && <MakeStep plan={p.plan} posts={p.posts} format={p.format} overlay={p.overlay} logoSrc={p.logoSrc} onRetake={p.onRetake} onFix={p.onFix} onAccept={p.onAccept} onRemove={p.onRemovePost} batchId={p.batchId} user={p.user} />}
 
           {key === "captions" && (
             <CaptionsStep

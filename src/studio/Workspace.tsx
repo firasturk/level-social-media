@@ -1532,6 +1532,17 @@ export default function Workspace({
           posts={journeyPosts}
           onRetake={(index) => generatePosts([index], true, false, false, true)}
           onFix={fixPost}
+          onAccept={acceptPost}
+          onRemovePost={async (index) => {
+            if (!batch) return;
+            try {
+              await post("/api/studio/posts/remove", { batch: batch.id, index });
+              await refresh();
+              toast.success(`Post ${index} left out; the month goes on with the rest.`);
+            } catch (e) {
+              toast.error((e as Error).message);
+            }
+          }}
           onShare={shareMonth}
           typography={typography}
           onExport={exportMonth}

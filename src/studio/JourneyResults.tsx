@@ -10,6 +10,10 @@ import { shortDate } from "@shared/occasions";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
 import { KitIcon } from "./kit";
+import { get } from "@/api";
+import { post as postJson, del } from "@/api";
+import { PostComments, type PostComment } from "./PostTools";
+import type { User } from "@shared/types";
 
 /** One post of the month as the journey's last screens see it: its idea and its image. */
 export interface JourneyPost {
@@ -93,6 +97,10 @@ export function MakeStep({
   logoSrc,
   onRetake,
   onFix,
+  onAccept,
+  onRemove,
+  batchId,
+  user,
 }: {
   plan: Post[];
   posts: JourneyPost[];
@@ -102,9 +110,28 @@ export function MakeStep({
   logoSrc?: string | null;
   onRetake: (index: number) => Promise<void>;
   onFix: (index: number, edit: string) => Promise<void>;
+  /** The review found something, the designer keeps the picture as it is. */
+  onAccept?: (index: number) => Promise<void>;
+  /** A post that failed leaves the month: the rest goes on with fewer posts. */
+  onRemove?: (index: number) => Promise<void>;
+  batchId?: string | null;
+  user?: User | null;
 }) {
   const [acting, setActing] = useState<number | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  /** What the designer asks to change on each picture (sent as a revision of it). */
+  const [changes, setChanges] = useState<Record<number, string>>({});
+  const [comments, setComments] = useState<PostComment[]>([]);
+  useEffect(() => {
+    if (!batchId) return;
+    let live = true;
+    get<{ comments: PostComment[] }>(`/api/studio/posts/comments?batch=${encodeURIComponent(batchId)}`)
+      .then((r) => live && setComments(r.comments))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [batchId]);
   const done = posts.filter((x) => x.url && !MAKING.includes(x.status)).length;
   const making = posts.filter((x) => MAKING.includes(x.status)).length;
   const waiting = posts.filter((x) => x.status === "queued").length;
@@ -190,21 +217,69 @@ export function MakeStep({
               )}
               <div className="make-actions">
                 {flags.length > 0 && !busy && j?.taskId && (
-                  <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))}>
-                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make again
-                  </button>
+                  <>
+                    <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))}>
+                      {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make again
+                    </button>
+                    {onAccept && (
+                      <button type="button" className="text-button" disabled={acting !== null} title="Keep this picture as it is and go on" onClick={() => void act(p.index, () => onAccept(p.index))}>
+                        <Check size={13} /> Proceed anyway
+                      </button>
+                    )}
+                  </>
                 )}
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={acting !== null || busy}
-                  onClick={() => void act(p.index, () => onRetake(p.index))}
-                  title="Make this post again, a new take of the same idea"
-                >
-                  {acting === p.index && !flags.length ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />}
-                  {j?.status === "failed" || !j?.url ? "Make it" : "Retake"}
-                </button>
+                {(j?.status === "failed" || !j?.url) && !busy && (
+                  <>
+                    <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onRetake(p.index))}>
+                      {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />} Make it
+                    </button>
+                    {j?.status === "failed" && onRemove && (
+                      <button type="button" className="text-button" disabled={acting !== null} title="Leave this post out and go on with the rest of the month" onClick={() => void act(p.index, () => onRemove(p.index))}>
+                        <X size={13} /> Leave it out
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
+              {j?.url && !busy && (
+                <div className="make-change">
+                  <textarea
+                    rows={2}
+                    value={changes[p.index] ?? ""}
+                    placeholder="What to change in this picture… (empty = a new take of the same idea)"
+                    onChange={(e) => setChanges((c) => ({ ...c, [p.index]: e.target.value }))}
+                    disabled={acting !== null}
+                  />
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={acting !== null}
+                    title={changes[p.index]?.trim() ? "Change this picture as written, keeping the rest" : "A new take of the same idea"}
+                    onClick={() => {
+                      const note = (changes[p.index] ?? "").trim();
+                      void act(p.index, () => (note ? onFix(p.index, note) : onRetake(p.index))).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
+                    }}
+                  >
+                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {changes[p.index]?.trim() ? "Change it" : "New take"}
+                  </button>
+                </div>
+              )}
+              {batchId && (
+                <PostComments
+                  index={p.index}
+                  comments={comments.filter((c) => c.post === p.index)}
+                  userId={user?.id ?? ""}
+                  isAdmin={user?.role === "admin"}
+                  onAdd={async (index, text) => {
+                    const r = await postJson<{ comment: PostComment }>("/api/studio/posts/comments", { batch: batchId, index, text });
+                    setComments((c) => [...c, r.comment]);
+                  }}
+                  onDelete={async (id) => {
+                    await del(`/api/studio/posts/comments/${id}`);
+                    setComments((c) => c.filter((x) => x.id !== id));
+                  }}
+                />
+              )}
             </article>
           );
         })}
