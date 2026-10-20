@@ -1408,7 +1408,6 @@ export default function Workspace({
                 <PlanView
                 notes={monthNotes}
                 batchId={batch?.id ?? null}
-                user={user}
                 onRefresh={refresh}
                 outputThumb={outputThumb}
                 onStyles={assignStyles}

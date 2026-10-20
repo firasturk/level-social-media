@@ -1613,7 +1613,7 @@ export default function Journey(p: JourneyProps) {
             />
           )}
 
-          {key === "make" && <MakeStep plan={p.plan} posts={p.posts} format={p.format} overlay={p.overlay} logoSrc={p.logoSrc} onRetake={p.onRetake} onFix={p.onFix} onAccept={p.onAccept} onRemove={p.onRemovePost} batchId={p.batchId} user={p.user} />}
+          {key === "make" && <MakeStep plan={p.plan} posts={p.posts} format={p.format} overlay={p.overlay} logoSrc={p.logoSrc} onRetake={p.onRetake} onFix={p.onFix} onAccept={p.onAccept} onRemove={p.onRemovePost} />}
 
           {key === "captions" && (
             <CaptionsStep

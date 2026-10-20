@@ -3,8 +3,8 @@ import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import { fixNote } from "@shared/qa";
-import { del, get, post } from "@/api";
-import { PostComments, PostReferenceBox, type PostComment } from "./PostTools";
+import { post } from "@/api";
+import { PostChangeBox, PostReferenceBox } from "./PostTools";
 import {
   Clapperboard,
   Download,
@@ -33,7 +33,7 @@ import {
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
-import type { Ambassador, Client, QA, Source, Task, User } from "@shared/types";
+import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import type { OverlaySpec } from "@shared/overlay";
@@ -105,7 +105,6 @@ export default function PlanView({
   rewriting = [],
   notes = "",
   batchId = null,
-  user = null,
   onRefresh,
   outputThumb,
 }: {
@@ -115,8 +114,6 @@ export default function PlanView({
   notes?: string;
   /** The month's batch id (the video dialog talks to its routes). */
   batchId?: string | null;
-  /** Who is looking (their own comments can be deleted). */
-  user?: User | null;
   /** The month read again after a card changed it on the server (a reference attached). */
   onRefresh?: () => Promise<void>;
   client: Client;
@@ -198,34 +195,6 @@ export default function PlanView({
   const [editing, setEditing] = useState<number | null>(null);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
-  // The team's comments on the month's posts.
-  const [comments, setComments] = useState<PostComment[]>([]);
-  useEffect(() => {
-    if (!batchId) {
-      setComments([]);
-      return;
-    }
-    let live = true;
-    get<{ comments: PostComment[] }>(`/api/studio/posts/comments?batch=${encodeURIComponent(batchId)}`)
-      .then((r) => live && setComments(r.comments))
-      .catch(() => live && setComments([]));
-    return () => {
-      live = false;
-    };
-  }, [batchId]);
-  async function addComment(index: number, text: string) {
-    if (!batchId) return;
-    const r = await post<{ comment: PostComment }>("/api/studio/posts/comments", { batch: batchId, index, text });
-    setComments((c) => [...c, r.comment]);
-  }
-  async function deleteComment(id: string) {
-    try {
-      await del(`/api/studio/posts/comments/${id}`);
-      setComments((c) => c.filter((x) => x.id !== id));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not delete the comment.");
-    }
-  }
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
@@ -863,16 +832,7 @@ export default function PlanView({
                       onChanged={() => onRefresh?.()}
                     />
                   )}
-                  {batchId && (
-                    <PostComments
-                      index={p.index}
-                      comments={comments.filter((c) => c.post === p.index)}
-                      userId={user?.id ?? ""}
-                      isAdmin={user?.role === "admin"}
-                      onAdd={addComment}
-                      onDelete={deleteComment}
-                    />
-                  )}
+                  {onFix && t?.output && !inFlight && <PostChangeBox index={p.index} disabled={running || !!busy} onChange={onFix} />}
                   <div className="post-fields">
                     {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
                       <p className="post-approval-note" dir="auto">
@@ -1159,14 +1119,27 @@ export default function PlanView({
                       const saved = plan.find((x) => x.index === p.index);
                       const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
                       if (!cardDirty) return null;
+                      // An edited idea or shot updates the finished picture as a revision of it, never a picture from scratch.
+                      const briefChanged = !!saved && (saved.brief !== p.brief || (saved.scene ?? "") !== (p.scene ?? ""));
+                      const updates = briefChanged && !!t?.output && !inFlight && !!onFix;
                       return (
                         <div className="post-save-row">
                           <span>Unsaved changes on this post</span>
                           <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved : x)))}>
                             Discard
                           </button>
-                          <button type="button" className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
-                            <Check size={13} /> Save changes
+                          <button
+                            type="button"
+                            className="primary"
+                            title={updates ? "Saves the words and changes the picture to match them, keeping what still fits" : undefined}
+                            onClick={() => {
+                              const text = (p.scene?.trim() || p.brief).slice(0, 700);
+                              void saveDraft()
+                                .then(() => refitPending())
+                                .then(() => (updates ? onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`) : undefined));
+                            }}
+                          >
+                            <Check size={13} /> {updates ? "Save and update the picture" : "Save changes"}
                           </button>
                         </div>
                       );

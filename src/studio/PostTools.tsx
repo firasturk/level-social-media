@@ -169,6 +169,47 @@ export function PostReferenceBox({
   );
 }
 
+/** What to change in a finished picture: the designer's words go to the engine as a revision of it. */
+export function PostChangeBox({ index, disabled, onChange }: { index: number; disabled: boolean; onChange: (index: number, note: string) => Promise<void> }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function send() {
+    const t = note.trim();
+    if (!t) return;
+    setBusy(true);
+    try {
+      await onChange(index, t);
+      setNote("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change the picture.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="post-change">
+      <span className="post-change-label">
+        <Wand2 size={13} /> Change the picture
+      </span>
+      <div className="post-change-row">
+        <textarea
+          rows={2}
+          value={note}
+          placeholder="Write what to change…"
+          disabled={disabled || busy}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+          }}
+        />
+        <button type="button" className="secondary" disabled={disabled || busy || !note.trim()} onClick={() => void send()} title="Make the picture again with this change">
+          {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Change it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** The team's comments on one post. */
 export function PostComments({
   index,

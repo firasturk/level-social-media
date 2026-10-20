@@ -10,10 +10,6 @@ import { shortDate } from "@shared/occasions";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
 import { KitIcon } from "./kit";
-import { get } from "@/api";
-import { post as postJson, del } from "@/api";
-import { PostComments, type PostComment } from "./PostTools";
-import type { User } from "@shared/types";
 
 /** One post of the month as the journey's last screens see it: its idea and its image. */
 export interface JourneyPost {
@@ -99,8 +95,6 @@ export function MakeStep({
   onFix,
   onAccept,
   onRemove,
-  batchId,
-  user,
 }: {
   plan: Post[];
   posts: JourneyPost[];
@@ -114,24 +108,12 @@ export function MakeStep({
   onAccept?: (index: number) => Promise<void>;
   /** A post that failed leaves the month: the rest goes on with fewer posts. */
   onRemove?: (index: number) => Promise<void>;
-  batchId?: string | null;
-  user?: User | null;
 }) {
   const [acting, setActing] = useState<number | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   /** What the designer asks to change on each picture (sent as a revision of it). */
   const [changes, setChanges] = useState<Record<number, string>>({});
-  const [comments, setComments] = useState<PostComment[]>([]);
-  useEffect(() => {
-    if (!batchId) return;
-    let live = true;
-    get<{ comments: PostComment[] }>(`/api/studio/posts/comments?batch=${encodeURIComponent(batchId)}`)
-      .then((r) => live && setComments(r.comments))
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [batchId]);
+
   const done = posts.filter((x) => x.url && !MAKING.includes(x.status)).length;
   const making = posts.filter((x) => MAKING.includes(x.status)).length;
   const waiting = posts.filter((x) => x.status === "queued").length;
@@ -264,22 +246,6 @@ export function MakeStep({
                     {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Change it
                   </button>
                 </div>
-              )}
-              {batchId && (
-                <PostComments
-                  index={p.index}
-                  comments={comments.filter((c) => c.post === p.index)}
-                  userId={user?.id ?? ""}
-                  isAdmin={user?.role === "admin"}
-                  onAdd={async (index, text) => {
-                    const r = await postJson<{ comment: PostComment }>("/api/studio/posts/comments", { batch: batchId, index, text });
-                    setComments((c) => [...c, r.comment]);
-                  }}
-                  onDelete={async (id) => {
-                    await del(`/api/studio/posts/comments/${id}`);
-                    setComments((c) => c.filter((x) => x.id !== id));
-                  }}
-                />
               )}
             </article>
           );
