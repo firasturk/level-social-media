@@ -1321,6 +1321,10 @@ export default function Workspace({
                 <div className="hero-banner">
                   <video src={`/api/studio/hero?v=${hero}`} autoPlay muted loop playsInline preload="metadata" aria-hidden="true" />
                   <div className="hero-veil" />
+                  <p className="hero-claim" aria-hidden="true">
+                    <span>AI is the future.</span>
+                    <span>Level is ahead.</span>
+                  </p>
                   {text}
                   {actions}
                 </div>
