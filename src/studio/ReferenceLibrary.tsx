@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { askConfirm } from "@/lib/confirm";
 import { createPortal } from "react-dom";
-import { ImagePlus, LoaderCircle, X } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { del, get } from "@/api";
 import { makeReference } from "@/lib/image";
@@ -128,7 +129,7 @@ export default function ReferenceLibrary({
           disabled={busy}
           onClick={() => input.current?.click()}
         >
-          {busy ? <LoaderCircle className="spinning" size={13} /> : <ImagePlus size={13} />}
+          {busy ? <Orb size={13} /> : <ImagePlus size={13} />}
           Add photos
         </button>
         {actions}

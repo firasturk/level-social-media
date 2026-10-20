@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { FolderOpen, LoaderCircle, RotateCcw, Trash2 } from "lucide-react";
+import { FolderOpen, RotateCcw, Trash2 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import type { Batch, Client, SkillInfo } from "@shared/types";
 import { isSkillCampaign, type Config } from "@shared/config";
 
@@ -205,7 +206,7 @@ export default function BatchesView({
             <span className="footer-actions row-actions">
               <button className="secondary" onClick={() => onOpen(b.id)} disabled={busyId === b.id}>
                 {busyId === b.id ? (
-                  <LoaderCircle className="spinning" size={15} />
+                  <Orb size={15} />
                 ) : (
                   <FolderOpen size={15} />
                 )}{" "}

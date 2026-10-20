@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { askConfirm } from "@/lib/confirm";
-import { Check, KeyRound, LoaderCircle, Trash2, TriangleAlert } from "lucide-react";
+import { Check, KeyRound, Trash2, TriangleAlert } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -341,7 +342,7 @@ export default function ConnectionDialog({
                 <div className="footer-actions">
                   <button className="primary" onClick={() => void save()} disabled={saving || !key}>
                     {saving ? (
-                      <LoaderCircle className="spinning" size={17} />
+                      <Orb size={17} />
                     ) : (
                       <KeyRound size={17} />
                     )}
@@ -365,7 +366,7 @@ export default function ConnectionDialog({
               onClick={() => void verify()}
               disabled={checking || !engine.configured}
             >
-              {checking ? <LoaderCircle className="spinning" size={17} /> : <Check size={17} />}
+              {checking ? <Orb size={17} /> : <Check size={17} />}
               Test connection
             </button>
             {result && (
@@ -418,7 +419,7 @@ export default function ConnectionDialog({
                   disabled={savingGoogle || !googleKey}
                 >
                   {savingGoogle ? (
-                    <LoaderCircle className="spinning" size={17} />
+                    <Orb size={17} />
                   ) : (
                     <KeyRound size={17} />
                   )}
@@ -481,7 +482,7 @@ export default function ConnectionDialog({
                   disabled={savingFal || !falKey}
                 >
                   {savingFal ? (
-                    <LoaderCircle className="spinning" size={17} />
+                    <Orb size={17} />
                   ) : (
                     <KeyRound size={17} />
                   )}
@@ -558,7 +559,7 @@ export default function ConnectionDialog({
                 onClick={() => void saveVertex()}
               >
                 {savingVertex ? (
-                  <LoaderCircle className="spinning" size={16} />
+                  <Orb size={16} />
                 ) : (
                   <Check size={16} />
                 )}
@@ -616,7 +617,7 @@ export default function ConnectionDialog({
                   disabled={savingOpenai || !openaiKey}
                 >
                   {savingOpenai ? (
-                    <LoaderCircle className="spinning" size={17} />
+                    <Orb size={17} />
                   ) : (
                     <KeyRound size={17} />
                   )}
@@ -666,7 +667,7 @@ export default function ConnectionDialog({
               onClick={() => void saveModel()}
               disabled={savingModel || !model || !engine.configured}
             >
-              {savingModel ? <LoaderCircle className="spinning" size={17} /> : <Check size={17} />}
+              {savingModel ? <Orb size={17} /> : <Check size={17} />}
               Use model
             </button>
           </div>

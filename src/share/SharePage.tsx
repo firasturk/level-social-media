@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, LoaderCircle, MessageSquare } from "lucide-react";
+import { Check, MessageSquare } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { applyTheme } from "@/theme";
 import { loadFont } from "@/lib/overlay";
 import LevelLogo from "@/components/LevelLogo";
@@ -77,7 +78,7 @@ export default function SharePage({ token }: { token: string }) {
     return (
       <div className="share-page">
         <div className="share-empty">
-          <LoaderCircle className="spinning" size={20} />
+          <Orb size={20} />
         </div>
       </div>
     );

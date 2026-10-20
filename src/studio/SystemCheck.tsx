@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, BookOpen, CircleAlert, CircleCheck, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import { Activity, BookOpen, CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { get, post } from "@/api";
 import { AUDIT_AREAS, auditCounts, type AuditFinding, type AuditReport, type AuditSeverity } from "@shared/audit";
@@ -48,10 +49,10 @@ export default function SystemCheck() {
       </div>
       <div className="system-check-bar">
         <button type="button" className="primary" disabled={!!running} onClick={() => void run(false)}>
-          {running === "quick" ? <LoaderCircle className="spinning" size={15} /> : <Activity size={15} />} Check now
+          {running === "quick" ? <Orb size={15} /> : <Activity size={15} />} Check now
         </button>
         <button type="button" className="secondary" disabled={!!running} onClick={() => void run(true)} title="Also calls the text model, Instagram and Drive, and reviews the latest month's writing (a minute or two)">
-          {running === "deep" ? <LoaderCircle className="spinning" size={15} /> : null} Full check with the live tools
+          {running === "deep" ? <Orb size={15} /> : null} Full check with the live tools
         </button>
         {counts && (
           <span className="system-check-counts">
@@ -67,7 +68,7 @@ export default function SystemCheck() {
       </div>
       {running && !report && (
         <div className="journey-reading">
-          <LoaderCircle className="spinning" size={16} /> Checking…
+          <Orb size={16} /> Checking…
         </div>
       )}
       {report && !shown.length && <p className="field-hint system-check-clear">All clear: nothing to fix or look at.</p>}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Download, LoaderCircle, Play } from "lucide-react";
+import { Download, Play } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -123,7 +124,7 @@ export default function AnimateDialog({
         </DialogHeader>
         <div className="overlay-editor-body">
           <div className="overlay-editor-canvas">
-            {!ready && <LoaderCircle className="spinning" size={22} />}
+            {!ready && <Orb variant="generate" size={22} status={null} />}
             <canvas ref={canvasRef} />
             {playing && <span className="anim-badge"><Play size={11} /> preview</span>}
           </div>
@@ -147,7 +148,7 @@ export default function AnimateDialog({
               <span className="spacer" />
               <button type="button" className="secondary" onClick={onClose}>Close</button>
               <button type="button" className="primary" onClick={() => void exportVideo()} disabled={!ready || exporting > 0}>
-                {exporting > 0 ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />}
+                {exporting > 0 ? <Orb size={15} /> : <Download size={15} />}
                 {exporting > 0 ? `Recording ${Math.round(exporting * 100)}%` : `Export ${ext.toUpperCase()}`}
               </button>
             </div>

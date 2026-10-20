@@ -4,7 +4,8 @@
  */
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { ImagePlus, LoaderCircle, MessageSquare, RefreshCw, Send, Wand2, X } from "lucide-react";
+import { ImagePlus, MessageSquare, RefreshCw, Send, Wand2, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, postForm } from "@/api";
 import { rasterize } from "@/lib/image";
 import { FRESH_TAKE, type PostReference } from "@shared/posts";
@@ -146,7 +147,7 @@ export function PostReferenceBox({
           disabled={!!busy}
           onClick={() => (reference ? void remove() : (setOpen(false), setFile(null)))}
         >
-          {busy === "remove" ? <LoaderCircle className="spinning" size={12} /> : <X size={12} />}
+          {busy === "remove" ? <Orb size={12} /> : <X size={12} />}
         </button>
       </div>
       <textarea
@@ -158,11 +159,11 @@ export function PostReferenceBox({
       <div className="post-ref-actions">
         {hasPicture && (
           <button type="button" className="primary" disabled={!!busy || disabled} onClick={() => void run("update")} title="Keep this picture and change it with the reference">
-            {busy === "update" ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Update the picture
+            {busy === "update" ? <Orb size={13} /> : <Wand2 size={13} />} Update the picture
           </button>
         )}
         <button type="button" className={hasPicture ? "secondary" : "primary"} disabled={!!busy || disabled} onClick={() => void run(hasPicture ? "take" : "save")} title={hasPicture ? "Make the post again from its brief with the reference" : "Save it on the post: its picture is made with it"}>
-          {busy === "take" || busy === "save" ? <LoaderCircle className="spinning" size={13} /> : <RefreshCw size={13} />} {hasPicture ? "New take with it" : "Save on the post"}
+          {busy === "take" || busy === "save" ? <Orb size={13} /> : <RefreshCw size={13} />} {hasPicture ? "New take with it" : "Save on the post"}
         </button>
         {hasPicture && (
           <button type="button" className="text-button" disabled={!!busy} onClick={() => void run("save")}>
@@ -208,7 +209,7 @@ export function PostChangeBox({ index, disabled, onChange }: { index: number; di
           }}
         />
         <button type="button" className="secondary" disabled={disabled || busy || !note.trim()} onClick={() => void send()} title="Make the picture again with this change">
-          {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Change it
+          {busy ? <Orb size={13} /> : <Wand2 size={13} />} Change it
         </button>
       </div>
     </div>
@@ -282,7 +283,7 @@ export function PostComments({
               }}
             />
             <button type="button" className="primary" disabled={busy || !text.trim()} onClick={() => void send()} aria-label="Add the comment">
-              {busy ? <LoaderCircle className="spinning" size={13} /> : <Send size={13} />}
+              {busy ? <Orb size={13} /> : <Send size={13} />}
             </button>
           </div>
         </div>

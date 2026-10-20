@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Check, KeyRound, LoaderCircle, Search, Trash2 } from "lucide-react";
+import { Check, KeyRound, Search, Trash2 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { askConfirm } from "@/lib/confirm";
 import { del, get, post, put } from "@/api";
@@ -124,7 +125,7 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           onChange={(e) => setToken(e.target.value.trim())}
         />
         <button className="primary" onClick={() => void save()} disabled={saving || token.length < 40}>
-          {saving ? <LoaderCircle className="spinning" size={17} /> : <KeyRound size={17} />}
+          {saving ? <Orb size={17} /> : <KeyRound size={17} />}
           {status?.connected ? "Replace" : "Connect"}
         </button>
         {status?.connected && (
@@ -150,7 +151,7 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           <div className="footer-actions">
             <input placeholder="Try an account: nike" aria-label="Instagram username" value={handle} onChange={(e) => setHandle(e.target.value.trim())} />
             <button className="secondary" onClick={() => void read()} disabled={reading || !handle}>
-              {reading ? <LoaderCircle className="spinning" size={17} /> : <Search size={17} />} Read
+              {reading ? <Orb size={17} /> : <Search size={17} />} Read
             </button>
           </div>
           {profile && (

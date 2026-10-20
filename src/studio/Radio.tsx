@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { LoaderCircle, Music2, Pause, Play, Square, X } from "lucide-react";
+import { Music2, Pause, Play, Square, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 
 /** Jordanian stations with direct HTTPS streams (checked in October 2026). */
 const STATIONS = [
@@ -183,7 +184,7 @@ export default function Radio({ className = "" }: { className?: string }) {
           aria-label="Listen to your favourite music"
         >
           {s.status === "tuning" || s.status === "reconnecting" ? (
-            <LoaderCircle className="spinning" size={14} />
+            <Orb size={14} />
           ) : live ? (
             <span className="radio-bars" aria-hidden>
               <i />

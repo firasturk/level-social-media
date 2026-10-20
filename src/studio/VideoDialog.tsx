@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Clapperboard, Download, Lightbulb, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
+import { Clapperboard, Download, Lightbulb, RefreshCw, TriangleAlert } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post } from "@/api";
@@ -125,7 +126,7 @@ export default function VideoDialog({
             )}
             {latest?.status === "queued" && (
               <span className="video-making">
-                <LoaderCircle className="spinning" size={18} /> Making the video… a minute or two
+                <Orb variant="generate" size={18} status={null} /> Making the video… a minute or two
               </span>
             )}
           </div>
@@ -135,7 +136,7 @@ export default function VideoDialog({
             </label>
             <textarea rows={6} value={idea} placeholder={writing ? "Writing an idea from the picture…" : "What moves, and how"} onChange={(e) => setIdea(e.target.value)} disabled={writing} />
             <button type="button" className="text-button" onClick={() => void writeIdea()} disabled={writing || making}>
-              {writing ? <LoaderCircle className="spinning" size={13} /> : <RefreshCw size={13} />} Another idea
+              {writing ? <Orb size={13} /> : <RefreshCw size={13} />} Another idea
             </button>
             <label className="field-label">Engine</label>
             <div className="preset-row">
@@ -154,7 +155,7 @@ export default function VideoDialog({
             )}
             <div className="footer-actions">
               <button type="button" className="primary" onClick={() => void make()} disabled={making || writing || !idea.trim() || pending}>
-                {making ? <LoaderCircle className="spinning" size={14} /> : <Clapperboard size={14} />} Make the video
+                {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
               </button>
               {latest?.status === "done" && latest.url && (
                 <a className="secondary video-download" href={latest.url} download={`${fileBase}_post${String(p.index).padStart(2, "0")}.mp4`}>

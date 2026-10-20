@@ -22,7 +22,6 @@ import {
   Grid3x3,
   ImagePlus,
   Lightbulb,
-  LoaderCircle,
   PenLine,
   RefreshCw,
   Sparkles,
@@ -30,6 +29,7 @@ import {
   Type,
   Wand2,
   X,} from "lucide-react";
+import { Orb } from "@/components/Orb";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
@@ -431,7 +431,7 @@ export default function PlanView({
             onClick={() => fileInput.current?.click()}
             disabled={busy === "upload"}
           >
-            {busy === "upload" ? <LoaderCircle className="spinning" size={15} /> : <ImagePlus size={15} />}
+            {busy === "upload" ? <Orb size={15} /> : <ImagePlus size={15} />}
             Upload products
           </button>
           <button
@@ -440,7 +440,7 @@ export default function PlanView({
             disabled={!!busy || running}
             title="The text model plans the month from the brand kit, the theme and the products"
           >
-            {busy === "ideas" ? <LoaderCircle className="spinning" size={15} /> : <Lightbulb size={15} />}
+            {busy === "ideas" ? <Orb size={15} /> : <Lightbulb size={15} />}
             {plan.length ? "Regenerate ideas" : "Generate ideas"}
           </button>
           <button
@@ -449,7 +449,7 @@ export default function PlanView({
             disabled={!!busy || running}
             title="Plan the month from one reference image that shows a whole feed grid"
           >
-            {busy === "grid" ? <LoaderCircle className="spinning" size={15} /> : <Grid3x3 size={15} />}
+            {busy === "grid" ? <Orb size={15} /> : <Grid3x3 size={15} />}
             From reference grid
           </button>
           <button
@@ -473,7 +473,7 @@ export default function PlanView({
                   : "Every post has an image; this makes all of them again"
             }
           >
-            {running ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
+            {running ? <Orb size={15} /> : <Wand2 size={15} />}
             {running
               ? "Generating…"
               : !plan.length
@@ -493,7 +493,7 @@ export default function PlanView({
             Overlay
           </button>
           <button className="secondary" onClick={onExport} disabled={!generated || exporting}>
-            {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />}
+            {exporting ? <Orb size={15} /> : <Download size={15} />}
             Export
           </button>
           {typography && <TypographyControls {...typography} disabled={!generated} />}
@@ -631,7 +631,7 @@ export default function PlanView({
                   {(() => {
                     const flags = t?.output && !inFlight ? reviewFlags(t) : null;
                     const state = inFlight
-                      ? { cls: "making", icon: <LoaderCircle className="spinning" size={12} />, text: makingLabel(t) }
+                      ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
                       : t?.status === "failed"
                         ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
                         : flags
@@ -689,7 +689,7 @@ export default function PlanView({
                               });
                             }}
                           >
-                            {applying === p.index ? <LoaderCircle className="spinning" size={13} /> : <Check size={13} />} Apply style
+                            {applying === p.index ? <Orb size={13} /> : <Check size={13} />} Apply style
                           </button>
                           <button
                             type="button"
@@ -736,7 +736,7 @@ export default function PlanView({
                   )}
                   {rewriting.includes(p.index) && (
                     <div className="post-rewriting">
-                      <LoaderCircle className="spinning" size={13} /> Writing the words and the idea again for what is on the card…
+                      <Orb variant="caption" size={22} status={null} /> Writing the words and the idea again for what is on the card…
                     </div>
                   )}
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>
@@ -763,7 +763,7 @@ export default function PlanView({
                     )}
                     {inFlight && (
                       <span className="post-progress">
-                        <LoaderCircle className="spinning" size={18} />
+                        <Orb size={18} />
                         {makingLabel(t)}
                       </span>
                     )}
@@ -801,7 +801,7 @@ export default function PlanView({
                               void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
                             }}
                           >
-                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make it again
+                            {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
                           </button>
                           {onAccept && (
                             <button
@@ -814,7 +814,7 @@ export default function PlanView({
                                 void onAccept(p.index).finally(() => setAccepting(null));
                               }}
                             >
-                              {accepting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Check size={13} />} Accept as is
+                              {accepting === p.index ? <Orb size={13} /> : <Check size={13} />} Accept as is
                             </button>
                           )}
                         </li>
@@ -1162,7 +1162,7 @@ export default function PlanView({
                               void onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`).finally(() => setFixing(null));
                             }}
                           >
-                            {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Update the picture
+                            {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Update the picture
                           </button>
                         </div>
                       );
@@ -1196,7 +1196,7 @@ export default function PlanView({
                         disabled={inFlight || running || busy === "reidea"}
                         title="Write a different idea for this post (new scene, action and headline; same type and product), then generate it"
                       >
-                        {busy === "reidea" ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} New idea
+                        {busy === "reidea" ? <Orb size={13} /> : <Lightbulb size={13} />} New idea
                       </button>
                       {t?.output && (
                         <button
@@ -1225,7 +1225,7 @@ export default function PlanView({
                               .finally(() => setRestoring(null));
                           }}
                         >
-                          {restoring === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />}
+                          {restoring === p.index ? <Orb size={13} /> : <RotateCcw size={13} />}
                         </button>
                       )}
                       <button
@@ -1350,7 +1350,7 @@ function OfferForm({
       <textarea dir="auto" rows={2} value={o.details} placeholder="What is in the offer, conditions and dates" onChange={(e) => onChange({ ...o, details: e.target.value })} />
       {ready ? (
         <button type="button" className="secondary" onClick={onWrite} disabled={busy}>
-          {busy ? <LoaderCircle className="spinning" size={13} /> : <Lightbulb size={13} />} Write the offer post
+          {busy ? <Orb size={13} /> : <Lightbulb size={13} />} Write the offer post
         </button>
       ) : (
         <small className="offer-warning">Pick the products, write the price and what the offer includes. The post is not generated until then.</small>

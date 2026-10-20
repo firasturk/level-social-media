@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import LevelLogo from "@/components/LevelLogo";
+import { Orb } from "@/components/Orb";
 
 /** Full-page loader shown until the first screen's data and media are ready. Fades out, then unmounts. */
 export default function BootScreen({ done = false }: { done?: boolean }) {
@@ -13,8 +14,7 @@ export default function BootScreen({ done = false }: { done?: boolean }) {
   return (
     <div className={`boot-screen ${done ? "done" : ""}`} role="status" aria-live="polite">
       <LevelLogo className="boot-wordmark" />
-      <div className="boot-ring" aria-hidden="true" />
-      <span>Loading your studio…</span>
+      <Orb size={60} stacked status="Loading your studio…" />
     </div>
   );
 }

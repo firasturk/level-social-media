@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, Globe, Instagram, LoaderCircle, Plus, ScanSearch, Sparkles, X } from "lucide-react";
+import { Check, Globe, Instagram, Plus, ScanSearch, Sparkles, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { get, post, put } from "@/api";
 import type { Client } from "@shared/types";
 import { PROFILE_REF_KINDS, type ProfileRecord, type ProfileRef } from "@shared/profile";
@@ -209,7 +210,7 @@ function ProfilePanel({
             <small className="field-hint">A competitor to do better than, or a brand whose direction to take (Nike for a sports brand). They are studied, never copied.</small>
           </div>
           <button type="button" className="primary profile-run" disabled={busy || (!instagram.trim() && !website.trim())} onClick={() => void analyse()}>
-            {busy ? <LoaderCircle className="spinning" size={15} /> : <Sparkles size={15} />}
+            {busy ? <Orb size={15} /> : <Sparkles size={15} />}
             {busy ? "Reading… about a minute" : p ? "Analysis again" : "Analysis"}
           </button>
           {rec?.error && rec.status === "failed" && <p className="profile-error">{rec.error}</p>}

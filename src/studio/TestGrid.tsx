@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Grid3x3, LoaderCircle, RefreshCw } from "lucide-react";
+import { Grid3x3, RefreshCw } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { get, post } from "@/api";
 import { loadImage, renderOverlay } from "@/lib/overlay";
@@ -110,21 +111,21 @@ export default function TestGrid({
         {info && (
           <span className="journey-box-actions">
             <button type="button" className="text-button" onClick={() => void make()} disabled={making} title="Paint the month's feed again">
-              {making ? <LoaderCircle className="spinning" size={13} /> : <RefreshCw size={13} />} Make it again
+              {making ? <Orb size={13} /> : <RefreshCw size={13} />} Make it again
             </button>
           </span>
         )}
       </div>
       {making ? (
         <div className="test-grid-wait">
-          <LoaderCircle className="spinning" size={22} />
+          <Orb variant="generate" size={64} status={null} />
           <strong>Painting the month's feed…</strong>
           <span>About a minute: every post in one picture, in feed order.</span>
         </div>
       ) : info ? (
         <div className="test-grid-body">
           <a href={picture ?? undefined} target="_blank" rel="noreferrer" className="test-grid-picture" title="Open full size">
-            {picture ? <img src={picture} alt="The month's feed" /> : <LoaderCircle className="spinning" size={18} />}
+            {picture ? <img src={picture} alt="The month's feed" /> : <Orb variant="generate" size={28} status={null} />}
           </a>
           <div className="test-grid-side">
             {reference && (
@@ -141,7 +142,7 @@ export default function TestGrid({
         </div>
       ) : info === undefined ? (
         <div className="journey-reading">
-          <LoaderCircle className="spinning" size={16} />
+          <Orb size={16} />
         </div>
       ) : (
         <div className="test-grid-empty">

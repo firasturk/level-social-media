@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { ImagePlus, LoaderCircle, Plus, Sparkles, Trash2, UserRound } from "lucide-react";
+import { ImagePlus, Plus, Sparkles, Trash2, UserRound } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, post, postForm, put } from "@/api";
 import { askConfirm, askInput } from "@/lib/confirm";
 import type { Ambassador, Client } from "@shared/types";
@@ -184,7 +185,7 @@ function AmbassadorCard({
         {src ? <img src={src} alt={a.name} /> : <UserRound size={34} />}
         {busy && (
           <span className="amb-busy">
-            <LoaderCircle className="spinning" size={18} />
+            <Orb size={18} />
           </span>
         )}
       </div>

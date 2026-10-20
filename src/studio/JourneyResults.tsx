@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, Check, Download, Eye, ImageOff, LoaderCircle, Maximize2, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { ArrowUpRight, Check, Download, Eye, ImageOff, Maximize2, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
@@ -178,8 +179,7 @@ export function MakeStep({
                 )}
                 {busy ? (
                   <span className="make-wait">
-                    <LoaderCircle className="spinning" size={18} />
-                    {j?.status === "queued" ? "Waiting its turn" : "Making it"}
+                    <Orb variant="generate" size={76} stacked status={j?.status === "queued" ? "Waiting its turn…" : undefined} />
                   </span>
                 ) : j?.status === "failed" ? (
                   <span className="make-wait failed">Failed: {(j.error ?? "try again").replace(/\.$/, "")}</span>
@@ -201,7 +201,7 @@ export function MakeStep({
                 {flags.length > 0 && !busy && j?.taskId && (
                   <>
                     <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onFix(p.index, fixNote(flags)))}>
-                      {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make again
+                      {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make again
                     </button>
                     {onAccept && (
                       <button type="button" className="text-button" disabled={acting !== null} title="Keep this picture as it is and go on" onClick={() => void act(p.index, () => onAccept(p.index))}>
@@ -213,7 +213,7 @@ export function MakeStep({
                 {(j?.status === "failed" || !j?.url) && !busy && (
                   <>
                     <button type="button" className="secondary" disabled={acting !== null} onClick={() => void act(p.index, () => onRetake(p.index))}>
-                      {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <RotateCcw size={13} />} Make it
+                      {acting === p.index ? <Orb size={13} /> : <RotateCcw size={13} />} Make it
                     </button>
                     {j?.status === "failed" && onRemove && (
                       <button type="button" className="text-button" disabled={acting !== null} title="Leave this post out and go on with the rest of the month" onClick={() => void act(p.index, () => onRemove(p.index))}>
@@ -243,7 +243,7 @@ export function MakeStep({
                       void act(p.index, () => onFix(p.index, note)).then(() => setChanges((c) => ({ ...c, [p.index]: "" })));
                     }}
                   >
-                    {acting === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Change it
+                    {acting === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Change it
                   </button>
                 </div>
               )}
@@ -310,7 +310,7 @@ export function CaptionsStep({
               {made.length - checked.length > 0 && <span className="text-stat none">{made.length - checked.length} not checked</span>}
             </span>
             <button type="button" className="primary btn-pill journey-head-action" disabled={busy || !made.length} onClick={() => onCheck(made.map((p) => p.index))} title="Look at every post with its words drawn on, and move or recolour the words where they do not read">
-              {checking.length ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} Check the text again
+              {checking.length ? <Orb size={15} /> : <Check size={15} />} Check the text again
             </button>
             <button type="button" className="secondary btn-pill journey-head-action" disabled={busy} onClick={() => onWrite(plan.map((p) => p.index), true)}>
               <Wand2 size={14} /> Rewrite the captions
@@ -419,7 +419,7 @@ function CaptionCard({
         )}
         {checking && (
           <span className="caption-checking">
-            <LoaderCircle className="spinning" size={18} /> Checking the text
+            <Orb size={18} /> Checking the text
           </span>
         )}
       </div>
@@ -434,7 +434,7 @@ function CaptionCard({
         </div>
         <div className={`text-finding ${state}`}>
           <span className="text-finding-icon" aria-hidden>
-            {state === "busy" ? <LoaderCircle className="spinning" size={15} /> : state === "ok" ? <Check size={15} /> : state === "warn" ? <TriangleAlert size={15} /> : state === "none" ? <Eye size={15} /> : <ImageOff size={15} />}
+            {state === "busy" ? <Orb size={15} /> : state === "ok" ? <Check size={15} /> : state === "warn" ? <TriangleAlert size={15} /> : state === "none" ? <Eye size={15} /> : <ImageOff size={15} />}
           </span>
           <span className="text-finding-text">
             <b>{state === "busy" ? "Checking" : state === "ok" ? "Reads well" : state === "warn" ? "Needs a look" : state === "none" ? "Not checked" : "No picture"}</b>
@@ -443,10 +443,10 @@ function CaptionCard({
         </div>
         <div className="design-card-actions">
           <button type="button" className="secondary btn-pill" disabled={checking || !job?.url} onClick={onCheck} title="Look at this post with its words drawn on; move or recolour them if they do not read">
-            {checking ? <LoaderCircle className="spinning" size={13} /> : <ScanSearch size={13} />} {check ? "Check again" : "Check the text"}
+            {checking ? <Orb size={13} /> : <ScanSearch size={13} />} {check ? "Check again" : "Check the text"}
           </button>
           <button type="button" className="secondary btn-pill" disabled={writing || !job?.url} onClick={onWrite} title="Look at the picture again and write a new caption">
-            {writing ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Caption from the picture
+            {writing ? <Orb size={13} /> : <Wand2 size={13} />} Caption from the picture
           </button>
         </div>
         <div className="design-card-caption">
@@ -461,10 +461,8 @@ function CaptionCard({
             </small>
           </span>
           {writing ? (
-            <div className="analysis-skeleton caption-skeleton">
-              <i />
-              <i />
-              <i />
+            <div className="design-card-writing">
+              <Orb variant="caption" size={68} />
             </div>
           ) : (
             <>
@@ -627,7 +625,7 @@ export function FeedStep({
                         void onFix(x.index, fixNote(x.flags!)).finally(() => setFixingPost(null));
                       }}
                     >
-                      {fixingPost === x.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make it again
+                      {fixingPost === x.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
                     </button>
                   </div>
                 ))}
@@ -639,11 +637,11 @@ export function FeedStep({
             {flagged ? `. ${flagged} still have points from the review: open them in the studio before sending.` : "."}
           </p>
           <button type="button" className="primary" disabled={sharing} onClick={() => void run(setSharing, onShare)}>
-            {sharing ? <LoaderCircle className="spinning" size={15} /> : <Share2 size={15} />} Copy the client's approval link
+            {sharing ? <Orb size={15} /> : <Share2 size={15} />} Copy the client's approval link
           </button>
           <TypographyControls {...typography} disabled={!ready} />
           <button type="button" className="secondary" disabled={exporting} onClick={() => void run(setExporting, onExport)}>
-            {exporting ? <LoaderCircle className="spinning" size={15} /> : <Download size={15} />} Download the month
+            {exporting ? <Orb size={15} /> : <Download size={15} />} Download the month
           </button>
           {(comments.length > 0 || approvedCount > 0) && (
             <div className="feed-comments">
@@ -663,7 +661,7 @@ export function FeedStep({
                       void onFix(p.index, approvals[String(p.index)].note!).finally(() => setFixing(null));
                     }}
                   >
-                    {fixing === p.index ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Make the change
+                    {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make the change
                   </button>
                 </div>
               ))}
@@ -695,7 +693,7 @@ export function FeedStep({
                     disabled={retaking}
                     onClick={() => void run(setRetaking, () => onRetake(opened.index)).then(() => setOpen(null))}
                   >
-                    {retaking ? <LoaderCircle className="spinning" size={14} /> : <RotateCcw size={14} />} Make it again
+                    {retaking ? <Orb size={14} /> : <RotateCcw size={14} />} Make it again
                   </button>
                 </>
               )}

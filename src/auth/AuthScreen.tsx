@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from "react";
 import LevelLogo from "@/components/LevelLogo";
 import { toast } from "sonner";
-import { KeyRound, LoaderCircle, Moon, Sun } from "lucide-react";
+import { KeyRound, Moon, Sun } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { useTheme } from "@/theme";
 import { post } from "@/api";
 import type { User } from "@shared/types";
@@ -82,7 +83,7 @@ export default function AuthScreen({
           </>
         )}
         <button className="primary" type="submit" disabled={busy}>
-          {busy ? <LoaderCircle className="spinning" size={17} /> : <KeyRound size={17} />}
+          {busy ? <Orb size={17} /> : <KeyRound size={17} />}
           {mode === "login" ? "Sign in" : "Create account"}
         </button>
         {registrationOpen && (

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, LoaderCircle, Maximize2, RefreshCw, Search, Sparkles, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, Maximize2, RefreshCw, Search, Sparkles, Upload, X } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, get, post, postForm } from "@/api";
 import { AnimatedLevelLogo } from "@/components/LevelLogo";
 import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
@@ -479,10 +480,10 @@ export default function StyleScreen({
                 </label>
               )}
               <button type="button" className="secondary" disabled={!!busy} onClick={() => fileInput.current?.click()}>
-                {busy === "upload" ? <LoaderCircle className="spinning" size={14} /> : <Upload size={14} />} Upload pictures
+                {busy === "upload" ? <Orb size={14} /> : <Upload size={14} />} Upload pictures
               </button>
               <button type="button" className="primary" disabled={!!busy || !links.trim()} onClick={() => void addLinks()}>
-                {busy === "add" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add links
+                {busy === "add" ? <Orb size={14} /> : <Check size={14} />} Add links
               </button>
               <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => void upload(e.target.files)} />
             </div>
@@ -542,7 +543,7 @@ export default function StyleScreen({
 
       <div className="style-scroll" ref={scroller}>
         <div className="style-meta">
-          {loading && <LoaderCircle className="spinning" size={13} />}
+          {loading && <Orb size={13} />}
           {data ? (
             <span>
               {data.total} style{data.total === 1 ? "" : "s"}
@@ -649,16 +650,16 @@ export default function StyleScreen({
           {n > 0 && reviewing && (
             <>
               <button type="button" className="secondary" disabled={!!busy} onClick={() => void judge("remove", ids)} title="Reject: they never reach the team">
-                {busy === "remove" ? <LoaderCircle className="spinning" size={14} /> : <X size={14} />} Reject
+                {busy === "remove" ? <Orb size={14} /> : <X size={14} />} Reject
               </button>
               <button type="button" className="primary" disabled={!!busy} onClick={() => void judge("approve", ids)} title="Approve: the team sees them in the library">
-                {busy === "approve" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Approve {n}
+                {busy === "approve" ? <Orb size={14} /> : <Check size={14} />} Approve {n}
               </button>
             </>
           )}
           {n > 0 && !reviewing && forClient && tab !== "saved" && (
             <button type="button" className="secondary style-save" disabled={!!busy} onClick={() => void saveTo(forClient)} title={`Keep these for ${forClient.name}: they come first whenever you pick for ${forClient.name}`}>
-              {busy === "save" ? <LoaderCircle className="spinning" size={14} /> : <Check size={14} />} Add to {forClient.name}'s
+              {busy === "save" ? <Orb size={14} /> : <Check size={14} />} Add to {forClient.name}'s
             </button>
           )}
           {n > 0 && !reviewing && !forClient && clients && clients.length > 0 && (
@@ -688,16 +689,16 @@ export default function StyleScreen({
           {n > 0 && !reviewing && (
             <>
               <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("refresh")} title="Write the selected styles again: a fresh take on the same idea">
-                {busy === "refresh" ? <LoaderCircle className="spinning" size={14} /> : <RefreshCw size={14} />} Update
+                {busy === "refresh" ? <Orb size={14} /> : <RefreshCw size={14} />} Update
               </button>
               <button type="button" className="secondary" disabled={!!busy} onClick={() => void act("replace")} title="Remove the selected styles and bring new ideas">
-                {busy === "replace" ? <LoaderCircle className="spinning" size={14} /> : <Sparkles size={14} />} New ideas
+                {busy === "replace" ? <Orb size={14} /> : <Sparkles size={14} />} New ideas
               </button>
             </>
           )}
           {pick && !reviewing && (
             <button type="button" className="primary" disabled={!n || !!busy || (single && n !== 1)} onClick={() => void use()}>
-              {busy === "pick" ? <LoaderCircle className="spinning" size={15} /> : <Check size={15} />} {useLabel}
+              {busy === "pick" ? <Orb size={15} /> : <Check size={15} />} {useLabel}
             </button>
           )}
         </div>

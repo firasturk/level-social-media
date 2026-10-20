@@ -5,10 +5,10 @@ import {
   ChevronRight,
   Download,
   FolderDown,
-  LoaderCircle,
   RefreshCw,
   ScanLine,
 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import {
   Dialog,
   DialogContent,
@@ -329,7 +329,7 @@ export default function ReviewDialog({
 
             {inFlight && (
               <p className="revision-progress">
-                <LoaderCircle className="spinning" size={15} />
+                <Orb size={15} />
                 {task?.status === "queued"
                   ? "A new version of this image is queued. "
                   : "A new version of this image is being generated. "}
@@ -365,7 +365,7 @@ export default function ReviewDialog({
               onClick={() => onRevise(edit).then(() => setEdit(""))}
               disabled={busy || !edit.trim() || inFlight}
             >
-              {busy ? <LoaderCircle className="spinning" size={17} /> : <RefreshCw size={17} />}
+              {busy ? <Orb size={17} /> : <RefreshCw size={17} />}
               {inFlight ? "Revision in progress…" : "Generate revision"}
             </button>
             <button

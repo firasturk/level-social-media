@@ -6,12 +6,12 @@ import {
   Bell,
   Check,
   Clapperboard,
-  LoaderCircle,
   ShieldCheck,
   Trash2,
   UserX,
   UserCheck,
 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, get, post, postForm } from "@/api";
 
 interface AdminUser {
@@ -226,7 +226,7 @@ export default function AdminView({ me }: { me: string }) {
           <div className="footer-actions">
             <label className="secondary">
               {heroBusy ? (
-                <LoaderCircle className="spinning" size={16} />
+                <Orb size={16} />
               ) : (
                 <Clapperboard size={16} />
               )}
@@ -326,7 +326,7 @@ export default function AdminView({ me }: { me: string }) {
         </div>
         <div className="footer-actions" style={{ padding: "0 16px 8px" }}>
           <button className="primary" onClick={() => void save()} disabled={saving}>
-            {saving ? <LoaderCircle className="spinning" size={16} /> : <Check size={16} />} Save
+            {saving ? <Orb size={16} /> : <Check size={16} />} Save
             settings
           </button>
           <button

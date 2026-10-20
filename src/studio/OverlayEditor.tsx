@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import {
   Dialog,
   DialogContent,
@@ -147,7 +148,7 @@ export default function OverlayEditor({
         </DialogHeader>
         <div className="overlay-editor-body">
           <div className="overlay-editor-canvas">
-            {!ready && <LoaderCircle className="spinning" size={22} />}
+            {!ready && <Orb size={22} />}
             <canvas
               ref={canvasRef}
               onPointerDown={onDown}

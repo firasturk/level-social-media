@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Grid3x3, Link2, LoaderCircle, PanelLeft, Share2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Grid3x3, Link2, PanelLeft, Share2 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import type { Config } from "@shared/config";
 import type { Theme } from "@shared/types";
 import { briefLines } from "@shared/brief";
@@ -62,7 +63,7 @@ export default function BriefCard({
             <span className="brief-card-state">
               {making ? (
                 <em className="busy">
-                  <LoaderCircle className="spinning" size={12} /> making {made}/{plan.length}
+                  <Orb size={12} /> making {made}/{plan.length}
                   {eta ? ` · about ${eta} min left` : ""}
                 </em>
               ) : (

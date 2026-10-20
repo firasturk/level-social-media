@@ -6,12 +6,12 @@ import {
   ChevronDown,
   ChevronUp,
   Link as LinkIcon,
-  LoaderCircle,
   Plus,
   Sparkles,
   Trash2,
   X,
 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, get, post, put } from "@/api";
 import {
   Select,
@@ -402,7 +402,7 @@ export function BrandKit({
       kit="brand"
       title="Brand kit"
       subtitle={`${client.name}: colours, fonts, tone`}
-      actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
+      actions={saving ? <div className="bp-saving"><Orb size={12} /> Saving…</div> : null}
     >
       <LogosGroup client={client} onClientsChanged={onClientsChanged} />
       <PlacesGroup client={client} onClientsChanged={onClientsChanged} />
@@ -589,7 +589,7 @@ export function BrandKit({
             disabled={analysing}
           >
             {analysing ? (
-              <LoaderCircle className="spinning" size={13} />
+              <Orb size={13} />
             ) : (
               <Sparkles size={13} />
             )}
@@ -652,7 +652,7 @@ function PlacesGroup({ client, onClientsChanged }: { client: Client; onClientsCh
       title="Place photos"
       actions={
         <button type="button" className="text-button" disabled={busy} onClick={() => input.current?.click()}>
-          {busy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Add photos
+          {busy ? <Orb size={13} /> : <Plus size={13} />} Add photos
         </button>
       }
     >
@@ -731,7 +731,7 @@ function RealPeopleGroup({ client, onClientsChanged }: { client: Client; onClien
       actions={
         <span className="group-actions">
           <button type="button" className="text-button" disabled={busy} onClick={() => void addLinks()}>
-            {busy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Pinterest links
+            {busy ? <Orb size={13} /> : <Plus size={13} />} Pinterest links
           </button>
           <button type="button" className="text-button" disabled={busy} onClick={() => input.current?.click()}>
             <Plus size={13} /> Upload
@@ -807,7 +807,7 @@ function LogosGroup({ client, onClientsChanged }: { client: Client; onClientsCha
           aria-label={has ? `Replace the ${label.toLowerCase()}` : `Upload the ${label.toLowerCase()}`}
         >
           {busy === mark ? (
-            <LoaderCircle className="spinning" size={18} />
+            <Orb size={18} />
           ) : has ? (
             <img src={`/api/studio/clients/${client.id}/${mark}?v=${client.updated}`} alt={label} />
           ) : (
@@ -1159,7 +1159,7 @@ export function ThemeSection({
                   title={current.references ? "" : "Add references first"}
                 >
                   {busy === "analyse" ? (
-                    <LoaderCircle className="spinning" size={13} />
+                    <Orb size={13} />
                   ) : (
                     <Sparkles size={13} />
                   )}
@@ -1177,7 +1177,7 @@ export function ThemeSection({
                 onChange={(e) => setPins(e.target.value)}
               />
               <button className="secondary" onClick={() => void importPins()} disabled={busy === "import"}>
-                {busy === "import" ? <LoaderCircle className="spinning" size={15} /> : <LinkIcon size={15} />}
+                {busy === "import" ? <Orb size={15} /> : <LinkIcon size={15} />}
                 Import pins
               </button>
             </div>
@@ -1215,7 +1215,7 @@ export function ThemeSection({
                 disabled={busy === "colors" || (!current.references && !gridRef)}
                 title={gridRef ? "Read the grid you chose and suggest its colours (replaces the list)" : "Read the references again and suggest their colours (replaces the list)"}
               >
-                {busy === "colors" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
+                {busy === "colors" ? <Orb size={13} /> : <Sparkles size={13} />}
                 Suggest
               </button>
             }
@@ -1338,7 +1338,7 @@ export function ThemeSection({
             kit="wardrobe"
             actions={
               <button type="button" className="text-button" onClick={() => void suggestWardrobe()} disabled={busy === "wardrobe"} title="Outfits in the month's colours, for its people and their rules (replaces the list)">
-                {busy === "wardrobe" ? <LoaderCircle className="spinning" size={13} /> : <Sparkles size={13} />}
+                {busy === "wardrobe" ? <Orb size={13} /> : <Sparkles size={13} />}
                 Suggest
               </button>
             }
@@ -1506,7 +1506,7 @@ function OverlaySection({
       title="Overlay"
       subtitle="Headline, sub-line and logo drawn over each post"
       defaultOpen={false}
-      actions={saving ? <div className="bp-saving"><LoaderCircle className="spinning" size={12} /> Saving…</div> : null}
+      actions={saving ? <div className="bp-saving"><Orb size={12} /> Saving…</div> : null}
     >
       <Group kit="overlay" title="Layout">
       <Select
@@ -1532,7 +1532,7 @@ function OverlaySection({
           <Group kit="fonts" title="Brand font files">
           <div className="field-row">
             <label className="text-button">
-              {fontBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />} Add font file
+              {fontBusy ? <Orb size={13} /> : <Plus size={13} />} Add font file
               <input type="file" accept=".ttf,.otf,.woff,.woff2" hidden onChange={(e) => void uploadFont(e.target.files?.[0])} />
             </label>
           </div>
@@ -1572,7 +1572,7 @@ function OverlaySection({
           <Group kit="corner">
           <div className="field-row">
             <label className="text-button">
-              {badgeBusy ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
+              {badgeBusy ? <Orb size={13} /> : <Plus size={13} />}
               {client.badge ? "Replace" : "Add file"}
               <input
                 type="file"

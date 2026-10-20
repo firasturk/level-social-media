@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { History, LoaderCircle, RotateCcw } from "lucide-react";
+import { History, RotateCcw } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { get, post } from "@/api";
 import { askConfirm } from "@/lib/confirm";
@@ -112,7 +113,7 @@ export default function MonthVersions({
             <>
               <div className="month-version-actions">
                 <button type="button" className="primary" disabled={!!busy} onClick={() => void restore(open)}>
-                  {busy === open.id ? <LoaderCircle className="spinning" size={15} /> : <RotateCcw size={15} />} Use this version in the studio
+                  {busy === open.id ? <Orb size={15} /> : <RotateCcw size={15} />} Use this version in the studio
                 </button>
               </div>
               <div className="month-version-scroll">
@@ -143,7 +144,7 @@ export default function MonthVersions({
                           <img src={t.image} alt="" loading="lazy" />
                           <figcaption>{String(t.index).padStart(2, "0")}</figcaption>
                           <button type="button" className="secondary" disabled={!!busy} onClick={() => void restore(open, { index: t.index, key: t.key })}>
-                            {busy === t.key ? <LoaderCircle className="spinning" size={13} /> : null} Use for post {t.index}
+                            {busy === t.key ? <Orb size={13} /> : null} Use for post {t.index}
                           </button>
                         </figure>
                       ))}

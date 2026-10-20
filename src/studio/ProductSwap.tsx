@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, HardDrive, LoaderCircle, RefreshCw, Repeat, Search, Sparkles } from "lucide-react";
+import { Check, HardDrive, RefreshCw, Repeat, Search, Sparkles } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post } from "@/api";
@@ -113,7 +114,7 @@ export function RecommendedProducts({
             disabled={!!using || !data?.drive}
             title={data?.drive ? "Every post gets the Drive photo that fits it and the grid best; its shot is written again" : "Connect the client's Drive first"}
           >
-            {using === "drive" ? <LoaderCircle className="spinning" size={13} /> : <HardDrive size={13} />} Fill from Drive
+            {using === "drive" ? <Orb size={13} /> : <HardDrive size={13} />} Fill from Drive
           </button>
           <button type="button" className="text-button" onClick={() => setTick((t) => t + 1)} disabled={!data && !error} title="Look again">
             <RefreshCw size={13} />
@@ -129,7 +130,7 @@ export function RecommendedProducts({
         <p className="field-hint">{error}</p>
       ) : !data ? (
         <div className="journey-reading">
-          <LoaderCircle className="spinning" size={16} /> Finding the products that fit each post…
+          <Orb size={16} /> Finding the products that fit each post…
         </div>
       ) : (
         <ol className="recommended-list">
@@ -158,7 +159,7 @@ export function RecommendedProducts({
                             </span>
                           ) : (
                             <button type="button" className="secondary" disabled={!!using} onClick={() => void use(x.index, o)}>
-                              {using === key ? <LoaderCircle className="spinning" size={12} /> : hasPhoto ? <Repeat size={12} /> : <Check size={12} />}
+                              {using === key ? <Orb size={12} /> : hasPhoto ? <Repeat size={12} /> : <Check size={12} />}
                               {hasPhoto ? "Replace" : "Use"}
                             </button>
                           )}
@@ -261,7 +262,7 @@ export default function ProductSwap({
         {o.reason && <small className="swap-reason">{o.reason}</small>}
         {using === key && (
           <span className="swap-busy">
-            <LoaderCircle className="spinning" size={18} />
+            <Orb size={18} />
           </span>
         )}
       </button>
@@ -285,7 +286,7 @@ export default function ProductSwap({
             <p className="field-hint">{matchError}</p>
           ) : !match ? (
             <div className="journey-reading">
-              <LoaderCircle className="spinning" size={16} /> Finding the products that fit this post…
+              <Orb size={16} /> Finding the products that fit this post…
             </div>
           ) : match.picks.length ? (
             <div className="drive-grid swap-recommended">{match.picks.map(card)}</div>
@@ -309,7 +310,7 @@ export default function ProductSwap({
           </div>
           {!options ? (
             <div className="journey-reading">
-              <LoaderCircle className="spinning" size={16} /> Opening the products…
+              <Orb size={16} /> Opening the products…
             </div>
           ) : shown.length ? (
             <div className="drive-grid">{shown.map(card)}</div>

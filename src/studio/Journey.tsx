@@ -13,7 +13,6 @@ import {
   HardDrive,
   Images,
   ImagePlus,
-  LoaderCircle,
   Minus,
   Plus,
   RefreshCw,
@@ -25,6 +24,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { del, get, post, postForm, put } from "@/api";
 import { renderOverlay } from "@/lib/overlay";
 import LevelLogo from "@/components/LevelLogo";
@@ -1362,7 +1362,7 @@ export default function Journey(p: JourneyProps) {
                     </small>
                   </span>
                   <button type="button" className="primary" disabled={p.continuing} onClick={() => void p.onContinue().then(() => setStep(1))}>
-                    {p.continuing ? <LoaderCircle className="spinning" size={14} /> : <Repeat size={14} />} Continue from {monthLabel(p.previousMonth)}
+                    {p.continuing ? <Orb size={14} /> : <Repeat size={14} />} Continue from {monthLabel(p.previousMonth)}
                   </button>
                 </div>
               )}
@@ -1712,7 +1712,7 @@ export default function Journey(p: JourneyProps) {
           <ol ref={(el) => el?.scrollTo({ top: el.scrollHeight })}>
             {auto.lines.map((l, i) => (
               <li key={i} className={l.state}>
-                {l.state === "run" && auto.on ? <LoaderCircle className="spinning" size={13} /> : l.state === "warn" ? <TriangleAlert size={13} /> : <Check size={13} />}
+                {l.state === "run" && auto.on ? <Orb size={13} /> : l.state === "warn" ? <TriangleAlert size={13} /> : <Check size={13} />}
                 <span>
                   <small>{l.step}</small>
                   {l.text}
@@ -1721,7 +1721,7 @@ export default function Journey(p: JourneyProps) {
             ))}
             {auto.on && !auto.lines.some((l) => l.state === "run") && (
               <li className="run">
-                <LoaderCircle className="spinning" size={13} />
+                <Orb size={13} />
                 <span>
                   <small>{STEPS[step].title}</small>
                   {blocking.find((i) => /^Wait/.test(i.text))?.text ?? "Checking this screen…"}
@@ -1760,7 +1760,7 @@ export default function Journey(p: JourneyProps) {
                   // What is left after one go never holds the journey (the review after each image checks it).
                   onClick={() => void fixAll(issues.filter((i) => i.fix)).then(() => setAutoTried(true))}
                 >
-                  {fixing === "all" ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Fix all for me
+                  {fixing === "all" ? <Orb size={13} /> : <Wand2 size={13} />} Fix all for me
                 </button>
               )}
               <button type="button" className="icon-button" onClick={() => setShowIssues(false)} aria-label="Close">
@@ -1776,7 +1776,7 @@ export default function Journey(p: JourneyProps) {
                   </span>
                   {i.fix && (
                     <button type="button" className="secondary" disabled={!!fixing} onClick={() => void runFix(`${n}`, i.fix!.run)}>
-                      {fixing === `${n}` ? <LoaderCircle className="spinning" size={13} /> : null}
+                      {fixing === `${n}` ? <Orb size={13} /> : null}
                       {i.fix.label}
                     </button>
                   )}
@@ -1833,7 +1833,7 @@ export default function Journey(p: JourneyProps) {
               data-blocked={blocking.length > 0 || undefined}
               title={blocking.length ? "Fix the list first" : ""}
             >
-              {moving || reading ? <LoaderCircle className="spinning" size={15} /> : null}
+              {moving || reading ? <Orb size={15} /> : null}
               Next
               {!moving && !reading && <ArrowRight size={15} />}
             </button>
@@ -1869,8 +1869,7 @@ function BoxTitle({ kit, children, actions }: { kit: KitKey; children: ReactNode
 function Reading() {
   return (
     <div className="journey-reading">
-      <LoaderCircle className="spinning" size={18} />
-      Reading your pins: colours, visual language and one shot per picture…
+      <Orb size={30} status="Reading your pins: colours, visual language and one shot per picture…" />
     </div>
   );
 }
@@ -1897,16 +1896,13 @@ function Analysis({
         <strong>What I understood</strong>
         <span className="journey-box-actions">
           <button type="button" className="text-button" onClick={onRun} disabled={busy} title="Read this screen again">
-            {busy ? <LoaderCircle className="spinning" size={13} /> : <RefreshCw size={13} />}
+            {busy ? <Orb size={13} /> : <RefreshCw size={13} />}
           </button>
         </span>
       </div>
       {busy && !note ? (
-        <div className="analysis-skeleton">
-          <i />
-          <i />
-          <i />
-          <i />
+        <div className="analysis-wait">
+          <Orb size={44} status="Reading this screen…" />
         </div>
       ) : note ? (
         <>
@@ -1973,7 +1969,7 @@ function ProductsBox(p: JourneyProps & { client: Client }) {
         kit="references"
         actions={
           <button type="button" className="text-button" onClick={() => input.current?.click()} disabled={p.uploading}>
-            {p.uploading ? <LoaderCircle className="spinning" size={13} /> : <Upload size={13} />} Upload
+            {p.uploading ? <Orb size={13} /> : <Upload size={13} />} Upload
           </button>
         }
       >
@@ -2114,7 +2110,7 @@ function BriefBox({
             )}
             <span className="spacer" />
             <button type="button" className="primary" onClick={() => void plan()} disabled={busy || text.trim().length < 20}>
-              {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {busy ? "Planning your brief…" : "Plan from the brief"}
+              {busy ? <Orb size={13} /> : <Wand2 size={13} />} {busy ? "Planning your brief…" : "Plan from the brief"}
             </button>
           </div>
           {kept.length > 0 && (
@@ -2213,14 +2209,14 @@ function GalleryBox({
               disabled={uploading}
               title="Upload new product photos: they join this month and stay in the gallery for every month after"
             >
-              {uploading ? <LoaderCircle className="spinning" size={13} /> : <Upload size={13} />} Upload
+              {uploading ? <Orb size={13} /> : <Upload size={13} />} Upload
             </button>
             <button type="button" className="text-button" onClick={() => setDrive(true)} disabled={uploading} title="Pick photos from the client's Google Drive">
               <HardDrive size={13} /> Drive
             </button>
             {offered.length > 0 && (
               <button type="button" className="text-button" onClick={() => void add(picked.length ? picked : shown.map((g) => g.id))} disabled={adding}>
-                {adding ? <LoaderCircle className="spinning" size={13} /> : <Plus size={13} />}
+                {adding ? <Orb size={13} /> : <Plus size={13} />}
                 {picked.length ? `Add ${picked.length}` : `Add all${cat ? ` ${cat}` : ""}`}
               </button>
             )}
@@ -2263,7 +2259,7 @@ function GalleryBox({
       )}
       {items === null ? (
         <div className="journey-reading">
-          <LoaderCircle className="spinning" size={16} /> Opening the gallery…
+          <Orb size={16} /> Opening the gallery…
         </div>
       ) : shown.length ? (
         <div className="journey-thumbs">
@@ -2387,7 +2383,7 @@ function MonthShots({
               disabled={busy || styling || !plan.length}
               title="Pick styles from the gallery: each is written for its post's product"
             >
-              {styling ? <LoaderCircle className="spinning" size={13} /> : <Images size={13} />} Styles{styled ? ` · ${styled}` : ""}
+              {styling ? <Orb size={13} /> : <Images size={13} />} Styles{styled ? ` · ${styled}` : ""}
             </button>
             {onReadPins && (
               <button type="button" className="text-button" onClick={onReadPins} disabled={busy} title="Read the pins again, then write the shots again">
@@ -2395,7 +2391,7 @@ function MonthShots({
               </button>
             )}
             <button type="button" className="text-button" onClick={onRewrite} disabled={busy || styling || (empty && !styled) || !plan.length} title="Write every post's shot again (a styled post from its style)">
-              {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Rewrite
+              {busy ? <Orb size={13} /> : <Wand2 size={13} />} Rewrite
             </button>
           </>
         }
@@ -2409,7 +2405,7 @@ function MonthShots({
       )}
       {busy && !written ? (
         <div className="journey-reading">
-          <LoaderCircle className="spinning" size={18} />
+          <Orb size={18} />
           Writing one shot per post from your pins, products and colours…
         </div>
       ) : empty ? (
@@ -2534,9 +2530,8 @@ function ShotRow({
           aria-label={`Shot of post ${post.index}`}
         />
       ) : (
-        <div className="analysis-skeleton">
-          <i />
-          <i />
+        <div className="analysis-wait">
+          <Orb size={44} status="Reading this screen…" />
         </div>
       )}
     </li>
@@ -2727,7 +2722,7 @@ function CalendarBox({
                   }}
                   title="Upload the official portrait: it is framed on the post exactly as it is, never redrawn"
                 >
-                  {uploading === o.id ? <LoaderCircle className="spinning" size={12} /> : hasPhoto ? <Check size={12} /> : <ImagePlus size={12} />}
+                  {uploading === o.id ? <Orb size={12} /> : hasPhoto ? <Check size={12} /> : <ImagePlus size={12} />}
                   {hasPhoto ? "Portrait added" : "Official portrait"}
                 </button>
               )}
@@ -2871,7 +2866,7 @@ function IdeasStep({
           </p>
         </div>
         <button type="button" className="secondary journey-head-action" onClick={() => onGenerate(copy)} disabled={busy}>
-          {busy ? <LoaderCircle className="spinning" size={15} /> : <Wand2 size={15} />}
+          {busy ? <Orb size={15} /> : <Wand2 size={15} />}
           {plan.length ? "Write the ideas again" : "Generate ideas"}
         </button>
       </div>
@@ -2911,7 +2906,7 @@ function IdeasStep({
                   onGenerate(copy.trim());
                 }}
               >
-                {busy ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} {plan.length ? "Write the ideas again with this brief" : "Write the ideas with this brief"}
+                {busy ? <Orb size={13} /> : <Wand2 size={13} />} {plan.length ? "Write the ideas again with this brief" : "Write the ideas with this brief"}
               </button>
             </div>
           </>
@@ -2923,12 +2918,9 @@ function IdeasStep({
         <div className="journey-boxes idea-grid" style={grid}>
           {Array.from({ length: n }, (_, i) => (
             <div key={i} className="journey-box idea-card skeleton" style={{ "--i": i } as React.CSSProperties}>
-              <div className="analysis-skeleton">
-                <i />
-                <i />
-                <i />
-                <i />
-              </div>
+              <div className="analysis-wait">
+          <Orb size={44} status="Reading this screen…" />
+        </div>
             </div>
           ))}
         </div>
@@ -3047,7 +3039,7 @@ function IdeaCard({
             onClick={() => onRewrite({ ...post, offer })}
             title={offerReady(offer) ? "" : "Pick the products, write the price and what the offer includes"}
           >
-            {rewriting ? <LoaderCircle className="spinning" size={13} /> : <Wand2 size={13} />} Write the offer post
+            {rewriting ? <Orb size={13} /> : <Wand2 size={13} />} Write the offer post
           </button>
         </div>
       ) : null}
@@ -3274,7 +3266,7 @@ function MagicStep({
                   <span className="magic-test-wait">Failed: {testPost.error ?? "try again"}</span>
                 ) : (
                   <span className="magic-test-wait">
-                    <LoaderCircle className="spinning" size={18} /> Generating…
+                    <Orb variant="generate" size={26} status={null} /> Generating…
                   </span>
                 )}
               </div>
@@ -3283,7 +3275,7 @@ function MagicStep({
                   <p className="field-hint">The image arrives in about a minute, then I check it against the product photo.</p>
                 ) : reviewing ? (
                   <p className="field-hint">
-                    <LoaderCircle className="spinning" size={13} /> Checking the product, writing, bags, drinks and people…
+                    <Orb size={13} /> Checking the product, writing, bags, drinks and people…
                   </p>
                 ) : flags ? (
                   flags.length ? (
@@ -3348,7 +3340,7 @@ function MagicStep({
           }
         }}
       >
-        {going ? <LoaderCircle className="spinning" size={18} /> : <Sparkles size={18} />}
+        {going ? <Orb size={18} /> : <Sparkles size={18} />}
         {testPost?.url && !testBusy ? `Looks right · generate the other ${Math.max(0, plan.length - (testPost.draft ? 0 : 1))}` : `Generate ${plan.length} posts`}
       </button>
       <div className="magic-test-row">
@@ -3369,7 +3361,7 @@ function MagicStep({
           ))}
         </select>
         <button type="button" className="secondary" disabled={testing || testBusy || !plan.length} onClick={() => void runTest()}>
-          {testing || testBusy ? <LoaderCircle className="spinning" size={14} /> : <FlaskConical size={14} />}
+          {testing || testBusy ? <Orb size={14} /> : <FlaskConical size={14} />}
           {testPost ? "Test again" : "Test one post"}
         </button>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LoaderCircle, Type } from "lucide-react";
+import { ChevronDown, Type } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { TYPO_LABELS, TYPO_STYLES, type TypoStyle } from "@shared/typography";
 
 /**
@@ -66,7 +67,7 @@ export default function TypographyControls({
   return (
     <span className="typo-controls" ref={box}>
       <button type="button" className={className} disabled={disabled || !!busy} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        {busy === "set" ? <LoaderCircle className="spinning" size={15} /> : <Type size={15} />} Typography styles <ChevronDown size={13} />
+        {busy === "set" ? <Orb size={15} /> : <Type size={15} />} Typography styles <ChevronDown size={13} />
       </button>
       {set && (
         <label className={`typo-switch ${on ? "on" : ""}`} title={on ? "Switch off: every post shows its plain headline" : "Switch on: the typography comes back"}>
@@ -74,7 +75,7 @@ export default function TypographyControls({
           <span className="typo-switch-track">
             <span />
           </span>
-          {busy === "switch" ? <LoaderCircle className="spinning" size={12} /> : on ? "On" : "Off"}
+          {busy === "switch" ? <Orb size={12} /> : on ? "On" : "Off"}
         </label>
       )}
       {open && (

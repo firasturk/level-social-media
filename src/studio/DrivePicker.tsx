@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, FolderOpen, LoaderCircle, RefreshCw, Sparkles } from "lucide-react";
+import { Check, Copy, FolderOpen, RefreshCw, Sparkles } from "lucide-react";
+import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { get, post, put } from "@/api";
@@ -160,7 +161,7 @@ export default function DrivePicker({
 
         {!state ? (
           <div className="journey-reading">
-            <LoaderCircle className="spinning" size={16} /> Opening the Drive folder…
+            <Orb size={16} /> Opening the Drive folder…
           </div>
         ) : needsLink ? (
           <div className="drive-connect">
@@ -188,7 +189,7 @@ export default function DrivePicker({
             <div className="footer-actions">
               <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" dir="ltr" aria-label="Drive folder link" />
               <button type="button" className="primary" onClick={() => void saveLink()} disabled={saving || !link.trim()}>
-                {saving ? <LoaderCircle className="spinning" size={16} /> : <FolderOpen size={16} />} Connect
+                {saving ? <Orb size={16} /> : <FolderOpen size={16} />} Connect
               </button>
             </div>
             <button type="button" className="text-button drive-all" onClick={() => void connectAll()} disabled={saving || !link.trim()} title="For a folder that holds every client's folder">
@@ -272,11 +273,11 @@ export default function DrivePicker({
             )}
             <div className="footer-actions drive-actions">
               <button type="button" className="secondary" onClick={() => void pickForMe()} disabled={picking || !!adding || !list.length}>
-                {picking ? <LoaderCircle className="spinning" size={16} /> : <Sparkles size={16} />}
+                {picking ? <Orb size={16} /> : <Sparkles size={16} />}
                 {picking ? "Looking at the photos…" : `Pick the best ${count} for me${top ? ` in ${top}` : ""}`}
               </button>
               <button type="button" className="primary" onClick={() => void add()} disabled={!picked.length || !!adding || !batchId}>
-                {adding ? <LoaderCircle className="spinning" size={16} /> : <Check size={16} />}
+                {adding ? <Orb size={16} /> : <Check size={16} />}
                 {adding ? `Adding ${picked.length}…` : `Add ${picked.length || ""} to this month`}
               </button>
             </div>
