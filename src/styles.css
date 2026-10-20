@@ -13612,9 +13612,9 @@ select {
   margin-top: 4px;
 }
 .lessons-filters .journey-chip.active {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--canvas);
+  background: #ececec;
+  border-color: #ececec;
+  color: #141416;
 }
 .lessons-filters .journey-chip em {
   margin-left: 6px;
