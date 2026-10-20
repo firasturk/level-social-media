@@ -630,25 +630,34 @@ export function FeedStep({
           )}
           {posts.some((x) => x.flags?.length && !MAKING.includes(x.status)) && (
             <div className="feed-check">
-              <strong>To check</strong>
               {posts
                 .filter((x) => x.flags?.length && !MAKING.includes(x.status))
                 .map((x) => (
-                  <div key={x.index} className="feed-check-item">
-                    <span>
-                      <b>Post {x.index}</b> {x.flags!.map((f) => f.text).join("; ")}
+                  <div key={x.index} className="text-finding warn">
+                    <span className="text-finding-icon" aria-hidden>
+                      <TriangleAlert size={15} />
                     </span>
-                    <button
-                      type="button"
-                      className="text-button"
-                      disabled={fixingPost !== null}
-                      onClick={() => {
-                        setFixingPost(x.index);
-                        void onFix(x.index, fixNote(x.flags!)).finally(() => setFixingPost(null));
-                      }}
-                    >
-                      {fixingPost === x.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
-                    </button>
+                    <span className="text-finding-text">
+                      <b>Post {x.index} · to check</b>
+                      <ul className="text-finding-list">
+                        {x.flags!.map((f, n) => (
+                          <li key={n}>{f.text}</li>
+                        ))}
+                      </ul>
+                      <span className="design-card-actions">
+                        <button
+                          type="button"
+                          className="secondary btn-pill"
+                          disabled={fixingPost !== null}
+                          onClick={() => {
+                            setFixingPost(x.index);
+                            void onFix(x.index, fixNote(x.flags!)).finally(() => setFixingPost(null));
+                          }}
+                        >
+                          {fixingPost === x.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
+                        </button>
+                      </span>
+                    </span>
                   </div>
                 ))}
             </div>
@@ -658,11 +667,11 @@ export function FeedStep({
             posts ready · {FORMAT_INFO[format].label} · {monthLabel(month)}
             {flagged ? `. ${flagged} still have points from the review: open them in the studio before sending.` : "."}
           </p>
-          <button type="button" className="primary" disabled={sharing} onClick={() => void run(setSharing, onShare)}>
+          <button type="button" className="primary btn-pill" disabled={sharing} onClick={() => void run(setSharing, onShare)}>
             {sharing ? <Orb size={15} /> : <Share2 size={15} />} Copy the client's approval link
           </button>
           <TypographyControls {...typography} disabled={!ready} />
-          <button type="button" className="secondary" disabled={exporting} onClick={() => void run(setExporting, onExport)}>
+          <button type="button" className="secondary btn-pill" disabled={exporting} onClick={() => void run(setExporting, onExport)}>
             {exporting ? <Orb size={15} /> : <Download size={15} />} Download the month
           </button>
           {(comments.length > 0 || approvedCount > 0) && (
@@ -671,12 +680,16 @@ export function FeedStep({
                 The client's answers: {approvedCount} approved{comments.length ? `, ${comments.length} asking a change` : ""}
               </strong>
               {comments.map((p) => (
-                <div key={p.index} className="feed-comment">
-                  <span>Post {p.index}</span>
-                  <p dir="auto">“{approvals[String(p.index)].note}”</p>
+                <div key={p.index} className="feed-comment text-finding none">
+                  <span className="text-finding-icon" aria-hidden>
+                    <Eye size={15} />
+                  </span>
+                  <span className="text-finding-text">
+                    <b>Post {p.index} · the client asks</b>
+                    <span dir="auto">“{approvals[String(p.index)].note}”</span>
                   <button
                     type="button"
-                    className="text-button"
+                    className="secondary btn-pill"
                     disabled={fixing !== null || !posts.find((x) => x.index === p.index)?.url}
                     onClick={() => {
                       setFixing(p.index);
@@ -685,6 +698,7 @@ export function FeedStep({
                   >
                     {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make the change
                   </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -703,7 +717,7 @@ export function FeedStep({
               <strong dir="auto">{opened.headline ?? opened.title}</strong>
               <p dir="auto">{opened.caption}</p>
               <small dir="auto">{opened.hashtags}</small>
-              <button type="button" className="secondary" onClick={() => onOpenStudio(opened.index)}>
+              <button type="button" className="secondary btn-pill" onClick={() => onOpenStudio(opened.index)}>
                 <ArrowUpRight size={14} /> Open this post in the studio
               </button>
               {openedJob.flags?.find((f) => f.kind === "tile") && (

@@ -28,7 +28,7 @@ import {
   Trash2,
   Type,
   Wand2,
-  X,} from "lucide-react";
+  X, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
@@ -622,46 +622,12 @@ export default function PlanView({
                 <article
                   key={p.index}
                   id={`post-card-${p.index}`}
-                  className={`post-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${(() => {
+                  className={`post-card design-card studio-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${(() => {
                     // The review's verdict is the card's outline: red when something is to check, green when it passed.
                     const flags = t?.output && !inFlight ? reviewFlags(t) : null;
                     return flags ? (flags.length ? "qa-warn" : "qa-ok") : "";
                   })()}`}
                 >
-                  {(() => {
-                    const flags = t?.output && !inFlight ? reviewFlags(t) : null;
-                    const state = inFlight
-                      ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
-                      : t?.status === "failed"
-                        ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
-                        : flags
-                          ? null
-                          : t?.output
-                            ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
-                            : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
-                    return (
-                      <header className="post-head">
-                        <span className="post-num">{String(p.index).padStart(2, "0")}</span>
-                        <span className="post-type-pill">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                        {p.group && (
-                          <span className={`post-group ${p.group.kind}`} title={p.group.role ? `${p.group.kind}: ${p.group.role}` : p.group.kind}>
-                            {p.group.kind === "carousel" ? "Carousel" : "Series"} {p.group.slide}/{p.group.of}
-                            {p.group.role ? ` · ${p.group.role}` : ""}
-                          </span>
-                        )}
-                        {p.date && (
-                          <span className="post-day" title={occasionOn(p.date) || "Posting day"}>
-                            <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}
-                          </span>
-                        )}
-                        {state && (
-                          <span className={`post-state ${state.cls}`}>
-                            {state.icon} {state.text}
-                          </span>
-                        )}
-                      </header>
-                    );
-                  })()}
                   {p.type !== "greeting" && (
                     <div className={`post-style-row ${p.style ? "on" : ""} ${pendingStyle.has(p.index) ? "pending" : ""}`}>
                       <Palette size={14} />
@@ -740,6 +706,40 @@ export default function PlanView({
                     </div>
                   )}
                   <div className="post-media" onClick={() => t?.output && onOpen(t)}>
+                    {(() => {
+                      const flags = t?.output && !inFlight ? reviewFlags(t) : null;
+                      const state = inFlight
+                        ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
+                        : t?.status === "failed"
+                          ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
+                          : flags
+                            ? null
+                            : t?.output
+                              ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
+                              : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
+                      return (
+                        <header className="post-head">
+                          <span className="post-num">{String(p.index).padStart(2, "0")}</span>
+                          <span className="post-type-pill">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
+                          {p.group && (
+                            <span className={`post-group ${p.group.kind}`} title={p.group.role ? `${p.group.kind}: ${p.group.role}` : p.group.kind}>
+                              {p.group.kind === "carousel" ? "Carousel" : "Series"} {p.group.slide}/{p.group.of}
+                              {p.group.role ? ` · ${p.group.role}` : ""}
+                            </span>
+                          )}
+                          {p.date && (
+                            <span className="post-day" title={occasionOn(p.date) || "Posting day"}>
+                              <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}
+                            </span>
+                          )}
+                          {state && (
+                            <span className={`post-state ${state.cls}`}>
+                              {state.icon} {state.text}
+                            </span>
+                          )}
+                        </header>
+                      );
+                    })()}
                     {img && showOverlay && p.overlay !== false ? (
                       <OverlayPreview
                         src={img}
@@ -786,40 +786,48 @@ export default function PlanView({
                     )}
                   </div>
                   {t?.output && !inFlight && (reviewFlags(t)?.length ?? 0) > 0 && (
-                    <ul className="post-flags">
-                      {reviewFlags(t)!.map((f, n) => (
-                        <li key={n}>{f.text}</li>
-                      ))}
-                      {onFix && (
-                        <li className="post-flags-fix">
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={fixing !== null || running}
-                            onClick={() => {
-                              setFixing(p.index);
-                              void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
-                            }}
-                          >
-                            {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
-                          </button>
-                          {onAccept && (
+                    <div className="text-finding warn post-finding">
+                      <span className="text-finding-icon" aria-hidden>
+                        <TriangleAlert size={15} />
+                      </span>
+                      <span className="text-finding-text">
+                        <b>The review found something</b>
+                        <ul className="text-finding-list">
+                          {reviewFlags(t)!.map((f, n) => (
+                            <li key={n}>{f.text}</li>
+                          ))}
+                        </ul>
+                        {onFix && (
+                          <span className="design-card-actions">
                             <button
                               type="button"
-                              className="text-button"
-                              disabled={accepting !== null}
-                              title="Keep the picture as it is: the review's notes are cleared"
+                              className="primary btn-pill"
+                              disabled={fixing !== null || running}
                               onClick={() => {
-                                setAccepting(p.index);
-                                void onAccept(p.index).finally(() => setAccepting(null));
+                                setFixing(p.index);
+                                void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
                               }}
                             >
-                              {accepting === p.index ? <Orb size={13} /> : <Check size={13} />} Accept as is
+                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
                             </button>
-                          )}
-                        </li>
-                      )}
-                    </ul>
+                            {onAccept && (
+                              <button
+                                type="button"
+                                className="secondary btn-pill"
+                                disabled={accepting !== null}
+                                title="Keep the picture as it is: the review's notes are cleared"
+                                onClick={() => {
+                                  setAccepting(p.index);
+                                  void onAccept(p.index).finally(() => setAccepting(null));
+                                }}
+                              >
+                                {accepting === p.index ? <Orb size={13} /> : <Check size={13} />} Accept as is
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </span>
+                    </div>
                   )}
                   {batchId && onFix && (
                     <PostReferenceBox

@@ -12497,3 +12497,187 @@ select {
 .boot-screen .orb-status {
   color: #1a1a1a;
 }
+
+/* ───────────── Studio cards and the feed: the same card language ───────────── */
+.post-card.studio-card {
+  border-radius: 22px;
+  border-color: color-mix(in srgb, var(--line) 70%, transparent);
+}
+.post-card.studio-card.styled {
+  border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
+}
+.post-card.studio-card.qa-warn {
+  border-color: color-mix(in srgb, var(--warning) 50%, var(--line));
+  box-shadow: none;
+}
+.post-card.studio-card.qa-ok {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--line));
+  box-shadow: none;
+}
+.studio-card .post-media {
+  background: var(--surface-2);
+}
+.studio-card .post-head {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+.studio-card .post-num,
+.studio-card .post-type-pill,
+.studio-card .post-day,
+.studio-card .post-group,
+.studio-card .post-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: rgb(20 20 22 / 0.55);
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+  margin: 0;
+}
+.studio-card .post-type-pill {
+  background: color-mix(in srgb, var(--type) 80%, transparent);
+}
+.studio-card .post-day {
+  font-weight: 600;
+}
+.studio-card .post-state {
+  margin-left: auto;
+}
+.studio-card .post-state.ok { background: rgb(46 139 87 / 0.9); color: #fff; }
+.studio-card .post-state.warn { background: rgb(255 90 0 / 0.9); color: #fff; }
+.studio-card .post-state.failed { background: rgb(209 43 43 / 0.92); color: #fff; }
+.studio-card .post-state.making { background: rgb(32 56 226 / 0.85); color: #fff; }
+.studio-card .post-state.idea { background: rgb(20 20 22 / 0.55); color: #fff; }
+.studio-card .post-style-row,
+.studio-card .post-ref-row,
+.studio-card .post-ref,
+.studio-card .post-change,
+.studio-card .post-finding,
+.studio-card .post-rewriting {
+  margin: 12px 12px 0;
+  border-radius: 14px;
+  border: 0;
+  padding: 10px 12px;
+}
+.studio-card .post-style-row {
+  background: var(--surface-2);
+}
+.studio-card .post-style-row.on {
+  background: var(--blue-soft);
+}
+.studio-card .post-ref-row {
+  padding: 8px 12px;
+  background: var(--surface-2);
+}
+.studio-card .post-change,
+.studio-card .post-ref {
+  background: var(--surface-2);
+}
+.studio-card .post-ref.on {
+  background: var(--sky-soft);
+}
+.studio-card .post-change textarea,
+.studio-card .post-ref textarea {
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid transparent;
+  field-sizing: content;
+  min-height: 44px;
+}
+.studio-card .post-change textarea:focus,
+.studio-card .post-ref textarea:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.studio-card .post-fields {
+  padding: 12px;
+}
+.studio-card .post-section {
+  border-radius: 14px;
+}
+.studio-card .post-actions .primary,
+.studio-card .post-actions .secondary,
+.studio-card .post-style-row .primary,
+.studio-card .post-style-row .secondary,
+.studio-card .post-change button,
+.studio-card .post-ref-actions button {
+  border-radius: 999px;
+}
+.studio-card .post-open {
+  border-radius: 999px;
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+}
+.studio-card .post-finding .design-card-actions {
+  margin-top: 6px;
+}
+/* The feed */
+.feed-grid {
+  gap: 8px;
+}
+.feed-tile {
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.feed-mark {
+  width: 24px;
+  height: 24px;
+  top: 8px;
+  right: 8px;
+  backdrop-filter: blur(10px) saturate(1.4);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+.feed-check {
+  padding: 0;
+  background: transparent;
+  gap: 10px;
+}
+.feed-comments {
+  padding: 0;
+  background: transparent;
+  gap: 10px;
+}
+.feed-comment {
+  display: flex;
+}
+.feed-comment > span {
+  opacity: 1;
+  font-weight: 500;
+}
+.feed-comment .text-finding-text > span[dir] {
+  font-style: italic;
+}
+.feed-comment .btn-pill {
+  margin-top: 6px;
+  align-self: flex-start;
+}
+.feed-check .design-card-actions {
+  margin-top: 6px;
+}
+.feed-side .btn-pill {
+  justify-content: center;
+}
+.feed-open-card {
+  border-radius: 22px;
+}
+.feed-reference {
+  border-radius: 16px;
+  overflow: hidden;
+}
