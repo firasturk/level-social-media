@@ -20,8 +20,7 @@ export interface LearnedLesson {
 
 const SOURCE_LABEL: Record<string, string> = { review: "the review found it", client: "the client asked", retry: "fixed by itself" };
 const FILTERS = [
-  { id: "pending", label: "Waiting for you" },
-  { id: "approved", label: "Approved" },
+  { id: "approved", label: "Learned" },
   { id: "rejected", label: "Rejected" },
   { id: "all", label: "All" },
 ] as const;
@@ -31,12 +30,13 @@ function dayOf(t: number): string {
 }
 
 /**
- * Lessons learned: what the studio learned from its own mistakes, day by day. A lesson is used in
- * the prompts only once the admin approves it, so nothing wrong is taught by a slip of the review.
+ * Lessons learned: what the studio learned from its own mistakes, day by day. Every lesson is used
+ * by itself from the moment it is learned; the admin rejects the wrong ones here, and a rejected
+ * lesson is dropped from the prompts and never learned again.
  */
 export default function LessonsLearned({ onChange }: { onChange?: () => void }) {
   const [rows, setRows] = useState<LearnedLesson[] | null>(null);
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("pending");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]["id"]>("approved");
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -69,7 +69,8 @@ export default function LessonsLearned({ onChange }: { onChange?: () => void }) 
     const d = dayOf(l.last);
     days.set(d, [...(days.get(d) ?? []), l]);
   }
-  const waiting = (rows ?? []).filter((l) => l.status === "pending").length;
+  const today = Date.now() - 86_400_000;
+  const fresh = (rows ?? []).filter((l) => l.status === "approved" && l.first >= today).length;
 
   return (
     <div className="lessons-learned">
@@ -80,7 +81,7 @@ export default function LessonsLearned({ onChange }: { onChange?: () => void }) 
           </span>
         ) : (
           <span>
-            {waiting ? `${waiting} lesson${waiting === 1 ? "" : "s"} waiting for you` : "Nothing waiting"} · a lesson shapes the next pictures only once you approve it
+            {fresh ? `${fresh} lesson${fresh === 1 ? "" : "s"} learned in the last day` : "Nothing new in the last day"} · every lesson shapes the next pictures by itself; reject the wrong ones here
           </span>
         )}
       </div>
@@ -88,11 +89,11 @@ export default function LessonsLearned({ onChange }: { onChange?: () => void }) 
         {FILTERS.map((f) => (
           <button key={f.id} type="button" role="tab" aria-selected={filter === f.id} className={`journey-chip small ${filter === f.id ? "active" : ""}`} onClick={() => setFilter(f.id)}>
             {f.label}
-            {f.id === "pending" && waiting > 0 && <em>{waiting}</em>}
+            {f.id === "approved" && fresh > 0 && <em>{fresh} new</em>}
           </button>
         ))}
       </div>
-      {rows && !shown.length && <p className="style-empty">{filter === "pending" ? "Nothing waiting: every mistake the studio finds lands here the same day." : "Nothing here yet."}</p>}
+      {rows && !shown.length && <p className="style-empty">{filter === "rejected" ? "Nothing rejected yet." : "Nothing learned yet: every mistake the studio finds lands here the same day."}</p>}
       {[...days.entries()].map(([day, list]) => (
         <section key={day} className="lessons-day">
           <h3>{day}</h3>
@@ -104,7 +105,7 @@ export default function LessonsLearned({ onChange }: { onChange?: () => void }) 
                   <span className="lesson-kind">{l.kind}</span>
                   <span className="lesson-source">{SOURCE_LABEL[l.source] ?? l.source}</span>
                   {l.seen > 1 && <span className="lesson-seen">seen {l.seen}×</span>}
-                  <span className={`lesson-status ${l.status}`}>{l.status === "pending" ? "waiting" : l.status}</span>
+                  <span className={`lesson-status ${l.status}`}>{l.status === "approved" ? (l.first >= today ? "new today" : "in use") : l.status === "rejected" ? "rejected" : "set aside"}</span>
                 </div>
                 <p className="lesson-text" dir="auto">
                   {l.text}
@@ -113,20 +114,19 @@ export default function LessonsLearned({ onChange }: { onChange?: () => void }) 
                   <span>Rule it becomes:</span> {l.rule}
                 </p>
                 <div className="lesson-actions">
-                  {l.status !== "approved" && (
-                    <button type="button" className="btn-pill primary" disabled={busy === l.id} onClick={() => void judge(l.id, "approved")}>
-                      <Check size={13} /> Approve
-                    </button>
-                  )}
-                  {l.status !== "rejected" && (
-                    <button type="button" className="btn-pill" disabled={busy === l.id} onClick={() => void judge(l.id, "rejected")}>
+                  {l.status === "approved" ? (
+                    <button type="button" className="btn-pill" disabled={busy === l.id} onClick={() => void judge(l.id, "rejected")} title="Wrong lesson: the prompts drop it and it is never learned again">
                       <X size={13} /> Reject
                     </button>
-                  )}
-                  {l.status !== "pending" && (
-                    <button type="button" className="btn-pill" disabled={busy === l.id} onClick={() => void judge(l.id, "pending")} title="Back to the waiting list">
-                      <RotateCcw size={13} /> Undo
+                  ) : (
+                    <button type="button" className="btn-pill primary" disabled={busy === l.id} onClick={() => void judge(l.id, "approved")} title="Bring it back into use">
+                      <Check size={13} /> Use it again
                     </button>
+                  )}
+                  {l.status === "rejected" && (
+                    <span className="lesson-rule">
+                      <RotateCcw size={12} /> dropped from the prompts
+                    </span>
                   )}
                 </div>
               </li>

@@ -1784,7 +1784,7 @@ function LessonsSection({ client }: { client: Client }) {
                 {l.text}
               </span>
               {l.seen > 1 && <span className="lesson-seen">×{l.seen}</span>}
-              {l.status && l.status !== "approved" && <span className="lesson-seen" title="Approve it on the Approvals page: Lessons learned">{l.status === "pending" ? "waiting" : "rejected"}</span>}
+              {l.status === "rejected" && <span className="lesson-seen" title="Rejected on the Approvals page: the prompts drop it">rejected</span>}
               <button type="button" className="lesson-forget" aria-label="Forget this lesson" disabled={busy} onClick={() => forget(l.id)}>
                 ×
               </button>

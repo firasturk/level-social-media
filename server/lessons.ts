@@ -22,7 +22,7 @@ export interface LessonRow {
   first: number;
   last: number;
   batch: string | null;
-  /** pending: waits for the admin; approved: the prompts carry it; rejected: a false alarm, kept so it is not suggested again. */
+  /** approved: the prompts carry it (every new lesson, by itself); rejected: the admin called it wrong, kept so it is not learned again; pending: set aside. */
   status: "pending" | "approved" | "rejected";
   /** review: the automatic review found it; client: the client asked for it; retry: a take made again by itself. */
   source: string;
@@ -42,7 +42,7 @@ export async function rememberLessons(env: Env, client: string | null, batch: st
   for (const f of flags) await rememberLesson(env, client, batch, f.kind, f.text, source);
 }
 
-/** One lesson, new and waiting for the admin, or seen once more (its status is kept). */
+/** One lesson, approved by itself the moment it is learned, or seen once more (a rejected one stays rejected). */
 export async function rememberLesson(env: Env, client: string | null, batch: string | null, kind: string, rawText: string, source: LessonSource): Promise<void> {
   if (!client) return;
   const text = rawText.replace(/\s+/g, " ").trim().slice(0, 300);
@@ -50,7 +50,7 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
   const t = now();
   await run(
     env.DB,
-    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'pending', ?) ON CONFLICT(client, text) DO UPDATE SET seen = seen + 1, last = excluded.last, batch = excluded.batch",
+    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'approved', ?) ON CONFLICT(client, text) DO UPDATE SET seen = seen + 1, last = excluded.last, batch = excluded.batch",
     uuid(),
     client,
     kind,
@@ -60,17 +60,17 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
     batch,
     source,
   );
-  // The oldest rarely-seen lessons make room (never one the admin approved).
+  // The oldest rarely-seen lessons make room (a rejected one is kept so it is not learned again).
   await run(
     env.DB,
-    "DELETE FROM lessons WHERE client = ? AND status != 'approved' AND id NOT IN (SELECT id FROM lessons WHERE client = ? ORDER BY seen DESC, last DESC LIMIT ?)",
+    "DELETE FROM lessons WHERE client = ? AND status != 'rejected' AND id NOT IN (SELECT id FROM lessons WHERE client = ? ORDER BY seen DESC, last DESC LIMIT ?)",
     client,
     client,
     MAX_LESSONS,
   );
 }
 
-/** The lines a prompt carries for this client, worded as rules: only lessons the admin approved. */
+/** The lines a prompt carries for this client, worded as rules: every lesson the admin has not rejected. */
 export async function lessonsFor(env: Env, client: string | null): Promise<string[]> {
   if (!client) return [];
   const rows = await all<LessonRow>(
@@ -103,14 +103,14 @@ lessonRoutes.get("/learned", async (c) => {
   return c.json(rows.map(lessonJson));
 });
 
-/** How many lessons wait for the admin (the sidebar badge). */
+/** How many lessons the studio learned in the last day (the sidebar badge). */
 lessonRoutes.get("/pending", async (c) => {
   if (c.get("user").role !== "admin") return c.json({ ok: true, n: 0 });
-  const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM lessons WHERE status = 'pending'"))?.n ?? 0;
+  const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM lessons WHERE status = 'approved' AND first >= ?", now() - 86_400_000))?.n ?? 0;
   return c.json({ ok: true, n });
 });
 
-/** The admin approves a lesson (the prompts carry it from now on) or rejects it (a false alarm). */
+/** The admin rejects a lesson that is wrong (the prompts drop it) or brings a rejected one back. */
 lessonRoutes.put("/:id", async (c) => {
   if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
   const d = z.object({ status: z.enum(["pending", "approved", "rejected"]) }).parse(await c.req.json().catch(() => ({})));

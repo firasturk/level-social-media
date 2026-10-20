@@ -13583,7 +13583,8 @@ select {
   color: var(--text-muted);
   font-size: 11.5px;
 }
-.lesson-card .lesson-status.pending {
+.lesson-card .lesson-status.pending,
+.lesson-card .lesson-status.rejected {
   background: var(--warning-soft);
   color: var(--warning-text);
 }
