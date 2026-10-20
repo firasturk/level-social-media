@@ -89,7 +89,7 @@ export default function Sidebar({
             <BadgeCheck size={17} />
             <span className="sb-text">Approvals</span>
             {pendingStyles > 0 && (
-              <span className="count waiting" title={`${pendingStyles} styles and grids waiting for your approval`}>
+              <span className="count waiting" title={`${pendingStyles} styles, grids and lessons waiting for your approval`}>
                 {pendingStyles}
               </span>
             )}

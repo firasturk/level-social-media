@@ -847,6 +847,11 @@ export default function PlanView({
                         “{approvals[String(p.index)].note}”
                       </p>
                     )}
+                    {!approvals[String(p.index)] && p.clientNote && (
+                      <p className="post-approval-note done" dir="auto" title={p.clientNote.summary || ""}>
+                        Client asked “{p.clientNote.note}” · done{p.clientNote.summary ? `: ${p.clientNote.summary}` : ""}
+                      </p>
+                    )}
                     {p.product && !product && p.type !== "offer" && (
                       <p className="occasion-note warn">
                         <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's

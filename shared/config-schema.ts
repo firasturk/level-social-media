@@ -98,6 +98,7 @@ export const postSchema = z.object({
   exact: z.boolean().optional(),
   ingredients: z.string().max(300).optional(),
   reference: z.object({ key: z.string().max(200), thumb: z.string().max(200), note: z.string().max(600).optional(), name: z.string().max(200).optional(), at: z.number() }).optional(),
+  clientNote: z.object({ note: z.string().max(1000), at: z.number(), summary: z.string().max(300).optional() }).optional(),
   offer: z
     .object({
       products: z.array(z.string().max(300)).max(6),

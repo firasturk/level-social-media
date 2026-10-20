@@ -155,6 +155,8 @@ export interface Post {
   ingredients?: string;
   /** A picture the designer attached to this post as a reference for its next take or revision. */
   reference?: PostReference;
+  /** The client's last change request on this post, and what the studio did about it. */
+  clientNote?: { note: string; at: number; summary?: string };
   /** When the designer last changed the idea or the shot by hand: a picture older than this is offered an update. */
   ideaAt?: number;
   /** Which tile of a reference grid this post follows (grid mode). */
@@ -266,6 +268,12 @@ export interface PostBrief {
   campaign?: { ingredients?: string };
   /** The designer's own reference picture for this take, attached after the style reference. */
   editRef?: { key: string; note?: string };
+  /** The client's change request this take answers. */
+  clientChange?: string;
+  /** The post's original reference (its own reference or its brief style's picture): a take that drifts from the idea is made again from it. */
+  originalRef?: string;
+  /** This take is already the second one, made from the original reference. */
+  retried?: boolean;
   /** The post's occasion id (Coffee Day may show coffee). */
   occasionId?: string;
   /** Further products attached after image 1, in order: their names, notes and R2 keys. */
@@ -665,6 +673,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `Image ${n} is a reference picture the designer attached for this take${note ? `, with this note on what to take from it: "${note}"` : ""}. ${note ? "Do exactly what the note says with it" : "Take its composition, light, colour world, props and mood"} and keep everything else as the brief below says. Nothing of the reference's own product, packaging, text, logo or people is copied: the product stays this brand's product exactly as photographed. Every sign, caption, lettering or wordmark the reference carries is absent, so nothing written appears anywhere; the reference's own clothing, headwear and nationality cues (a thobe, a ghutra, a uniform, a European house) are not copied either: the people, clothes and place are the brief's own.`,
     );
   }
+  if (b.clientChange?.trim()) parts.push(`THE CLIENT asked for this change on the earlier take and it is done exactly: "${b.clientChange.trim().slice(0, 300)}".`);
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
   if (b.exact && !images.revision)
     parts.push(

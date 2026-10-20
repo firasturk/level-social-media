@@ -10,10 +10,13 @@ import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
-import { facesIn, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction } from "@shared/qa";
+import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
+
+/** Findings a second take fixes by itself (a face that looks generated or broken hands never trigger one: that doubled the cost of every post with people). */
+const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile"]);
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
-import { rememberLessons } from "./lessons";
+import { rememberLesson, rememberLessons } from "./lessons";
 import {
   StudioError,
   errorMessage,
@@ -481,6 +484,53 @@ async function storeResultBytes(
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
+    }
+    // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
+    // from the post's original reference with the idea as the note; the drift stays as a lesson.
+    const pb = postBrief(task);
+    const drifted = qa.automated && (qa.flags ?? []).some((f) => f.kind === "idea");
+    if (drifted && pb.originalRef && !pb.retried) {
+      const retry: PostBrief = {
+        ...pb,
+        retried: true,
+        styleKey: undefined,
+        noRefImage: undefined,
+        editRef: {
+          key: pb.originalRef,
+          note: `Recreate this exact idea, element by element, with the brand's product in it: ${pb.brief.slice(0, 700)}${pb.clientChange ? ` The client asked: "${pb.clientChange.slice(0, 200)}".` : ""} Nothing written appears anywhere.`,
+        },
+      };
+      const done = await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', prompt = ?, brief = ?, qa = ?, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        buildPostPrompt(retry),
+        JSON.stringify(retry),
+        JSON.stringify({ ...qa, notes: "Drifted from its idea: being made again from the original reference." }),
+        now(),
+        task.id,
+        key,
+      );
+      console.log(`[idea] task ${task.id} post ${pb.index} drifted; retry from original reference queued`, done);
+      if (done) await rememberLesson(env, batch.client, batch.id, "idea", `Post ${pb.index} drifted from its idea and was made again from its original reference: ${(qa.flags ?? []).find((f) => f.kind === "idea")?.text ?? ""}`, "retry").catch(() => undefined);
+      return;
+    }
+    // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
+    // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
+    const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
+    if (fixable.length && !pb.retried) {
+      const retry: PostBrief = { ...pb, retried: true };
+      const done = await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', brief = ?, edit = ?, qa = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        JSON.stringify(retry),
+        fixNote(fixable),
+        JSON.stringify({ ...qa, notes: `Being made again by itself: ${fixable.map((f) => f.text).join(" ")}` }),
+        now(),
+        task.id,
+        key,
+      );
+      console.log(`[self-fix] task ${task.id} post ${pb.index}: ${fixable.map((f) => f.kind).join(",")}`, done);
+      if (done) return;
     }
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)

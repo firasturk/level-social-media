@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Grid3x3, Link2, PanelLeft, Share2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Grid3x3, Link2, MessageSquareReply, PanelLeft, Share2 } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import type { Config } from "@shared/config";
 import type { Theme } from "@shared/types";
@@ -25,6 +25,8 @@ export default function BriefCard({
   kitOpen,
   onKit,
   onWhatsApp,
+  onClientChanges,
+  clientChangesBusy,
 }: {
   config: Config;
   theme: Theme | null;
@@ -41,6 +43,9 @@ export default function BriefCard({
   /** The brand kit panel: open or folded away. */
   kitOpen?: boolean;
   onKit?: () => void;
+  /** Apply the client's change requests from the approval page and make those posts again. */
+  onClientChanges?: () => void;
+  clientChangesBusy?: boolean;
   /** Sends the client's link on WhatsApp. */
   onWhatsApp?: () => void;
 }) {
@@ -104,6 +109,11 @@ export default function BriefCard({
         <button type="button" className="secondary" onClick={onShare} title="Copy a link the client opens to approve the posts">
           <Link2 size={14} /> Client link
         </button>
+        {onClientChanges && changes > 0 && (
+          <button type="button" className="primary" onClick={onClientChanges} disabled={clientChangesBusy} title="Read what the client asked on the approval page, change those posts and make them again">
+            {clientChangesBusy ? <Orb size={12} /> : <MessageSquareReply size={14} />} Do client comments ({changes})
+          </button>
+        )}
         {onWhatsApp && made > 0 && (
           <button type="button" className="secondary" onClick={onWhatsApp} title="Send the client's link on WhatsApp">
             <Share2 size={14} /> WhatsApp

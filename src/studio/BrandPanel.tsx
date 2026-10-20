@@ -1718,6 +1718,7 @@ interface Lesson {
   seen: number;
   last: number;
   rule: string;
+  status?: "pending" | "approved" | "rejected";
 }
 
 /**
@@ -1783,6 +1784,7 @@ function LessonsSection({ client }: { client: Client }) {
                 {l.text}
               </span>
               {l.seen > 1 && <span className="lesson-seen">×{l.seen}</span>}
+              {l.status && l.status !== "approved" && <span className="lesson-seen" title="Approve it on the Approvals page: Lessons learned">{l.status === "pending" ? "waiting" : "rejected"}</span>}
               <button type="button" className="lesson-forget" aria-label="Forget this lesson" disabled={busy} onClick={() => forget(l.id)}>
                 ×
               </button>

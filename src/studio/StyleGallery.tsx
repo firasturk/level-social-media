@@ -5,6 +5,7 @@ import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, Maximize2, RefreshCw,
 import { Orb } from "@/components/Orb";
 import { del, get, post, postForm } from "@/api";
 import { AnimatedLevelLogo } from "@/components/LevelLogo";
+import LessonsLearned from "./LessonsLearned";
 import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
 
 type Page = {
@@ -178,6 +179,7 @@ export default function StyleScreen({
 
   const load = useCallback(
     async (force = false) => {
+      if (tab === "lessons") return;
       const cached = pages.get(key);
       if (cached) setData(cached);
       if (cached && !force) return;
@@ -190,7 +192,7 @@ export default function StyleScreen({
         setLoading(false);
       }
     },
-    [key, apply, query],
+    [key, apply, query, tab],
   );
 
   useEffect(() => {
@@ -382,6 +384,7 @@ export default function StyleScreen({
     ? [
         { id: "review-grid", label: "Grids to approve" },
         { id: "review-style", label: "Styles to approve" },
+        { id: "lessons", label: "Lessons learned" },
       ]
     : forClient && pick?.mode !== "feed"
       ? [{ id: "saved", label: `${forClient.name}'s` }, ...shelves]
@@ -541,6 +544,11 @@ export default function StyleScreen({
         </div>
       </header>
 
+      {tab === "lessons" ? (
+        <div className="style-scroll" ref={scroller}>
+          <LessonsLearned onChange={onPendingChange} />
+        </div>
+      ) : (
       <div className="style-scroll" ref={scroller}>
         <div className="style-meta">
           {loading && <Orb size={13} />}
@@ -641,6 +649,7 @@ export default function StyleScreen({
           </nav>
         )}
       </div>
+      )}
 
       {(n > 0 || (pick && !reviewing)) && (
         <div className="style-dock">

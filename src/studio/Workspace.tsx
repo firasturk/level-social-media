@@ -665,7 +665,8 @@ export default function Workspace({
   const loadPending = useCallback(async () => {
     if (user.role !== "admin") return;
     try {
-      setPendingStyles((await get<{ n: number }>("/api/studio/styles/pending")).n);
+      const [styles, lessons] = await Promise.all([get<{ n: number }>("/api/studio/styles/pending"), get<{ n: number }>("/api/studio/lessons/pending").catch(() => ({ n: 0 }))]);
+      setPendingStyles(styles.n + lessons.n);
     } catch {
       /* the badge waits for the next check */
     }
@@ -1084,6 +1085,25 @@ export default function Workspace({
   };
 
   /** The client's link, straight into WhatsApp. */
+  /** The client's change requests are read, written into their posts and those posts are made again. */
+  async function doClientChanges() {
+    if (!batch) return;
+    setBusy("client");
+    try {
+      const r = await post<{ indexes: number[]; changes: { index: number; summary: string }[] }>("/api/studio/posts/client-changes", { batch: batch.id });
+      await refresh();
+      for (const ch of r.changes) toast.success(`Post ${ch.index}: ${ch.summary || "changed as the client asked"}`, { duration: 12000 });
+      if (engineConnected && r.indexes.length) {
+        await post("/api/studio/posts/generate", { batch: batch.id, indexes: r.indexes, regenerate: true });
+        await refresh();
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function whatsAppMonth() {
     if (!batch) return;
     try {
@@ -1368,6 +1388,8 @@ export default function Workspace({
                 onFeed={openFeed}
                 kitOpen={kitShown}
                 onKit={() => setKitOpen(!kitShown)}
+                onClientChanges={() => void doClientChanges()}
+                clientChangesBusy={busy === "client"}
               />
             )}
             <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>

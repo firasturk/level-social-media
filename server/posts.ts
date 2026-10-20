@@ -19,6 +19,7 @@ import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
+import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
@@ -95,7 +96,7 @@ import {
   sellsClothing,
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
-import { lessonsFor } from "./lessons";
+import { lessonsFor, rememberLesson } from "./lessons";
 
 type Variables = { user: User };
 export const postRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -2055,6 +2056,8 @@ postRoutes.post("/generate", async (c) => {
       format: config.format ?? "4:5",
       ref: refId,
       styleKey: styled?.image_key ?? undefined,
+      clientChange: post.clientNote?.note?.trim() || undefined,
+      originalRef: post.reference?.key ?? styled?.image_key ?? undefined,
       // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
       tileKey: tileKey ?? undefined,
       // People wear the month's wardrobe, one outfit after another across the posts.
@@ -4298,6 +4301,96 @@ postRoutes.get("/occasion-photo", async (c) => {
   return new Response(obj.body, {
     headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=86400" },
   });
+});
+
+/**
+ * "Do client comments": every change the client asked for on the approval page is read by the art
+ * director and written into its post (another product from the month or the client's Drive, a new
+ * brief and scene, the caption), the request is cleared, and the posts are returned to be made again.
+ */
+postRoutes.post("/client-changes", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  const asks: ClientAsk[] = Object.entries(config.approvals ?? {})
+    .filter(([, a]) => a.status === "changes" && a.note?.trim())
+    .map(([k, a]) => ({ index: Number(k), note: a.note!.trim(), post: plan.find((p) => p.index === Number(k)) }))
+    .filter((x): x is { index: number; note: string; post: Post } => !!x.post)
+    .map(({ index, note, post }) => ({
+      index,
+      note,
+      title: post.title,
+      brief: post.brief,
+      scene: post.scene,
+      product: post.type === "offer" ? post.offer?.products[0] : post.product,
+      headline: post.headline,
+      caption: post.caption,
+      hashtags: post.hashtags,
+    }));
+  if (!asks.length) throw new StudioError("The client has not asked for a change yet.");
+  const client = await clientRow(c.env, config.client);
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(c.env, sources);
+  const names = sources.map(productName);
+  // The client's Drive: the cleanest photo of each product the month does not have yet.
+  const drive = (await clientDrivePhotos(c.env, config.client ?? "").catch(() => [] as Awaited<ReturnType<typeof clientDrivePhotos>>))
+    .filter((x) => !x.video && (!x.kind || PRODUCT_KINDS.has(x.kind)))
+    .sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
+  const driveOptions = drive.filter((p, i) => !matchProduct(p.name, names) && drive.findIndex((q) => q.name === p.name) === i);
+  const products = [...sources.map((s) => ({ name: productName(s), note: s.note?.trim() || "" })), ...driveOptions.map((p) => ({ name: p.name, note: p.note?.trim() || "" }))];
+  const raw = await askText(c.env, clientChangesInstruction({ client: client.name, asks, products }), CLIENT_CHANGES_SCHEMA);
+  const changes = parseClientChanges(parseJson<unknown>(raw), asks, products.map((p) => p.name));
+  if (!changes.length) throw new StudioError("The art director gave no usable answer. Try again.", 502);
+  // Drive products the changes name join the month.
+  const imported = new Map<string, string>();
+  const taken = new Set(sources.map((s) => s.stem));
+  for (const ch of changes) {
+    if (!ch.product || matchProduct(ch.product, names) || imported.has(ch.product)) continue;
+    const photo = driveOptions.find((p) => p.name === ch.product);
+    if (!photo) continue;
+    try {
+      const row = await importDrivePhoto(c.env, user.id, b.id, photo.id, photo.name, taken);
+      if (photo.note || photo.kind) await run(c.env.DB, "UPDATE sources SET note = ?, category = ? WHERE id = ?", photo.note ?? null, photo.kind ?? null, row.id);
+      imported.set(ch.product, productName(row as unknown as SourceRow));
+    } catch (e) {
+      console.error("[client-changes] drive import", photo.name, errorMessage(e));
+    }
+  }
+  const fresh = await ownedPlan(c.env, user, b.id);
+  const cfg = JSON.parse(fresh.config) as Config;
+  const t = now();
+  const done: { index: number; summary: string }[] = [];
+  cfg.plan = (cfg.plan ?? []).map((p) => {
+    const ch = changes.find((x) => x.index === p.index);
+    const ask = asks.find((x) => x.index === p.index);
+    if (!ch || !ask) return p;
+    const product = ch.product ? (imported.get(ch.product) ?? matchProduct(ch.product, names) ?? ch.product) : undefined;
+    done.push({ index: p.index, summary: ch.summary });
+    return {
+      ...p,
+      ...(product && p.type !== "offer" ? { product } : {}),
+      brief: ch.brief,
+      ...(ch.scene ? { scene: ch.scene } : {}),
+      headline: ch.headline || p.headline,
+      caption: ch.caption,
+      hashtags: ch.hashtags,
+      captionHand: true,
+      ideaAt: t,
+      clientNote: { note: ask.note, at: t, summary: ch.summary || undefined },
+    };
+  });
+  // The request is answered: the approval page shows the fresh post without the old note.
+  if (cfg.approvals) for (const x of done) delete cfg.approvals[String(x.index)];
+  await saveConfig(c.env, fresh, cfg);
+  // What the request teaches about this client waits for the admin on the Lessons learned page.
+  for (const ch of changes) if (ch.lesson) await rememberLesson(c.env, config.client ?? null, b.id, "client", ch.lesson, "client").catch((e) => console.error("[lessons]", e));
+  return c.json({ ok: true, indexes: done.map((x) => x.index), changes: done });
 });
 
 /** The client's approval link for this month (made once, then reused). */

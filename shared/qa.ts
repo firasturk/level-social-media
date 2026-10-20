@@ -146,7 +146,7 @@ export function postProblems(
 
 /* ───────────── The automatic review of a finished post image ───────────── */
 
-export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging";
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging" | "idea" | "client";
 
 /** One thing the review found wrong in a generated post. */
 export interface PostFlag {
@@ -168,9 +168,10 @@ export const POST_REVIEW_SCHEMA = {
     tile: { type: "string" },
     aiLook: { type: "string" },
     staging: { type: "string" },
+    idea: { type: "string" },
     faces: { type: "array", items: { type: "object", properties: { box_2d: { type: "array", items: { type: "integer" } } }, required: ["box_2d"] } },
   },
-  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "faces"],
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "idea", "faces"],
 };
 
 export const FACES_SCHEMA = {
@@ -267,12 +268,15 @@ export function postReviewInstruction(r: ReviewContext): string {
       (r.idea?.trim()
         ? ` THE IDEA of this post, written by the designer, asks for: "${r.idea.trim().slice(0, 500)}". Whatever staging the idea itself asks for (a cup mounted on a street sign, a product with wheels or wings, a product in the air, a giant or a tiny product, a surreal scene) is intended and is NEVER a staging problem, so staging is "" for it; describe only staging the idea does not ask for.`
         : ""),
+    r.idea?.trim()
+      ? 'idea: the post must show the main elements its idea (above) names. Describe in one short sentence a main element that is missing or replaced (the street sign is missing, the cup is not on the sign, no figure pulls it, the product stands alone on a table instead), else "". Colours, light, small props, the exact sign wording and the product\'s own details never count.'
+      : 'idea: "".',
     `${FACES_ASK} The designer's words are kept off these boxes.`,
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }
 
-export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay" | "tile">): PostFlag[] {
+export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay" | "tile" | "idea">): PostFlag[] {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const none = (t: string) => !t || /^(none|no|n\/a|nothing|-)\.?$/i.test(t);
@@ -290,6 +294,7 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
   if (r.tile && !none(str(d.tile))) out.push({ kind: "tile", text: `Not like its grid tile: ${str(d.tile)}` });
   if (!none(str(d.aiLook))) out.push({ kind: "ailook", text: `Looks AI-made: ${str(d.aiLook)}` });
   if (!none(str(d.staging))) out.push({ kind: "staging", text: `Not how it is served: ${str(d.staging)}` });
+  if (r.idea?.trim() && !none(str(d.idea))) out.push({ kind: "idea", text: `Not like its idea: ${str(d.idea)}` });
   return out;
 }
 
@@ -322,6 +327,10 @@ export function lessonLine(kind: FlagKind, text: string): string {
       return "True size: an earlier picture gave the product a wrong size or an unreal hold. Real-world size against hands and furniture, held level or set down.";
     case "staging":
       return `Staging: an earlier picture was ${strip(/^Not how it is served:\s*/i)}. Everything rests where it really would.`;
+    case "idea":
+      return `The idea: an earlier picture drifted from its idea (${strip(/^Not like its idea:\s*/i)}). Every main element the idea names is in the picture, staged as the idea says.`;
+    case "client":
+      return `The client's preference: ${t}`;
   }
 }
 
@@ -337,6 +346,8 @@ export function fixNote(flags: PostFlag[]): string {
     tile: "Stage it like its tile of the reference grid",
     ailook: AI_LOOK_FIX,
     staging: "Stage it as it is really served: a drink stays in its cup on the table or in a hand, never inside a plate, bowl or saucer; every object rests where it really would",
+    idea: "Stage it exactly as its idea says, with every main element the idea names",
+    client: "Follow the client's preference",
   };
   return FRESH_TAKE + flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }
