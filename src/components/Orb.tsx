@@ -59,23 +59,23 @@ export function Orb({
           {variant === "generate" && (
             <>
               <radialGradient id={`${id}-a`} cx="40%" cy="40%" r="65%">
-                <stop offset="0%" stopColor="#ffe1f3" />
-                <stop offset="55%" stopColor="#ff9ad5" />
-                <stop offset="100%" stopColor="#c9a8ff" />
+                <stop offset="0%" stopColor="#c9d1ff" />
+                <stop offset="55%" stopColor="#3d52e8" />
+                <stop offset="100%" stopColor="#1129d3" />
               </radialGradient>
               <radialGradient id={`${id}-b`} cx="45%" cy="40%" r="65%">
-                <stop offset="0%" stopColor="#ece6ff" />
-                <stop offset="55%" stopColor="#b39cff" />
-                <stop offset="100%" stopColor="#8f7cff" />
+                <stop offset="0%" stopColor="#f3ffc4" />
+                <stop offset="55%" stopColor="#bbf714" />
+                <stop offset="100%" stopColor="#8fc70e" />
               </radialGradient>
               <radialGradient id={`${id}-c`} cx="45%" cy="45%" r="65%">
-                <stop offset="0%" stopColor="#e8f6ff" />
-                <stop offset="55%" stopColor="#8fcbff" />
-                <stop offset="100%" stopColor="#b39cff" />
+                <stop offset="0%" stopColor="#ffffff" />
+                <stop offset="55%" stopColor="#dee7e0" />
+                <stop offset="100%" stopColor="#9fb3a7" />
               </radialGradient>
               <radialGradient id={`${id}-core`} cx="50%" cy="50%" r="50%">
                 <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
-                <stop offset="45%" stopColor="#fff6fb" stopOpacity="0.6" />
+                <stop offset="45%" stopColor="#f4fff0" stopOpacity="0.6" />
                 <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
               </radialGradient>
               {!inline && (
@@ -95,19 +95,19 @@ export function Orb({
           {variant === "processing" && (
             <>
               <linearGradient id={`${id}-o1`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#b39cff" stopOpacity="0.15" />
-                <stop offset="50%" stopColor="#8f7cff" />
-                <stop offset="100%" stopColor="#8fcbff" />
+                <stop offset="0%" stopColor="#1129d3" stopOpacity="0.15" />
+                <stop offset="50%" stopColor="#1129d3" />
+                <stop offset="100%" stopColor="#8d9bff" />
               </linearGradient>
               <linearGradient id={`${id}-o2`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#8fcbff" stopOpacity="0.15" />
-                <stop offset="50%" stopColor="#5fb3ff" />
-                <stop offset="100%" stopColor="#dff0ff" />
+                <stop offset="0%" stopColor="#bbf714" stopOpacity="0.15" />
+                <stop offset="50%" stopColor="#a7e000" />
+                <stop offset="100%" stopColor="#e9ffa0" />
               </linearGradient>
               <linearGradient id={`${id}-o3`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#ff9ad5" stopOpacity="0.15" />
-                <stop offset="50%" stopColor="#ff8fcf" />
-                <stop offset="100%" stopColor="#ffd6c2" />
+                <stop offset="0%" stopColor="#9fb3a7" stopOpacity="0.15" />
+                <stop offset="50%" stopColor="#9fb3a7" />
+                <stop offset="100%" stopColor="#dee7e0" />
               </linearGradient>
               {!inline && (
                 <filter id={`${id}-glow`} x="-40%" y="-40%" width="180%" height="180%">
@@ -119,19 +119,19 @@ export function Orb({
           {variant === "caption" && (
             <>
               <linearGradient id={`${id}-r1`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#dff0ff" />
-                <stop offset="50%" stopColor="#8fcbff" />
-                <stop offset="100%" stopColor="#8f7cff" />
+                <stop offset="0%" stopColor="#c9d1ff" />
+                <stop offset="50%" stopColor="#3d52e8" />
+                <stop offset="100%" stopColor="#1129d3" />
               </linearGradient>
               <linearGradient id={`${id}-r2`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#fff0e6" />
-                <stop offset="50%" stopColor="#ffc9a8" />
-                <stop offset="100%" stopColor="#ff9ad5" />
+                <stop offset="0%" stopColor="#f3ffc4" />
+                <stop offset="50%" stopColor="#bbf714" />
+                <stop offset="100%" stopColor="#8fc70e" />
               </linearGradient>
               <linearGradient id={`${id}-r3`} x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#f3edff" />
-                <stop offset="50%" stopColor="#b39cff" />
-                <stop offset="100%" stopColor="#ff9ad5" />
+                <stop offset="0%" stopColor="#ffffff" />
+                <stop offset="50%" stopColor="#dee7e0" />
+                <stop offset="100%" stopColor="#9fb3a7" />
               </linearGradient>
               <clipPath id={`${id}-clip`}>
                 <circle cx="50" cy="50" r="46" />
