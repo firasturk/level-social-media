@@ -170,7 +170,7 @@ export default function OverlayEditor({
               <label className="num"><span>Headline</span><input type="color" value={patch.color ?? spec.headline.color} onChange={(e) => setPatch((p) => ({ ...p, color: e.target.value }))} /></label>
               <label className="num"><span>Second line</span><input type="color" value={patch.subColor ?? spec.subline.color} onChange={(e) => setPatch((p) => ({ ...p, subColor: e.target.value }))} /></label>
               <label className="num"><span>Place</span>
-                <select value={patch.position ?? spec.headline.position} onChange={(e) => setPatch((p) => ({ ...p, position: e.target.value as PostOverlayPatch["position"], dx: undefined, dy: undefined }))}>
+                <select value={patch.position ?? spec.headline.position} onChange={(e) => setPatch((p) => ({ ...p, position: e.target.value as PostOverlayPatch["position"], pin: true, dx: undefined, dy: undefined }))}>
                   <option value="top">Top</option>
                   <option value="center">Centre</option>
                   <option value="bottom">Bottom</option>

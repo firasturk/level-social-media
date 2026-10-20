@@ -307,7 +307,8 @@ export async function drawOverlay(
   const bx0 = align === "center" ? x - maxWidth / 2 : align === "left" ? x : x - maxWidth;
   // Unless the designer moved the words by hand, they go where the picture is calm: a block set
   // over the product (busy detail) moves to the calmest of the three places.
-  if (!patch.dx && !patch.dy && headline) {
+  const placed = !!patch.dx || !!patch.dy || patch.position !== undefined;
+  if (!placed && headline) {
     const energy = (yy: number) => detailEnergy(ctx, bx0, yy, maxWidth, blockH);
     const here = energy(y);
     const options: TextPosition[] = ["bottom", "top", "center"];
@@ -315,7 +316,7 @@ export async function drawOverlay(
     if (best && best.pos !== h.position && here > best.e * 1.6) y = yFor(best.pos);
   }
   // The words never sit on a face: a block over one moves to the first of the three places that is clear.
-  if (!patch.dx && !patch.dy && headline && faceRects.length) {
+  if (!placed && headline && faceRects.length) {
     const onFace = (yy: number) => faceRects.some((f) => bx0 < f.x + f.w && bx0 + maxWidth > f.x && yy < f.y + f.h && yy + blockH > f.y);
     if (onFace(y)) {
       const clear = (["bottom", "top", "center"] as TextPosition[]).map(yFor).find((yy) => !onFace(yy));

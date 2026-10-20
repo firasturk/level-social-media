@@ -194,6 +194,8 @@ export interface AdaptRequest {
   palette: string[];
   /** The post's ambassadors with their look; empty for a style without people or a post without them. */
   people: string[];
+  /** The idea names its own people (a family, a father, a couple): they appear as the idea describes them. */
+  briefPeople?: boolean;
   sellsDrinks?: boolean;
   /** The brand sells a service, not products. */
   service?: string;
@@ -242,7 +244,9 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
       : "",
     r.people.length
       ? `PEOPLE: only ${r.people.join("; ")}, each as described (their own gender, a man never in a headscarf or dress, modest clothing when their look says so).`
-      : "PEOPLE: nobody appears; a hand is the most the picture shows.",
+      : r.briefPeople
+        ? "PEOPLE: the people the post's idea names appear exactly as the idea describes them (their number, gender, age, modest clothing, a man never in a headscarf or dress), and nobody else."
+        : "PEOPLE: nobody appears; a hand is the most the picture shows.",
     r.onlyFood?.trim()
       ? `ONLY THESE INGREDIENTS may appear around or in the product, and nothing else edible (no other spice, garnish, powder, stick, fruit or sweet): ${r.onlyFood.trim()}.`
       : "",

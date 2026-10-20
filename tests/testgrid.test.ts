@@ -69,6 +69,8 @@ describe("no logos asked for in the picture", () => {
   it("takes the logo and brand mark sentences out of a shot", async () => {
     const { withoutLettering } = await import("@shared/posts");
     expect(withoutLettering("A flat-lay on tan marble. The Habibah logo is centered at the top. The AlBandar mark is in the bottom-left. Warm light.")).toBe("A flat-lay on tan marble. Warm light.");
+    expect(withoutLettering("A navy SUV on the blue floor. The car's grille is plain, with no badge or logo. Hard light.")).toBe("A navy SUV on the blue floor. The car's grille is plain, with no badge or logo. Hard light.");
+    expect(withoutLettering("A busy shopping street at dusk. She marks the date on a calendar.")).toBe("A busy shopping street at dusk. She marks the date on a calendar.");
     expect(withoutLettering("A marble tray on a market stall.")).toBe("A marble tray on a market stall.");
   });
 });

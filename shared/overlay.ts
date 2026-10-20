@@ -164,6 +164,8 @@ export const NO_OVERLAY: OverlaySpec = {
 export interface PostOverlayPatch {
   /** Where the words sit on this post, whatever the client's layout says (a grid tile's own place). */
   position?: TextPosition;
+  /** true: the designer chose the place by hand; the text check never moves it. */
+  pin?: boolean;
   dx?: number;
   dy?: number;
   /** Multiplier on the headline and sub-line sizes. */

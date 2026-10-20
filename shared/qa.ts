@@ -225,6 +225,8 @@ export interface ReviewContext {
   allowedFood?: string;
   /** The post follows a campaign brief's reference: a splash, an open cup, a lid taken off or a floating ingredient is staged on purpose. */
   campaignStaging?: boolean;
+  /** The post's idea: staging it asks for (a cup mounted on a sign, a product with wheels) is intended, never a flaw. */
+  idea?: string;
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -240,7 +242,7 @@ export function postReviewInstruction(r: ReviewContext): string {
     k && r.style
       ? `sizeRight: the designer picked a style that stages the product this way: "${r.style.slice(0, 600)}". A giant product or several copies of the same product are then right. sizeRight is false only when a person holds the product in a way no hand could (balanced on fingertips, hanging from a finger).`
       : k
-      ? "sizeRight: true when each product has its real size next to hands and furniture (a gift box about a forearm wide, one sweet between two fingers) and is held naturally (level, from below, or set on a surface); false when it is giant or tiny, balanced on fingertips or hanging from a finger."
+      ? `sizeRight: true when each product has its real size next to hands and furniture (a gift box about a forearm wide, one sweet between two fingers) and is held naturally (level, from below, or set on a surface); false when it is giant or tiny, balanced on fingertips or hanging from a finger.${r.idea?.trim() ? " A size or a placement the post's idea (below) asks for is right." : ""}`
       : "sizeRight: always true.",
     `invented: name any product, box, package or branded item in the post that is not ${k ? "one of the product photos" : "allowed"} (an extra box with a printed name, a second tin nobody photographed), else "". Plain unprinted garments and shoes worn to complete an outfit around a clothing product (a plain t-shirt or top, trousers, socks, sneakers) are NOT invented products; only printed, branded or packaged items are.${r.style ? " Extra copies of the same photographed product are part of the picked style, never invented." : ""} Props and decoration (leaves, flowers, fabric, candles, stands, the set) are not products.`,
     "text: quote or describe any letters, words, numbers, logos or labels anywhere in the post that are NOT the product's own printed packaging from its photo (signs, invented brand names, gibberish lettering, price tags), else \"\".",
@@ -259,9 +261,12 @@ export function postReviewInstruction(r: ReviewContext): string {
       ? `tile: this post recreates one tile of a reference feed grid: "${r.tile.slice(0, 500)}". Describe in one sentence how the post drifts from that tile's role and staging (a drink tile showing a box, a close-up shot from far away, a place tile with no room), else "". Colours, products and people are the client's own and never count as drift.`
       : 'tile: "".',
     r.people.length ? AI_LOOK_CHECK : 'aiLook: "".',
-    r.campaignStaging
+    (r.campaignStaging
       ? 'staging: this post stages the designer\'s own reference, so a splash out of the cup, the cup open without its lid, a floating ingredient, crushed ice or a cup in the air are allowed and never a problem. Describe in one short sentence only a cup set inside a plate or bowl as if it were food, or a product doing what its material cannot do. Else "".'
-      : 'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".',
+      : 'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".') +
+      (r.idea?.trim()
+        ? ` THE IDEA of this post, written by the designer, asks for: "${r.idea.trim().slice(0, 500)}". Whatever staging the idea itself asks for (a cup mounted on a street sign, a product with wheels or wings, a product in the air, a giant or a tiny product, a surreal scene) is intended and is NEVER a staging problem, so staging is "" for it; describe only staging the idea does not ask for.`
+        : ""),
     `${FACES_ASK} The designer's words are kept off these boxes.`,
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");

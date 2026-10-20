@@ -83,7 +83,12 @@ export const postSchema = z.object({
     .optional(),
   occasion: z.string().max(80).optional(),
   scene: z.string().max(1500).optional(),
-  style: z.string().max(80).optional(),
+  style: z
+    .string()
+    .max(80)
+    .nullable()
+    .optional()
+    .transform((v) => v ?? undefined),
   captionFrom: z.string().max(400).optional(),
   captionHand: z.boolean().optional(),
   textCheck: z.object({ ok: z.boolean(), note: z.string().max(400), for: z.string().max(400), at: z.number() }).optional(),

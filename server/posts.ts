@@ -3092,9 +3092,9 @@ postRoutes.post("/text-check", async (c) => {
     ),
   );
   if (!check) throw new StudioError("The art director gave no usable answer. Try again.", 502);
-  // The corrections go into the post's text layout; a designer's own placement (dx/dy) is kept.
+  // The corrections go into the post's text layout; a designer's own placement (dx/dy, or a pinned place) is kept.
   const ov: PostOverlayPatch = { ...(post.ov ?? {}) };
-  if (check.position !== "keep" && ov.dx === undefined && ov.dy === undefined) ov.position = check.position;
+  if (check.position !== "keep" && ov.dx === undefined && ov.dy === undefined && !ov.pin) ov.position = check.position;
   // The text is white for every client; only the designer changes its colour, by hand.
   if (check.fade === "on") delete ov.fade;
   if (check.fade === "off") ov.fade = false;
@@ -4122,6 +4122,9 @@ postRoutes.post("/shots", async (c) => {
 });
 
 /** Gallery styles written for their posts' real products: the new shot of each post, by index. */
+/** The idea casts its own people: a campaign post keeps them when a gallery style is written for it. */
+const BRIEF_PEOPLE = /\b(man|men|woman|women|father|mother|parents?|family|families|couple|child|children|kid|kids|boy|girl|son|daughter|grand(?:mother|father|ma|pa)|people|person|friends?|customer|doctor|nurse|teacher|driver|barista|chef|model|lady|gentleman|teen(?:ager)?s?)\b/i;
+
 async function writeStyleScenes(
   env: Env,
   b: BatchRow,
@@ -4177,6 +4180,7 @@ async function writeStyleScenes(
             .map((n) => cast.find((x) => x.name.toLowerCase() === n.toLowerCase()))
             .filter((x): x is AmbassadorRow => !!x)
             .map((x) => `${x.name} (${x.description})`),
+          briefPeople: reference && BRIEF_PEOPLE.test(post.brief),
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
           theme: reference ? undefined : config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,

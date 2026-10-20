@@ -1965,7 +1965,8 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     sellsDrinks: pb.sellsDrinks,
     ingredients: pb.ingredients,
     allowedFood: pb.campaign?.ingredients,
-    campaignStaging: !!pb.campaign && !!pb.styleKey,
+    campaignStaging: !!pb.campaign || !!pb.editRef,
+    idea: pb.brief,
     coffeeDay: pb.occasionId === "coffee-day",
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.

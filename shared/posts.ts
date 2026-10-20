@@ -662,7 +662,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     n += 1;
     const note = b.editRef.note?.trim();
     parts.push(
-      `Image ${n} is a reference picture the designer attached for this take${note ? `, with this note on what to take from it: "${note}"` : ""}. ${note ? "Do exactly what the note says with it" : "Take its composition, light, colour world, props and mood"} and keep everything else as the brief below says. Nothing of the reference's own product, packaging, text, logo or people is copied: the product stays this brand's product exactly as photographed.`,
+      `Image ${n} is a reference picture the designer attached for this take${note ? `, with this note on what to take from it: "${note}"` : ""}. ${note ? "Do exactly what the note says with it" : "Take its composition, light, colour world, props and mood"} and keep everything else as the brief below says. Nothing of the reference's own product, packaging, text, logo or people is copied: the product stays this brand's product exactly as photographed. Every sign, caption, lettering or wordmark the reference carries is absent, so nothing written appears anywhere; the reference's own clothing, headwear and nationality cues (a thobe, a ghutra, a uniform, a European house) are not copied either: the people, clothes and place are the brief's own.`,
     );
   }
   parts.push(b.hasProduct ? "Create the scene described below around the product." : "Create the scene described below.");
@@ -1571,7 +1571,7 @@ export function singleIdeaInstruction(
 }
 
 /** Bags, carriers and shopping: a product is held or set down, never packed into something. */
-export const BAGS = /\b(bags?|carriers?|baskets?|totes?|shopping)\b/i;
+export const BAGS = /\b(bags?|carriers?|baskets?|totes?|shopping\s+(?:bags?|baskets?|carts?|trolleys?))\b/i;
 
 /** The text without its sentences that put something into a bag or a carrier. */
 export function withoutBags(text: string): string {
@@ -1585,16 +1585,21 @@ export function withoutBags(text: string): string {
 /** Things that carry words (a card, a price tag, a menu): the engine writes on them, so they stay out. */
 export const LETTERED = /\bcards?\b|\bprice\s+tags?\b|\bmenus?\b/i;
 
+/** A sentence that places a logo or a brand mark in the picture (logos are added later, by the designer). */
+const LOGO_WORD = /\b(logos?|watermarks?|monograms?|wordmarks?)\b|\b(?:brand|(?!(?:She|He|They|It|The|This|That|We|You|And|But|Then|Who|Her|His|Their|Each|One)\b)[A-Z][\w'-]+)\s+marks?\b/;
+/** "no logo", "without any logo", "the grille carries no brand mark": a sentence that keeps logos OUT stays. */
+const LOGO_DENIED = /\b(no|without|never|not|free of|nor)\b[^.!?]{0,40}?\b(logos?|watermarks?|monograms?|marks?|wordmarks?|badges?)\b/i;
+
 /**
  * The text without the things that carry words: "next to a business card" goes, and a sentence
  * that still names a card, a price tag or a menu goes; so do sentences that place a logo or a brand
- * mark in the picture (logos are added later, by the designer).
+ * mark in the picture (logos are added later, by the designer). A sentence that forbids a logo stays.
  */
 export function withoutLettering(text: string): string {
   return text
     .replace(/,?\s+(?:next to|beside|alongside|with|and|near|by)\s+(?:an?|the|some|two|three)?\s*(?:[\w#-]+\s+){0,6}?(?:cards?|price\s+tags?|menus?)\b/gi, "")
     .split(/(?<=[.!?\u061f])\s+/)
-    .filter((x) => !/\b(logos?|watermarks?|monograms?|mark)\b/i.test(x) && !LETTERED.test(x))
+    .filter((x) => !(LOGO_WORD.test(x) && !LOGO_DENIED.test(x)) && !LETTERED.test(x))
     .join(" ")
     .trim();
 }
