@@ -44,29 +44,33 @@
   --ink-300: #c7c7cc;
   /* Ink family (kept under the --blue names) */
   /* Electric Blue #2038E2 leads; Bleu Ciel #007bff is its light; Portland Orange #ff5a00 warns and warms; Beige #ffe6d0 and Charcoal #1a1a1a frame */
-  --blue: #2038e2;
-  --blue-hover: #1a2dc0;
-  --blue-deep: #14238f;
-  --blue-soft: #eaedfc;
-  --blue-pale: #c5ccf7;
-  --sky: #007bff;
-  --sky-soft: #e6f1ff;
+  --blue: #4f7df3;
+  --blue-hover: #3b6ae6;
+  --blue-deep: #2f55c4;
+  --blue-soft: #e9efff;
+  --blue-pale: #c7d6ff;
+  --sky: #8fcbff;
+  --sky-soft: #e8f4ff;
+  --pink: #ff9ad5;
+  --lilac: #b39cff;
+  --violet: #8f7cff;
+  --peach: #ffc9a8;
   --orange: #ff5a00;
   --beige: #ffe6d0;
   --charcoal: #1a1a1a;
   /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
-  --gradient: linear-gradient(135deg, #ff2d9a 0%, #ff63b5 12%, #7a4dff 28%, #0a7dff 42%, #22c3ff 52%, #f3f3f6 66%, #ffc38a 80%, #ff6a2a 100%);
-  --gradient-bar: linear-gradient(90deg, #ff2d9a 0%, #7a4dff 26%, #0a7dff 44%, #22c3ff 55%, #ffd6b8 70%, #ff6a2a 100%);
-  --gradient-mesh: radial-gradient(60% 55% at 12% 8%, #ff3fa4 0%, rgb(255 63 164 / 0) 62%), radial-gradient(55% 50% at 88% 12%, #0a7dff 0%, #22c3ff 28%, rgb(34 195 255 / 0) 66%), radial-gradient(50% 45% at 82% 92%, #ff6a2a 0%, rgb(255 106 42 / 0) 62%), radial-gradient(65% 55% at 25% 85%, #f6f4f3 0%, rgb(246 244 243 / 0) 70%), linear-gradient(180deg, #ff8fc6 0%, #dfe6f6 45%, #ffb98f 100%);
+  --gradient: linear-gradient(135deg, #ffb3dc 0%, #e6c6ff 22%, #b9c8ff 42%, #c9ecff 58%, #ffffff 72%, #ffe1cc 88%, #ffc4a3 100%);
+  --gradient-bar: linear-gradient(90deg, #ff9ad5 0%, #b39cff 30%, #8fcbff 55%, #ffffff 72%, #ffc9a8 100%);
+  --gradient-mesh: radial-gradient(55% 50% at 10% 0%, rgb(255 154 213 / 0.55) 0%, rgb(255 154 213 / 0) 60%), radial-gradient(50% 45% at 92% 6%, rgb(143 203 255 / 0.6) 0%, rgb(179 156 255 / 0.35) 35%, rgb(179 156 255 / 0) 65%), radial-gradient(60% 50% at 88% 100%, rgb(255 201 168 / 0.6) 0%, rgb(255 201 168 / 0) 60%), radial-gradient(55% 45% at 12% 96%, rgb(255 255 255 / 0.9) 0%, rgb(255 255 255 / 0) 60%), linear-gradient(180deg, #f3edfa 0%, #f3f4fb 45%, #faf1ec 100%);
   --aurora: var(--gradient);
   /* Accent (type, outlines, labels) = the ink family */
   --accent: var(--blue);
   --accent-hover: var(--blue-hover);
   --accent-deep: var(--blue-hover);
-  --accent-glow: #007bff;
+  --accent-glow: #8fcbff;
   --accent-soft: var(--blue-soft);
   --accent-border: var(--blue-pale);
-  --accent-border-hover: #007bff;
+  --accent-border-hover: #8fcbff;
   /* Status */
   --success: #2e8b57;
   --success-soft: #e7f4ec;
@@ -2933,9 +2937,9 @@ textarea:focus {
   --sky: #3d9bff;
   --sky-soft: #10243d;
   /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
-  --gradient: linear-gradient(135deg, #ff2d9a 0%, #ff63b5 12%, #7a4dff 28%, #0a7dff 42%, #22c3ff 52%, #f3f3f6 66%, #ffc38a 80%, #ff6a2a 100%);
-  --gradient-bar: linear-gradient(90deg, #ff2d9a 0%, #7a4dff 26%, #0a7dff 44%, #22c3ff 55%, #ffd6b8 70%, #ff6a2a 100%);
-  --gradient-mesh: radial-gradient(60% 55% at 12% 8%, #ff3fa4 0%, rgb(255 63 164 / 0) 62%), radial-gradient(55% 50% at 88% 12%, #0a7dff 0%, #22c3ff 28%, rgb(34 195 255 / 0) 66%), radial-gradient(50% 45% at 82% 92%, #ff6a2a 0%, rgb(255 106 42 / 0) 62%), radial-gradient(65% 55% at 25% 85%, #f6f4f3 0%, rgb(246 244 243 / 0) 70%), linear-gradient(180deg, #ff8fc6 0%, #dfe6f6 45%, #ffb98f 100%);
+  --gradient: linear-gradient(135deg, #ffb3dc 0%, #e6c6ff 22%, #b9c8ff 42%, #c9ecff 58%, #ffffff 72%, #ffe1cc 88%, #ffc4a3 100%);
+  --gradient-bar: linear-gradient(90deg, #ff9ad5 0%, #b39cff 30%, #8fcbff 55%, #ffffff 72%, #ffc9a8 100%);
+  --gradient-mesh: radial-gradient(55% 50% at 10% 0%, rgb(255 154 213 / 0.22) 0%, rgb(255 154 213 / 0) 60%), radial-gradient(50% 45% at 92% 6%, rgb(143 203 255 / 0.22) 0%, rgb(143 124 255 / 0.18) 35%, rgb(143 124 255 / 0) 65%), radial-gradient(60% 50% at 88% 100%, rgb(255 201 168 / 0.18) 0%, rgb(255 201 168 / 0) 60%), linear-gradient(180deg, #15141c 0%, #121319 50%, #19151a 100%);
   --accent: #4d6cff;
   --accent-hover: #6b85ff;
   --accent-deep: #9fb2ff;
@@ -12796,7 +12800,7 @@ select {
 }
 /* The colour the glass refracts: a soft blurred haze behind the bars. */
 .journey::before {
-  content: "";
+  content: none;
   position: absolute;
   left: -10%;
   right: -10%;
@@ -12870,4 +12874,328 @@ select {
   .journey-top {
     margin: 8px 8px 0;
   }
+}
+
+
+/* ═══════════ Liquid glass, pastel aurora: the skin of the whole studio ═══════════ */
+:root {
+  --glass: rgb(255 255 255 / 0.62);
+  --glass-strong: rgb(255 255 255 / 0.78);
+  --glass-thin: rgb(255 255 255 / 0.3);
+  --glass-edge: rgb(255 255 255 / 0.85);
+  --glass-rim:
+    inset 0 1px 0 rgb(255 255 255 / 0.95),
+    inset 0 -1px 0 rgb(255 255 255 / 0.4),
+    inset 1px 0 0 rgb(255 255 255 / 0.5),
+    inset -1px 0 0 rgb(255 255 255 / 0.5);
+  --glass-shadow: 0 14px 40px -18px rgb(80 70 140 / 0.35), 0 2px 6px -2px rgb(80 70 140 / 0.12);
+  --glass-blur: blur(28px) saturate(170%);
+  --aurora-glow:
+    radial-gradient(60% 90% at 18% 10%, rgb(255 154 213 / 0.55), transparent 60%),
+    radial-gradient(60% 90% at 78% 0%, rgb(143 203 255 / 0.6), transparent 60%),
+    radial-gradient(70% 90% at 60% 110%, rgb(179 156 255 / 0.5), transparent 60%),
+    radial-gradient(50% 80% at 100% 80%, rgb(255 201 168 / 0.55), transparent 60%);
+}
+:root[data-theme="dark"] {
+  --glass: rgb(30 30 40 / 0.55);
+  --glass-strong: rgb(30 30 40 / 0.72);
+  --glass-thin: rgb(30 30 40 / 0.35);
+  --glass-edge: rgb(255 255 255 / 0.16);
+  --glass-rim:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 0 -1px 0 rgb(255 255 255 / 0.05);
+  --glass-shadow: 0 14px 40px -18px rgb(0 0 0 / 0.7);
+  --aurora-glow:
+    radial-gradient(60% 90% at 18% 10%, rgb(255 154 213 / 0.35), transparent 60%),
+    radial-gradient(60% 90% at 78% 0%, rgb(143 203 255 / 0.4), transparent 60%),
+    radial-gradient(70% 90% at 60% 110%, rgb(179 156 255 / 0.35), transparent 60%),
+    radial-gradient(50% 80% at 100% 80%, rgb(255 201 168 / 0.35), transparent 60%);
+}
+/* The ground: the pastel aurora, fixed, so every glass surface has colour behind it */
+body,
+.journey,
+.share-page,
+.boot-screen {
+  background: var(--gradient-mesh);
+  background-attachment: fixed;
+}
+.journey {
+  background-attachment: scroll;
+}
+/* Glass surfaces */
+.journey-box,
+.design-card,
+.post-card,
+.share-head,
+.share-feed,
+.feed-open-card,
+.setup-checklist,
+.month-summary,
+.brief-card,
+.workspace-head,
+.hero-text-card,
+.journey-issues,
+.journey-welcome-card,
+.auth-card,
+.dialog,
+.sidebar,
+.posts-workbench > aside,
+.kit-panel,
+.brand-panel {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+.design-card:hover {
+  box-shadow: var(--glass-rim), 0 20px 48px -18px rgb(80 70 140 / 0.4);
+}
+.design-card-caption,
+.text-finding,
+.studio-card .post-style-row,
+.studio-card .post-ref-row,
+.studio-card .post-ref,
+.studio-card .post-change,
+.post-section,
+.analysis-logic,
+.journey-analysis {
+  background: rgb(255 255 255 / 0.42);
+  border: 1px solid rgb(255 255 255 / 0.7);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8);
+}
+.text-finding.warn {
+  background: linear-gradient(135deg, rgb(255 201 168 / 0.55), rgb(255 154 213 / 0.3));
+  --tone: #d85a2a;
+  --tone-soft: rgb(255 255 255 / 0.7);
+}
+.text-finding.ok {
+  background: linear-gradient(135deg, rgb(190 240 215 / 0.6), rgb(201 236 255 / 0.4));
+  --tone: #1f8a4c;
+  --tone-soft: rgb(255 255 255 / 0.7);
+}
+.text-finding.busy {
+  background: linear-gradient(135deg, rgb(201 236 255 / 0.6), rgb(230 198 255 / 0.4));
+  --tone: #4f7df3;
+  --tone-soft: rgb(255 255 255 / 0.7);
+}
+.text-finding.none,
+.text-finding.empty {
+  --tone-soft: rgb(255 255 255 / 0.7);
+}
+.design-card-text,
+.design-card-tags,
+.share-card .share-caption,
+.share-card .share-tags,
+.studio-card .post-change textarea,
+.studio-card .post-ref textarea {
+  background: rgb(255 255 255 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.8);
+}
+:root[data-theme="dark"] .design-card-caption,
+:root[data-theme="dark"] .text-finding,
+:root[data-theme="dark"] .studio-card .post-style-row,
+:root[data-theme="dark"] .studio-card .post-ref-row,
+:root[data-theme="dark"] .studio-card .post-ref,
+:root[data-theme="dark"] .studio-card .post-change,
+:root[data-theme="dark"] .post-section,
+:root[data-theme="dark"] .analysis-logic,
+:root[data-theme="dark"] .journey-analysis {
+  background: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.1);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+:root[data-theme="dark"] .text-finding.warn { background: linear-gradient(135deg, rgb(255 201 168 / 0.2), rgb(255 154 213 / 0.12)); --tone: #ffb38a; }
+:root[data-theme="dark"] .text-finding.ok { background: linear-gradient(135deg, rgb(120 220 170 / 0.22), rgb(143 203 255 / 0.12)); --tone: #7ddba3; }
+:root[data-theme="dark"] .text-finding.busy { background: linear-gradient(135deg, rgb(143 203 255 / 0.22), rgb(179 156 255 / 0.14)); --tone: #9fc8ff; }
+:root[data-theme="dark"] .design-card-text,
+:root[data-theme="dark"] .design-card-tags,
+:root[data-theme="dark"] .share-card .share-caption,
+:root[data-theme="dark"] .share-card .share-tags,
+:root[data-theme="dark"] .studio-card .post-change textarea,
+:root[data-theme="dark"] .studio-card .post-ref textarea {
+  background: rgb(0 0 0 / 0.25);
+  border-color: rgb(255 255 255 / 0.1);
+}
+
+/* Glass bars: see-through, blurred, a bright rim, floating */
+.topbar,
+.journey-top,
+.journey-foot,
+.glass-bar {
+  background: var(--glass-thin);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(34px) saturate(180%);
+  backdrop-filter: blur(34px) saturate(180%);
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+.journey-seg i {
+  background: rgb(255 255 255 / 0.45);
+  box-shadow: inset 0 1px 2px rgb(80 70 140 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.6);
+}
+.journey-seg i::after,
+.journey-seg.done i::after,
+.make-progress i,
+.setup-bar i {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0) 60%),
+    linear-gradient(90deg, #ff9ad5, #b39cff 45%, #8fcbff);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 -1px 0 rgb(80 70 140 / 0.15);
+}
+.journey-seg.now i::after {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.7), rgb(255 255 255 / 0) 60%),
+    linear-gradient(90deg, #8fcbff, #b39cff);
+}
+.journey-seg.now i {
+  box-shadow: 0 0 0 3px rgb(179 156 255 / 0.22), inset 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+.journey-seg.now small {
+  color: var(--blue);
+}
+.setup-bar,
+.make-progress {
+  background: rgb(255 255 255 / 0.45);
+  box-shadow: inset 0 1px 2px rgb(80 70 140 / 0.12);
+}
+:root[data-theme="dark"] .journey-seg i,
+:root[data-theme="dark"] .setup-bar,
+:root[data-theme="dark"] .make-progress {
+  background: rgb(255 255 255 / 0.1);
+}
+
+/* Glass buttons: the primary carries the aurora inside, the secondary is clear glass */
+.primary,
+.secondary,
+.btn-pill,
+.icon-button {
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid var(--glass-edge);
+  transition:
+    transform var(--dur-fast),
+    box-shadow var(--dur) var(--ease-out),
+    background var(--dur) var(--ease-out),
+    filter var(--dur) var(--ease-out);
+}
+.primary {
+  background: var(--aurora-glow), var(--glass-strong);
+  background-color: transparent;
+  background-image: var(--aurora-glow);
+  color: var(--ink-900);
+  box-shadow: var(--glass-rim), 0 10px 28px -12px rgb(143 124 255 / 0.55);
+  text-shadow: 0 1px 0 rgb(255 255 255 / 0.6);
+}
+.primary:hover:enabled {
+  background-color: transparent;
+  background-image: var(--aurora-glow);
+  filter: saturate(1.25) brightness(1.03);
+  box-shadow: var(--glass-rim), 0 14px 34px -12px rgb(143 124 255 / 0.7);
+  transform: translateY(-1px);
+}
+.primary:disabled {
+  background-image: var(--aurora-glow);
+  filter: saturate(0.5);
+}
+.primary .orb-status {
+  color: inherit;
+}
+.secondary,
+.icon-button {
+  background: var(--glass);
+  color: var(--ink-900);
+  box-shadow: var(--glass-rim), 0 6px 18px -10px rgb(80 70 140 / 0.3);
+}
+.secondary:hover:enabled,
+.icon-button:hover {
+  background: var(--glass-strong);
+  box-shadow: var(--glass-rim), 0 10px 24px -10px rgb(80 70 140 / 0.4);
+}
+.primary.warn {
+  background-image: radial-gradient(70% 100% at 30% 0%, rgb(255 201 168 / 0.9), transparent 60%), radial-gradient(70% 100% at 90% 100%, rgb(255 154 213 / 0.8), transparent 60%);
+}
+.text-button {
+  color: var(--blue);
+}
+:root[data-theme="dark"] .primary,
+:root[data-theme="dark"] .secondary,
+:root[data-theme="dark"] .icon-button {
+  color: var(--ink-900);
+  text-shadow: none;
+}
+:root[data-theme="dark"] .primary {
+  background-color: rgb(40 40 56 / 0.7);
+}
+/* Chips, badges and switches in the same pastels */
+.design-card-date {
+  background: rgb(179 156 255 / 0.7);
+}
+.journey-tag,
+.pill {
+  border-radius: 999px;
+}
+[data-slot="switch"][data-state="checked"] {
+  background: linear-gradient(135deg, #8fcbff, #b39cff) !important;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.7), 0 4px 12px -4px rgb(143 124 255 / 0.6);
+}
+[data-slot="switch"][data-state="unchecked"] {
+  background: rgb(255 255 255 / 0.55) !important;
+  box-shadow: inset 0 1px 2px rgb(80 70 140 / 0.15), 0 0 0 1px rgb(255 255 255 / 0.7);
+}
+[data-slot="switch-thumb"] {
+  background: #fff !important;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+.kit-icon {
+  background: color-mix(in srgb, var(--kit) 14%, rgb(255 255 255 / 0.8));
+  border-color: rgb(255 255 255 / 0.8);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+.journey-approvals-count,
+.approvals-count {
+  background: var(--gradient);
+  color: var(--ink-900);
+}
+input,
+textarea,
+select {
+  background: rgb(255 255 255 / 0.6);
+  border-color: rgb(255 255 255 / 0.85);
+}
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select {
+  background: rgb(0 0 0 / 0.25);
+  border-color: rgb(255 255 255 / 0.12);
+}
+/* The orbs: soft glass spheres */
+.orb-window {
+  fill: rgb(255 255 255 / 0.45);
+  stroke: rgb(255 255 255 / 0.9);
+  stroke-width: 1;
+}
+.orb-glass {
+  fill: rgb(255 255 255 / 0.4);
+  stroke: rgb(255 255 255 / 0.9);
+  stroke-width: 1;
+}
+.orb-ribbon path {
+  mix-blend-mode: normal;
+  opacity: 0.7;
+}
+:root[data-theme="dark"] .orb-glass,
+:root[data-theme="dark"] .orb-window {
+  fill: rgb(255 255 255 / 0.08);
+  stroke: rgb(255 255 255 / 0.25);
+}
+.orb-dot {
+  fill: #8f7cff;
+}
+/* The hero without a video: the aurora in its fuller tones, so the white words read */
+.hero-banner {
+  background:
+    radial-gradient(60% 70% at 15% 10%, #ff6fc0 0%, rgb(255 111 192 / 0) 60%),
+    radial-gradient(55% 65% at 88% 8%, #5fb3ff 0%, #8f7cff 35%, rgb(143 124 255 / 0) 70%),
+    radial-gradient(60% 60% at 85% 95%, #ff9a6a 0%, rgb(255 154 106 / 0) 60%),
+    linear-gradient(180deg, #c99cff 0%, #8aa7ff 50%, #ffb48f 100%);
 }
