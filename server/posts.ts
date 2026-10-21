@@ -1631,7 +1631,15 @@ postRoutes.put("/settings", async (c) => {
     config.gridAt = now();
   } else if (d.gridRef) {
     const st = await first<{ tiles: number; category: string; status: string }>(c.env.DB, "SELECT tiles, category, status FROM styles WHERE id = ?", d.gridRef.slice(6));
-    if (!st || st.category !== "grid" || st.status !== "active") throw new StudioError("That grid is not in the library.", 404);
+    if (!st || st.category !== "grid" || !(st.status === "active" || st.status === "review")) throw new StudioError("That grid is not in the library.", 404);
+    // A grid still waiting for the admin's approval can be picked for a month: the admin's pick approves
+    // it for everyone; a team member's pick is fine when the grid is in this client's own collection.
+    if (st.status === "review") {
+      const user = c.get("user");
+      if (user.role === "admin") await run(c.env.DB, "UPDATE styles SET status = 'active', updated = ? WHERE id = ?", now(), d.gridRef.slice(6));
+      else if (!(await first(c.env.DB, "SELECT 1 AS x FROM client_styles WHERE client = ? AND style = ?", config.client ?? "", d.gridRef.slice(6))))
+        throw new StudioError("That grid is waiting for the admin's approval. Ask the admin to approve it on the Approvals page, or add it to this client's own grids first.", 409);
+    }
     // The month takes the grid's posts: one per tile. Its tiles are read when the ideas are written.
     if (config.gridRef !== d.gridRef) delete config.gridNotes;
     config.gridRef = d.gridRef;
