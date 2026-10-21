@@ -7,8 +7,10 @@ import { FOREIGN_ITEMS } from "./brief";
 /**
  * What stands between a month and its pictures, read from the month's data alone: the same list
  * for the Journey, the Studio's header ("2 things to fix before Generate") and the server's plan
- * preview. A blocking issue stops Generate for the post it names (or the month); a warning only
- * says so. Screen state (an upload in progress, a reading running) is the screens' own business.
+ * preview. A blocking issue is one Generate itself refuses (no client, no ideas, an empty offer, a
+ * product without a photo, a cast member without a portrait); everything else is a note that says
+ * so, and the Plan stage shows the same notes with their fixes. Screen state (an upload in
+ * progress, a reading running) is the screens' own business.
  */
 export interface MonthIssue {
   /** A stable name for the kind of problem, so a screen can offer its own fix. */
@@ -66,7 +68,7 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
   // Theme
   if (theme && !theme.references && !config.gridRef) out.push({ code: "pins", text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
   else if (theme && theme.references && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed))
-    out.push({ code: "pins-unread", text: "The pins were not read since the last change: the month would follow the old theme.", how: "Analyse the pins." });
+    out.push({ code: "pins-unread", warn: true, text: "The pins were not read since the last change: the month would follow the old theme.", how: "Analyse the pins." });
   if (theme && !theme.palette.length && !config.palette?.length) out.push({ code: "palette", warn: true, text: "No colours for this month.", how: "Add the colours, or let the pins or the grid suggest them." });
   // Ideas and posts
   if (!plan.length) out.push({ code: "ideas", text: "No ideas yet.", how: "Write the ideas, or write a brief." });
@@ -97,8 +99,10 @@ export function postIssues(
       // The empty offer is already the "offer" issue above; it is not listed twice.
       if (!(pr.fix === "post" && pr.text.startsWith("is an offer without"))) {
         // A post without its own shot is still made (from its idea and the theme's shots): a note, with "Write the shots" as its fix.
+        // None of these stops Generate: the gate takes them out of the idea and the shot before any credit is
+        // spent (the post's prechecks say what changed). They are notes, each with its one-click fix.
         const missingShot = pr.fix === "shot" && pr.text === "has no shot yet";
-        out.push({ code: `post-${pr.fix}`, post: p.index, text: `Post ${pr.index} ${pr.text}.`, problem: pr, ...(missingShot ? { warn: true, how: "Write the shots: each post gets the look written for its own product." } : {}) });
+        out.push({ code: `post-${pr.fix}`, post: p.index, warn: true, text: `Post ${pr.index} ${pr.text}.`, problem: pr, how: missingShot ? "Write the shots: each post gets the look written for its own product." : "Fixed by the gate before the picture is paid for, or fix it now." });
       }
   return out;
 }

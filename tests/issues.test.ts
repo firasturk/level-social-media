@@ -21,7 +21,10 @@ describe("what stands before Generate", () => {
   });
 
   it("asks for ideas, a read theme and products, and nothing when the month is complete", () => {
-    expect(blocking(monthIssues({ config: { plan: [], postCount: 12, month: "2026-10" }, client, theme: { ...theme, analysed: 1 }, products: [], cast: [] })).map((x) => x.code)).toEqual(["products", "pins-unread", "ideas"]);
+    const unread = monthIssues({ config: { plan: [], postCount: 12, month: "2026-10" }, client, theme: { ...theme, analysed: 1 }, products: [], cast: [] });
+    expect(blocking(unread).map((x) => x.code)).toEqual(["products", "ideas"]);
+    // Unread pins never stop Generate; they are a note with "Analyse the pins" as the fix.
+    expect(unread.find((x) => x.code === "pins-unread")?.warn).toBe(true);
     expect(blocking(monthIssues({ config: { plan: [post({ product: "Mango" })], postCount: 1, month: "2026-10" }, client, theme, products: ["Mango"], cast: [] }))).toEqual([]);
     expect(monthIssues({ config: null, client: null, theme: null, products: [], cast: [] })[0].code).toBe("client");
   });
@@ -37,6 +40,9 @@ describe("what stands before Generate", () => {
     // The missing shot, the bag and the drink of post 1; post 2's empty offer is the "offer" issue alone.
     expect(own.map((x) => x.code)).toEqual(["post-shot", "post-unbag", "post-post", "post-shot"]);
     expect(own.every((x) => x.problem && x.post)).toBe(true);
+    // The gate takes these out before paying: notes with a fix, never what stops Generate (the offer does).
+    expect(own.every((x) => x.warn && x.how)).toBe(true);
+    expect(blocking(issues).map((x) => x.code)).toEqual(["offer"]);
     expect(issues.filter((x) => x.code === "offer")).toHaveLength(1);
     // A brand that sells drinks keeps its smoothie.
     const drinks = sceneContext({ config, theme, products: [{ note: "a mango smoothie in a cup", category: "drink" }], client: null });
