@@ -61,6 +61,38 @@ export async function put<T>(path: string, body: unknown): Promise<T> {
   );
 }
 
+/** A paid request's answer when the server wants the designer's confirmation first. */
+export interface ApprovalAsk {
+  needsApproval?: boolean;
+  images?: number;
+  /** The run's estimate, list prices. */
+  estimate?: number;
+  /** The most it can cost with automatic retakes, when the server allows them. */
+  maximum?: number;
+  threshold?: number;
+}
+
+/**
+ * A request that may cost money: when the server answers 409 "approve first", the designer is
+ * asked once with the estimate, and the same request is sent again approved. Null when declined.
+ */
+export async function postPaid<T>(path: string, body: Record<string, unknown>, what: string): Promise<T | null> {
+  try {
+    return await post<T>(path, body);
+  } catch (e) {
+    const err = e as ApiError;
+    const d = (err.data ?? {}) as ApprovalAsk;
+    if (err.status !== 409 || !d.needsApproval || body.approve) throw e;
+    const { askConfirm } = await import("@/lib/confirm");
+    const { formatUsd } = await import("@shared/pricing");
+    const estimate = formatUsd(d.estimate ?? 0);
+    const most = d.maximum && d.maximum > (d.estimate ?? 0) ? ` At most ${formatUsd(d.maximum)} with automatic retakes.` : "";
+    const ok = await askConfirm(`${what}: about ${estimate} (list prices, an estimate).${most} Go ahead?`, { ok: `Go ahead · about ${estimate}`, danger: false, cancel: "Not now" });
+    if (!ok) return null;
+    return post<T>(path, { ...body, approve: true });
+  }
+}
+
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
   return parse<T>(await fetch(path, { method: "POST", credentials: "same-origin", body: form }));
 }

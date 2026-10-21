@@ -10,6 +10,8 @@ import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, run, now, uuid } from "./db";
 import { makeGoogleClient } from "./engine";
+import { clientScope, reserveOrAsk } from "./spend";
+import { rateFor } from "@shared/pricing";
 import type { Ambassador, User } from "@shared/types";
 import { castLook } from "@shared/cast";
 
@@ -173,8 +175,10 @@ async function storePortrait(env: Env, r: AmbassadorRow, bytes: ArrayBuffer, mim
 /** Generates the portrait from the written look (Google image model). */
 ambassadorRoutes.post("/:id/portrait", async (c) => {
   const r = await row(c.env, c.req.param("id"));
-  const d = await body(c, z.object({ wish: z.string().max(600).optional() }));
+  const d = await body(c, z.object({ wish: z.string().max(600).optional(), approve: z.boolean().optional() }));
   if (!r.gender) throw new StudioError(`Choose whether ${r.name} is a man or a woman first.`);
+  // One paid portrait, approved by the designer's confirmation and reserved under the client.
+  await reserveOrAsk(c.env, clientScope(r.client), rateFor("gemini-3-pro-image")!["1K"], d.approve, `${r.name}'s portrait`);
   const engine = await makeGoogleClient(c.env);
   // A photo of a real person (the client's real-people references) shows what real looks like.
   const ref = await first<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY RANDOM() LIMIT 1", r.client);

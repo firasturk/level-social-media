@@ -2783,6 +2783,8 @@ postRoutes.post("/typography", async (c) => {
       force: z.boolean().optional(),
       /** The style the team chose for every post; none lets the typographer pick per post. */
       style: z.enum(TYPO_STYLES).optional(),
+      /** The designer confirmed the product-outline mattes' cost. */
+      approve: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -2804,6 +2806,20 @@ postRoutes.post("/typography", async (c) => {
     if (d.indexes && !d.indexes.includes(p.index)) return false;
     return d.force || d.style || !p.ov?.typo || p.ov.typoFor !== t.output;
   });
+  // The product outline is a paid image-model call per post (the words are a text call): the set
+  // is approved once by the designer, and each matte reserves its own cost before it is asked for.
+  const MATTE_COST = rateFor("gemini-3.1-flash-image")!["1K"];
+  if (due.length) {
+    if (d.approve) await approveSpend(c.env, b.id, due.length * MATTE_COST);
+    else if (!(await spendFits(c.env, b.id, due.length * MATTE_COST)).ok)
+      throw new StudioError(`Typography on ${due.length} post${due.length === 1 ? "" : "s"}: reading each product's outline is about ${formatUsd(due.length * MATTE_COST)}. Confirm to go ahead.`, 409, false, {
+        needsApproval: true,
+        images: due.length,
+        estimate: due.length * MATTE_COST,
+        perImage: MATTE_COST,
+        known: true,
+      });
+  }
   const chosen = new Map<number, { typo: PostTypography | null; for: string }>();
   const used: string[] = plan.flatMap((p) => (p.ov?.typo ? [`post ${p.index}: ${p.ov.typo.style}`] : []));
   const failed: number[] = [];
@@ -2825,7 +2841,9 @@ postRoutes.post("/typography", async (c) => {
         used.push(`post ${p.index}: ${typo.style}`);
         // The product's outline: the letters go behind it, or the repeated word stops at it.
         if (typo.style !== "outline") {
-          const masks = await readSubject(c.env, image, config.format ?? "4:5").catch((e) => {
+          const masks = !(await reserveSpend(c.env, b.id, MATTE_COST)).ok
+            ? ([] as SubjectMask[])
+            : await readSubject(c.env, image, config.format ?? "4:5").catch((e) => {
             console.log(`[typography] post ${p.index} outline: ${errorMessage(e).slice(0, 160)}`);
             return [] as SubjectMask[];
           });
@@ -3736,7 +3754,7 @@ const testGridKey = (b: BatchRow) => `${b.owner}/${b.id}/testgrid`;
  * the products and the grid the month follows. The studio draws the words on each cell.
  */
 postRoutes.post("/test-grid", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const d = await body(c, z.object({ batch: z.string().min(1), approve: z.boolean().optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
@@ -3769,6 +3787,8 @@ postRoutes.post("/test-grid", async (c) => {
   const prompt = testGridPrompt({ client: client.name, layout, plan, palette, products, reference: !!refObj && images.length > products.length });
   const engine = await makeGoogleClient(c.env);
   const model = isGoogleModel(config.model) ? config.model! : GOOGLE_MODELS[0].slug;
+  // One paid picture: approved by the designer's confirmation, reserved before it is asked for.
+  await reserveOrAsk(c.env, b.id, rateFor(model)?.["2K"] ?? rateFor(GOOGLE_MODELS[0].slug)!["2K"], d.approve, "The test grid");
   const out = await engine.edit({ model, prompt, images, aspectRatio: layout.aspectRatio, size: "2K" });
   const info: TestGridInfo = { ...layout, at: now() };
   await c.env.BUCKET.put(testGridKey(b), out.bytes, { httpMetadata: { contentType: out.mime }, customMetadata: { info: JSON.stringify(info) } });

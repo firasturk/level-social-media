@@ -6,7 +6,7 @@ import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ApiError, del, get, post, postForm, put } from "@/api";
+import { ApiError, del, get, post, postForm, postPaid, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
@@ -792,12 +792,12 @@ export default function Workspace({
     } catch (e) {
       // Above the spend limit: the server started nothing; one approval here starts the same run.
       const err = e as ApiError;
-      const d = (err.data ?? {}) as { needsApproval?: boolean; images?: number; estimate?: number; threshold?: number };
+      const d = (err.data ?? {}) as { needsApproval?: boolean; images?: number; estimate?: number; maximum?: number; threshold?: number };
       if (err.status === 409 && d.needsApproval && !approve) {
         setBusy("");
         const ok = await askConfirm(
-          `${d.images} image${d.images === 1 ? "" : "s"}, about ${formatUsd(d.estimate ?? 0)} including one automatic retake per picture. This is above the $${d.threshold} limit set in Admin. Generate?`,
-          { ok: "Approve and generate", danger: false },
+          `${d.images} picture${d.images === 1 ? "" : "s"}: about ${formatUsd(d.estimate ?? 0)}, at most ${formatUsd(d.maximum ?? d.estimate ?? 0)} if each is retaken once by itself after the review (list prices, an estimate). This is above the $${d.threshold} limit set in Admin.`,
+          { ok: `Approve and generate · up to ${formatUsd(d.maximum ?? d.estimate ?? 0)}`, danger: false, cancel: "Not now" },
         );
         if (ok) return generatePosts(indexes, regenerate, false, test, retake, true);
         return;
@@ -1073,12 +1073,16 @@ export default function Workspace({
     if (!batch) return;
     const t = toast.loading("Setting the typography: reading each picture and its product's outline…");
     try {
-      const r = await post<{ set: { index: number; style: string; word: string; font: string }[]; plain: number[]; failed: number[] }>("/api/studio/posts/typography", {
+      const r = await postPaid<{ set: { index: number; style: string; word: string; font: string }[]; plain: number[]; failed: number[] }>("/api/studio/posts/typography", {
         batch: batch.id,
         indexes,
         force: !!indexes || undefined,
         style,
-      });
+      }, "Typography: reading each product's outline");
+      if (!r) {
+        toast.dismiss(t);
+        return;
+      }
       await refresh();
       toast.success(
         r.set.length
