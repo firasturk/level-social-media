@@ -1342,21 +1342,23 @@ export default function Journey(p: JourneyProps) {
                     </strong>
                     <small>Open its feed to see the grid, set the typography and send the client link; or go through the steps to change it.</small>
                   </span>
-                  <button type="button" className="primary" onClick={() => setStep(STEPS.findIndex((x) => x.key === "feed"))}>
-                    <Grid3x3 size={14} /> Open the feed
-                  </button>
-                  {p.onNewGrid && (
-                    <button
-                      type="button"
-                      className="secondary"
-                      title="Another grid in this same month (a carousel, a single post, a second try): this one stays with its posts, pictures and client link"
-                      onClick={() => {
-                        void p.onNewGrid!().then(() => setStep(1));
-                      }}
-                    >
-                      <Plus size={14} /> Fresh grid in {monthLabel(p.month)}
+                  <span className="journey-made-actions">
+                    <button type="button" className="primary" onClick={() => setStep(STEPS.findIndex((x) => x.key === "feed"))}>
+                      <Grid3x3 size={14} /> Open the feed
                     </button>
-                  )}
+                    {p.onNewGrid && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        title="Another grid in this same month (a carousel, a single post, a second try): this one stays with its posts, pictures and client link"
+                        onClick={() => {
+                          void p.onNewGrid!().then(() => setStep(1));
+                        }}
+                      >
+                        <Plus size={14} /> Fresh grid in {monthLabel(p.month)}
+                      </button>
+                    )}
+                  </span>
                 </div>
               )}
               {client && (p.grids?.length ?? 0) > 1 && p.onGrid && (
@@ -1368,6 +1370,7 @@ export default function Journey(p: JourneyProps) {
                   ))}
                 </div>
               )}
+              <div className="journey-account-row">
               {client && <ProfileBar key={client.id} client={client} onClientsChanged={p.onClientsChanged} />}
               {client && p.user.role === "admin" && (
                 <div className="journey-autopilot">
@@ -1403,6 +1406,7 @@ export default function Journey(p: JourneyProps) {
                   </span>
                 </div>
               )}
+              </div>
               {client && p.previousMonth && !p.batchId && (
                 <div className="journey-continue">
                   <span>
