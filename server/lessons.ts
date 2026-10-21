@@ -22,7 +22,7 @@ export interface LessonRow {
   first: number;
   last: number;
   batch: string | null;
-  /** approved: the prompts carry it (every new lesson, by itself); rejected: the admin called it wrong, kept so it is not learned again; pending: set aside. */
+  /** pending: waits for the admin (every new lesson); approved: the prompts carry it; rejected: the admin called it wrong, kept so it is not learned again. */
   status: "pending" | "approved" | "rejected";
   /** review: the automatic review found it; client: the client asked for it; retry: a take made again by itself. */
   source: string;
@@ -42,7 +42,11 @@ export async function rememberLessons(env: Env, client: string | null, batch: st
   for (const f of flags) await rememberLesson(env, client, batch, f.kind, f.text, source);
 }
 
-/** One lesson, approved by itself the moment it is learned, or seen once more (a rejected one stays rejected). */
+/**
+ * One lesson. A new one waits as 'pending' until an admin approves it on the Approvals page: a
+ * single review flag is an observation, not yet a rule. Seen again, it keeps whatever status the
+ * admin gave it (approved stays approved, rejected stays rejected, pending stays pending).
+ */
 export async function rememberLesson(env: Env, client: string | null, batch: string | null, kind: string, rawText: string, source: LessonSource): Promise<void> {
   if (!client) return;
   const text = rawText.replace(/\s+/g, " ").trim().slice(0, 300);
@@ -50,7 +54,7 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
   const t = now();
   await run(
     env.DB,
-    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'approved', ?) ON CONFLICT(client, text) DO UPDATE SET seen = seen + 1, last = excluded.last, batch = excluded.batch",
+    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'pending', ?) ON CONFLICT(client, text) DO UPDATE SET seen = seen + 1, last = excluded.last, batch = excluded.batch",
     uuid(),
     client,
     kind,
@@ -70,7 +74,7 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
   );
 }
 
-/** The lines a prompt carries for this client, worded as rules: every lesson the admin has not rejected. */
+/** The lines a prompt carries for this client, worded as rules: the lessons the admin approved. */
 export async function lessonsFor(env: Env, client: string | null): Promise<string[]> {
   if (!client) return [];
   const rows = await all<LessonRow>(
@@ -103,10 +107,10 @@ lessonRoutes.get("/learned", async (c) => {
   return c.json(rows.map(lessonJson));
 });
 
-/** How many lessons the studio learned in the last day (the sidebar badge). */
+/** How many lessons wait for the admin's approval (the sidebar badge). */
 lessonRoutes.get("/pending", async (c) => {
   if (c.get("user").role !== "admin") return c.json({ ok: true, n: 0 });
-  const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM lessons WHERE status = 'approved' AND first >= ?", now() - 86_400_000))?.n ?? 0;
+  const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM lessons WHERE status = 'pending'"))?.n ?? 0;
   return c.json({ ok: true, n });
 });
 
@@ -121,6 +125,7 @@ lessonRoutes.put("/:id", async (c) => {
 });
 
 lessonRoutes.delete("/:id", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
   const row = await first<LessonRow>(c.env.DB, "SELECT * FROM lessons WHERE id = ?", c.req.param("id"));
   if (!row) throw new StudioError("This lesson is already gone.", 404);
   await run(c.env.DB, "DELETE FROM lessons WHERE id = ?", row.id);
@@ -128,6 +133,7 @@ lessonRoutes.delete("/:id", async (c) => {
 });
 
 lessonRoutes.delete("/", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
   const client = c.req.query("client") ?? "";
   if (!client) throw new StudioError("Client is required.");
   await run(c.env.DB, "DELETE FROM lessons WHERE client = ?", client);
