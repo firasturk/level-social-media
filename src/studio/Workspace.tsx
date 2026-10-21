@@ -728,9 +728,17 @@ export default function Workspace({
       await post("/api/studio/posts/style", { batch: batch.id, assign });
       await refresh();
       const styled = assign.filter((a) => a.style).map((a) => a.index);
-      toast.success(styled.length ? "Style written for the product. Generating…" : "Style taken off.", { id: t });
-      // A style applied is a picture asked for: the post is made again in the style right away.
-      if (styled.length) await generatePosts(styled, true, false);
+      if (!styled.length) {
+        toast.success("Style taken off.", { id: t });
+        return;
+      }
+      // Applying a style writes the post's idea and shot; making the picture is a separate, paid step.
+      toast.success("Style written for the product.", { id: t });
+      const ok = await askConfirm(
+        `Make ${styled.length === 1 ? "the picture" : `${styled.length} pictures`} in this style now? Image generation is paid. Cancel keeps the style; the picture is made when you press Generate.`,
+        { ok: "Apply & Generate", danger: false },
+      );
+      if (ok) await generatePosts(styled, true, false);
     } catch (e) {
       toast.error((e as Error).message, { id: t });
     }
@@ -1166,8 +1174,11 @@ export default function Workspace({
       await refresh();
       for (const ch of r.changes) toast.success(`Post ${ch.index}: ${ch.summary || "changed as the client asked"}`, { duration: 12000 });
       if (engineConnected && r.indexes.length) {
-        await post("/api/studio/posts/generate", { batch: batch.id, indexes: r.indexes, regenerate: true });
-        await refresh();
+        const ok = await askConfirm(
+          `The client's changes are written into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now? Image generation is paid.`,
+          { ok: "Generate", danger: false },
+        );
+        if (ok) await generatePosts(r.indexes, true, false);
       }
     } catch (e) {
       toast.error((e as Error).message);

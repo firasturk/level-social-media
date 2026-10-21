@@ -667,7 +667,7 @@ export default function PlanView({
                           {styleOf(pendingStyle.get(p.index)!) && <img src={styleThumb(styleOf(pendingStyle.get(p.index)!)!)} alt="" />}
                           <span className="post-style-text">
                             <strong>{styleOf(pendingStyle.get(p.index)!)?.title ?? "Style chosen"}</strong>
-                            <small>Not applied yet</small>
+                            <small>Not applied yet · applying writes the idea and shot, then asks before making the picture</small>
                           </span>
                           <button
                             type="button"
