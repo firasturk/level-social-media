@@ -310,13 +310,12 @@ export default function Journey(p: JourneyProps) {
   const [adapting, setAdapting] = useState(false);
   const [reading, setReading] = useState(false);
   const brief = p.config?.brief ?? {};
-  const seen = useRef<Partial<Record<BriefStep, string>>>({});
   const runBrief = useCallback(
     async (s: BriefStep) => {
       if (!p.batchId) return;
       setBriefBusy(s);
       try {
-        await post("/api/studio/posts/brief", { batch: p.batchId, step: s });
+        await post("/api/studio/posts/brief", { batch: p.batchId, step: s, sig: signatureRef.current[s] });
         await p.refresh();
         setBriefError((m) => ({ ...m, [s]: undefined }));
       } catch (e) {
@@ -329,6 +328,7 @@ export default function Journey(p: JourneyProps) {
     [p.batchId, p.refresh],
   );
   const productIds = p.products.map((s) => s.id).join(",");
+  /** What each screen looks like now; a note is current when it was read for the same signature. */
   const signature: Partial<Record<BriefStep, string>> = {
     products: `${productIds}|${client?.service ?? ""}`,
     count: `${p.postCount}:${p.month}:${JSON.stringify(p.config?.occasions?.picked ?? [])}:${(p.config?.occasions?.custom ?? []).length}`,
@@ -338,31 +338,24 @@ export default function Journey(p: JourneyProps) {
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
     shots: `${p.plan.map((x) => x.scene ?? "").join("|")}:${theme?.props ?? ""}`,
   };
+  const signatureRef = useRef(signature);
+  signatureRef.current = signature;
   const stepBrief = STEPS[step].brief;
   const sig = stepBrief ? signature[stepBrief] : undefined;
+  /** A note read for another signature is older than its screen; a note from before signatures were kept counts as current. */
+  const noteStale = (k: BriefStep) => !!brief[k]?.sig && brief[k]!.sig !== signature[k];
   useEffect(() => {
     if (!stepBrief || !p.batchId || briefBusy) return;
     // The shots are read once they are written for this month's products.
     if (stepBrief === "shots" && (adapting || !p.plan.some((x) => x.scene)) && theme?.shots.length) return;
     const note = brief[stepBrief];
-    const before = seen.current[stepBrief];
-    if (note && before === undefined) {
-      seen.current[stepBrief] = sig;
-      return;
-    }
-    if (note && before === sig) return;
+    if (note && !noteStale(stepBrief)) return;
     if (stepBrief === "products" && !p.products.length && !client?.service?.trim()) return;
-    const t = setTimeout(
-      () => {
-        seen.current[stepBrief] = sig;
-        void runBrief(stepBrief);
-      },
-      note ? 1500 : 300,
-    );
+    const t = setTimeout(() => void runBrief(stepBrief), note ? 1500 : 300);
     return () => clearTimeout(t);
     // briefBusy too: a change made while a reading ran is read once that reading ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting, briefBusy]);
+  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), !!(stepBrief && brief[stepBrief]?.sig), adapting, briefBusy]);
 
   // A month that follows a grid from the library: its ideas carry a tile each and its shots come from them.
   const gridMonth = !!p.config?.gridRef && p.plan.some((x) => x.tile);
@@ -624,18 +617,12 @@ export default function Journey(p: JourneyProps) {
       return [{ text: `"What I understood" could not be written: ${briefError[k]}`, fix: { label: "Read again", run: () => runBrief(k) } }];
     if (briefBusy === k)
       return [{ text: "Wait for \"What I understood\": it is reading this screen.", how: "It takes a few seconds; the rest of the month follows it." }];
-    if (!brief[k] || (stepBrief === k && seen.current[k] !== signature[k]))
+    if (!brief[k] || noteStale(k))
       return [
         {
           text: "\"What I understood\" is older than this screen.",
           how: "It reads the screen again by itself in a moment, or press Read again.",
-          fix: {
-            label: "Read again",
-            run: () => {
-              seen.current[k] = signature[k];
-              return runBrief(k);
-            },
-          },
+          fix: { label: "Read again", run: () => runBrief(k) },
         },
       ];
     return [];

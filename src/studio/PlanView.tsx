@@ -51,8 +51,7 @@ import {
   monthLabel,
   type Post,
   type PostType,
-  type Format,
-} from "@shared/posts";
+  type Format, olderIdea, type RevisionConfig } from "@shared/posts";
 import { STATUS_LABEL } from "./constants";
 
 /** The month of a client: its products, the plan of posts and their images. */
@@ -80,7 +79,7 @@ export default function PlanView({
   onShowOverlay,
   themeRefs,
   gridRef,
-  plannedAt,
+  revision,
   onGridIdeas,
   fileBase,
   onUploadProducts,
@@ -150,8 +149,8 @@ export default function PlanView({
   themeRefs: { id: string; name: string | null }[];
   /** The reference the month follows in grid mode, when any. */
   gridRef: string | null;
-  /** When the ideas writer last wrote the plan; posts made before it are due again. */
-  plannedAt: number | null;
+  /** The month's revision stamps (plannedAt, gridAt): a picture made for an earlier revision is due again. */
+  revision: RevisionConfig | null;
   onGridIdeas: (refId: string, notes: string) => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
@@ -305,7 +304,7 @@ export default function PlanView({
     const t = taskOf(p.index);
     if (!t || t.status === "failed") return true;
     if (t.status === "processing" || t.status === "queued") return false;
-    return !!plannedAt && t.updated < plannedAt;
+    return olderIdea(t, p, revision);
   });
   const pending = due.length;
   const stale = due.some((p) => !!taskOf(p.index)?.output);
@@ -1212,7 +1211,7 @@ export default function PlanView({
                     })()}
                     {(() => {
                       // The idea was edited (and saved) after this picture was made: the picture is offered an update.
-                      const stale = !!p.ideaAt && !!t?.output && !inFlight && p.ideaAt > t.updated && !!onFix;
+                      const stale = !!t && !inFlight && olderIdea(t, p, revision) && !!onFix;
                       if (!stale) return null;
                       const text = (p.scene?.trim() || p.brief).slice(0, 700);
                       return (

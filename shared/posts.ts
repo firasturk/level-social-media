@@ -1779,3 +1779,49 @@ export function gatePostText(post: Pick<Post, "brief" | "scene">): { brief: stri
   const scene = pass("shot", post.scene);
   return { brief, scene, notes: [...new Set(notes)] };
 }
+
+/** The config fields a post's revision stamp reads. */
+export interface RevisionConfig {
+  plannedAt?: number;
+  gridAt?: number;
+}
+
+/**
+ * The revision of a post's idea: the latest of the month's planning, the post's own idea edit, its
+ * pinned picture, the client's note, and (for a grid post) the grid pick. A picture carries the
+ * revision it was made for; a later revision makes it an older idea.
+ */
+export function postRevision(post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): number {
+  return Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0, post.tile ? (config?.gridAt ?? 0) : 0, config?.plannedAt ?? 0);
+}
+
+/** A picture's lineage, as the task row records it. */
+export interface Lineage {
+  output?: string | null;
+  made_for?: number | null;
+}
+
+/** The picture was made for an earlier revision of this post's idea (never guessed from timestamps). */
+export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): boolean {
+  return !!task?.output && task.made_for != null && task.made_for < postRevision(post, config);
+}
+
+/** The picture predates lineage tracking: it stays usable and is shown as "lineage unknown" in details. */
+export function lineageUnknown(task: Lineage | null | undefined): boolean {
+  return !!task?.output && task.made_for == null;
+}
+
+/** "12 posts, one a 5-slide carousel: 16 designs, 15 pictures and 1 text tile drawn here." */
+export function planShape(plan: Post[]): string {
+  if (!plan.length) return "";
+  const groups = new Map<string, number>();
+  for (const p of plan) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
+  const posts = plan.filter((p) => !p.group).length + groups.size;
+  const tiles = plan.filter((p) => p.tileSpec?.kind === "text" && !p.product).length;
+  const designs = plan.length;
+  const pictures = designs - tiles;
+  const carousels = [...groups.values()];
+  const shapeOf = carousels.length ? `, ${carousels.length === 1 ? `one a ${carousels[0]}-slide carousel` : `${carousels.length} of them carousels (${carousels.join(", ")} slides)`}` : "";
+  return `${posts} post${posts === 1 ? "" : "s"}${shapeOf}: ${designs} design${designs === 1 ? "" : "s"}, ${pictures} picture${pictures === 1 ? "" : "s"} to make${tiles ? ` and ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here` : ""}.`;
+}
+

@@ -14,7 +14,7 @@ import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/o
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
-import { currentMonth, monthLabel, postFileName, type Format, type Post } from "@shared/posts";
+import { currentMonth, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { formatUsd, testSize } from "@shared/pricing";
 import type {
   Ambassador,
@@ -809,15 +809,17 @@ export default function Workspace({
   }
 
   /** The test post of the journey's last screen: its image and what the automatic review found. */
-  /** A finished image made before the month's ideas were last written belongs to the old ideas. */
-  const oldImage = (t: { status: string; updated: number }) =>
-    !["queued", "processing", "finalizing"].includes(t.status) && t.updated < (config?.plannedAt ?? 0);
+  /** A finished picture made for an earlier revision of its post's idea (recorded lineage, never a timestamp). */
+  const oldImage = (t: { status: string; output?: string | null; made_for?: number | null }, index: number) => {
+    const p = plan.find((x) => x.index === index);
+    return !["queued", "processing", "finalizing"].includes(t.status) && !!p && olderIdea(t, p, config);
+  };
   const testPost = useMemo(() => {
     const i = config?.testPost;
     if (!i || !plan.some((p) => p.index === i)) return null;
     const t = tasks.find((x) => x.post === i);
     // A test made for older ideas, or one that failed (it keeps an older picture), tests nothing.
-    if (t && (oldImage(t) || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status)))) return null;
+    if (t && (oldImage(t, i) || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status)))) return null;
     let qa: QA | null = null;
     try {
       qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
@@ -847,7 +849,7 @@ export default function Workspace({
           qa = null;
         }
         // An image made for older ideas is not this post's: it shows as not made yet.
-        const old = !!t && oldImage(t);
+        const old = !!t && oldImage(t, p.index);
         return {
           index: p.index,
           taskId: t?.id ?? null,
@@ -906,13 +908,13 @@ export default function Workspace({
     }
     // A take that failed (it keeps an older picture and says why) is made again too.
     const failed = (t: (typeof tasks)[number]) => t.status === "failed" || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status));
-    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && (t.updated < plannedAt || failed(t)));
+    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post && (olderIdea(t, p, config) || failed(t))));
     if (!stale) return generatePosts(undefined, false, false);
     // Only what is older than the ideas, missing or failed is made again: a fresh test post stays.
     const due = plan
       .filter((p) => {
         const t = tasks.find((x) => x.post === p.index);
-        return !t || failed(t) || t.updated < plannedAt || (testPost?.draft && testPost.index === p.index);
+        return !t || failed(t) || olderIdea(t, p, config) || (testPost?.draft && testPost.index === p.index);
       })
       .map((p) => p.index);
     await generatePosts(due.length ? due : undefined, true, false);
@@ -1562,7 +1564,7 @@ export default function Workspace({
                 onShowOverlay={setShowOverlay}
                 themeRefs={themeRefs}
                 gridRef={config?.gridRef ?? null}
-                plannedAt={config?.plannedAt ?? null}
+                revision={config ?? null}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 fileBase={`${client.slug}_${month}`}
                 palette={themes.find((x) => x.id === themeId)?.palette ?? []}

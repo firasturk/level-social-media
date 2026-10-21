@@ -51,6 +51,8 @@ export interface BriefNote {
   /** One instruction the ideas writer follows. */
   logic: string;
   at: number;
+  /** What the screen looked like when it was read (the Journey's signature): a different one means the note is older than the screen. */
+  sig?: string;
 }
 
 export interface Approval {
@@ -81,6 +83,10 @@ export interface Config {
   campaign?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean; /** The brief's reference pictures, kept as private styles (reused when the brief is planned again without files). */ styles?: string[]; /** The colours the brief named: the posts' backdrop, surfaces and props follow them, over the reference's. */ colours?: { name: string; hex: string }[] };
   /** When the plan was last written by the ideas writer; posts generated before it are stale. */
   plannedAt?: number;
+  /** This month's colours, when they differ from the theme's: the brief's, the grid's or the designer's. They win over the theme's palette for this month only. */
+  palette?: { name: string; hex: string }[];
+  /** Where the month's colours came from. */
+  paletteFrom?: "brief" | "grid" | "designer";
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */
   ambassadors?: string[];
   /**

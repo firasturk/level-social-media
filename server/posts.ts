@@ -11,7 +11,7 @@ import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SP
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeClient, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
-import { approveSpend, reserveOrAsk, reserveSpend, spendFits } from "./spend";
+import { approveSpend, reserveOrAsk, reserveSpend, spendFits, spendStatus } from "./spend";
 import { exactCallsCost } from "./exact";
 import { signObjectUrl } from "./signed";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
@@ -28,6 +28,8 @@ import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
+import { olderIdea, planShape, postRevision } from "@shared/posts";
+import { monthIssues } from "@shared/issues";
 import { postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
@@ -185,6 +187,8 @@ interface ClientRow {
   language: string;
   status: string;
   overlay: string | null;
+  /** R2 key of the primary logo. */
+  logo_key?: string | null;
 }
 
 /** True when the client's overlay hides the second line, so no sublines are written. */
@@ -266,6 +270,44 @@ function monthPaletteOf(theme: ThemeRow | null): string[] {
   return theme ? themePaletteOf(theme).map((c) => colourLabel(c.hex)) : [];
 }
 
+/**
+ * This month's colours as prompt strings: the month's own palette (a brief's, a grid's or the
+ * designer's, kept on the month) wins; otherwise the shared theme's. A month never writes the
+ * theme's palette by itself: that is a separate, explicit action (see /palette).
+ */
+function monthPalette(config: Pick<Config, "palette"> | null | undefined, theme: ThemeRow | null): string[] {
+  if (config?.palette?.length) return parsePalette(config.palette).map((c) => colourLabel(c.hex));
+  return monthPalette(config, theme);
+}
+
+/**
+ * This month's colours, chosen by the designer. The shared theme is only updated when asked for
+ * explicitly, and the answer says how many months follow that theme.
+ */
+postRoutes.post("/palette", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      palette: z.array(z.object({ name: z.string().max(40), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/) })).max(8),
+      /** Also write these colours to the month's theme (every month on it follows). */
+      theme: z.boolean().optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const palette = parsePalette(d.palette);
+  config.palette = palette.length ? palette : undefined;
+  config.paletteFrom = palette.length ? "designer" : undefined;
+  await saveConfig(c.env, b, config);
+  let months = 0;
+  if (d.theme && config.theme) {
+    await run(c.env.DB, "UPDATE skills SET palette = ?, palette_auto = 0, updated = ? WHERE id = ?", JSON.stringify(palette), now(), config.theme);
+    months = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM batches WHERE theme = ? AND deleted IS NULL", config.theme))?.n ?? 0;
+  }
+  return c.json({ ok: true, palette: config.palette ?? [], theme: d.theme ? { updated: true, months } : undefined });
+});
+
 /** The theme's shots changed: months that rewrote the old ones write them again. */
 async function dropMonthShots(env: Env, themeId: string): Promise<void> {
   await run(
@@ -306,8 +348,18 @@ async function toThemes(env: Env, rows: ThemeRow[]): Promise<Theme[]> {
     ...rows.map((r) => r.id),
   );
   const byId = new Map(counts.map((c) => [c.skill, c]));
+  const months = new Map(
+    (
+      await all<{ theme: string; n: number }>(
+        env.DB,
+        `SELECT theme, COUNT(*) AS n FROM batches WHERE deleted IS NULL AND theme IN (${rows.map(() => "?").join(",")}) GROUP BY theme`,
+        ...rows.map((r) => r.id),
+      )
+    ).map((m) => [m.theme, m.n]),
+  );
   return rows.map((r) => ({
     id: r.id,
+    months: months.get(r.id) ?? 0,
     client: r.client ?? "",
     title: r.title,
     caption: r.caption,
@@ -968,7 +1020,7 @@ function ideasContext(
   more: { earlier?: string[]; trends?: string[] } = {},
 ): Omit<IdeasRequest, "count"> {
   // Chosen colours win: the colour words of the references and the brand style give way.
-  const chosen = monthPaletteOf(theme).length > 0;
+  const chosen = monthPalette(config, theme).length > 0;
   const recolour = (t: string) => (chosen ? withoutPaletteText(t) : t);
   return {
     clientName: client.name,
@@ -992,7 +1044,7 @@ function ideasContext(
     themeLibrary: recolour(theme?.library ?? ""),
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
-    monthPalette: monthPaletteOf(theme),
+    monthPalette: monthPalette(config, theme),
     ambassadors: ambassadors.map((a) => ({ name: a.name, description: a.description })),
     lessons,
     shots: monthShots(config, theme).map((t) => (chosen ? withoutColourWords(t) : t)),
@@ -1416,7 +1468,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     themeDirection: theme?.goal ?? "",
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
-    monthPalette: monthPaletteOf(theme),
+    monthPalette: monthPalette(config, theme),
     ambassadors: gridCast.map((a) => ({ name: a.name, description: a.description })),
     products,
     productNotes,
@@ -1461,7 +1513,14 @@ postRoutes.post("/grid-ideas", async (c) => {
   // The feed shows the newest post first (top left): the posts are posted from the grid's last
   // tile to its first, so at the end of the month the feed reads exactly like the reference.
   const posted = [...plan].reverse().map((p, i) => ({ ...p, index: i + 1 }));
-  config.plan = withDates(posted, config.month ?? "");
+  const dated = withDates(posted, config.month ?? "");
+  // A post that survives the re-plan (same title, headline and idea) keeps its pictures, comments
+  // and videos under its new number.
+  const sigOf = (p: Post) => `${p.title}|${p.headline ?? ""}|${p.brief}`;
+  const oldByKey = new Map((config.plan ?? []).map((p) => [sigOf(p), p.index]));
+  const moves = dated.flatMap((p) => (oldByKey.has(sigOf(p)) ? [{ from: oldByKey.get(sigOf(p))!, to: p.index }] : []));
+  await movePostRows(c.env, b.id, moves);
+  config.plan = dated;
   config.plannedAt = now();
   config.postCount = count;
   config.gridRef = ref.id;
@@ -1545,6 +1604,20 @@ async function removePostAt(env: Env, user: User, batchId: string, index: number
   return cfg;
 }
 
+/**
+ * Posts kept across a re-plan keep their rows: tasks, comments and videos move to the posts' new
+ * numbers, through a free range so no two posts share a number on the way.
+ */
+async function movePostRows(env: Env, batchId: string, moves: { from: number; to: number }[]): Promise<void> {
+  const changed = moves.filter((m) => m.from !== m.to);
+  if (!changed.length) return;
+  const PARK = 10000;
+  for (const table of ["tasks", "post_comments", "videos"]) {
+    for (const m of changed) await run(env.DB, `UPDATE ${table} SET post = ? WHERE batch = ? AND post = ?`, m.to + PARK, batchId, m.from);
+    for (const m of changed) await run(env.DB, `UPDATE ${table} SET post = ? WHERE batch = ? AND post = ?`, m.to, batchId, m.to + PARK);
+  }
+}
+
 postRoutes.put("/plan", async (c) => {
   const d = await body(
     c,
@@ -1553,7 +1626,18 @@ postRoutes.put("/plan", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const before = new Map((config.plan ?? []).map((p) => [p.index, p]));
-  config.plan = d.plan.map((p, i) => ({ ...p, index: i + 1 }));
+  // A post keeps its number: the pictures, comments and versions are filed under it. Moving a post
+  // in the month is a change of its posting day, never a renumbering; a new post takes the next
+  // free number.
+  {
+    const taken = new Set<number>();
+    let next = Math.max(0, ...(config.plan ?? []).map((p) => p.index), ...d.plan.map((p) => p.index || 0)) + 1;
+    config.plan = d.plan.map((p) => {
+      const index = p.index && !taken.has(p.index) ? p.index : next++;
+      taken.add(index);
+      return { ...p, index };
+    });
+  }
   // An idea or shot edited by hand is stamped: a picture made before it is offered an update.
   for (const p of config.plan) {
     const old = before.get(p.index);
@@ -1614,7 +1698,7 @@ async function applyGridToMonth(env: Env, b: BatchRow, config: Config): Promise<
     themeDirection: theme?.goal ?? "",
     props: theme?.props ?? "",
     noSubline: hidesSubline(client),
-    monthPalette: monthPaletteOf(theme),
+    monthPalette: monthPalette(config, theme),
     ambassadors: cast.map((a) => ({ name: a.name, description: a.description })),
     products,
     productNotes,
@@ -1823,6 +1907,8 @@ interface TaskLite {
   brief: string | null;
   qa?: string | null;
   updated?: number;
+  /** The post revision the picture was made for; null when unknown (made before lineage was kept). */
+  made_for?: number | null;
 }
 
 /** A plain background in one colour, the size of the post: a typographic tile's picture. */
@@ -1875,10 +1961,7 @@ function pickLeastUsed(refs: { id: string }[], used: Map<string, number>): strin
  * product uses the product photo as image 1 and a theme reference as image 2; a post without a
  * product uses a theme reference as image 1. Existing results are kept unless `regenerate` is set.
  */
-postRoutes.post("/generate", async (c) => {
-  const d = await body(
-    c,
-    z.object({
+const GENERATE_BODY = z.object({
       batch: z.string().min(1),
       indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).optional(),
       regenerate: z.boolean().optional(),
@@ -1890,30 +1973,66 @@ postRoutes.post("/generate", async (c) => {
       note: z.string().trim().max(3000).optional(),
       /** The designer approved this run's estimate (shown when it exceeds the spend limit). */
       approve: z.boolean().optional(),
-    }),
-  );
-  const user = c.get("user");
-  const b = await ownedPlan(c.env, user, d.batch);
-  const config = JSON.parse(b.config) as Config;
+    });
+type GenerateBody = z.infer<typeof GENERATE_BODY>;
+
+/** What one post comes to when a run is prepared: made already, making, blocked, or ready (paid or drawn here). */
+export interface PreparedPost {
+  index: number;
+  title: string;
+  status: "ready" | "made" | "making" | "blocked";
+  kind?: "picture" | "text-tile";
+  paid?: boolean;
+  exact?: boolean;
+  why?: string;
+  /** The brief and prompt the engine would get (a ready picture). */
+  brief?: PostBrief;
+  prompt?: string;
+  /** A picture exists and would be replaced. */
+  existing?: boolean;
+}
+
+interface PreparedPlan {
+  statements: D1PreparedStatement[];
+  planned: number;
+  paid: number;
+  exactPlanned: number;
+  skipped: number[];
+  missingProduct: { index: number; product: string }[];
+  outcomes: PreparedPost[];
+  /** What a dry run would do when the real one starts (gallery and Drive imports). */
+  notes: string[];
+  draft: "1K" | undefined;
+}
+
+/**
+ * The preparation of a run, shared by Generate and the plan preview: the same resolution of
+ * products, references, styles and briefs, so the preview shows exactly what the run sends.
+ * A dry run writes nothing but product notes that did not exist yet (and the cut grid tiles it
+ * caches); the real run gets the statements that queue the posts.
+ */
+async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d: GenerateBody, dry = false): Promise<PreparedPlan> {
+  const outcomes: PreparedPost[] = [];
+  const notes: string[] = [];
   const plan = config.plan ?? [];
   if (!plan.length) throw new StudioError("Generate ideas first, then the posts.");
   if (d.test && d.indexes?.length !== 1) throw new StudioError("A test is one post.");
   const draft = d.test && testSize(config.model, config.size) === "1K" && config.size !== "1K" ? ("1K" as const) : undefined;
-  const client = await clientRow(c.env, config.client);
+  const client = await clientRow(env, config.client);
   const theme = config.theme
-    ? await first<ThemeRow>(c.env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
+    ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme)
     : null;
   // Ambassadors chosen for the month with a portrait: posts that cast them attach the portrait.
-  const cast = (await monthAmbassadors(c.env, config)).filter((a) => !!a.image_key);
+  const cast = (await monthAmbassadors(env, config)).filter((a) => !!a.image_key);
   const refs = theme
     ? await all<{ id: string; key: string }>(
-        c.env.DB,
+        env.DB,
         "SELECT id, key FROM refs WHERE skill = ? ORDER BY created",
         theme.id,
       )
     : [];
   const sources = await all<SourceRow>(
-    c.env.DB,
+    env.DB,
     "SELECT id, name, stem, key, reference_key, kind, role, note, category, size FROM sources WHERE batch = ?",
     b.id,
   );
@@ -1927,7 +2046,7 @@ postRoutes.post("/generate", async (c) => {
       .filter((n): n is string => !!n && !matchProduct(n, monthNames));
     if (named.length) {
       const gallery = await all<SourceRow>(
-        c.env.DB,
+        env.DB,
         "SELECT s.id, s.name, s.stem, s.key, s.reference_key, s.kind, s.role, s.note FROM sources s JOIN batches bb ON bb.id = s.batch WHERE bb.client = ? AND s.kind = 'product' AND s.batch != ? ORDER BY s.created DESC LIMIT 400",
         config.client ?? "",
         b.id,
@@ -1941,11 +2060,15 @@ postRoutes.post("/generate", async (c) => {
           notInGallery.push(n);
           continue;
         }
-        const row = await copyGalleryProduct(c.env, user.id, b, config.client, gallery[galleryNames.indexOf(m)].id, have);
+        if (dry) {
+          notes.push(`${n} comes from the client's gallery when the run starts.`);
+          continue;
+        }
+        const row = await copyGalleryProduct(env, user.id, b, config.client, gallery[galleryNames.indexOf(m)].id, have);
         if (row) sources.push(row);
       }
       // Then the client's Drive: its newest photo of that product joins the month.
-      const drive = notInGallery.length ? (await clientDrivePhotos(c.env, config.client ?? "")).filter((x) => !x.video && (!x.kind || PRODUCT_KINDS.has(x.kind))) : [];
+      const drive = notInGallery.length ? (await clientDrivePhotos(env, config.client ?? "")).filter((x) => !x.video && (!x.kind || PRODUCT_KINDS.has(x.kind))) : [];
       if (drive.length) {
         // The cleanest photo of each product first (a packshot), the newest among equals.
         const newest = [...drive].sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
@@ -1954,8 +2077,12 @@ postRoutes.post("/generate", async (c) => {
           const m = matchProduct(n, driveNames);
           const photo = m ? newest.find((x) => x.name === m) : undefined;
           if (!photo) continue;
+          if (dry) {
+            notes.push(`${n} comes from the client's Drive when the run starts.`);
+            continue;
+          }
           try {
-            sources.push(await importDrivePhoto(c.env, user.id, b.id, photo.id, n, have));
+            sources.push(await importDrivePhoto(env, user.id, b.id, photo.id, n, have));
           } catch (e) {
             console.error("[generate] drive", n, errorMessage(e));
           }
@@ -1963,11 +2090,11 @@ postRoutes.post("/generate", async (c) => {
       }
     }
   }
-  await describeProducts(c.env, sources);
+  await describeProducts(env, sources);
   const sellsDrinks = sources.some((s) => s.kind === "product" && FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const tasks = await all<TaskLite>(
-    c.env.DB,
-    "SELECT id, post, status, output, brief, qa, updated FROM tasks WHERE batch = ?",
+    env.DB,
+    "SELECT id, post, status, output, brief, qa, updated, made_for FROM tasks WHERE batch = ?",
     b.id,
   );
   const byPost = new Map(tasks.filter((t) => t.post).map((t) => [t.post!, t]));
@@ -1991,19 +2118,19 @@ postRoutes.post("/generate", async (c) => {
   // Posts with a gallery style use its picture as their style reference.
   const styleIds = [...new Set(plan.map((p) => p.style).filter((x): x is string => !!x))];
   const styles = new Map(
-    (await Promise.all(styleIds.map((id) => styleRow(c.env, id))))
+    (await Promise.all(styleIds.map((id) => styleRow(env, id))))
       .filter((r): r is StyleRow => !!r?.image_key)
       .map((r) => [r.id, r]),
   );
   const statements: D1PreparedStatement[] = [];
   let designSource: string | undefined;
   // Photos of the client's own place: a grid's place tile is set there, one photo after another.
-  const places = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'place' ORDER BY created", client.id);
+  const places = await all<{ key: string }>(env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'place' ORDER BY created", client.id);
   // Photos of real people: a post with people sees one, for real skin, light and lens.
-  const realRefs = await all<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY created", client.id);
+  const realRefs = await all<{ key: string }>(env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY created", client.id);
   let realTurn = 0;
   // And the shop, kitchen and factory photos in its Drive, as vision read them.
-  const drivePlaces = await clientPlacePhotos(c.env, client.id);
+  const drivePlaces = await clientPlacePhotos(env, client.id);
   let placeTurn = 0;
   const placeFor = async (p: Post): Promise<PostBrief["place"]> => {
     const factory = wantsFactory(`${p.title} ${p.brief} ${p.scene ?? ""}`);
@@ -2015,7 +2142,7 @@ postRoutes.post("/generate", async (c) => {
     if (!pool.length) return undefined;
     const photo = pool[placeTurn++ % pool.length];
     try {
-      return { key: await drivePlaceKey(c.env, client.id, photo.id), what: photo.kind === "factory" ? "kitchen or factory" : "shop" };
+      return { key: await drivePlaceKey(env, client.id, photo.id), what: photo.kind === "factory" ? "kitchen or factory" : "shop" };
     } catch (e) {
       console.error("[generate] drive place", errorMessage(e));
       return undefined;
@@ -2029,7 +2156,7 @@ postRoutes.post("/generate", async (c) => {
   const missingProduct: { index: number; product: string }[] = [];
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
   // What went wrong in this client's earlier pictures: the prompt forbids it by name.
-  const lessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
+  const lessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   for (const post of plan) {
     // The gate before paying: what the review would flag and the words already show is taken out
     // of the idea and the shot here, so no credit is spent on a picture that would be rejected
@@ -2045,6 +2172,7 @@ postRoutes.post("/generate", async (c) => {
     // An offer is generated only once the designer filled it: products, price and contents.
     if (post.type === "offer" && !offerReady(post.offer)) {
       skipped.push(post.index);
+      outcomes.push({ index: post.index, title: post.title, status: "blocked", why: "The offer needs its products, price and contents first." });
       continue;
     }
     const occasion =
@@ -2060,35 +2188,43 @@ postRoutes.post("/generate", async (c) => {
     const existing = byPost.get(post.index);
     if (existing) {
       const busy = existing.status === "processing" || existing.status === "finalizing";
-      if (busy) continue;
-      // The pictures follow the ideas: a post whose idea, reference or client note changed after its
-      // picture is made again without being asked.
-      const changed = Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0, post.tile ? (config.gridAt ?? 0) : 0) > (existing.updated ?? 0) && !!existing.output;
+      if (busy) {
+        outcomes.push({ index: post.index, title: post.title, status: "making" });
+        continue;
+      }
+      // The pictures follow the ideas: a post whose idea, reference, client note or grid changed
+      // after its picture is made again without being asked. A picture with unknown lineage (made
+      // before it was kept) stays as it is until the designer asks.
+      const changed = olderIdea(existing, post, config);
       // A smaller test image is made again at the month's size with the rest.
-      if (!d.regenerate && !changed && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
+      if (!d.regenerate && !changed && existing.status !== "failed" && !(isDraft(existing) && !d.test)) {
+        outcomes.push({ index: post.index, title: post.title, status: "made" });
+        continue;
+      }
     }
     // A text tile of the grid is a typographic post. A plain background is drawn here, exactly in its
     // colour and without the image engine; the headline goes on it as the tile has it.
     const spec = config.gridRef ? post.tileSpec : undefined;
     if (typographic && spec?.kind === "text" && !TEXTURED_BACKGROUND.test(spec.background)) {
       const taskId = existing?.id ?? uuid();
-      const colour = hexIn(spec.background, monthPaletteOf(theme)[0] ? hexIn(monthPaletteOf(theme)[0], "#f3ece0") : hexIn(paletteOf(client)[0], "#f3ece0"));
+      const colour = hexIn(spec.background, monthPalette(config, theme)[0] ? hexIn(monthPalette(config, theme)[0], "#f3ece0") : hexIn(paletteOf(client)[0], "#f3ece0"));
       const key = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.png`;
-      await c.env.BUCKET.put(key, await plainBackground(colour, config.format ?? "4:5"), { httpMetadata: { contentType: "image/png" } });
-      designSource ??= await designSourceOf(c.env, b.id, key);
+      await env.BUCKET.put(key, await plainBackground(colour, config.format ?? "4:5"), { httpMetadata: { contentType: "image/png" } });
+      designSource ??= await designSourceOf(env, b.id, key);
       const qa = JSON.stringify({ found: false, count: 0, box: [], productConcern: false, notes: "A typographic post: its background is drawn in the tile's colour.", automated: true, flags: [] });
       const brief = JSON.stringify({ post: true, index: post.index, type: post.type, typographic: true, background: colour });
       const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
       statements.push(
         existing
-          ? c.env.DB.prepare(
-              "UPDATE tasks SET status = 'ready', source = ?, output = ?, prompt = '', brief = ?, caption = ?, qa = ?, error = NULL, edit = NULL, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ?",
-            ).bind(designSource, key, brief, caption, qa, now(), existing.id)
-          : c.env.DB.prepare(
-              "INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, ?, ?)",
-            ).bind(taskId, b.id, designSource, post.index, key, brief, post.index, caption, qa, now()),
+          ? env.DB.prepare(
+              "UPDATE tasks SET status = 'ready', source = ?, output = ?, prompt = '', brief = ?, caption = ?, qa = ?, error = NULL, edit = NULL, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, making_for = ?, made_for = ?, updated = ? WHERE id = ?",
+            ).bind(designSource, key, brief, caption, qa, postRevision(post, config), postRevision(post, config), now(), existing.id)
+          : env.DB.prepare(
+              "INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, ?, ?, ?, ?)",
+            ).bind(taskId, b.id, designSource, post.index, key, brief, post.index, caption, qa, postRevision(post, config), postRevision(post, config), now()),
       );
       planned++;
+      outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "text-tile", paid: false });
       continue;
     }
     // A textured one (paper, marble…) is painted by the engine: its background only.
@@ -2099,6 +2235,7 @@ postRoutes.post("/generate", async (c) => {
     const productMatch = matchProduct(leadName, productNames);
     if (leadName && !productMatch) {
       missingProduct.push({ index: post.index, product: leadName });
+      outcomes.push({ index: post.index, title: post.title, status: "blocked", why: `No photo of ${leadName} this month.` });
       continue;
     }
     const product = productMatch
@@ -2123,7 +2260,7 @@ postRoutes.post("/generate", async (c) => {
           }))
       : [];
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
-    const gridRef = await gridImage(c.env, config.gridRef);
+    const gridRef = await gridImage(env, config.gridRef);
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
     // A grid picked for the month leads: a brief's reference style and its colour world step back for a post that has its tile.
     const gridLeads = !!config.gridRef && !!post.tile;
@@ -2150,7 +2287,7 @@ postRoutes.post("/generate", async (c) => {
     // photo never looks right. A product in someone's hand cannot be set in: such a post is drawn.
     const held = /\b(hands?|held|holding|holds|lifts?|lifting|grips?)\b/i.test(`${post.brief} ${post.scene ?? ""}`);
     const wantsExact = !!(config.exact || post.exact) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
-    const exactProduct = wantsExact && (await import("./exact").then((m) => m.cutsCleanly(c.env, product!))) ? product : undefined;
+    const exactProduct = wantsExact && (await import("./exact").then((m) => m.cutsCleanly(env, product!))) ? product : undefined;
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
       // No product photo in the picture: the style's own picture is image 1.
@@ -2159,8 +2296,8 @@ postRoutes.post("/generate", async (c) => {
       if (existingStyle) sourceId = existingStyle.id;
       else {
         sourceId = uuid();
-        await run(
-          c.env.DB,
+        if (!dry) await run(
+          env.DB,
           "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, created) VALUES (?, ?, ?, ?, ?, NULL, 'image/jpeg', 0, 'supporting', 'reference', ?)",
           sourceId,
           b.id,
@@ -2184,8 +2321,8 @@ postRoutes.post("/generate", async (c) => {
       if (existingRef) sourceId = existingRef.id;
       else {
         sourceId = uuid();
-        await run(
-          c.env.DB,
+        if (!dry) await run(
+          env.DB,
           "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, created) VALUES (?, ?, ?, ?, ?, NULL, 'image/jpeg', 0, 'supporting', 'reference', ?)",
           sourceId,
           b.id,
@@ -2218,7 +2355,7 @@ postRoutes.post("/generate", async (c) => {
     }
     // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
     const cell = !styled && gridRef && !textured && product && !exactProduct ? tileCell(post.tile, config.gridNotes, plan) : null;
-    const tileKey = cell && gridRef ? await gridTileKey(c.env, gridRef.key, cell) : null;
+    const tileKey = cell && gridRef ? await gridTileKey(env, gridRef.key, cell) : null;
     const brief: PostBrief = {
       post: true,
       draft,
@@ -2227,8 +2364,8 @@ postRoutes.post("/generate", async (c) => {
       type: post.type,
       title: post.title,
       brief: post.brief,
-      palette: campaign?.colours?.length ? campaign.colours : monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client),
-      paletteChosen: !!campaign?.colours?.length || monthPaletteOf(theme).length > 0,
+      palette: campaign?.colours?.length ? campaign.colours : monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client),
+      paletteChosen: !!campaign?.colours?.length || monthPalette(config, theme).length > 0,
       style: client.style,
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
@@ -2313,14 +2450,14 @@ postRoutes.post("/generate", async (c) => {
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)
       statements.push(
-        c.env.DB.prepare(
-          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
-        ).bind(sourceId, prompt, JSON.stringify(brief), caption, d.note?.trim() || null, now(), existing.id),
+        env.DB.prepare(
+          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, making_for = ?, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
+        ).bind(sourceId, prompt, JSON.stringify(brief), caption, d.note?.trim() || null, postRevision(post, config), now(), existing.id),
       );
     else
       statements.push(
-        c.env.DB.prepare(
-          "INSERT INTO tasks (id, batch, source, card, status, prompt, brief, post, caption, updated) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
+        env.DB.prepare(
+          "INSERT INTO tasks (id, batch, source, card, status, prompt, brief, post, caption, making_for, updated) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)",
         ).bind(
           uuid(),
           b.id,
@@ -2330,13 +2467,24 @@ postRoutes.post("/generate", async (c) => {
           JSON.stringify(brief),
           post.index,
           caption,
+          postRevision(post, config),
           now(),
         ),
       );
     planned++;
     paid++;
     if (exactProduct) exactPlanned++;
+    outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "picture", paid: true, exact: !!exactProduct, brief, prompt, existing: !!existing?.output });
   }
+  return { statements, planned, paid, exactPlanned, skipped, missingProduct, outcomes, notes, draft };
+}
+
+postRoutes.post("/generate", async (c) => {
+  const d = await body(c, GENERATE_BODY);
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const { statements, planned, paid, exactPlanned, skipped, missingProduct, draft } = await preparePlan(c.env, user, b, config, d);
   if (!planned)
     throw new StudioError(
       skipped.length || missingProduct.length
@@ -2387,6 +2535,67 @@ postRoutes.post("/generate", async (c) => {
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
   return c.json({ ok: true, planned, paid, skipped, missingProduct, draft: !!draft, approved: budget });
+});
+
+/**
+ * The plan as a run would send it, without starting one: every post's outcome (ready, made,
+ * making, blocked and why), the pictures the engine would get and the prompt's numbering, the
+ * executable scope and its estimate. Nothing is written but product notes that did not exist yet.
+ */
+postRoutes.post("/plan-preview", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).optional(), regenerate: z.boolean().optional() }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const prep = await preparePlan(c.env, user, b, config, d, true);
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme ? (await toThemes(c.env, [await themeRow(c.env, config.theme)]))[0] : null;
+  const cast = await monthAmbassadors(c.env, config);
+  const products = (await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id)).map(productName);
+  const issues = monthIssues({
+    config,
+    client: { logo: !!client.logo_key, tone: client.tone, colors: (() => { try { return JSON.parse(client.colors) as { hex: string }[]; } catch { return []; } })(), service: client.service },
+    theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
+    products,
+    cast: cast.map((a) => ({ name: a.name, gender: a.gender, image: !!a.image_key })),
+  });
+  const model = config.model || (await resolveEngineModel(c.env));
+  const estimate = estimateCost({ ...config, model }, prep.paid);
+  const perRun = estimate.total + prep.exactPlanned * exactCallsCost();
+  const { postImages } = await import("./engine");
+  const resolveRef = async (id: string) =>
+    id.startsWith("style:")
+      ? ((await first<{ image_key: string | null }>(c.env.DB, "SELECT image_key FROM styles WHERE id = ?", id.slice(6)))?.image_key ?? null)
+      : ((await first<{ key: string }>(c.env.DB, "SELECT key FROM refs WHERE id = ?", id))?.key ?? null);
+  const posts = [];
+  for (const o of prep.outcomes) {
+    if (!o.brief) {
+      posts.push(o);
+      continue;
+    }
+    const sent = await postImages(o.brief, resolveRef);
+    let highest = 0;
+    for (const m of (o.prompt ?? "").matchAll(/Images? (\d+)(?: to (\d+))?/g)) highest = Math.max(highest, Number(m[2] ?? m[1]));
+    posts.push({
+      ...o,
+      prompt: undefined,
+      reference: o.brief.editRef ? "pinned picture" : o.brief.styleKey ? "style" : o.brief.tileKey ? "grid tile" : o.brief.ref && o.brief.grid ? "grid" : o.brief.ref ? "theme reference" : "brief",
+      images: [{ role: o.brief.hasProduct ? "product" : "reference", key: "" }, ...sent.images.map((i) => ({ role: i.role, key: i.key }))],
+      highestImage: highest,
+      brief: c.get("user").role === "admin" ? o.brief : undefined,
+    });
+  }
+  return c.json({
+    ok: true,
+    posts,
+    planned: prep.planned,
+    paid: prep.paid,
+    blocked: prep.outcomes.filter((o) => o.status === "blocked").map((o) => ({ index: o.index, why: o.why })),
+    notes: prep.notes,
+    issues,
+    estimate: { model, size: config.size, perImage: estimate.perImage, total: perRun, maximum: perRun * (1 + MAX_AUTO_TAKES), known: estimate.known, retakes: MAX_AUTO_TAKES },
+    spend: await spendStatus(c.env, b.id),
+  });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */
@@ -2688,7 +2897,7 @@ postRoutes.post("/versions/restore", async (c) => {
     if (!t) return false;
     await run(
       c.env.DB,
-      "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, updated = ? WHERE id = ?",
+      "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, made_for = NULL, updated = ? WHERE id = ?",
       key,
       now() + 1,
       t.id,
@@ -2791,7 +3000,7 @@ postRoutes.post("/typography", async (c) => {
   const config = JSON.parse(b.config) as Config;
   const client = await clientRow(c.env, config.client);
   const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
-  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const spec = resolveOverlay(client.overlay ? (JSON.parse(client.overlay) as Partial<OverlaySpec>) : null);
   const headlineFont = config.monthFonts?.headline ?? spec.headline.font;
   const tasks = await all<{ post: number | null; output: string | null }>(
@@ -3211,8 +3420,12 @@ postRoutes.post("/campaign", async (c) => {
       console.error("[brief] reference colours", errorMessage(e));
     }
   }
-  if (monthColours.length && config.theme)
-    await run(c.env.DB, "UPDATE skills SET palette = ?, palette_auto = ? WHERE id = ?", JSON.stringify(monthColours), planned.colours.length ? 0 : 1, config.theme).catch((e) => console.error("[brief] colours", errorMessage(e)));
+  // The brief's colours are this month's: the theme, shared by other months, is left as it is
+  // (the designer can push them to the theme from the Direction screen).
+  if (monthColours.length) {
+    config.palette = monthColours;
+    config.paletteFrom = "brief";
+  }
   // Drive products the planner picked: imported once into the month, with what vision read in them.
   const imported = new Map<string, string>();
   const taken = new Set(sources.map((s) => s.stem));
@@ -3349,7 +3562,7 @@ postRoutes.post("/text-check", async (c) => {
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
   const client = await clientRow(c.env, config.client);
   const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
-  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const spec = resolveOverlay(client.overlay ? (JSON.parse(client.overlay) as Partial<OverlaySpec>) : null);
   const bytes = Uint8Array.from(atob(d.image.slice(d.image.indexOf(",") + 1)), (ch) => ch.charCodeAt(0));
   const check = parseTextCheck(
@@ -3407,7 +3620,7 @@ postRoutes.post("/text-assist", async (c) => {
   if (!post) throw new StudioError("That post is not in the plan.", 404);
   const client = await clientRow(c.env, config.client);
   const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
-  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const fontsRow = await first<{ fonts: string | null }>(c.env.DB, "SELECT fonts FROM clients WHERE id = ?", client.id);
   const images = d.image && d.action === "layout" ? [{ bytes: Uint8Array.from(atob(d.image.slice(d.image.indexOf(",") + 1)), (ch) => ch.charCodeAt(0)).buffer as ArrayBuffer, mime: "image/jpeg" }] : [];
   const answer = parseAssist(
@@ -3783,7 +3996,7 @@ postRoutes.post("/test-grid", async (c) => {
   const ref = await gridImage(c.env, config.gridRef);
   const refObj = ref ? await c.env.BUCKET.get(ref.key) : null;
   if (refObj && (refObj.size ?? 0) <= MAX_NOTE_BYTES) images.push({ bytes: await refObj.arrayBuffer(), mime: refObj.httpMetadata?.contentType || "image/jpeg" });
-  const palette = theme && monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const palette = theme && monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const prompt = testGridPrompt({ client: client.name, layout, plan, palette, products, reference: !!refObj && images.length > products.length });
   const engine = await makeGoogleClient(c.env);
   const model = isGoogleModel(config.model) ? config.model! : GOOGLE_MODELS[0].slug;
@@ -4169,7 +4382,9 @@ function countNote(config: Config, products: number, service = ""): Omit<BriefNo
   const occasions = pickedOccasions(month, config.occasions);
   const picked = new Set(occasions.map((o) => o.id));
   const missed = occasionsOf(month).filter((o) => o.major && !picked.has(o.id));
+  const shape = planShape(config.plan ?? []);
   const points = [
+    ...(shape ? [shape] : []),
     products
       ? count >= products
         ? `${products} products for ${count} posts: every product appears once before any product repeats.`
@@ -4202,7 +4417,7 @@ async function refreshCountNote(env: Env, batchId: string, config: Config): Prom
 
 /** One journey screen read like a brief; the rule it writes steers the month's ideas. */
 postRoutes.post("/brief", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), step: z.enum(BRIEF_STEPS) }));
+  const d = await body(c, z.object({ batch: z.string().min(1), step: z.enum(BRIEF_STEPS), sig: z.string().max(600).optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const client = await clientRow(c.env, config.client);
@@ -4224,7 +4439,7 @@ postRoutes.post("/brief", async (c) => {
     );
     const cast = await monthAmbassadors(c.env, config);
     // Chosen colours win here too: the analysis never brings back the pins' own colours.
-    const chosen = monthPaletteOf(theme).length > 0;
+    const chosen = monthPalette(config, theme).length > 0;
     const recolour = (t: string) => (chosen ? withoutPaletteText(t) : t);
     const context =
       step === "products"
@@ -4249,13 +4464,13 @@ postRoutes.post("/brief", async (c) => {
                   `THEME: ${theme.title}`,
                   `DIRECTION: ${recolour(theme.goal || theme.description || "") || "not written yet"}`,
                   `VISUAL LANGUAGE: ${recolour(theme.library || "") || "-"}`,
-                  chosen ? `THE MONTH'S COLOURS (chosen by the designer, they replace the pins' colours): ${monthPaletteOf(theme).join(", ")}` : "",
+                  chosen ? `THE MONTH'S COLOURS (chosen by the designer, they replace the pins' colours): ${monthPalette(config, theme).join(", ")}` : "",
                   `BRAND AMBASSADORS THIS MONTH: ${cast.map((a) => `${a.name} (${a.description})`).join("; ") || "none (product-only posts)"}`,
                 ].join("\n")
               : "No theme: the month follows the brand identity only."
             : step === "colours"
               ? [
-                  `CHOSEN COLOURS (first = background): ${monthPaletteOf(theme).join(", ") || "none, the brand colours are used"}`,
+                  `CHOSEN COLOURS (first = background): ${monthPalette(config, theme).join(", ") || "none, the brand colours are used"}`,
                   `BRAND COLOURS: ${paletteOf(client).join(", ") || "none"}`,
                   `PRODUCTS AND THEIR PACKAGING:\n${productLines.join("\n") || "none"}`,
                 ].join("\n")
@@ -4265,7 +4480,7 @@ postRoutes.post("/brief", async (c) => {
                     monthShots(config, theme).map((t, i) => `${i + 1}. ${chosen ? withoutColourWords(t) : t}`).join("\n") ||
                     "none"
                   }`,
-                  chosen ? `THE MONTH'S COLOURS (first = background; they replace every colour of the pins): ${monthPaletteOf(theme).join(", ")}` : "",
+                  chosen ? `THE MONTH'S COLOURS (first = background; they replace every colour of the pins): ${monthPalette(config, theme).join(", ")}` : "",
                   `PROPS: ${theme?.props || "none"}`,
                   `PRODUCTS:\n${productLines.join("\n") || "none"}`,
                 ].join("\n");
@@ -4284,7 +4499,7 @@ postRoutes.post("/brief", async (c) => {
   // Re-read: the designer may have changed the month meanwhile.
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
-  cfg.brief = { ...(cfg.brief ?? {}), [step]: { ...note, at: now() } };
+  cfg.brief = { ...(cfg.brief ?? {}), [step]: { ...note, at: now(), sig: d.sig } };
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, note: cfg.brief[step], brief: cfg.brief });
 });
@@ -4375,7 +4590,7 @@ postRoutes.post("/shots", async (c) => {
     });
   // The client may sell drinks: then cups and glasses are their products, not foreign items.
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
-  const palette = monthPaletteOf(theme);
+  const palette = monthPalette(config, theme);
   // A grid month: the writer looks at each post's own tile (cut from the grid), not only its words.
   const tileImages: ImageBytes[] = [];
   const tileFor = new Map<number, number>();
@@ -4477,7 +4692,7 @@ async function writeStyleScenes(
   const names = sources.map(productName);
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const cast = await monthAmbassadors(env, config);
-  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const scenes = new Map<number, { style?: string; scene?: string; brief?: string }>();
   const styleLessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   await Promise.all(

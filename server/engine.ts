@@ -499,7 +499,7 @@ async function storeResultBytes(
   // result; the review then upgrades the status if it is still waiting for it.
   await run(
     env.DB,
-    "UPDATE tasks SET status = 'review', output = ?, output_engine_url = ?, qa = ?, edit = NULL, recenter = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'finalizing'",
+    "UPDATE tasks SET status = 'review', output = ?, output_engine_url = ?, qa = ?, edit = NULL, recenter = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, made_for = making_for, updated = ? WHERE id = ? AND status = 'finalizing'",
     key,
     url,
     JSON.stringify(manualQA("Automatic review still running. Check manually.")),

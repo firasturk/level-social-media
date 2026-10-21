@@ -118,6 +118,10 @@ export interface Task {
   caption?: string | null;
   /** What the preflight changed before the engine was paid: JSON {at, notes}. */
   preflight?: string | null;
+  /** The post revision the picture in `output` was made for; null for pictures made before lineage was kept. */
+  made_for?: number | null;
+  /** The post revision the running generation was submitted for. */
+  making_for?: number | null;
 }
 
 /** A theme: a client's visual direction with its reference library (stored as a skill row). */
@@ -141,6 +145,8 @@ export interface Theme {
   palette: { name: string; hex: string }[];
   /** true while the palette is still the suggestion; false once the designer changed it. */
   paletteAuto: boolean;
+  /** Live months on this theme: a change to its palette reaches all of them. */
+  months?: number;
   hidden: boolean;
   references: number;
   thumb?: string;
