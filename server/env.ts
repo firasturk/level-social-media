@@ -22,7 +22,7 @@ export interface Env {
 export function previewNoImages(env: Env): boolean {
   return env.PREVIEW_NO_IMAGES === "1";
 }
-export const PREVIEW_MESSAGE = "This is the preview: pictures and videos are not made here. The plan, the readings and the words work as in the studio.";
+export const PREVIEW_MESSAGE = "This is the preview: image and video generation is blocked here. Planning and analysis run on demo fixtures until a text key is connected; with one, those calls are billed by the provider.";
 
 export function concurrency(env: Env): number {
   // Workers hold at most six outgoing connections open at once; more would just queue inside the isolate.

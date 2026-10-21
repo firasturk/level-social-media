@@ -15,6 +15,7 @@ import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
+import { blocking, monthIssues } from "@shared/issues";
 import { formatUsd, testSize } from "@shared/pricing";
 import type {
   Ambassador,
@@ -765,7 +766,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean): Promise<void> {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean, run = crypto.randomUUID()): Promise<void> {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -789,6 +790,7 @@ export default function Workspace({
         retake: retake || undefined,
         approve: approve || undefined,
         retakes,
+        run,
       });
       await refresh();
       if (test && r.planned)
@@ -811,7 +813,7 @@ export default function Workspace({
           `${d.images} picture${d.images === 1 ? "" : "s"}: about ${formatUsd(d.estimate ?? 0)}, at most ${formatUsd(d.maximum ?? d.estimate ?? 0)} if each is retaken once by itself after the review (list prices, an estimate). This is above the $${d.threshold} limit set in Admin.`,
           { ok: `Approve and generate · up to ${formatUsd(d.maximum ?? d.estimate ?? 0)}`, danger: false, cancel: "Not now" },
         );
-        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true, retakes);
+        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true, retakes, run);
         return;
       }
       toast.error(err.message);
@@ -1322,7 +1324,7 @@ export default function Workspace({
       <BootScreen done={bootTimedOut || stateReady} />
       {previewMode && (
         <div className="preview-strip" role="status">
-          Preview: pictures and videos are not made here. Plans, readings and words work as in the studio; image buttons answer with a note instead of a charge.
+          Preview: image and video generation is blocked at the server. With no key connected, planning and analysis answer from demo fixtures (free); if you add a Google or OpenAI key in Connection, those text calls are billed by that provider.
         </div>
       )}
       <Sidebar
@@ -1502,6 +1504,18 @@ export default function Workspace({
                 plan={plan}
                 onShare={() => void shareMonth()}
                 onWhatsApp={() => void whatsAppMonth()}
+                blockers={blocking(
+                  monthIssues({
+                    config,
+                    client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
+                    theme: (() => {
+                      const t = themes.find((x) => x.id === themeId);
+                      return t ? { references: t.references, shots: t.shots, analysed: t.analysed, latestRef: t.latestRef, palette: t.palette } : null;
+                    })(),
+                    products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => s.name.replace(/\.[a-z0-9]+$/i, "")),
+                    cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => ({ name: a.name, gender: a.gender, image: a.image })),
+                  }),
+                ).map((x) => x.text)}
                 made={plan.filter((p) => tasks.some((t) => t.post === p.index && t.output)).length}
                 toCheck={tasks.filter((t) => t.post && t.output && !["queued", "processing", "finalizing"].includes(t.status) && flagsOf(t).length).length}
                 making={tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length}

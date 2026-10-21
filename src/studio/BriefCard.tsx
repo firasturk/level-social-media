@@ -13,6 +13,7 @@ import { KitIcon } from "./kit";
  * rules each screen added) and how the client answered on the approval link.
  */
 export default function BriefCard({
+  blockers,
   config,
   theme,
   plan,
@@ -35,6 +36,8 @@ export default function BriefCard({
   /** Posts with a picture, posts the review flagged, posts being made now. */
   made?: number;
   toCheck?: number;
+  /** What stops Generate right now (the shared month checks), shown as a count. */
+  blockers?: string[];
   making?: number;
   /** Minutes left while posts are being made. */
   eta?: number | null;
@@ -77,6 +80,11 @@ export default function BriefCard({
                 </em>
               )}
               {toCheck > 0 && <em className="warn">{toCheck} need review</em>}
+              {!!blockers?.length && (
+                <em className="warn" title={blockers.join("\n")}>
+                  {blockers.length} thing{blockers.length === 1 ? "" : "s"} to fix before Generate
+                </em>
+              )}
             </span>
           )}
           <span>

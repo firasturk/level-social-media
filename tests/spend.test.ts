@@ -11,7 +11,7 @@ describe("the spending ledger", () => {
     expect((await reserveSpend(env, "m1", 0.134)).ok).toBe(true);
     const third = await reserveSpend(env, "m1", 0.134);
     expect(third.ok).toBe(false);
-    expect(third.status).toEqual({ approved: 0.3, reserved: 0.268, remaining: 0.032 });
+    expect(third.status).toEqual({ approved: 0.3, reserved: 0.268, remaining: 0.032, uncertain: 0 });
     expect((await spendFits(env, "m1", 0.03)).ok).toBe(true);
     expect((await spendFits(env, "m1", 0.04)).ok).toBe(false);
   });
@@ -38,7 +38,7 @@ describe("the spending ledger", () => {
     expect((await spendStatus(env, "m3")).approved).toBe(3.5);
     await reserveSpend(env, "m3", 3);
     await releaseSpend(env, "m3", 3);
-    expect(await spendStatus(env, "m3")).toEqual({ approved: 3.5, reserved: 0, remaining: 3.5 });
+    expect(await spendStatus(env, "m3")).toEqual({ approved: 3.5, reserved: 0, remaining: 3.5, uncertain: 0 });
     await releaseSpend(env, "m3", 10);
     expect((await spendStatus(env, "m3")).reserved).toBe(0);
   });

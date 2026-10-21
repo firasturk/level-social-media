@@ -202,8 +202,9 @@ describe("the request each engine path builds", () => {
     expect(highestImage(body.input[0].text!)).toBe(4);
   });
 
-  it("gives a transient failure's reservation back and keeps a refusal's, both bounded by the attempt cap", async () => {
-    // fal answers 503: nothing was made, the attempt is refunded and queued once more.
+  it("keeps an uncertain failure's reservation for reconciliation and a refusal's, both bounded by the attempt cap", async () => {
+    // fal answers 503 after taking the request: whether it billed is not known, so the attempt's
+    // cost and reservation stay, counted as uncertain, and the post is queued once more.
     const env = await seed("fal/bytedance/seedream/v5/pro/edit");
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
@@ -217,8 +218,10 @@ describe("the request each engine path builds", () => {
     let task = await env.DB.prepare(
       "SELECT status, attempts, cost, model FROM tasks WHERE id = 't1'",
     ).first<{ status: string; attempts: number; cost: number; model: string | null }>();
-    expect(task).toEqual({ status: "queued", attempts: 1, cost: 0, model: null });
-    expect((await spendStatus(env, "b1")).reserved).toBe(0);
+    expect(task).toEqual({ status: "queued", attempts: 1, cost: expect.closeTo(0.135, 3), model: null });
+    const after = await spendStatus(env, "b1");
+    expect(after.reserved).toBeCloseTo(0.135, 3);
+    expect(after.uncertain).toBeCloseTo(0.135, 3);
     // Google refuses the picture: the attempt may be billed, so its cost and reservation stay, and the
     // post moves to another engine once (still within the month's approval).
     const env2 = await seed("gemini-3-pro-image");

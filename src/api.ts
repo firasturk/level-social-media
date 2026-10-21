@@ -77,6 +77,8 @@ export interface ApprovalAsk {
  * asked once with the estimate, and the same request is sent again approved. Null when declined.
  */
 export async function postPaid<T>(path: string, body: Record<string, unknown>, what: string): Promise<T | null> {
+  // One run id per action: the approval resend carries the same one, so the allowance is added once.
+  body = { ...body, run: body.run ?? crypto.randomUUID() };
   try {
     return await post<T>(path, body);
   } catch (e) {

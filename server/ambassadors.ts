@@ -175,10 +175,10 @@ async function storePortrait(env: Env, r: AmbassadorRow, bytes: ArrayBuffer, mim
 /** Generates the portrait from the written look (Google image model). */
 ambassadorRoutes.post("/:id/portrait", async (c) => {
   const r = await row(c.env, c.req.param("id"));
-  const d = await body(c, z.object({ wish: z.string().max(600).optional(), approve: z.boolean().optional() }));
+  const d = await body(c, z.object({ wish: z.string().max(600).optional(), approve: z.boolean().optional(), run: z.string().max(80).optional() }));
   if (!r.gender) throw new StudioError(`Choose whether ${r.name} is a man or a woman first.`);
   // One paid portrait, approved by the designer's confirmation and reserved under the client.
-  await reserveOrAsk(c.env, clientScope(r.client), rateFor("gemini-3-pro-image")!["1K"], d.approve, `${r.name}'s portrait`);
+  await reserveOrAsk(c.env, clientScope(r.client), rateFor("gemini-3-pro-image")!["1K"], d.approve, `${r.name}'s portrait`, d.run);
   const engine = await makeGoogleClient(c.env);
   // A photo of a real person (the client's real-people references) shows what real looks like.
   const ref = await first<{ key: string }>(c.env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY RANDOM() LIMIT 1", r.client);

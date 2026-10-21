@@ -422,7 +422,7 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>Direction</h2>
-                  <p>What will shape the pictures, in the order it applies. Nothing on this screen costs money; the AI readings below are billed per call by the provider, a few cents each.</p>
+                  <p>What will shape the pictures, in the order it applies. Nothing on this screen spends the picture budget; the AI readings are text calls billed per call by the provider (a few cents each), or answered from demo fixtures when no key is connected.</p>
                 </div>
               </div>
               <div className="flow-two wide">
@@ -553,7 +553,7 @@ export default function Flow(p: FlowProps) {
                         {p.model || "the connected engine"} · {perPicture ? `about ${formatUsd(perPicture)} per picture (list price, an estimate)` : "price not known for this engine"}
                       </dd>
                       <dt>Readings</dt>
-                      <dd>The ideas, shots, captions and reviews are text and vision calls billed per call by the provider; they are outside the picture budget.</dd>
+                      <dd>The ideas, shots, captions and reviews are text and vision calls billed per call by the provider, outside the picture budget. Without a key they are answered from demo fixtures and say so.</dd>
                     </dl>
                   </section>
                   <section className="journey-box flow-box">

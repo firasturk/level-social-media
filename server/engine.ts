@@ -20,8 +20,9 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
 export const MAX_AUTO_TAKES = 1;
-import { releaseSpend, reserveSpend, spendFits } from "./spend";
+import { holdUncertain, releaseSpend, reserveSpend, spendFits } from "./spend";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
+import { demoAnswer, demoMode } from "./demo";
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -359,18 +360,13 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
           attempts: task.attempts,
           lastStage: task.error,
         });
-        // An interrupted submission costs nothing: the attempt's estimate is taken back, and it
-        // gets more automatic tries than an engine failure.
+        // An interrupted submission may or may not have reached the vendor: its cost and
+        // reservation stay, counted as uncertain for reconciliation, and it gets more automatic
+        // tries than an engine failure.
         const estimate =
           estimateCost(taskConfig(config, task), 1, [task.card]).total +
           (task.edit || task.recenter ? 0.008 : 0);
-        await run(
-          env.DB,
-          "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?",
-          estimate,
-          task.id,
-        );
-        await releaseSpend(env, batch.id, estimate);
+        await holdUncertain(env, batch.id, estimate);
         if (task.attempts <= MAX_AUTO_ATTEMPTS + 2)
           await requeue(env, task, "submission was interrupted, starting again");
         else
@@ -417,6 +413,8 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
       continue;
     }
     if (status.state === "failed") {
+      // The vendor accepted the request and failed later: whether it billed is not known.
+      if (!isContentPolicyError(status.message)) await holdUncertain(env, batch.id, estimateCost(taskConfig(config, task), 1, [task.card]).total);
       if (
         isContentPolicyError(status.message) &&
         (await retryAfterRefusal(env, taskConfig(config, task), task, status.message))
@@ -680,11 +678,17 @@ async function settleFailedAttempt(
       task.card,
     ]).total + (task.edit || task.recenter ? 0.008 : 0);
   const message = errorMessage(e, "Generation failed.");
-  // A refused attempt may still be billed by the vendor: its cost and its reservation stay. Any
-  // other failure produced nothing, so both are given back.
-  if (!isContentPolicyError(message)) {
+  // The reservation is given back only when the vendor is known to have done no work: it rejected
+  // the request before generating (a bad request, a rejected key, an empty balance, a missing
+  // model, a rate limit). A content refusal may be billed and keeps its cost. A timeout, a dropped
+  // connection, a vendor error after it accepted the request or anything unknown keeps the cost
+  // and the reservation too, counted as uncertain for reconciliation.
+  const billing = attemptBilling(e, message);
+  if (billing === "none") {
     await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
     await releaseSpend(env, batch.id, refund);
+  } else if (billing === "uncertain") {
+    await holdUncertain(env, batch.id, refund);
   }
   if (isCreditsDepleted(e)) {
     await requeue(env, task, creditsMessage(e));
@@ -734,6 +738,19 @@ async function settleFailedAttempt(
   }
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
+}
+
+/**
+ * What a failed attempt may have cost. "none": the vendor rejected the request before any work
+ * (4xx answers: bad request, key, balance, model, validation, rate limit). "billable": a content
+ * refusal, which some vendors charge. "uncertain": a timeout, a dropped connection, a 5xx or
+ * anything else, where work may have been done.
+ */
+export function attemptBilling(e: unknown, message = errorMessage(e)): "none" | "billable" | "uncertain" {
+  if (isContentPolicyError(message)) return "billable";
+  if (isRateLimit(e) || isCreditsDepleted(e)) return "none";
+  if (e instanceof StudioError && (e.status === 428 || /\((400|401|403|404|422)\)/.test(message) || /rejected the (API )?key|not connected|model not found|rejected the request|looks invalid/i.test(message))) return "none";
+  return "uncertain";
 }
 
 let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
@@ -1657,6 +1674,7 @@ async function askVision(
 ): Promise<string> {
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
+  if (!google && !openai && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
   if (!google && !openai) throw new StudioError("Connect Google or OpenAI first.", 428, true);
   if (!google) return askVisionOpenAI(openai!, instruction, images, fetch, "gpt-4.1-mini");
   try {

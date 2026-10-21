@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
+import { demoAnswer, demoMode } from "./demo";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
 import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
@@ -139,6 +140,8 @@ export async function askText(
 ): Promise<string> {
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
+  // A preview with no key answers from demo fixtures: no provider is called.
+  if (!google && !openai && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
   if (!google && !openai)
     throw new StudioError("This needs a Google or OpenAI key in Connection.", 428);
   if (google) {
@@ -1975,6 +1978,8 @@ const GENERATE_BODY = z.object({
       approve: z.boolean().optional(),
       /** false: no automatic retake after the review this month (the budget covers the pictures only). */
       retakes: z.boolean().optional(),
+      /** The client's id for this run: the same approval sent twice adds the allowance once. */
+      run: z.string().max(80).optional(),
     });
 type GenerateBody = z.infer<typeof GENERATE_BODY>;
 
@@ -2521,7 +2526,7 @@ postRoutes.post("/generate", async (c) => {
       },
       409,
     );
-  await approveSpend(c.env, b.id, budget);
+  await approveSpend(c.env, b.id, budget, d.run);
   if (d.test) config.testPost = d.indexes![0];
   statements.push(
     c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
@@ -3000,6 +3005,7 @@ postRoutes.post("/typography", async (c) => {
       style: z.enum(TYPO_STYLES).optional(),
       /** The designer confirmed the product-outline mattes' cost. */
       approve: z.boolean().optional(),
+      run: z.string().max(80).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -3026,7 +3032,7 @@ postRoutes.post("/typography", async (c) => {
   const MATTE_COST = rateFor("gemini-3.1-flash-image")!["1K"];
   if (due.length && previewNoImages(c.env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if (due.length) {
-    if (d.approve) await approveSpend(c.env, b.id, due.length * MATTE_COST);
+    if (d.approve) await approveSpend(c.env, b.id, due.length * MATTE_COST, d.run);
     else if (!(await spendFits(c.env, b.id, due.length * MATTE_COST)).ok)
       throw new StudioError(`Typography on ${due.length} post${due.length === 1 ? "" : "s"}: reading each product's outline is about ${formatUsd(due.length * MATTE_COST)}. Confirm to go ahead.`, 409, false, {
         needsApproval: true,
@@ -3976,7 +3982,7 @@ const testGridKey = (b: BatchRow) => `${b.owner}/${b.id}/testgrid`;
  * the products and the grid the month follows. The studio draws the words on each cell.
  */
 postRoutes.post("/test-grid", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), approve: z.boolean().optional() }));
+  const d = await body(c, z.object({ batch: z.string().min(1), approve: z.boolean().optional(), run: z.string().max(80).optional() }));
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
@@ -4010,7 +4016,7 @@ postRoutes.post("/test-grid", async (c) => {
   const engine = await makeGoogleClient(c.env);
   const model = isGoogleModel(config.model) ? config.model! : GOOGLE_MODELS[0].slug;
   // One paid picture: approved by the designer's confirmation, reserved before it is asked for.
-  await reserveOrAsk(c.env, b.id, rateFor(model)?.["2K"] ?? rateFor(GOOGLE_MODELS[0].slug)!["2K"], d.approve, "The test grid");
+  await reserveOrAsk(c.env, b.id, rateFor(model)?.["2K"] ?? rateFor(GOOGLE_MODELS[0].slug)!["2K"], d.approve, "The test grid", d.run);
   const out = await engine.edit({ model, prompt, images, aspectRatio: layout.aspectRatio, size: "2K" });
   const info: TestGridInfo = { ...layout, at: now() };
   await c.env.BUCKET.put(testGridKey(b), out.bytes, { httpMetadata: { contentType: out.mime }, customMetadata: { info: JSON.stringify(info) } });

@@ -60,6 +60,7 @@ import {
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
 import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
 import { fixNote, postProblems, type PostProblem } from "@shared/qa";
+import { monthIssues, type MonthIssue } from "@shared/issues";
 import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import DrivePicker from "./DrivePicker";
@@ -554,7 +555,6 @@ export default function Journey(p: JourneyProps) {
   const castPeople = p.ambassadors.filter((a) => p.cast.includes(a.id));
   const productNames = p.products.map((x) => displayName(x.name));
   const sellsDrinks = p.products.some((x) => FOREIGN_ITEMS.test(`${x.note ?? ""} ${x.category ?? ""}`));
-  const analysedAt = theme ? (theme.analysed ?? (theme.shots.length ? theme.updated : 0)) : 0;
   const briefAt = Math.max(
     0,
     ...Object.entries(p.config?.brief ?? {})
@@ -632,6 +632,41 @@ export default function Journey(p: JourneyProps) {
   const [briefText, setBriefText] = useState("");
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const briefTyped = briefText.trim().length >= 20;
+  /** The month's data checks, shared with the Studio header and the plan preview; the Journey only adds its fixes and screen state. */
+  const sharedIssues = monthIssues({
+    config: p.config,
+    client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
+    theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
+    products: productNames,
+    cast: castPeople.map((a) => ({ name: a.name, gender: a.gender, image: a.image })),
+  });
+  const fixFor = (i: MonthIssue): Issue["fix"] => {
+    switch (i.code) {
+      case "pins-unread":
+        return { label: "Analyse the pins", run: () => readReferences(true) };
+      case "palette":
+        return theme
+          ? {
+              label: p.config?.gridRef ? "Suggest from the grid" : "Suggest from the pins",
+              run: async () => {
+                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, p.config?.gridRef ? { grid: p.config.gridRef } : undefined);
+                p.onThemesChanged(r.themes);
+              },
+            }
+          : undefined;
+      case "greeting":
+        return {
+          label: "Add the greeting post",
+          run: async () => {
+            await post("/api/studio/posts/occasion-posts", { batch: p.batchId });
+            await p.refresh();
+          },
+        };
+      default:
+        return undefined;
+    }
+  };
+  const shared = (...codes: string[]): Issue[] => sharedIssues.filter((i) => codes.includes(i.code)).map((i) => ({ text: i.text, how: i.how, warn: i.warn, fix: fixFor(i) }));
   function issuesFor(k: string): Issue[] {
     const out: Issue[] = [];
     switch (k) {
@@ -640,65 +675,27 @@ export default function Journey(p: JourneyProps) {
         break;
       case "products":
         if (p.uploading) out.push({ text: "Wait for the photos to finish uploading." });
-        // A brief picks its products from the client's Drive: no upload is needed before it is planned.
-        if (!p.products.length && !client?.service?.trim() && !briefTyped && !p.config?.campaign)
-          out.push({
-            text: "No products yet.",
-            how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\" and describe what the client offers.",
-          });
-        else if (p.products.length) out.push(...analysisIssues("products"));
+        // A brief typed but not sent counts as products on the way (shared check otherwise).
+        if (!briefTyped) out.push(...shared("products"));
+        if (p.products.length) out.push(...analysisIssues("products"));
         break;
-      case "count": {
-        if (p.postCount < 1) out.push({ text: "Pick how many posts this month has." });
-        const sel = p.config?.occasions;
-        for (const o of pickedOccasions(p.month, sel))
-          if (o.portrait && !sel?.photos?.[o.id])
-            out.push({ warn: true, text: `${o.name}: upload the official portrait before Generate.`, how: "Use \"Official portrait\" next to it." });
-        const ticked = new Set(sel?.picked ?? []);
-        for (const o of occasionsOf(p.month))
-          if (o.major && !ticked.has(o.id)) out.push({ warn: true, text: `${o.name} (${shortDate(o.date)}) is a big day without a post.` });
+      case "count":
+        out.push(...shared("count", "portrait", "occasion"));
         out.push(...analysisIssues("count"));
         break;
-      }
       case "brand":
-        if (client && !client.logo) out.push({ warn: true, text: "No logo: the posts go out without one.", how: "Upload it in Logos." });
-        if (client && !client.tone?.trim()) out.push({ warn: true, text: "No tone of voice: captions use a neutral tone." });
-        if (client && !client.colors.length) out.push({ warn: true, text: "No brand colours yet." });
+        if (client) out.push(...shared("logo", "tone", "colours"));
         out.push(...analysisIssues("brand"));
         break;
       case "identity":
-        for (const a of castPeople) {
-          if (!a.gender)
-            out.push({ text: `Choose whether ${a.name} is a man or a woman.`, how: "Tick Man or Woman on the ambassador's card." });
-          if (!a.image)
-            out.push({ text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
-        }
+        out.push(...shared("gender", "portrait-missing"));
         if (!theme) out.push({ warn: true, text: "No theme: the posts follow the brand identity and get no shots from pins." });
-        // A month that follows a grid takes its look from the grid: the theme only keeps its colours.
-        else if (!theme.references) {
-          if (!p.config?.gridRef) out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
-        }
         else if (reading) out.push({ text: "Wait: the pins are being read." });
-        else if (!theme.shots.length || !analysedAt || (theme.latestRef ?? 0) > analysedAt)
-          out.push({
-            text: "The pins were not read since the last change: the month would follow the old theme.",
-            fix: { label: "Analyse the pins", run: () => readReferences(true) },
-          });
+        else out.push(...shared("pins", "pins-unread"));
         out.push(...analysisIssues("theme"));
         break;
       case "colours":
-        if (theme && !theme.palette.length)
-          out.push({
-            text: "No colours for this month.",
-            how: `Add the colours, or let the ${p.config?.gridRef ? "grid" : "pins"} suggest them.`,
-            fix: {
-              label: p.config?.gridRef ? "Suggest from the grid" : "Suggest from the pins",
-              run: async () => {
-                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, p.config?.gridRef ? { grid: p.config.gridRef } : undefined);
-                p.onThemesChanged(r.themes);
-              },
-            },
-          });
+        out.push(...shared("palette"));
         out.push(...analysisIssues("colours"));
         break;
       case "ideas": {
@@ -734,20 +731,7 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: made ? "A screen was read again after these ideas were written; the posts stay as they are unless you write the ideas again." : "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (p.plan.length !== p.postCount)
           out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite, warn: made });
-        const missing = pickedOccasions(p.month, p.config?.occasions).filter(
-          (o) => !p.plan.some((x) => x.type === "greeting" && x.occasion === o.id),
-        );
-        if (missing.length)
-          out.push({
-            text: `No greeting post yet for ${missing.map((o) => o.name).join(", ")}.`,
-            fix: {
-              label: "Add the greeting post",
-              run: async () => {
-                await post("/api/studio/posts/occasion-posts", { batch: p.batchId });
-                await p.refresh();
-              },
-            },
-          });
+        out.push(...shared("greeting").map((i) => ({ ...i, warn: false })));
         for (const x of p.plan) {
           if (x.type === "offer" && !offerReady(x.offer))
             out.push({ text: `Post ${x.index} is an offer: pick its products, write the price and what it includes, then "Write the offer post".` });
