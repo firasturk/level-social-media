@@ -21,6 +21,7 @@ import { fixNote } from "@shared/qa";
 import Zoomable from "./Zoomable";
 import CompareSlider from "./CompareSlider";
 import { formatUsd } from "@shared/pricing";
+import VoiceInput from "@/components/VoiceInput";
 import { POST_TYPE_INFO, POST_TYPES, type Post } from "@shared/posts";
 
 /** The four groups of the post editor, in the order the team works: the idea, its picture, the words, the earlier versions. */
@@ -30,7 +31,7 @@ const GROUPS = [
   { id: "words", label: "Words & design" },
   { id: "versions", label: "Versions" },
 ] as const;
-type Group = (typeof GROUPS)[number]["id"];
+export type Group = (typeof GROUPS)[number]["id"];
 
 /** One-click revision instructions; each appends to the edit box. */
 const REVISION_PRESETS: { label: string; text: string }[] = [
@@ -113,6 +114,10 @@ export interface PostEditorTools {
   onAccept?: () => Promise<void>;
   /** A fresh idea written for the post (free), then its picture is made. */
   onNewIdea?: () => void;
+  /** A post without a picture yet: its picture made from the plan (the budget check and cost apply). */
+  onMake?: () => void;
+  /** The group the editor opens on. */
+  initialGroup?: Group;
   /** The picture from before the last regenerate. */
   onPrevious?: () => Promise<void>;
   onOpenText?: () => void;
@@ -165,7 +170,8 @@ export default function ReviewDialog({
 }) {
   const [view, setView] = useState<"compare" | "result" | "original">("compare");
   const [edit, setEdit] = useState("");
-  const [group, setGroup] = useState<Group>("image");
+  const [group, setGroup] = useState<Group>(editor?.initialGroup ?? "image");
+  useEffect(() => setGroup(editor?.initialGroup ?? (task?.output ? "image" : "idea")), [editor?.post.index, editor?.initialGroup, task?.id, task?.output]);
   /** The post's fields as typed here; saved as a whole on Save. */
   const [draft, setDraft] = useState<Partial<Post>>({});
   useEffect(() => setDraft({}), [editor?.post.index, task?.id]);
@@ -232,7 +238,7 @@ export default function ReviewDialog({
 
   return (
     <Dialog
-      open={!!task}
+      open={!!task || !!editor}
       onOpenChange={(open) => {
         if (!open) {
           setEdit("");
@@ -436,7 +442,17 @@ export default function ReviewDialog({
             {editor.versions}
           </div>
         )}
-        <div className="review-layout" hidden={!!editor && group !== "image"}>
+        {editor && !task && group === "image" && (
+          <div className="editor-group" role="tabpanel">
+            <p className="editor-lineage">No picture yet for this post. It is made from the idea, the shot and the month's look; the cost is shown before anything is made.</p>
+            {editor.onMake && (
+              <button type="button" className="primary" disabled={busy} onClick={editor.onMake}>
+                Make the picture{cost}
+              </button>
+            )}
+          </div>
+        )}
+        <div className="review-layout" hidden={!task || (!!editor && group !== "image")}>
           <div>
             <div className="comparison-bar">
               <button
@@ -617,11 +633,15 @@ export default function ReviewDialog({
               id="revision"
               ref={editRef}
               rows={4}
+              dir="auto"
               placeholder="e.g. Keep the outfit unchanged. Move the model to the exact centre and use a brighter urban background."
               value={edit}
               onChange={(e) => setEdit(e.target.value)}
               disabled={busy}
             />
+            <div className="revision-voice">
+              <VoiceInput label="Dictate the change" onText={(t) => setEdit((e) => (e.trim() ? `${e.trim()} ${t}` : t))} disabled={busy} />
+            </div>
             <button
               className="primary"
               onClick={() => onRevise(edit).then(() => setEdit(""))}

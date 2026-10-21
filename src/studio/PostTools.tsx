@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { ImagePlus, MessageSquare, RefreshCw, Send, Wand2, X } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import VoiceInput from "@/components/VoiceInput";
 import { del, postForm } from "@/api";
 import { rasterize } from "@/lib/image";
 import { FRESH_TAKE, type PostReference } from "@shared/posts";
@@ -201,13 +202,15 @@ export function PostChangeBox({ index, disabled, onChange }: { index: number; di
         <textarea
           rows={2}
           value={note}
-          placeholder="Write what to change…"
+          dir="auto"
+          placeholder="Write or dictate what to change…"
           disabled={disabled || busy}
           onChange={(e) => setNote(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
           }}
         />
+        <VoiceInput compact onText={(t) => setNote((n) => (n.trim() ? `${n.trim()} ${t}` : t))} disabled={disabled || busy} />
         <button type="button" className="secondary" disabled={disabled || busy || !note.trim()} onClick={() => void send()} title="Make the picture again with this change">
           {busy ? <Orb size={13} /> : <Wand2 size={13} />} Change it
         </button>

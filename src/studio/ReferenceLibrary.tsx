@@ -33,6 +33,8 @@ export default function ReferenceLibrary({
   empty = "No reference photos yet. Add a few: each image borrows background, pose and lighting from one of them (never the clothes or accessories).",
   hint,
   actions,
+  buttonClass = "text-button",
+  buttonLabel = "Add photos",
 }: {
   skill: string;
   title: string;
@@ -44,6 +46,9 @@ export default function ReferenceLibrary({
   hint?: string;
   /** Extra controls next to "Add photos" (for example an import button). */
   actions?: React.ReactNode;
+  /** The add button's look (the Flow uses the shared creation button). */
+  buttonClass?: string;
+  buttonLabel?: string;
 }) {
   const [items, setItems] = useState<Reference[]>([]);
   const [busy, setBusy] = useState(false);
@@ -125,12 +130,12 @@ export default function ReferenceLibrary({
         <label className="field-label">{title}</label>
         <button
           type="button"
-          className="text-button"
+          className={buttonClass}
           disabled={busy}
           onClick={() => input.current?.click()}
         >
-          {busy ? <Orb size={13} /> : <ImagePlus size={13} />}
-          Add photos
+          {busy ? <Orb size={13} /> : <ImagePlus size={buttonClass === "text-button" ? 13 : 16} />}
+          {buttonLabel}
         </button>
         {actions}
         <input

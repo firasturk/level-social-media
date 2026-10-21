@@ -129,6 +129,15 @@ export default function StyleScreen({
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<StyleItem[]>([]);
   const [preview, setPreview] = useState<StyleItem | null>(null);
+  /** What a grid holds, read once (its tiles by kind and layout), for the preview card. */
+  const [gridInfo, setGridInfo] = useState<Record<string, { read: boolean; tiles: number; kinds: { kind: string; n: number }[]; textTiles: number; layout: string; world: string }>>({});
+  useEffect(() => {
+    if (!preview || preview.category !== "grid" || gridInfo[preview.id]) return;
+    void get<{ read: boolean; tiles: number; kinds: { kind: string; n: number }[]; textTiles: number; layout: string; world: string }>(`/api/studio/styles/${encodeURIComponent(preview.id)}/grid`)
+      .then((g) => setGridInfo((m) => ({ ...m, [preview.id]: g })))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview?.id]);
   const [busy, setBusy] = useState("");
   const [adding, setAdding] = useState(false);
   const [links, setLinks] = useState("");
@@ -748,14 +757,45 @@ export default function StyleScreen({
                 {shelfLabel(preview)} · {preview.tags}
               </small>
               <h2>{preview.title}</h2>
-              {admin && preview.prompt ? (
+              {preview.category === "grid" ? (
+                (() => {
+                  const g = gridInfo[preview.id];
+                  const n = g?.tiles || preview.tiles;
+                  const label: Record<string, string> = { product: "product", drink: "drink", food: "food", place: "place", person: "person", text: "text tile", texture: "texture", detail: "detail", picture: "picture" };
+                  return (
+                    <>
+                      <dl className="style-grid-facts">
+                        <dt>Posts</dt>
+                        <dd>{n ? `${n} post${n === 1 ? "" : "s"}, one per tile` : "Read when the grid is picked for a month"}</dd>
+                        {g?.layout && (
+                          <>
+                            <dt>Layout</dt>
+                            <dd>{g.layout}</dd>
+                          </>
+                        )}
+                        <dt>Contents</dt>
+                        <dd>{g?.read ? g.kinds.map((k) => `${k.n} ${label[k.kind] ?? k.kind}${k.n === 1 ? "" : "s"}`).join(" · ") : "Its tiles (pictures, text tiles, people) are read into the plan when a month follows it."}</dd>
+                        {g?.world && (
+                          <>
+                            <dt>Look</dt>
+                            <dd>{g.world}</dd>
+                          </>
+                        )}
+                      </dl>
+                      <p>Picked for a month, the posts follow this feed tile by tile, with the brand's own products, people and colours. The plan is shown before anything is made.</p>
+                      {admin && preview.prompt && (
+                        <details className="style-grid-prompt">
+                          <summary>Reading notes (admin)</summary>
+                          <p>{preview.prompt}</p>
+                        </details>
+                      )}
+                    </>
+                  );
+                })()
+              ) : admin && preview.prompt ? (
                 <p>{preview.prompt}</p>
               ) : (
-                <p>
-                  {preview.category === "grid"
-                    ? "Picked for a month, the posts follow this feed tile by tile, with the brand's own products, people and colours."
-                    : "Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours."}
-                </p>
+                <p>Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
               )}
               <div className="style-preview-actions">
                 <button

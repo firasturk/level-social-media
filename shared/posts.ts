@@ -1429,6 +1429,25 @@ export interface GridRead {
   fonts?: GridFonts;
 }
 
+/** What a read grid holds, in words the picker can show: how many tiles, of what kinds, in what layout. */
+export function gridSummary(read: GridRead | null | undefined): { read: boolean; tiles: number; kinds: { kind: string; n: number }[]; textTiles: number; layout: string; world: string } {
+  if (!read?.tiles?.length) return { read: false, tiles: 0, kinds: [], textTiles: 0, layout: "", world: "" };
+  const counts = new Map<string, number>();
+  let rows = 0;
+  let cols = 0;
+  for (const t of read.tiles) {
+    const kind = t.kind && (TILE_KINDS as readonly string[]).includes(t.kind) ? t.kind : "picture";
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    const m = /row\s*(\d+).*?col\s*(\d+)/i.exec(t.position ?? "");
+    if (m) {
+      rows = Math.max(rows, Number(m[1]));
+      cols = Math.max(cols, Number(m[2]));
+    }
+  }
+  const kinds = [...counts.entries()].map(([kind, n]) => ({ kind, n })).sort((a, b) => b.n - a.n);
+  return { read: true, tiles: read.tiles.length, kinds, textTiles: counts.get("text") ?? 0, layout: rows && cols ? `${rows} rows × ${cols} columns` : "", world: (read.world ?? "").slice(0, 300) };
+}
+
 /** One tile's detailed read, cleaned (null when the model gave none). */
 export function tileSpecOf(t: Partial<TileSpec> | undefined): TileSpec | undefined {
   if (!t || !t.kind || !(TILE_KINDS as readonly string[]).includes(t.kind)) return undefined;

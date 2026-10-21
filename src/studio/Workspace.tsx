@@ -47,7 +47,7 @@ import type { EngineInfo } from "./ConnectionDialog";
 const AdminView = lazyScreen(() => import("./AdminView"));
 const BatchesView = lazyScreen(() => import("./BatchesView"));
 const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
-import type { PostEditorTools } from "./ReviewDialog";
+import type { PostEditorTools, Group as EditorGroup } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 
 const CLIENT_KEY = "lsm-client";
@@ -1333,38 +1333,64 @@ export default function Workspace({
       return null;
     }
   };
+  /** A post opened in the editor without a picture (no task yet), and the group the editor opens on. */
+  const [selectedPost, setSelectedPost] = useState<number | null>(null);
+  const [editorGroup, setEditorGroup] = useState<EditorGroup | undefined>(undefined);
+  const openEditor = (index: number, group?: EditorGroup) => {
+    const t = tasks.find((x) => x.post === index && x.output);
+    setEditorGroup(group);
+    if (t) {
+      setSelectedPost(null);
+      setSelected(t);
+    } else {
+      setSelected(null);
+      setSelectedPost(index);
+    }
+  };
+  const closeEditor = () => {
+    setSelected(null);
+    setSelectedPost(null);
+    setEditorGroup(undefined);
+  };
   /** The post editor's four groups: the open task's post with every tool the card offers. */
-  const editorPost = selected?.post ? plan.find((p) => p.index === selected.post) : undefined;
+  const editorPost = selected?.post ? plan.find((p) => p.index === selected.post) : selectedPost !== null ? plan.find((p) => p.index === selectedPost) : undefined;
   const editor: PostEditorTools | undefined =
-    selected && editorPost && batch
+    editorPost && batch
       ? (() => {
           const index = editorPost.index;
-          const t = selected;
+          const t: Task | null = selected;
           const ask = (kind: "text" | "animate" | "video") => () => {
             setSelected(null);
             setRequested({ kind, index, at: Date.now() });
           };
           let acceptedBy = "";
           try {
-            const qa = t.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
+            const qa = t?.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
             acceptedBy = qa?.acceptedBy ?? (qa?.notes?.startsWith("Accepted by ") ? qa.notes.slice(12).replace(/\.$/, "") : "");
           } catch {
             /* unreadable review */
           }
-          const prev = prevOutputOf(t);
+          const prev = t ? prevOutputOf(t) : null;
           return {
             post: editorPost,
+            initialGroup: editorGroup,
+            onMake: !t?.output
+              ? () => {
+                  closeEditor();
+                  void generatePosts([index], false, false);
+                }
+              : undefined,
             products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => ({ id: s.id, name: displayName(s.name) })),
             cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => a.name),
             perPicture: rateFor(shownSettings.model)?.[shownSettings.size] ?? 0,
             onSavePost: (patch) => savePlan(plan.map((p) => (p.index === index ? { ...p, ...patch } : p))),
             onEdit: (note) => fixPost(index, note),
-            onAccept: flagsOf(t).length && !acceptedBy ? () => acceptPost(index) : undefined,
+            onAccept: t && flagsOf(t).length && !acceptedBy ? () => acceptPost(index) : undefined,
             onNewIdea: () => {
               setSelected(null);
               void newIdea(index);
             },
-            onPrevious: prev
+            onPrevious: prev && t
               ? async () => {
                   const was = t.output;
                   await restorePicture(index, prev);
@@ -1380,7 +1406,7 @@ export default function Workspace({
             onVideo: ask("video"),
             versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
             acceptedBy: acceptedBy || undefined,
-            lineage: !t.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
+            lineage: !t?.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
           };
         })()
       : undefined;
@@ -1606,8 +1632,8 @@ export default function Workspace({
                 plan={plan}
                 onShare={() => void shareMonth()}
                 onWhatsApp={() => void whatsAppMonth()}
-                blockers={blocking(
-                  monthIssues({
+                {...(() => {
+                  const issues = monthIssues({
                     config,
                     client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
                     theme: (() => {
@@ -1617,8 +1643,9 @@ export default function Workspace({
                     products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => displayName(s.name)),
                     cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
                     scene: sceneContext({ config, theme: themes.find((x) => x.id === themeId) ?? null, products: sources.filter((s) => (s.kind ?? "product") === "product"), client }),
-                  }),
-                ).map((x) => x.text)}
+                  });
+                  return { blockers: blocking(issues).map((x) => x.text), notes: issues.filter((x) => x.warn).map((x) => x.text) };
+                })()}
                 made={plan.filter((p) => tasks.some((t) => t.post === p.index && t.output)).length}
                 toCheck={tasks.filter((t) => t.post && t.output && !["queued", "processing", "finalizing"].includes(t.status) && flagsOf(t).length).length}
                 making={tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length}
@@ -1713,6 +1740,8 @@ export default function Workspace({
                 onAccept={acceptPost}
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
+                compact={useFlow}
+                onEdit={openEditor}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
                 typography={typography}
@@ -1746,6 +1775,9 @@ export default function Workspace({
         <Flow
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
+          onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
+          onGenerateOne={(index) => generatePosts([index], !!tasks.find((t) => t.post === index)?.output, false)}
+          reloadThemes={() => loadThemes(clientId)}
           user={user}
           client={client}
           month={month}
@@ -1881,7 +1913,7 @@ export default function Workspace({
           originalUrl={selected ? sourceUrl(selected.source, "original") : ""}
           resultUrl={selected ? outputUrl(selected) : ""}
           position={selectedIndex >= 0 ? { index: selectedIndex, total: reviewable.length } : undefined}
-          onClose={() => setSelected(null)}
+          onClose={closeEditor}
           onRevise={revise}
           editor={editor}
           onRemake={

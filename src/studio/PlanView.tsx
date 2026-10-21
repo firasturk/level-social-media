@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
+import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
 import {
   Clapperboard,
   Download,
@@ -99,6 +100,8 @@ export default function PlanView({
   onFix,
   onRestorePicture,
   onAccept,
+  compact = false,
+  onEdit,
   onDeletePlan,
   paused,
   onResume,
@@ -197,6 +200,9 @@ export default function PlanView({
   onFix?: (index: number, edit: string) => Promise<void>;
   /** Puts an earlier picture back on a post (after a Regenerate). */
   onRestorePicture?: (index: number, key: string) => Promise<void>;
+  /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
+  compact?: boolean;
+  onEdit?: (index: number, group?: EditorGroup) => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
@@ -670,6 +676,125 @@ export default function PlanView({
               const product = products.find(
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
+              if (compact && onEdit) {
+                const flags = t?.output && !inFlight ? (reviewFlags(t) ?? []) : [];
+                const state = inFlight
+                  ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
+                  : t?.status === "failed"
+                    ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
+                    : t?.output
+                      ? (() => {
+                          const accepted = acceptedBy(t);
+                          if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
+                          if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
+                          return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                        })()
+                      : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
+                const saved = plan.find((x) => x.index === p.index);
+                const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
+                const menu = [
+                  t?.output
+                    ? { label: "Make another version", onClick: () => regenerate(t, p.index), disabled: inFlight || running || (p.type === "offer" && !offerReady(p.offer)), title: "A clearly different take on the same idea; this picture stays under Versions" }
+                    : { label: "Make the picture", onClick: () => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed")), disabled: inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer)) },
+                  { label: "Write a new idea", onClick: () => onNewIdea(p.index), disabled: inFlight || running || busy === "reidea" },
+                  ...(p.type !== "greeting"
+                    ? p.style
+                      ? [
+                          { label: "Change the style", onClick: () => setPicking(p.index), disabled: !!busy },
+                          { label: "Take the style off", onClick: () => void onStyles([{ index: p.index, style: null }]), disabled: !!busy },
+                        ]
+                      : [{ label: "Pick a style", onClick: () => setPicking(p.index), disabled: !!busy }]
+                    : []),
+                  ...(t?.output && !inFlight && onFix
+                    ? [
+                        { label: "Enhance (higher quality)", onClick: () => { setFixing(p.index); void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null)); }, disabled: fixing !== null || running || !!busy },
+                        { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false },
+                        { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false },
+                        { label: "Video from this picture", onClick: () => setVideoFor(p.index) },
+                      ]
+                    : []),
+                  ...(onRestorePicture && !inFlight && prevOf(t)
+                    ? [{ label: "Previous picture", onClick: () => { const was = t!.output!; setRestoring(p.index); void onRestorePicture(p.index, prevOf(t)!).then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } }).finally(() => setRestoring(null)); }, disabled: restoring !== null || running }]
+                    : []),
+                  { label: "Reference picture and versions", onClick: () => onEdit(p.index, "versions") },
+                  { label: "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
+                ];
+                return (
+                  <article key={p.index} id={`post-card-${p.index}`} className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""}`}>
+                    <PostCardCompact
+                      post={p}
+                      task={t}
+                      inFlight={inFlight}
+                      state={state}
+                      flags={flags}
+                      approval={approvals[String(p.index)]}
+                      styleTitle={p.style ? (styleOf(p.style)?.title ?? "Gallery style") : null}
+                      dayTitle={occasionOn(p.date) || undefined}
+                      onEdit={(g) => onEdit(p.index, g)}
+                      onFixReview={onFix ? () => { setFixing(p.index); void onFix(p.index, fixNote(reviewFlags(t!)!)).finally(() => setFixing(null)); } : undefined}
+                      onAccept={onAccept ? () => { setAccepting(p.index); void onAccept(p.index).finally(() => setAccepting(null)); } : undefined}
+                      fixing={fixing === p.index}
+                      accepting={accepting === p.index}
+                      disabled={running || !!busy}
+                      menu={menu}
+                      media={
+                        <>
+                          {img && showOverlay && p.overlay !== false ? (
+                            <OverlayPreview src={img} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={facesOf(t?.qa)} width={720} alt={p.title} />
+                          ) : img ? (
+                            <img src={img} alt={p.title} loading="lazy" />
+                          ) : (
+                            <img className="post-placeholder" src={`/guide/${p.type}.jpg`} alt="" onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
+                          )}
+                          {inFlight && (
+                            <span className="post-progress">
+                              <Orb size={18} />
+                              {makingLabel(t)}
+                            </span>
+                          )}
+                          {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
+                          {product && !img && <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />}
+                        </>
+                      }
+                      extra={
+                        <>
+                          {rewriting.includes(p.index) && (
+                            <small className="pc-meta">
+                              <Orb variant="caption" size={14} status={null} /> Writing the words and the idea again…
+                            </small>
+                          )}
+                          {p.product && !product && p.type !== "offer" && <small className="pc-meta warn">No photo of {p.product} this month: Generate brings it from the gallery, or pick another product in Edit.</small>}
+                          {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
+                          {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
+                            <small className="pc-meta" dir="auto">
+                              “{approvals[String(p.index)].note}”
+                            </small>
+                          )}
+                          {cardDirty && (
+                            <span className="pc-unsaved">
+                              Unsaved changes ·{" "}
+                              <button type="button" className="text-button" onClick={() => void saveDraft().then(() => refitPending())}>
+                                Save
+                              </button>{" "}
+                              <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved! : x)))}>
+                                Discard
+                              </button>
+                            </span>
+                          )}
+                          {!!t && !inFlight && olderIdea(t, p, revision) && !!onFix && (
+                            <span className="pc-unsaved">
+                              The idea changed after this picture ·{" "}
+                              <button type="button" className="text-button" disabled={fixing !== null || running} onClick={() => { setFixing(p.index); void onFix(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${(p.scene?.trim() || p.brief).slice(0, 700)}`).finally(() => setFixing(null)); }}>
+                                Update the picture
+                              </button>
+                            </span>
+                          )}
+                        </>
+                      }
+                    />
+                  </article>
+                );
+              }
               return (
                 <article
                   key={p.index}

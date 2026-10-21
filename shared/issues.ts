@@ -95,7 +95,11 @@ export function postIssues(
   if (scene)
     for (const pr of postProblems(p, { products, cast: scene.cast, sellsDrinks: scene.sellsDrinks, needsScene: scene.needsScene, hasPlaces: scene.hasPlaces }))
       // The empty offer is already the "offer" issue above; it is not listed twice.
-      if (!(pr.fix === "post" && pr.text.startsWith("is an offer without"))) out.push({ code: `post-${pr.fix}`, post: p.index, text: `Post ${pr.index} ${pr.text}.`, problem: pr });
+      if (!(pr.fix === "post" && pr.text.startsWith("is an offer without"))) {
+        // A post without its own shot is still made (from its idea and the theme's shots): a note, with "Write the shots" as its fix.
+        const missingShot = pr.fix === "shot" && pr.text === "has no shot yet";
+        out.push({ code: `post-${pr.fix}`, post: p.index, text: `Post ${pr.index} ${pr.text}.`, problem: pr, ...(missingShot ? { warn: true, how: "Write the shots: each post gets the look written for its own product." } : {}) });
+      }
   return out;
 }
 

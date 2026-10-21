@@ -14,6 +14,7 @@ import { KitIcon } from "./kit";
  */
 export default function BriefCard({
   blockers,
+  notes,
   config,
   theme,
   plan,
@@ -38,6 +39,8 @@ export default function BriefCard({
   toCheck?: number;
   /** What stops Generate right now (the shared month checks), shown as a count. */
   blockers?: string[];
+  /** Warnings that do not stop Generate (the Plan stage lists the same). */
+  notes?: string[];
   making?: number;
   /** Minutes left while posts are being made. */
   eta?: number | null;
@@ -80,6 +83,11 @@ export default function BriefCard({
                 </em>
               )}
               {toCheck > 0 && <em className="warn">{toCheck} need review</em>}
+              {!!notes?.length && (
+                <em title={notes.join("\n")}>
+                  {notes.length} note{notes.length === 1 ? "" : "s"}
+                </em>
+              )}
               {!!blockers?.length && (
                 <em className="warn" title={blockers.join("\n")}>
                   {blockers.length} thing{blockers.length === 1 ? "" : "s"} to fix before Generate

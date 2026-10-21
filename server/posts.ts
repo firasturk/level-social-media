@@ -1496,6 +1496,7 @@ postRoutes.post("/grid-ideas", async (c) => {
       ? (read.tiles as GridRead["tiles"]).filter((t) => t && typeof t === "object").slice(0, 30)
       : [],
   };
+  await rememberGridRead(c.env, ref.id, grid);
   // Each post remembers the tile it follows (from the title's "T3 ·" prefix, else by order).
   for (const p of plan) {
     const m = /^T(\d+)\s*[·:-]/i.exec(p.title);
@@ -1715,6 +1716,7 @@ async function applyGridToMonth(env: Env, b: BatchRow, config: Config): Promise<
     tiles: Array.isArray(read.tiles) ? (read.tiles as GridRead["tiles"]).filter((t) => t && typeof t === "object").slice(0, 30) : [],
   };
   if (!grid.tiles.length) throw new StudioError("The grid could not be read into tiles. Try again.", 502);
+  if (ref) await rememberGridRead(env, ref.id, grid);
   // The feed shows the newest post first: the first posts of the month take the grid's last tiles.
   const n = plan.length;
   const used = grid.tiles.slice(0, Math.min(n, grid.tiles.length));
@@ -1737,6 +1739,13 @@ async function applyGridToMonth(env: Env, b: BatchRow, config: Config): Promise<
   const f = (read as { fonts?: Partial<GridFonts> }).fonts;
   if (f?.headline && HOSTED_FONTS.includes(f.headline)) config.gridFonts = { headline: f.headline, body: f.body && HOSTED_FONTS.includes(f.body) ? f.body : f.headline, why: String(f.why ?? "").slice(0, 400) };
   return n;
+}
+
+/** A library grid's read is kept once, so the picker can say what the grid holds without reading it again. */
+export async function rememberGridRead(env: Env, ref: string, grid: GridRead): Promise<void> {
+  const id = ref.replace(/^style:/, "");
+  if (!id || !grid.tiles.length) return;
+  await run(env.DB, "INSERT OR REPLACE INTO grid_reads (style, read, created) VALUES (?, ?, ?)", id, JSON.stringify(grid), now()).catch((e) => console.error("[grid] remember", errorMessage(e)));
 }
 
 /** The picked grid is applied to the month's posts as they are (after a pick on a made month, or to apply it again). */

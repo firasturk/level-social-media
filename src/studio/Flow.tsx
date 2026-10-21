@@ -6,26 +6,28 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, Grid3x3, ImagePlus, Images, PenLine, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import { Orb } from "@/components/Orb";
-import { post, postForm } from "@/api";
+import { get, post, postForm } from "@/api";
+import VoiceInput from "@/components/VoiceInput";
+import type { StyleItem } from "@shared/styles";
 import { rasterize } from "@/lib/image";
 import { askConfirm } from "@/lib/confirm";
 import type { Ambassador, Client, Source, Task, Theme, User } from "@shared/types";
 import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
-import { lineageUnknown, monthLabel, olderIdea, planShape, type Format, type Post } from "@shared/posts";
+import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { formatUsd, rateFor } from "@shared/pricing";
-import StyleScreen from "./StyleGallery";
+import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
 
 type Way = "brief" | "grid" | "refs" | "style";
 type Stage = 0 | 1 | 2;
 
 const WAYS: { key: Way; title: string; desc: string; controls: string; icon: React.ReactNode }[] = [
-  { key: "brief", title: "Write a brief", desc: "Your words for one campaign: the idea, the products, the carousel, the colours. Pictures can be pinned to single posts.", controls: "ideas, words, colours, exact references", icon: <PenLine size={18} /> },
+  { key: "brief", title: "Quick Campaign", desc: "Say what you want in your words, typed or spoken: the posts, the products, the look, the text on the pictures. Reference pictures can be attached.", controls: "ideas, words, colours, exact references", icon: <MessageSquareText size={18} /> },
   { key: "grid", title: "Follow a grid", desc: "A whole feed from the library: one tile per post, its order, its text tiles and fonts.", controls: "the composition of every post", icon: <Grid3x3 size={18} /> },
   { key: "refs", title: "Use theme references", desc: "Pins or photos that set the month's look: light, colours, props, camera. Never their objects.", controls: "mood, palette, shot list", icon: <Images size={18} /> },
   { key: "style", title: "One post from a style", desc: "One look from the gallery for one post. The style is saved on the post first; making the picture is a separate step you confirm.", controls: "one post's look and idea", icon: <Sparkles size={18} /> },
@@ -33,8 +35,8 @@ const WAYS: { key: Way; title: string; desc: string; controls: string; icon: Rea
 
 const LEADS: Record<Way, { title: string; text: string; meet: string; add: string[] }> = {
   brief: {
-    title: "Your brief leads this month",
-    text: "The words, the products on each post, the carousel and the colours come from what you write. A picture pinned to a post is recreated for that post.",
+    title: "Your request leads",
+    text: "The posts, the products on each, the carousel, the colours and the text on the pictures come from what you ask for. A reference picture is recreated on its post. Nothing is made until you confirm the plan.",
     meet: "If you add a grid later, its tile sets each post's composition and your brief keeps the words and colours. Theme references only set the light and palette.",
     add: ["Theme references for the mood", "A grid for the layout", "Pictures pinned to single posts"],
   },
@@ -109,6 +111,12 @@ export interface FlowProps {
   refresh: () => Promise<void>;
   onUpload: (files: File[]) => Promise<void>;
   onGrid: (id: string) => void;
+  /** Plans the month from a library grid (its ref is "style:<id>"), tile by tile. */
+  onGridIdeas: (ref: string, notes: string) => Promise<void>;
+  /** Makes one post's picture (the style's target), nothing else. */
+  onGenerateOne: (index: number) => Promise<void>;
+  /** The themes read again (their reference counts) after references change. */
+  reloadThemes: () => Promise<void>;
   onGenerateIdeas: (force?: boolean, notes?: string, append?: boolean) => Promise<boolean>;
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   onSavePlan: (plan: Post[]) => void | Promise<void>;
@@ -120,6 +128,34 @@ export interface FlowProps {
 }
 
 const STAGES = ["Start", "Direction", "Plan", "Studio"];
+
+/** A short stable fingerprint of a text (what the month's shots were written from; the Journey uses the same). */
+function hash(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;
+  return `${text.length.toString(36)}-${h.toString(36)}`;
+}
+
+interface GridInfo {
+  read: boolean;
+  tiles: number;
+  kinds: { kind: string; n: number }[];
+  textTiles: number;
+  layout: string;
+  world: string;
+}
+const KIND_LABEL: Record<string, string> = { product: "product", drink: "drink", food: "food", place: "place", person: "person", text: "text tile", texture: "texture", detail: "detail", picture: "picture" };
+const kindsLine = (g: GridInfo) => g.kinds.map((k) => `${k.n} ${KIND_LABEL[k.kind] ?? k.kind}${k.n === 1 ? "" : "s"}`).join(" · ");
+
+/** The one button design of the four ways to start: one height, one shape, a filled primary and a quiet secondary. */
+function Cta({ kind = "primary", icon, children, ...rest }: { kind?: "primary" | "secondary"; icon?: React.ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button type="button" {...rest} className={`cta ${kind} ${rest.className ?? ""}`}>
+      {icon}
+      {children}
+    </button>
+  );
+}
 
 export default function Flow(p: FlowProps) {
   const [stage, setStage] = useState<Stage>(() => p.initialStage ?? (p.plan.length ? 2 : p.config?.campaign || p.config?.gridRef ? 1 : 0));
@@ -134,14 +170,100 @@ export default function Flow(p: FlowProps) {
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [planning, setPlanning] = useState(false);
   const [picking, setPicking] = useState<"grid" | "style" | null>(null);
-  const [startStyle, setStartStyle] = useState<string | null>(null);
+  const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
+  /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
+  const [styleTarget, setStyleTarget] = useState<number | "next">(() => p.plan.find((x) => !x.style && x.type !== "greeting")?.index ?? p.plan[0]?.index ?? "next");
   const [moving, setMoving] = useState(false);
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
+  /** Quick Campaign on a month that has posts: new posts are added, unless the month's posts are to be replaced. */
+  const [briefScope, setBriefScope] = useState<"add" | "replace">("add");
+  const campaignRefs = p.config?.campaign?.styles?.length ?? 0;
+  /** The grid picked from the library but not applied yet, and the one the month follows. */
+  const [pickedGrid, setPickedGrid] = useState<StyleItem | null>(null);
+  const [monthGrid, setMonthGrid] = useState<StyleItem | null>(null);
+  const [gridInfo, setGridInfo] = useState<Record<string, GridInfo>>({});
+  const currentGridId = p.config?.gridRef?.startsWith("style:") ? p.config.gridRef.slice(6) : null;
+  useEffect(() => {
+    if (!currentGridId) {
+      setMonthGrid(null);
+      return;
+    }
+    void get<{ styles: StyleItem[] }>(`/api/studio/styles/lookup?ids=${encodeURIComponent(currentGridId)}`)
+      .then((r) => setMonthGrid(r.styles[0] ?? null))
+      .catch(() => setMonthGrid(null));
+  }, [currentGridId]);
+  const shownGrid = pickedGrid ?? monthGrid;
+  useEffect(() => {
+    const id = shownGrid?.id;
+    if (!id || gridInfo[id]) return;
+    void get<GridInfo>(`/api/studio/styles/${encodeURIComponent(id)}/grid`)
+      .then((g) => setGridInfo((m) => ({ ...m, [id]: g })))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownGrid?.id]);
+  const gridPending = !!pickedGrid && pickedGrid.id !== currentGridId;
+  const gridMonth = !!p.config?.gridRef && p.plan.some((x) => x.tile);
+  const needsScene = !!theme?.shots.length || gridMonth;
+  const shotsSig = hash(`v3|${p.themeId}|${p.config?.gridRef ?? ""}|${(theme?.shots ?? []).join("|")}|${JSON.stringify(p.plan.map((x) => [x.index, x.type, x.product, x.products, x.occasion, x.people, x.brief, x.offer?.products, x.tile]))}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`);
+  const [writingShots, setWritingShots] = useState(false);
+  /** Each post's shot written for its product (the Journey's "Write the shots"), when the month has a look to write from. */
+  async function writeShots(force = false, fresh = false): Promise<void> {
+    if (!p.batchId) return;
+    // Right after the plan was written, the props here are still the old ones: the server decides.
+    if (!fresh) {
+      if (!p.plan.length || (!needsScene && !p.plan.some((x) => x.style))) return;
+      if (!force && p.config?.shotsFor === shotsSig && p.plan.every((x) => x.scene)) return;
+    }
+    setWritingShots(true);
+    try {
+      await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig });
+      await p.refresh();
+    } catch (e) {
+      // A month without a look to write from (no pins read, no grid) simply has no shots: the idea alone makes the picture.
+      if (!fresh) toast.error(`Shots: ${(e as Error).message}`);
+    } finally {
+      setWritingShots(false);
+    }
+  }
+  const [reading, setReading] = useState(false);
+  /** The theme's pins read into shots and a palette (a text and vision call, or the demo fixture). */
+  async function readPins() {
+    if (!theme) return;
+    setReading(true);
+    try {
+      const r = await post<{ themes: Theme[] }>(`/api/studio/posts/themes/${theme.id}/analyze`);
+      p.onThemesChanged(r.themes);
+      toast.success("Pins read: the shots and the visual language follow them.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setReading(false);
+    }
+  }
+  /** The picked grid applied: the month planned from it, tile by tile (an existing plan is kept as a version). */
+  async function applyGrid(): Promise<boolean> {
+    if (!pickedGrid) return true;
+    if (p.plan.length) {
+      const ok = await askConfirm(
+        `Follow "${pickedGrid.title}"? The month's ${p.plan.length} post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`,
+        { ok: "Follow this grid", danger: false, cancel: "Keep the current posts" },
+      );
+      if (!ok) return false;
+    }
+    try {
+      await p.onGridIdeas(`style:${pickedGrid.id}`, "");
+      setPickedGrid(null);
+      return true;
+    } catch (e) {
+      toast.error((e as Error).message);
+      return false;
+    }
+  }
 
   async function planBrief(): Promise<boolean> {
     const id = await p.ensurePlan();
     if (briefText.trim().length < 20) {
-      toast.error("Write the brief first: what the posts are about, how many, and the text on each.");
+      toast.error("Say a little more first: what the posts show, how many, and any text on them.");
       return false;
     }
     setPlanning(true);
@@ -153,10 +275,11 @@ export default function Flow(p: FlowProps) {
         const ready = await rasterize(f);
         form.append("file", ready, ready.name);
       }
-      form.set("only", "1");
+      // A month with posts keeps them and adds the new ones, unless they are to be replaced (kept as a version).
+      if (!p.plan.length || briefScope === "replace") form.set("only", "1");
       const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/campaign", form);
       await p.refresh();
-      toast.success(`${r.added} post${r.added === 1 ? "" : "s"} planned from your brief.`, { duration: 8000 });
+      toast.success(`${r.added} new post${r.added === 1 ? "" : "s"} planned from your request.`, { duration: 8000 });
       setBriefFiles([]);
       return true;
     } catch (e) {
@@ -172,6 +295,7 @@ export default function Flow(p: FlowProps) {
     try {
       await p.ensurePlan();
       if (way === "brief" && briefUnsent && !(await planBrief())) return;
+      if (way === "grid" && gridPending && !(await applyGrid())) return;
       setStage(1);
     } catch (e) {
       toast.error((e as Error).message);
@@ -184,6 +308,7 @@ export default function Flow(p: FlowProps) {
     setMoving(true);
     try {
       await p.ensurePlan();
+      if (way === "grid" && gridPending && !(await applyGrid())) return;
       if (!p.plan.length) {
         if (way === "brief" && briefUnsent && !(await planBrief())) return;
         else if (way !== "brief" || !p.config?.campaign) {
@@ -192,9 +317,14 @@ export default function Flow(p: FlowProps) {
         }
       }
       if (startStyle) {
-        await p.onStyles([{ index: p.plan[0]?.index ?? 1, style: startStyle }]);
+        // The style goes on the post chosen for it; "next" is the first post of the plan just written.
+        const index = styleTarget === "next" ? (p.plan[0]?.index ?? 1) : styleTarget;
+        await p.onStyles([{ index, style: startStyle.id }]);
+        setStyleTarget(index);
         setStartStyle(null);
       }
+      // Each post's shot is written for its product before the plan is read, so the plan shows what the engine gets.
+      await writeShots(false, true);
       setStage(2);
     } catch (e) {
       toast.error((e as Error).message);
@@ -335,40 +465,188 @@ export default function Flow(p: FlowProps) {
                   <p className="flow-muted">{lead.meet}</p>
                   {way === "brief" && (
                     <div className="flow-brief">
-                      <textarea rows={6} value={briefText} onChange={(e) => setBriefText(e.target.value)} placeholder="The campaign in your words: what the posts show, how many, the carousel, the colours, the text on each…" />
-                      <div className="flow-brief-files">
-                        <label className="secondary btn-pill">
-                          <ImagePlus size={14} /> {briefFiles.length ? `${briefFiles.length} picture${briefFiles.length === 1 ? "" : "s"} to pin` : "Pin reference pictures"}
+                      <textarea
+                        rows={5}
+                        value={briefText}
+                        onChange={(e) => setBriefText(e.target.value)}
+                        dir="auto"
+                        placeholder="e.g. Create three posts for these drinks, follow this reference's lighting and composition, and leave space for an Arabic headline."
+                      />
+                      <div className="flow-brief-tools">
+                        <VoiceInput label="Dictate" onText={(t) => setBriefText((b) => (b.trim() ? `${b.trim()} ${t}` : t))} disabled={planning} />
+                        <label className="cta secondary flow-file">
+                          <ImagePlus size={16} /> {briefFiles.length ? `${briefFiles.length} reference picture${briefFiles.length === 1 ? "" : "s"}` : "Attach reference pictures"}
                           <input type="file" accept="image/*" multiple hidden onChange={(e) => setBriefFiles([...(e.target.files ?? [])].slice(0, 12))} />
                         </label>
-                        <small>Up to 12. Each is recreated on its post and sent to the engine.</small>
                       </div>
-                      {p.config?.campaign?.summary && <p className="flow-muted">Last planned: {p.config.campaign.summary}</p>}
+                      {p.plan.length > 0 && (
+                        <div className="flow-scope" role="radiogroup" aria-label="What this request does">
+                          <label className="check-row">
+                            <input type="radio" name="brief-scope" checked={briefScope === "add"} onChange={() => setBriefScope("add")} />
+                            <span>
+                              <b>Create new posts</b> · the month's {p.plan.length} current post{p.plan.length === 1 ? "" : "s"} stay as they are
+                            </span>
+                          </label>
+                          <label className="check-row">
+                            <input type="radio" name="brief-scope" checked={briefScope === "replace"} onChange={() => setBriefScope("replace")} />
+                            <span>
+                              <b>Replace the month's posts</b> · the current plan and its pictures are kept under Versions
+                            </span>
+                          </label>
+                        </div>
+                      )}
+                      <div className="flow-pick-row">
+                        <Cta icon={planning ? <Orb size={15} /> : <Sparkles size={16} />} disabled={planning || briefText.trim().length < 20} onClick={() => void planBrief()}>
+                          {planning ? "Reading your request…" : p.config?.campaign ? "Plan it again" : "Plan it"}
+                        </Cta>
+                        <small className="flow-muted">Reads your words and pictures into a plan (a text call, or the demo fixture). No picture is made here.</small>
+                      </div>
+                      {!p.products.length && !client?.service && (
+                        <small className="flow-muted">
+                          No product photos this month yet: name the products in your request (the client's Drive is searched for them) or upload photos below.
+                        </small>
+                      )}
+                      {p.config?.campaign?.summary && p.plan.length > 0 && (
+                        <div className="flow-understood">
+                          <div className="flow-row-head">
+                            <span className="flow-eyebrow">What was understood</span>
+                            <span className="flow-pill dark">{p.config.campaign.only === false ? `${p.config.campaign.added ?? 0} new posts added` : "New plan"}</span>
+                          </div>
+                          <dl className="flow-dl">
+                            <dt>Objective</dt>
+                            <dd>{p.config.campaign.summary}</dd>
+                            <dt>Posts</dt>
+                            <dd>{shape}</dd>
+                            <dt>Products</dt>
+                            <dd>{[...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? []), ...(x.offer?.products ?? [])]).filter(Boolean))].join(", ") || "none named"}</dd>
+                            <dt>Visual direction</dt>
+                            <dd>
+                              {campaignRefs ? `${campaignRefs} reference picture${campaignRefs === 1 ? "" : "s"} recreated on the posts` : "no reference pictures"}
+                              {p.config.campaign.colours?.length ? ` · colours ${p.config.campaign.colours.map((c) => c.name || c.hex).join(", ")}` : ""}
+                            </dd>
+                            <dt>Text on the pictures</dt>
+                            <dd>{p.plan.filter((x) => x.headline).length ? p.plan.filter((x) => x.headline).map((x) => `“${x.headline}”`).slice(0, 6).join(" · ") : "none: text-free pictures"}</dd>
+                          </dl>
+                          <ul className="flow-understood-posts">
+                            {[...p.plan].sort((a, b) => a.index - b.index).map((x) => (
+                              <li key={x.index}>
+                                <span className="flow-post-n">{String(x.index).padStart(2, "0")}</span>
+                                <input defaultValue={x.title} dir="auto" aria-label={`Post ${x.index} title`} onBlur={(e) => e.target.value.trim() && e.target.value !== x.title && void p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, title: e.target.value } : y)))} />
+                                <textarea rows={2} defaultValue={x.scene?.trim() || x.brief} dir="auto" aria-label={`Post ${x.index} scene`} placeholder="What the picture shows" onBlur={(e) => { const v = e.target.value; const was = x.scene?.trim() || x.brief; if (v !== was) void p.onSavePlan(p.plan.map((y) => (y.index === x.index ? (y.scene?.trim() ? { ...y, scene: v, handShot: true } : { ...y, brief: v }) : y))); }} />
+                              </li>
+                            ))}
+                          </ul>
+                          <small className="flow-muted">Edit any line; it saves when you leave it. The pictures are made from the Plan stage, where the cost is shown first.</small>
+                        </div>
+                      )}
                     </div>
                   )}
                   {way === "grid" && (
-                    <div className="flow-pick-row">
-                      <button type="button" className="secondary btn-pill" onClick={() => setPicking("grid")}>
-                        <Grid3x3 size={14} /> {p.config?.gridRef ? "Change the grid" : "Pick a grid from the library"}
-                      </button>
-                      {p.config?.gridRef && <small>A grid is chosen for this month.</small>}
+                    <div className="flow-choice-wrap">
+                      {shownGrid ? (
+                        <div className="flow-choice">
+                          <img src={styleThumb(shownGrid)} alt="" />
+                          <div className="flow-choice-text">
+                            <b>{shownGrid.title}</b>
+                            {(() => {
+                              const g = gridInfo[shownGrid.id];
+                              const n = g?.tiles || shownGrid.tiles;
+                              return (
+                                <>
+                                  <span>
+                                    {n ? `${n} post${n === 1 ? "" : "s"}` : "Post count read when planned"}
+                                    {g?.layout ? ` · ${g.layout}` : ""}
+                                  </span>
+                                  <span className="flow-muted">{g?.read ? kindsLine(g) : "Its tiles (pictures, text tiles, people) are read when the month is planned from it."}</span>
+                                  {g?.world && <span className="flow-muted">{g.world}</span>}
+                                </>
+                              );
+                            })()}
+                            <span className={`flow-pill ${gridPending ? "" : "ok"}`}>{gridPending ? "Picked · not applied yet" : "The month follows this grid"}</span>
+                          </div>
+                          <Cta kind="secondary" icon={<Grid3x3 size={16} />} onClick={() => setPicking("grid")}>
+                            Change grid
+                          </Cta>
+                        </div>
+                      ) : (
+                        <Cta icon={<Grid3x3 size={16} />} onClick={() => setPicking("grid")}>
+                          Pick a grid
+                        </Cta>
+                      )}
+                      {gridPending && (
+                        <p className="flow-note">
+                          <b>What applying it changes.</b>{" "}
+                          {p.plan.length
+                            ? `The month's ${p.plan.length} existing post${p.plan.length === 1 ? "" : "s"} are planned again from the grid's tiles: their compositions, text tiles and fonts change. Pictures already made stay until they are made again; the current plan is kept under Versions. You confirm this on Continue.`
+                            : "New posts are planned from the grid, one per tile, with your product photos matched to the tiles. Nothing is made until the plan is confirmed."}
+                        </p>
+                      )}
                     </div>
                   )}
                   {way === "refs" && client && (
                     <div className="flow-refs">
                       {theme ? (
-                        <ReferenceLibrary skill={theme.id} title={`Theme "${theme.title}"`} onChanged={() => p.refresh()} empty="No pins or photos yet. Add a few: they set the month's light, colours and props." hint="Pinterest links or photos. Their objects are never copied." />
+                        <ReferenceLibrary
+                          skill={theme.id}
+                          title={`Theme "${theme.title}"`}
+                          buttonClass="cta primary"
+                          buttonLabel="Add pins or photos"
+                          onChanged={async () => {
+                            await p.refresh();
+                            await p.reloadThemes();
+                          }}
+                          empty="No pins or photos yet. Add a few: they set the month's light, colours and props."
+                          hint="Pinterest links or photos. Their objects are never copied."
+                        />
                       ) : (
                         <p className="flow-muted">Pick or create a theme in the brand kit first; its pins and photos are the references.</p>
                       )}
                     </div>
                   )}
                   {way === "style" && (
-                    <div className="flow-pick-row">
-                      <button type="button" className="secondary btn-pill" onClick={() => setPicking("style")}>
-                        <Sparkles size={14} /> {startStyle ? "Change the style" : "Pick a style for the first post"}
-                      </button>
-                      {startStyle && <small>Saved on the first post when you continue; its picture is made from the plan.</small>}
+                    <div className="flow-choice-wrap">
+                      {startStyle ? (
+                        <div className="flow-choice">
+                          <img src={styleThumb(startStyle)} alt="" />
+                          <div className="flow-choice-text">
+                            <b>{startStyle.title}</b>
+                            <span className="flow-muted">{startStyle.tags}</span>
+                            <span className="flow-pill">Picked · saved on its post when you continue</span>
+                          </div>
+                          <Cta kind="secondary" icon={<Sparkles size={16} />} onClick={() => setPicking("style")}>
+                            Change style
+                          </Cta>
+                        </div>
+                      ) : (
+                        <Cta icon={<Sparkles size={16} />} onClick={() => setPicking("style")}>
+                          Pick a style
+                        </Cta>
+                      )}
+                      <label className="flow-target">
+                        <span className="flow-eyebrow">For which post</span>
+                        <select value={String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "next" ? "next" : Number(e.target.value))}>
+                          {p.plan.length ? (
+                            [...p.plan]
+                              .sort((a, b) => a.index - b.index)
+                              .map((x) => (
+                                <option key={x.index} value={x.index}>
+                                  Post {x.index} · {x.title || POST_TYPE_INFO[x.type]?.label || x.type}
+                                  {x.style ? " (has a style)" : ""}
+                                  {taskOf(x.index)?.output ? " · picture made" : ""}
+                                </option>
+                              ))
+                          ) : (
+                            <option value="next">The first post of the plan written next</option>
+                          )}
+                        </select>
+                        <small className="flow-muted">
+                          {styleTarget === "next"
+                            ? "No posts yet: the plan is written first, and the style goes on its first post."
+                            : taskOf(styleTarget as number)?.output
+                              ? "This post has a picture: the style rewrites its idea and shot; making another version is a separate step you confirm."
+                              : "The style rewrites this post's idea and shot; its picture is made from the Plan stage."}
+                        </small>
+                      </label>
                     </div>
                   )}
                 </section>
@@ -441,10 +719,10 @@ export default function Flow(p: FlowProps) {
                     </button>
                   </div>
                   <div className="flow-lead">
-                    {way === "brief" && <p>{p.config?.campaign?.summary || (briefText.trim() ? briefText.trim().slice(0, 400) : "No brief yet.")}</p>}
-                    {way === "grid" && <p>{p.config?.gridRef ? "The month follows the grid you picked, tile by tile." : "No grid picked yet."}</p>}
+                    {way === "brief" && <p>{p.config?.campaign?.summary || (briefText.trim() ? briefText.trim().slice(0, 400) : "No request yet.")}</p>}
+                    {way === "grid" && <p>{shownGrid ? `The month follows "${shownGrid.title}", tile by tile${gridPending ? " (applied when the plan is written)" : ""}.` : "No grid picked yet."}</p>}
                     {way === "refs" && <p>{theme ? `Theme "${theme.title}": ${theme.references} reference${theme.references === 1 ? "" : "s"}.` : "No theme yet."}</p>}
-                    {way === "style" && <p>{startStyle ? "One style, saved on the first post when the plan is written." : "No style picked yet."}</p>}
+                    {way === "style" && <p>{startStyle ? `"${startStyle.title}" goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.` : "No style picked yet."}</p>}
                   </div>
                   <span className="flow-eyebrow">Supporting inputs</span>
                   <ul className="flow-inputs">
@@ -460,13 +738,27 @@ export default function Flow(p: FlowProps) {
                           {refsOpen ? "Hide" : "Manage"}
                         </button>
                       )}
+                      {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
+                        <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
+                          {reading ? <Orb size={12} /> : null} Analyse the pins
+                        </button>
+                      )}
                     </li>
-                    {refsOpen && theme && <ReferenceLibrary skill={theme.id} title="" onChanged={() => p.refresh()} />}
+                    {refsOpen && theme && (
+                      <ReferenceLibrary
+                        skill={theme.id}
+                        title=""
+                        onChanged={async () => {
+                          await p.refresh();
+                          await p.reloadThemes();
+                        }}
+                      />
+                    )}
                     <li>
-                      <b>{p.config?.gridRef ? "Grid · chosen" : "Grid · none"}</b>
-                      <span>{p.config?.gridRef ? "The tile takes over each post's composition; the words stay the brief's." : "The brief sets each post's layout. A grid would take over the composition and keep the brief's words."}</span>
+                      <b>{shownGrid ? `Grid · ${shownGrid.title}${gridPending ? " (not applied yet)" : ""}` : "Grid · none"}</b>
+                      <span>{shownGrid ? "The tile takes over each post's composition; the words stay the request's." : "The request sets each post's layout. A grid would take over the composition and keep the request's words."}</span>
                       <button type="button" className="text-button" onClick={() => setPicking("grid")}>
-                        {p.config?.gridRef ? "Change" : "Add a grid"}
+                        {shownGrid ? "Change" : "Add a grid"}
                       </button>
                     </li>
                     <li>
@@ -627,8 +919,19 @@ export default function Flow(p: FlowProps) {
                     Change
                   </button>
                 </div>
+                {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                  <div className="flow-sum-cell scope">
+                    <span className="flow-eyebrow">This operation</span>
+                    <p>
+                      <b>One post from a style · post {styleTarget}</b>
+                    </p>
+                    <small>
+                      {taskOf(styleTarget as number)?.output ? "Another version of its picture" : "Its picture"} · about {formatUsd(estimate?.perImage ?? perPicture)}. The whole-month figures beside are a separate summary.
+                    </small>
+                  </div>
+                )}
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Output</span>
+                  <span className="flow-eyebrow">Output · whole month</span>
                   <p>{shape}</p>
                   <small>
                     {preview ? `${readyPictures} picture${readyPictures === 1 ? "" : "s"} ready to make · ${readyTiles} drawn here, free · ${made} made already · ${blockedList.length} blocked` : "Reading the plan…"}
@@ -642,9 +945,25 @@ export default function Flow(p: FlowProps) {
                         Post {b.index}: {b.why}
                       </li>
                     ))}
-                    {attention.slice(0, 5).map((x, i) => (
-                      <li key={i}>{x.text}</li>
-                    ))}
+                    {(() => {
+                      const shots = attention.filter((x) => x.code === "post-shot");
+                      const rest = attention.filter((x) => x.code !== "post-shot");
+                      return (
+                        <>
+                          {shots.length > 0 && (
+                            <li>
+                              {shots.length} post{shots.length === 1 ? " has" : "s have"} no shot yet (made from the idea alone).{" "}
+                              <button type="button" className="text-button" disabled={writingShots} onClick={() => void writeShots(true)}>
+                                {writingShots ? <Orb size={12} /> : null} Write the shots
+                              </button>
+                            </li>
+                          )}
+                          {rest.slice(0, 5).map((x, i) => (
+                            <li key={i}>{x.text}</li>
+                          ))}
+                        </>
+                      );
+                    })()}
                     {!attention.length && !blockedList.length && <li>Nothing. Every post can be made.</li>}
                   </ul>
                 </div>
@@ -734,6 +1053,24 @@ export default function Flow(p: FlowProps) {
                   <button type="button" className="secondary btn-pill" onClick={() => p.onDone()}>
                     Save the plan, make nothing
                   </button>
+                  {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                    <button
+                      type="button"
+                      className="primary btn-pill"
+                      disabled={!p.engineReady || outcomeOf(styleTarget as number)?.status === "blocked"}
+                      title="Only this post's picture; the other posts are untouched"
+                      onClick={async () => {
+                        const i = styleTarget as number;
+                        const again = !!taskOf(i)?.output;
+                        const ok = await askConfirm(`${again ? "Make another version of" : "Make"} post ${i}'s picture: about ${formatUsd(estimate?.perImage ?? perPicture)} (list price, an estimate). Nothing else is made.`, { ok: `Make post ${i} · about ${formatUsd(estimate?.perImage ?? perPicture)}`, danger: false, cancel: "Not now" });
+                        if (!ok) return;
+                        await p.onGenerateOne(i);
+                        p.onDone(i);
+                      }}
+                    >
+                      <BadgeCheck size={14} /> Make post {styleTarget} · about {formatUsd(estimate?.perImage ?? perPicture)}
+                    </button>
+                  )}
                   {ready.find((x) => x.paid) && (
                     <button type="button" className="secondary btn-pill" disabled={!p.engineReady} onClick={() => void p.onTest(ready.find((x) => x.paid)!.index)}>
                       Make one test picture · about {formatUsd(estimate?.perImage ?? perPicture)}
@@ -741,7 +1078,7 @@ export default function Flow(p: FlowProps) {
                   )}
                   <button
                     type="button"
-                    className="primary btn-pill"
+                    className={`${way === "style" && styleTarget !== "next" ? "secondary" : "primary"} btn-pill`}
                     disabled={!p.engineReady || !readyPictures && !readyTiles}
                     onClick={async () => {
                       const ok = await askConfirm(
@@ -753,7 +1090,7 @@ export default function Flow(p: FlowProps) {
                       p.onDone();
                     }}
                   >
-                    <BadgeCheck size={14} /> Make {readyPictures} picture{readyPictures === 1 ? "" : "s"} · about {formatUsd(total)}
+                    <BadgeCheck size={14} /> Make all {readyPictures} picture{readyPictures === 1 ? "" : "s"} · about {formatUsd(total)}
                   </button>
                 </div>
               </footer>
@@ -776,8 +1113,8 @@ export default function Flow(p: FlowProps) {
           forClient={{ id: client.id, name: client.name }}
           pick={
             picking === "grid"
-              ? { mode: "feed", tab: "grid", client: client.id, onPick: (ids) => { p.onGrid(ids[0]); setWay("grid"); setPicking(null); } }
-              : { mode: "post", label: "First post", onPick: (ids) => { setStartStyle(ids[0] ?? null); setPicking(null); } }
+              ? { mode: "feed", tab: "grid", client: client.id, onPick: (_ids, items) => { setPickedGrid(items[0] ?? null); setWay("grid"); setPicking(null); } }
+              : { mode: "post", label: styleTarget === "next" ? "The first post" : `Post ${styleTarget}`, onPick: (_ids, items) => { setStartStyle(items[0] ?? null); setPicking(null); } }
           }
         />
       )}
