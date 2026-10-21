@@ -21,6 +21,7 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
 export const MAX_AUTO_TAKES = 1;
 import { releaseSpend, reserveSpend, spendFits } from "./spend";
+import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -863,6 +864,11 @@ async function submitNext(
       now(),
       batch.id,
     );
+  }
+  // The preview never pays an image engine: the month pauses and says so before anything is reserved.
+  if (previewNoImages(env)) {
+    await pauseBatch(env, batch.id, PREVIEW_MESSAGE);
+    return;
   }
   const openai = isOpenAIModel(config.model);
   const google = isGoogleModel(config.model);

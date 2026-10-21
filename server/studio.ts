@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { spendStatus } from "./spend";
+import { previewNoImages } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import {
   advanceBatch,
@@ -208,6 +209,7 @@ studioRoutes.get("/state", async (c) => {
     spend,
     spendThreshold: adminSettings.spendThreshold,
     workflowV2: adminSettings.workflowV2,
+    preview: previewNoImages(c.env) || undefined,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),
     modes: await readModes(c.env),

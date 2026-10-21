@@ -267,6 +267,8 @@ export interface StateResponse {
   spendThreshold: number;
   /** Admins see the four-stage workflow (Start, Direction, Plan, Studio) instead of the journey. */
   workflowV2?: boolean;
+  /** A preview deployment: pictures and videos are never made here. */
+  preview?: boolean;
   zaidDirection: string;
   /** Creative direction's Mood board entry (name, tagline, hidden, starred). */
   moodBoard?: MoodBoardInfo;

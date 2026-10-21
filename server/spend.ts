@@ -1,5 +1,5 @@
 import { first, now, run } from "./db";
-import type { Env } from "./env";
+import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { StudioError } from "./errors";
 
 /**
@@ -97,6 +97,7 @@ export async function reserveOrAsk(
   approve: boolean | undefined,
   what: string,
 ): Promise<void> {
+  if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if (approve) await approveSpend(env, scope, amount);
   const r = await reserveSpend(env, scope, amount);
   if (r.ok) return;

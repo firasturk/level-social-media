@@ -15898,3 +15898,17 @@ select {
     justify-content: center;
   }
 }
+.preview-strip {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 80;
+  padding: 6px 16px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff4e5;
+  color: #8a3b00;
+  border-bottom: 1px solid #f3d9b8;
+}

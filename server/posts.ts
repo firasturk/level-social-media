@@ -4,7 +4,7 @@
  */
 import { Hono } from "hono";
 import { z } from "zod";
-import type { Env } from "./env";
+import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
 import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
@@ -3024,6 +3024,7 @@ postRoutes.post("/typography", async (c) => {
   // The product outline is a paid image-model call per post (the words are a text call): the set
   // is approved once by the designer, and each matte reserves its own cost before it is asked for.
   const MATTE_COST = rateFor("gemini-3.1-flash-image")!["1K"];
+  if (due.length && previewNoImages(c.env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if (due.length) {
     if (d.approve) await approveSpend(c.env, b.id, due.length * MATTE_COST);
     else if (!(await spendFits(c.env, b.id, due.length * MATTE_COST)).ok)
@@ -3717,6 +3718,7 @@ postRoutes.post("/video", async (c) => {
   const b = await ownedPlan(c.env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  if (previewNoImages(c.env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   const engine = await makeClient(c.env);
   const model = VIDEO_MODELS.find((x) => x.slug === d.model)!;
   const id = uuid();

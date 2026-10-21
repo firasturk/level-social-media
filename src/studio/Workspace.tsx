@@ -150,6 +150,8 @@ export default function Workspace({
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
   /** The four-stage workflow (Start, Direction, Plan, Studio) instead of the journey: an admin flag. */
   const [workflowV2, setWorkflowV2] = useState(false);
+  /** A preview deployment: a strip says that no picture is made here. */
+  const [previewMode, setPreviewMode] = useState(false);
   /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
   const [kitOpen, setKitOpen] = useState<boolean | null>(null);
   /** Notes for the ideas writer, kept with the month's things in the side panel. */
@@ -213,6 +215,7 @@ export default function Workspace({
       setSpend(d.spend ?? []);
       setEngine(d.engine);
       setWorkflowV2(!!d.workflowV2);
+      setPreviewMode(!!d.preview);
       setHero(d.hero ?? "");
       const list = d.clients ?? [];
       setClients(list);
@@ -1314,6 +1317,11 @@ export default function Workspace({
   return (
     <div className="studio">
       <BootScreen done={bootTimedOut || stateReady} />
+      {previewMode && (
+        <div className="preview-strip" role="status">
+          Preview: pictures and videos are not made here. Plans, readings and words work as in the studio; image buttons answer with a note instead of a charge.
+        </div>
+      )}
       <Sidebar
         page={page}
         pendingStyles={pendingStyles}

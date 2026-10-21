@@ -3,7 +3,7 @@
  * where it stands in the generated scene (asked of the vision model), and the final picture.
  */
 import { PhotonImage, resize, SamplingFilter } from "@cf-wasm/photon";
-import type { Env } from "./env";
+import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { StudioError } from "./errors";
 import { rateFor } from "@shared/pricing";
 import { reserveSpend } from "./spend";
@@ -99,6 +99,7 @@ export async function productCutout(env: Env, source: { key: string; mime?: stri
     if (c > 0.02 && c < 0.97) alpha = a;
   }
   if (!alpha) {
+    if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
     // A paid mask: reserved against the month before it is asked for.
     if (scope && !(await reserveSpend(env, scope, rateFor("gemini-3-pro-image")!["1K"])).ok) throw new ExactBudgetError("The product cut-out");
     const { makeGoogleClient } = await import("./engine");
