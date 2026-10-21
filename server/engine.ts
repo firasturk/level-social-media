@@ -19,7 +19,10 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  * doubled the cost. One automatic take per post per month, whatever the team regenerates by hand.
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
-const MAX_AUTO_TAKES = 1;
+export const MAX_AUTO_TAKES = 1;
+import { holdUncertain, releaseSpend, reserveSpend, spendFits } from "./spend";
+import { PREVIEW_MESSAGE, previewNoImages } from "./env";
+import { demoAnswer, demoMode } from "./demo";
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -147,6 +150,9 @@ interface TaskRow {
   brief: string | null;
   /** Automatic second takes this post already had this month (never reset by a regenerate). */
   auto_retries: number;
+  /** The post this picture is for (a post month), and the post's revision it is being made for. */
+  post: number | null;
+  making_for: number | null;
 }
 
 interface SourceRow {
@@ -357,17 +363,13 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
           attempts: task.attempts,
           lastStage: task.error,
         });
-        // An interrupted submission costs nothing: the attempt's estimate is taken back, and it
-        // gets more automatic tries than an engine failure.
+        // An interrupted submission may or may not have reached the vendor: its cost and
+        // reservation stay, counted as uncertain for reconciliation, and it gets more automatic
+        // tries than an engine failure.
         const estimate =
           estimateCost(taskConfig(config, task), 1, [task.card]).total +
           (task.edit || task.recenter ? 0.008 : 0);
-        await run(
-          env.DB,
-          "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?",
-          estimate,
-          task.id,
-        );
+        await holdUncertain(env, batch.id, estimate);
         if (task.attempts <= MAX_AUTO_ATTEMPTS + 2)
           await requeue(env, task, "submission was interrupted, starting again");
         else
@@ -414,6 +416,8 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
       continue;
     }
     if (status.state === "failed") {
+      // The vendor accepted the request and failed later: whether it billed is not known.
+      if (!isContentPolicyError(status.message)) await holdUncertain(env, batch.id, estimateCost(taskConfig(config, task), 1, [task.card]).total);
       if (
         isContentPolicyError(status.message) &&
         (await retryAfterRefusal(env, taskConfig(config, task), task, status.message))
@@ -458,6 +462,34 @@ async function storeResult(
   await storeResultBytes(env, batch, config, task, await downloadImage(url), url);
 }
 
+/** What one attempt of this task is recorded as costing (the same figure the budget reserved). */
+async function attemptCostOf(env: Env, config: Config, task: TaskRow): Promise<number> {
+  const cfg = taskConfig(config, task);
+  return estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card]).total + (task.edit || task.recenter ? 0.008 : 0);
+}
+
+/**
+ * A take of a post's picture, kept as its own row as it lands or fails: the editor's Versions list,
+ * "Previous picture" and the compare read these, so nothing depends on a browser's memory.
+ */
+async function recordTake(env: Env, batch: BatchRow, task: TaskRow, take: { status: "made" | "failed"; key: string | null; cost: number; note: string }): Promise<void> {
+  if (task.post == null) return;
+  await run(
+    env.DB,
+    "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    uuid(),
+    batch.id,
+    task.post,
+    task.id,
+    take.status,
+    take.key,
+    Math.round(take.cost * 1000) / 1000,
+    take.note.slice(0, 500),
+    task.making_for ?? null,
+    now(),
+  ).catch((e) => console.error("[takes]", task.id, errorMessage(e)));
+}
+
 async function storeResultBytes(
   env: Env,
   batch: BatchRow,
@@ -477,7 +509,7 @@ async function storeResultBytes(
         const product = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact.source);
         if (!product) throw new StudioError("the product photo of this post was removed");
         const { placeProduct } = await import("./exact");
-        const placed = await placeProduct(env, product, result, pb.product ?? "");
+        const placed = await placeProduct(env, product, result, pb.product ?? "", batch.id);
         result = placed.image;
         url = null;
         if (!placed.empty) exactNote = "The empty place was not clear: check that nothing stands behind the product.";
@@ -497,7 +529,7 @@ async function storeResultBytes(
   // result; the review then upgrades the status if it is still waiting for it.
   await run(
     env.DB,
-    "UPDATE tasks SET status = 'review', output = ?, output_engine_url = ?, qa = ?, edit = NULL, recenter = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'finalizing'",
+    "UPDATE tasks SET status = 'review', output = ?, output_engine_url = ?, qa = ?, edit = NULL, recenter = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, made_for = making_for, updated = ? WHERE id = ? AND status = 'finalizing'",
     key,
     url,
     JSON.stringify(manualQA("Automatic review still running. Check manually.")),
@@ -505,6 +537,7 @@ async function storeResultBytes(
     task.id,
   );
   if (phash) await run(env.DB, "UPDATE tasks SET phash = ? WHERE id = ?", phash, task.id).catch(() => undefined);
+  await recordTake(env, batch, task, { status: "made", key, cost: await attemptCostOf(env, config, task), note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
 
   let qa: QA;
   if (config.mode === "post") {
@@ -523,8 +556,10 @@ async function storeResultBytes(
     // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
     // from the post's original reference with the idea as the note; the drift stays as a lesson.
     const pb = postBrief(task);
+    // An automatic retake spends money: it stays inside the month's approved budget.
+    const budget = await autoTakeAllowed(env, batch, config, task);
     const drifted = qa.automated && (qa.flags ?? []).some((f) => f.kind === "idea");
-    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
+    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = {
         ...pb,
         retried: true,
@@ -552,7 +587,8 @@ async function storeResultBytes(
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
     const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
-    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
+    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && !budget.ok) qa = { ...qa, notes: `${qa.notes ? `${qa.notes} ` : ""}Not made again by itself: ${budget.why}. Press Fix it to make it again.` };
+    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = { ...pb, retried: true };
       const done = await run(
         env.DB,
@@ -673,8 +709,19 @@ async function settleFailedAttempt(
     estimateCost({ ...config, model: config.model || (await resolveEngineModel(env)) }, 1, [
       task.card,
     ]).total + (task.edit || task.recenter ? 0.008 : 0);
-  await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
   const message = errorMessage(e, "Generation failed.");
+  // The reservation is given back only when the vendor is known to have done no work: it rejected
+  // the request before generating (a bad request, a rejected key, an empty balance, a missing
+  // model, a rate limit). A content refusal may be billed and keeps its cost. A timeout, a dropped
+  // connection, a vendor error after it accepted the request or anything unknown keeps the cost
+  // and the reservation too, counted as uncertain for reconciliation.
+  const billing = attemptBilling(e, message);
+  if (billing === "none") {
+    await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
+    await releaseSpend(env, batch.id, refund);
+  } else if (billing === "uncertain") {
+    await holdUncertain(env, batch.id, refund);
+  }
   if (isCreditsDepleted(e)) {
     await requeue(env, task, creditsMessage(e));
     await pauseBatch(env, batch.id, creditsMessage(e));
@@ -721,8 +768,24 @@ async function settleFailedAttempt(
       return;
     }
   }
+  // The failed attempt is listed with what it cost (nothing when the vendor refused the request
+  // before working, its recorded cost otherwise, which may be billed).
+  await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: message });
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
+}
+
+/**
+ * What a failed attempt may have cost. "none": the vendor rejected the request before any work
+ * (4xx answers: bad request, key, balance, model, validation, rate limit). "billable": a content
+ * refusal, which some vendors charge. "uncertain": a timeout, a dropped connection, a 5xx or
+ * anything else, where work may have been done.
+ */
+export function attemptBilling(e: unknown, message = errorMessage(e)): "none" | "billable" | "uncertain" {
+  if (isContentPolicyError(message)) return "billable";
+  if (isRateLimit(e) || isCreditsDepleted(e)) return "none";
+  if (e instanceof StudioError && (e.status === 428 || /\((400|401|403|404|422)\)/.test(message) || /rejected the (API )?key|not connected|model not found|rejected the request|looks invalid/i.test(message))) return "none";
+  return "uncertain";
 }
 
 let enginePausedUntil = 0; // after a vendor rate limit, no image is submitted before this time (per isolate)
@@ -854,6 +917,11 @@ async function submitNext(
       batch.id,
     );
   }
+  // The preview never pays an image engine: the month pauses and says so before anything is reserved.
+  if (previewNoImages(env)) {
+    await pauseBatch(env, batch.id, PREVIEW_MESSAGE);
+    return;
+  }
   const openai = isOpenAIModel(config.model);
   const google = isGoogleModel(config.model);
   const fal = isFalModel(config.model);
@@ -938,6 +1006,26 @@ async function submitNext(
     const attemptCost =
       estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card])
         .total + (task.edit || task.recenter ? 0.008 : 0);
+    // Every attempt, automatic retakes and retries included, reserves its cost against the month's
+    // approved budget before anything is sent. The reservation is one conditional UPDATE, so two
+    // attempts cannot spend the same remaining allowance; past the budget the month pauses and
+    // says so, and the designer's next Generate approves more.
+    const reserved = await reserveSpend(env, batch.id, attemptCost);
+    if (!reserved.ok) {
+      const why = reserved.status.approved
+        ? `The month's approved budget ($${reserved.status.approved.toFixed(2)}) is used up ($${reserved.status.reserved.toFixed(2)} reserved). Press Generate to approve more.`
+        : "This month has no approved budget yet. Press Generate to approve its pictures.";
+      await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', lease = NULL, leased_at = NULL, attempts = MAX(0, attempts - 1), error = ?, updated = ? WHERE id = ? AND lease = ?",
+        why,
+        now(),
+        task.id,
+        token,
+      );
+      await pauseBatch(env, batch.id, why);
+      return;
+    }
     await run(env.DB, "UPDATE tasks SET cost = cost + ? WHERE id = ?", attemptCost, task.id);
     try {
       const requestId = tFal
@@ -980,9 +1068,25 @@ function taskConfig(config: Config, task: TaskRow): Config {
 }
 
 /**
- * Another connected engine for a photo a content checker refused: Nano Banana Pro through Google,
- * else through Higgsfield, else OpenAI. Null when nothing else is connected.
+ * May the engine queue one more take of this post by itself? Only while the month's approved
+ * budget (every approved Generate adds its estimate, automatic retakes included) still covers it.
+ * This is a read: the submission itself reserves the cost atomically, so a take that no longer
+ * fits by then pauses the month instead of spending past the budget.
  */
+export async function autoTakeAllowed(env: Env, batch: BatchRow, _config: Config, task: TaskRow): Promise<{ ok: boolean; why: string }> {
+  if (_config.autoRetakes === false) return { ok: false, why: "automatic retakes are off for this month" };
+  const cfg = taskConfig(_config, task);
+  const unit = estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card]).total;
+  const fit = await spendFits(env, batch.id, unit);
+  if (fit.ok) return { ok: true, why: "" };
+  return {
+    ok: false,
+    why: fit.status.approved
+      ? `the month's approved budget ($${fit.status.approved.toFixed(2)}) is used up ($${fit.status.reserved.toFixed(2)} reserved)`
+      : "this month has no approved budget",
+  };
+}
+
 async function contentFallbackModel(env: Env, current: string | undefined): Promise<string | null> {
   const candidates: string[] = [];
   if ((await resolveGoogleAuth(env)).auth) candidates.push("gemini-3-pro-image");
@@ -1605,6 +1709,7 @@ async function askVision(
 ): Promise<string> {
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
+  if (!google && !openai && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
   if (!google && !openai) throw new StudioError("Connect Google or OpenAI first.", 428, true);
   if (!google) return askVisionOpenAI(openai!, instruction, images, fetch, "gpt-4.1-mini");
   try {
@@ -1751,10 +1856,31 @@ function sizeOf(config: Config, task: TaskRow): Config["size"] {
  * would get wrong (a reference's adults over child ambassadors, words to copy, a garment staged
  * against its print, an impossible action, a bag). Runs once per brief; never blocks a submission.
  */
-async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<void> {
-  if (task.preflight !== null && task.preflight !== undefined) return;
-  const pb = postBrief(task);
+/** What the preflight reads from: when any of it changes, a stored reading no longer applies. */
+export function preflightInputs(pb: PostBrief): string {
+  return JSON.stringify({
+    brief: pb.brief,
+    shot: pb.shot ?? "",
+    product: pb.product ?? "",
+    extra: (pb.extraProducts ?? []).map((e) => e.name),
+    people: (pb.ambassadors ?? []).map((a) => a.name),
+    style: pb.styleKey ?? "",
+    tile: pb.tileKey ?? "",
+    ref: pb.ref ?? "",
+    editRef: pb.editRef?.key ?? "",
+    exact: !!pb.exact,
+    keepRef: !!pb.keepRef,
+    ingredients: pb.ingredients ?? "",
+  });
+}
+
+/**
+ * The reading itself, over a brief: returns the brief as the engine should get it and the notes.
+ * A text (and vision) call, or the demo fixture; never throws (a failed reading leaves the brief as it is).
+ */
+export async function preflightBrief(env: Env, batch: BatchRow, pb: PostBrief): Promise<{ pb: PostBrief; notes: string[]; dropped: boolean }> {
   const notes: string[] = [];
+  let dropped = false;
   try {
     const { askText, parseJson } = await import("./posts");
     const scene = pb.shot?.trim() || pb.brief.trim();
@@ -1802,18 +1928,76 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
         else pb.brief = pf.scene;
         notes.push("the shot was written again without them");
       }
-      // A campaign brief's reference is the designer's own picture: it is never left out.
-      if (pf.dropReference && reference && !pb.campaign) {
+      // A campaign brief's reference is the designer's own picture, and so is one the designer asked
+      // to keep: neither is ever left out.
+      if (pf.dropReference && reference && !pb.campaign && !pb.keepRef) {
         pb.noRefImage = true;
+        dropped = true;
         notes.push(`the ${reference} image was left out so the engine copies nothing from it`);
-      }
+      } else if (pf.dropReference && reference && pb.keepRef) notes.push(`the ${reference} image is kept as you asked, though the reading would have left it out`);
     }
   } catch (e) {
-    console.error("[preflight]", task.id, errorMessage(e));
+    console.error("[preflight]", errorMessage(e));
   }
-  task.brief = JSON.stringify(pb);
-  task.preflight = JSON.stringify({ at: now(), notes });
+  return { pb, notes, dropped };
+}
+
+async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<void> {
+  if (task.preflight !== null && task.preflight !== undefined) return;
+  const pb = postBrief(task);
+  // A reading made from the Plan for this very post and these very inputs is used as it is: the plan
+  // showed what the engine gets, and nothing is read twice.
+  if (task.post != null) {
+    const stored = await first<{ revision: number | null; brief: string; inputs: string; notes: string }>(env.DB, "SELECT revision, brief, inputs, notes FROM plan_preflights WHERE batch = ? AND post = ?", batch.id, task.post).catch(() => null);
+    if (stored && stored.revision === (task.making_for ?? null) && stored.inputs === preflightInputs(pb)) {
+      task.brief = stored.brief;
+      task.preflight = JSON.stringify({ at: now(), notes: JSON.parse(stored.notes) as string[], reused: true });
+      await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
+      return;
+    }
+  }
+  const read = await preflightBrief(env, batch, pb);
+  task.brief = JSON.stringify(read.pb);
+  task.preflight = JSON.stringify({ at: now(), notes: read.notes });
   await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
+}
+
+/** One picture the engine receives for a post, in the order the prompt numbers them. */
+export interface PostImage {
+  key: string;
+  role: "product" | "portrait" | "place" | "realRef" | "look" | "editRef";
+  /** The reference-library id behind a look picture, for an engine that uploads references by id. */
+  refId?: string;
+}
+
+/**
+ * The pictures a post sends after its own product photo, in the prompt's order: extra products,
+ * ambassador portraits, the client's place, the real-people photo, then ONE look picture (an
+ * applied style, a grid tile, or a theme or library reference), then the designer's reference for
+ * this take. Every engine path draws from this list, so "Image n" in the prompt names what was sent.
+ */
+export async function postImages(pb: PostBrief, resolveRef: (id: string) => Promise<string | null>): Promise<{ images: PostImage[]; mood: boolean; reference: boolean }> {
+  const images: PostImage[] = [];
+  for (const e of pb.extraProducts ?? []) images.push({ key: e.key, role: "product" });
+  for (const a of pb.ambassadors ?? []) images.push({ key: a.key, role: "portrait" });
+  if (pb.place) images.push({ key: pb.place.key, role: "place" });
+  if (pb.realRef) images.push({ key: pb.realRef.key, role: "realRef" });
+  let mood = false;
+  if (!pb.refIsSource && !pb.noRefImage) {
+    if (pb.styleKey || pb.tileKey) {
+      images.push({ key: (pb.styleKey || pb.tileKey)!, role: "look" });
+      mood = true;
+    } else if (pb.ref) {
+      const key = await resolveRef(pb.ref);
+      if (key) {
+        images.push({ key, role: "look", refId: pb.ref });
+        mood = true;
+      }
+    }
+  }
+  const reference = !!pb.editRef?.key;
+  if (pb.editRef?.key) images.push({ key: pb.editRef.key, role: "editRef" });
+  return { images, mood, reference };
 }
 
 function postBrief(task: TaskRow): PostBrief {
@@ -1990,18 +2174,10 @@ async function submitTask(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
-      imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
-      roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
-      roles.mood = true;
-    }
-    if (pb.editRef?.key) {
-      imageUrls.push(await signObjectUrl(env, pb.editRef.key));
-      roles.reference = true;
-    }
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) imageUrls.push(i.refId ? await referenceEngineUrl(env, client, i.refId) : await signObjectUrl(env, i.key));
+    roles.mood = post.mood;
+    roles.reference = post.reference;
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
@@ -2191,32 +2367,17 @@ async function submitOpenAITask(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    // Order matters: the prompt numbers products, then ambassador portraits, then the reference.
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) {
-      const obj = await env.BUCKET.get(extra.key);
-      if (obj)
-        images.push({
-          bytes: await obj.arrayBuffer(),
-          mime: obj.httpMetadata?.contentType || "image/jpeg",
-        });
-    }
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
-      const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
-      if (obj) {
-        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
-        roles.mood = true;
+    // Order matters: the prompt numbers products, then portraits, then the one reference.
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) {
+      const obj = await env.BUCKET.get(i.key);
+      if (!obj) {
+        if (i.refId) throw new StudioError("Reference photo is missing from the library.", 500);
+        continue;
       }
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      images.push(await referenceBytes(env, pb.ref));
-      roles.mood = true;
-    }
-    if (pb.editRef?.key) {
-      const obj = await env.BUCKET.get(pb.editRef.key);
-      if (obj) {
-        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
-        roles.reference = true;
-      }
+      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      if (i.role === "look") roles.mood = true;
+      if (i.role === "editRef") roles.reference = true;
     }
   }
   const edit = task.edit?.trim() ?? "";
@@ -2623,22 +2784,10 @@ async function collectReferenceKeys(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) keys.push(extra.key);
-    if (pb.styleKey && !pb.refIsSource && !pb.noRefImage) {
-      keys.push(pb.styleKey);
-      roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
-      if (ref) {
-        keys.push(ref.key);
-        roles.mood = true;
-      }
-    }
-    if (pb.editRef?.key) {
-      keys.push(pb.editRef.key);
-      roles.reference = true;
-    }
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) keys.push(i.key);
+    roles.mood = post.mood;
+    roles.reference = post.reference;
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {

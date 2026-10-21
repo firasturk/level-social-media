@@ -107,10 +107,10 @@ MODES.push(NO_PROMPT_MODE_INFO);
 export const STATUS_LABEL: Record<string, string> = {
   queued: "Queued",
   processing: "Generating",
-  ready: "Ready",
-  review: "Review needed",
-  approved: "Ready",
-  failed: "Retry needed",
+  ready: "Made",
+  review: "Needs review",
+  approved: "Made",
+  failed: "Failed",
 };
 
 export const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];

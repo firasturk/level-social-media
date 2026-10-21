@@ -105,6 +105,25 @@ export interface ShotPost {
 export const FOREIGN_ITEMS =
   /\b(glass(es)?|cups?|mugs?|beverages?|drinks?|juices?|coffee|tea|latte|smoothies?|milkshakes?|liquids?|straws?|sandwich(es)?|snack bars?|burgers?|pizzas?|fries|bottles?|cup carriers?|wine|cocktails?)\b/i;
 
+/** Words that rule an item out of the picture rather than put it in ("without any liquids", "no glass"). */
+const NEGATED = /\b(no|not|never|without|none|nothing|free of|instead of|rather than|avoid(?:ing|s)?|skip(?:ping|s)?|minus|zero|except|excluding|excludes?|removed?)\b/i;
+
+/**
+ * The first drink, vessel or food the brand does not sell that a text names as being IN the picture.
+ * A mention inside a clause that rules it out is not a mention: "without any additional liquids"
+ * and "no glass on the table" name nothing. Returns "" when the text is clean.
+ */
+export function foreignItemIn(text: string): string {
+  const re = new RegExp(FOREIGN_ITEMS.source, "gi");
+  for (const m of text.matchAll(re)) {
+    const clause = text.slice(0, m.index ?? 0).split(/[.;:!?(),\n]/).pop() ?? "";
+    const near = clause.trim().split(/\s+/).slice(-8).join(" ");
+    if (NEGATED.test(near)) continue;
+    return m[0];
+  }
+  return "";
+}
+
 /**
  * The month's shoot list: one shot per planned post, in the look of the pins. Each post takes the
  * pin whose place, camera and gesture fit it best and becomes a shot of its own product, type,

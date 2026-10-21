@@ -30,6 +30,8 @@ interface AdminUser {
 interface AdminSettings {
   inviteCode: string;
   spendThreshold: number;
+  workflowV2: boolean;
+  autopilotReview: boolean;
   retentionDays: number;
   notifyWebhook: string;
   notifyEmail: string;
@@ -84,6 +86,8 @@ export default function AdminView({ me }: { me: string }) {
       setForm({
         inviteCode: d.settings.inviteCode,
         spendThreshold: d.settings.spendThreshold,
+        workflowV2: d.settings.workflowV2,
+        autopilotReview: d.settings.autopilotReview,
         retentionDays: d.settings.retentionDays,
         notifyWebhook: d.settings.notifyWebhook,
         notifyEmail: d.settings.notifyEmail,
@@ -278,6 +282,20 @@ export default function AdminView({ me }: { me: string }) {
               onChange={(e) => setForm({ ...form, spendThreshold: Number(e.target.value) })}
             />
             <small>A confirmation appears when a run's estimate exceeds this.</small>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={!!form.workflowV2} onChange={(e) => setForm({ ...form, workflowV2: e.target.checked })} />
+            <span>
+              <span className="field-label">Four-stage workflow</span>
+              <small>Start, Direction, Plan, Studio instead of the journey, for everyone on the team. The classic journey stays one click away in the Studio.</small>
+            </span>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={!!form.autopilotReview} onChange={(e) => setForm({ ...form, autopilotReview: e.target.checked })} />
+            <span>
+              <span className="field-label">Autopilot reviews before paying</span>
+              <small>Autopilot plans the month and stops at the plan with its estimate; a person presses Generate. Off: it generates by itself, under the spend threshold above.</small>
+            </span>
           </label>
           <label>
             <span className="field-label">Delete batches after (days)</span>

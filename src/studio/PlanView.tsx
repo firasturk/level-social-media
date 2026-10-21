@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
+import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
 import {
   Clapperboard,
   Download,
@@ -51,8 +52,7 @@ import {
   monthLabel,
   type Post,
   type PostType,
-  type Format,
-} from "@shared/posts";
+  type Format, olderIdea, type RevisionConfig } from "@shared/posts";
 import { STATUS_LABEL } from "./constants";
 
 /** The month of a client: its products, the plan of posts and their images. */
@@ -80,7 +80,8 @@ export default function PlanView({
   onShowOverlay,
   themeRefs,
   gridRef,
-  plannedAt,
+  revision,
+  requested,
   onGridIdeas,
   fileBase,
   onUploadProducts,
@@ -99,6 +100,8 @@ export default function PlanView({
   onFix,
   onRestorePicture,
   onAccept,
+  compact = false,
+  onEdit,
   onDeletePlan,
   paused,
   onResume,
@@ -150,8 +153,10 @@ export default function PlanView({
   themeRefs: { id: string; name: string | null }[];
   /** The reference the month follows in grid mode, when any. */
   gridRef: string | null;
-  /** When the ideas writer last wrote the plan; posts made before it are due again. */
-  plannedAt: number | null;
+  /** The month's revision stamps (plannedAt, gridAt): a picture made for an earlier revision is due again. */
+  revision: RevisionConfig | null;
+  /** The post editor asks for one of this view's own screens (the Text studio, Animate, Video) on a post. */
+  requested?: { kind: "text" | "animate" | "video"; index: number; at: number } | null;
   onGridIdeas: (refId: string, notes: string) => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
@@ -195,6 +200,9 @@ export default function PlanView({
   onFix?: (index: number, edit: string) => Promise<void>;
   /** Puts an earlier picture back on a post (after a Regenerate). */
   onRestorePicture?: (index: number, key: string) => Promise<void>;
+  /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
+  compact?: boolean;
+  onEdit?: (index: number, group?: EditorGroup) => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
@@ -207,6 +215,13 @@ export default function PlanView({
   const [dragging, setDragging] = useState(false);
   const [gridPicker, setGridPicker] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
+  useEffect(() => {
+    if (!requested) return;
+    if (requested.kind === "text") setEditing(requested.index);
+    else if (requested.kind === "animate") setAnimating(requested.index);
+    else setVideoFor(requested.index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested?.at]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
@@ -298,6 +313,15 @@ export default function PlanView({
     return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";
   };
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
+  /** Who on the team accepted the picture as it is (from the review record), or "". */
+  const acceptedBy = (t: Task | null): string => {
+    try {
+      const qa = t?.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
+      return qa?.acceptedBy ?? (qa?.notes?.startsWith("Accepted by ") ? qa.notes.slice(12).replace(/\.$/, "") : "");
+    } catch {
+      return "";
+    }
+  };
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
   // A post is due when it has no image, failed, or was generated before the plan was rewritten
   // (new ideas or a new reference grid), so Generate stays available after a re-plan.
@@ -305,7 +329,7 @@ export default function PlanView({
     const t = taskOf(p.index);
     if (!t || t.status === "failed") return true;
     if (t.status === "processing" || t.status === "queued") return false;
-    return !!plannedAt && t.updated < plannedAt;
+    return olderIdea(t, p, revision);
   });
   const pending = due.length;
   const stale = due.some((p) => !!taskOf(p.index)?.output);
@@ -321,7 +345,10 @@ export default function PlanView({
         const productChanged = ("product" in p && !same(x.product, p.product)) || ("products" in p && !same(x.products, p.products)) || ("people" in p && !same(x.people, p.people));
         const briefChanged = "brief" in p && !same(x.brief, p.brief);
         // A new product, a new cast or a new idea: the old shot no longer describes the post.
-        if (productChanged || briefChanged) next.scene = undefined;
+        if (productChanged || briefChanged) {
+          next.scene = undefined;
+          next.handShot = undefined;
+        }
         if (productChanged) refitDue.current.add(index);
         return next;
       }),
@@ -649,6 +676,125 @@ export default function PlanView({
               const product = products.find(
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
+              if (compact && onEdit) {
+                const flags = t?.output && !inFlight ? (reviewFlags(t) ?? []) : [];
+                const state = inFlight
+                  ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
+                  : t?.status === "failed"
+                    ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
+                    : t?.output
+                      ? (() => {
+                          const accepted = acceptedBy(t);
+                          if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
+                          if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
+                          return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                        })()
+                      : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
+                const saved = plan.find((x) => x.index === p.index);
+                const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
+                const menu = [
+                  t?.output
+                    ? { label: "Make another version", onClick: () => regenerate(t, p.index), disabled: inFlight || running || (p.type === "offer" && !offerReady(p.offer)), title: "A clearly different take on the same idea; this picture stays under Versions" }
+                    : { label: "Make the picture", onClick: () => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed")), disabled: inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer)) },
+                  { label: "Write a new idea", onClick: () => onNewIdea(p.index), disabled: inFlight || running || busy === "reidea" },
+                  ...(p.type !== "greeting"
+                    ? p.style
+                      ? [
+                          { label: "Change the style", onClick: () => setPicking(p.index), disabled: !!busy },
+                          { label: "Take the style off", onClick: () => void onStyles([{ index: p.index, style: null }]), disabled: !!busy },
+                        ]
+                      : [{ label: "Pick a style", onClick: () => setPicking(p.index), disabled: !!busy }]
+                    : []),
+                  ...(t?.output && !inFlight && onFix
+                    ? [
+                        { label: "Enhance (higher quality)", onClick: () => { setFixing(p.index); void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null)); }, disabled: fixing !== null || running || !!busy },
+                        { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false },
+                        { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false },
+                        { label: "Video from this picture", onClick: () => setVideoFor(p.index) },
+                      ]
+                    : []),
+                  ...(onRestorePicture && !inFlight && prevOf(t)
+                    ? [{ label: "Previous picture", onClick: () => { const was = t!.output!; setRestoring(p.index); void onRestorePicture(p.index, prevOf(t)!).then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } }).finally(() => setRestoring(null)); }, disabled: restoring !== null || running }]
+                    : []),
+                  { label: "Reference picture and versions", onClick: () => onEdit(p.index, "versions") },
+                  { label: "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
+                ];
+                return (
+                  <article key={p.index} id={`post-card-${p.index}`} className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""}`}>
+                    <PostCardCompact
+                      post={p}
+                      task={t}
+                      inFlight={inFlight}
+                      state={state}
+                      flags={flags}
+                      approval={approvals[String(p.index)]}
+                      styleTitle={p.style ? (styleOf(p.style)?.title ?? "Gallery style") : null}
+                      dayTitle={occasionOn(p.date) || undefined}
+                      onEdit={(g) => onEdit(p.index, g)}
+                      onFixReview={onFix ? () => { setFixing(p.index); void onFix(p.index, fixNote(reviewFlags(t!)!)).finally(() => setFixing(null)); } : undefined}
+                      onAccept={onAccept ? () => { setAccepting(p.index); void onAccept(p.index).finally(() => setAccepting(null)); } : undefined}
+                      fixing={fixing === p.index}
+                      accepting={accepting === p.index}
+                      disabled={running || !!busy}
+                      menu={menu}
+                      media={
+                        <>
+                          {img && showOverlay && p.overlay !== false ? (
+                            <OverlayPreview src={img} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={facesOf(t?.qa)} width={720} alt={p.title} />
+                          ) : img ? (
+                            <img src={img} alt={p.title} loading="lazy" />
+                          ) : (
+                            <img className="post-placeholder" src={`/guide/${p.type}.jpg`} alt="" onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
+                          )}
+                          {inFlight && (
+                            <span className="post-progress">
+                              <Orb size={18} />
+                              {makingLabel(t)}
+                            </span>
+                          )}
+                          {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
+                          {product && !img && <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />}
+                        </>
+                      }
+                      extra={
+                        <>
+                          {rewriting.includes(p.index) && (
+                            <small className="pc-meta">
+                              <Orb variant="caption" size={14} status={null} /> Writing the words and the idea again…
+                            </small>
+                          )}
+                          {p.product && !product && p.type !== "offer" && <small className="pc-meta warn">No photo of {p.product} this month: Generate brings it from the gallery, or pick another product in Edit.</small>}
+                          {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
+                          {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
+                            <small className="pc-meta" dir="auto">
+                              “{approvals[String(p.index)].note}”
+                            </small>
+                          )}
+                          {cardDirty && (
+                            <span className="pc-unsaved">
+                              Unsaved changes ·{" "}
+                              <button type="button" className="text-button" onClick={() => void saveDraft().then(() => refitPending())}>
+                                Save
+                              </button>{" "}
+                              <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved! : x)))}>
+                                Discard
+                              </button>
+                            </span>
+                          )}
+                          {!!t && !inFlight && olderIdea(t, p, revision) && !!onFix && (
+                            <span className="pc-unsaved">
+                              The idea changed after this picture ·{" "}
+                              <button type="button" className="text-button" disabled={fixing !== null || running} onClick={() => { setFixing(p.index); void onFix(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${(p.scene?.trim() || p.brief).slice(0, 700)}`).finally(() => setFixing(null)); }}>
+                                Update the picture
+                              </button>
+                            </span>
+                          )}
+                        </>
+                      }
+                    />
+                  </article>
+                );
+              }
               return (
                 <article
                   key={p.index}
@@ -667,7 +813,7 @@ export default function PlanView({
                           {styleOf(pendingStyle.get(p.index)!) && <img src={styleThumb(styleOf(pendingStyle.get(p.index)!)!)} alt="" />}
                           <span className="post-style-text">
                             <strong>{styleOf(pendingStyle.get(p.index)!)?.title ?? "Style chosen"}</strong>
-                            <small>Not applied yet</small>
+                            <small>Not applied yet · applying writes the idea and shot, then asks before making the picture</small>
                           </span>
                           <button
                             type="button"
@@ -743,10 +889,17 @@ export default function PlanView({
                         ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
                         : t?.status === "failed"
                           ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
-                          : flags
+                          : flags?.length
                             ? null
                             : t?.output
-                              ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
+                              ? (() => {
+                                  // An internal acceptance (the team) is named apart from the client's approval; an
+                                  // older idea's picture says so; a picture made before lineage was kept says nothing.
+                                  const accepted = acceptedBy(t);
+                                  if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
+                                  if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
+                                  return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                                })()
                               : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                       return (
                         <header className="post-head">
@@ -839,7 +992,7 @@ export default function PlanView({
                                 void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
                               }}
                             >
-                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
+                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Edit this picture
                             </button>
                             {onAccept && (
                               <button
@@ -1209,7 +1362,7 @@ export default function PlanView({
                     })()}
                     {(() => {
                       // The idea was edited (and saved) after this picture was made: the picture is offered an update.
-                      const stale = !!p.ideaAt && !!t?.output && !inFlight && p.ideaAt > t.updated && !!onFix;
+                      const stale = !!t && !inFlight && olderIdea(t, p, revision) && !!onFix;
                       if (!stale) return null;
                       const text = (p.scene?.trim() || p.brief).slice(0, 700);
                       return (

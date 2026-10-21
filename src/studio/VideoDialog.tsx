@@ -147,6 +147,7 @@ export default function VideoDialog({
               ))}
             </div>
             <small className="field-hint">{VIDEO_MODELS.find((m) => m.slug === model)?.note}</small>
+            <small className="field-hint">Videos are billed in Higgsfield credits at the engine's own price. They are outside the month's picture budget and are not covered by its spending limit.</small>
             {error && (
               <p className="video-error">
                 <TriangleAlert size={14} /> {error}

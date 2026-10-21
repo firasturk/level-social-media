@@ -23,7 +23,6 @@ import {
   Upload,
   Wand2,
   X,
-  Send,
   Camera,
   Lightbulb,
   Megaphone,
@@ -58,8 +57,10 @@ import {
   type Format,
   type Post, withoutWordsSentences } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
-import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
-import { fixNote, postProblems, type PostProblem } from "@shared/qa";
+import { briefLines } from "@shared/brief";
+import IdeasChat from "./IdeasChat";
+import { fixNote, type PostProblem } from "@shared/qa";
+import { monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import DrivePicker from "./DrivePicker";
@@ -232,6 +233,10 @@ export interface JourneyProps {
   /** Gallery styles for posts, each written for its post's product (null takes it off). */
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   onGenerate: () => Promise<void>;
+  /** Autopilot stops at the plan for a person's look before paying (admin setting). */
+  autopilotReview?: boolean;
+  /** The estimate a run may spend by itself under Autopilot; above it a person approves. */
+  spendThreshold?: number;
   /** The post tested before the month is generated, with its image and its review. */
   testPost: TestPost | null;
   onTest: (index: number) => Promise<void>;
@@ -310,13 +315,12 @@ export default function Journey(p: JourneyProps) {
   const [adapting, setAdapting] = useState(false);
   const [reading, setReading] = useState(false);
   const brief = p.config?.brief ?? {};
-  const seen = useRef<Partial<Record<BriefStep, string>>>({});
   const runBrief = useCallback(
     async (s: BriefStep) => {
       if (!p.batchId) return;
       setBriefBusy(s);
       try {
-        await post("/api/studio/posts/brief", { batch: p.batchId, step: s });
+        await post("/api/studio/posts/brief", { batch: p.batchId, step: s, sig: signatureRef.current[s] });
         await p.refresh();
         setBriefError((m) => ({ ...m, [s]: undefined }));
       } catch (e) {
@@ -329,6 +333,7 @@ export default function Journey(p: JourneyProps) {
     [p.batchId, p.refresh],
   );
   const productIds = p.products.map((s) => s.id).join(",");
+  /** What each screen looks like now; a note is current when it was read for the same signature. */
   const signature: Partial<Record<BriefStep, string>> = {
     products: `${productIds}|${client?.service ?? ""}`,
     count: `${p.postCount}:${p.month}:${JSON.stringify(p.config?.occasions?.picked ?? [])}:${(p.config?.occasions?.custom ?? []).length}`,
@@ -338,31 +343,24 @@ export default function Journey(p: JourneyProps) {
     colours: `${JSON.stringify(theme?.palette ?? [])}:${productIds}`,
     shots: `${p.plan.map((x) => x.scene ?? "").join("|")}:${theme?.props ?? ""}`,
   };
+  const signatureRef = useRef(signature);
+  signatureRef.current = signature;
   const stepBrief = STEPS[step].brief;
   const sig = stepBrief ? signature[stepBrief] : undefined;
+  /** A note read for another signature is older than its screen; a note from before signatures were kept counts as current. */
+  const noteStale = (k: BriefStep) => !!brief[k]?.sig && brief[k]!.sig !== signature[k];
   useEffect(() => {
     if (!stepBrief || !p.batchId || briefBusy) return;
     // The shots are read once they are written for this month's products.
     if (stepBrief === "shots" && (adapting || !p.plan.some((x) => x.scene)) && theme?.shots.length) return;
     const note = brief[stepBrief];
-    const before = seen.current[stepBrief];
-    if (note && before === undefined) {
-      seen.current[stepBrief] = sig;
-      return;
-    }
-    if (note && before === sig) return;
+    if (note && !noteStale(stepBrief)) return;
     if (stepBrief === "products" && !p.products.length && !client?.service?.trim()) return;
-    const t = setTimeout(
-      () => {
-        seen.current[stepBrief] = sig;
-        void runBrief(stepBrief);
-      },
-      note ? 1500 : 300,
-    );
+    const t = setTimeout(() => void runBrief(stepBrief), note ? 1500 : 300);
     return () => clearTimeout(t);
     // briefBusy too: a change made while a reading ran is read once that reading ends.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), adapting, briefBusy]);
+  }, [stepBrief, sig, p.batchId, !!(stepBrief && brief[stepBrief]), !!(stepBrief && brief[stepBrief]?.sig), adapting, briefBusy]);
 
   // A month that follows a grid from the library: its ideas carry a tile each and its shots come from them.
   const gridMonth = !!p.config?.gridRef && p.plan.some((x) => x.tile);
@@ -376,15 +374,19 @@ export default function Journey(p: JourneyProps) {
     `v3|${p.themeId}|${p.config?.gridRef ?? ""}|${(theme?.shots ?? []).join("|")}|${planSig}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`,
   );
   const adaptedFor = useRef("");
+  /**
+   * force: run even if this signature was written already (a button, not the screen opening).
+   * all: rewrite styled and hand-written shots too (the Rewrite button); otherwise they are kept.
+   */
   const adaptShots = useCallback(
-    async (force = false) => {
+    async (force = false, all = false) => {
       // Styled posts are rewritten from their styles even when the theme has no pin shots.
       if (!p.batchId || !p.plan.length || (!theme?.shots.length && !gridMonth && !p.plan.some((x) => x.style))) return;
       if (!force && adaptedFor.current === shotsSig) return;
       adaptedFor.current = shotsSig;
       setAdapting(true);
       try {
-        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, all: force || undefined });
+        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, all: all || undefined });
         await p.refresh();
       } catch (e) {
         toast.error((e as Error).message);
@@ -395,9 +397,12 @@ export default function Journey(p: JourneyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [p.batchId, theme?.shots, gridMonth, shotsSig, p.refresh],
   );
+  // The shots are written by themselves only when no post has one yet. Once any shot exists, a
+  // change that makes them out of date is shown as a note with "Write the shots" (issuesFor):
+  // opening the screen never rewrites a shot the designer may have edited.
   useEffect(() => {
     if (key !== "scene" || !p.config || reading) return;
-    if (p.plan.every((x) => x.scene) && p.config.shotsFor === shotsSig) return;
+    if (p.plan.some((x) => x.scene)) return;
     void adaptShots();
   }, [key, shotsSig, p.config?.shotsFor, reading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -553,8 +558,6 @@ export default function Journey(p: JourneyProps) {
   const go = (k: string) => () => setStep(Math.max(0, STEPS.findIndex((x) => x.key === k)));
   const castPeople = p.ambassadors.filter((a) => p.cast.includes(a.id));
   const productNames = p.products.map((x) => displayName(x.name));
-  const sellsDrinks = p.products.some((x) => FOREIGN_ITEMS.test(`${x.note ?? ""} ${x.category ?? ""}`));
-  const analysedAt = theme ? (theme.analysed ?? (theme.shots.length ? theme.updated : 0)) : 0;
   const briefAt = Math.max(
     0,
     ...Object.entries(p.config?.brief ?? {})
@@ -617,18 +620,12 @@ export default function Journey(p: JourneyProps) {
       return [{ text: `"What I understood" could not be written: ${briefError[k]}`, fix: { label: "Read again", run: () => runBrief(k) } }];
     if (briefBusy === k)
       return [{ text: "Wait for \"What I understood\": it is reading this screen.", how: "It takes a few seconds; the rest of the month follows it." }];
-    if (!brief[k] || (stepBrief === k && seen.current[k] !== signature[k]))
+    if (!brief[k] || noteStale(k))
       return [
         {
           text: "\"What I understood\" is older than this screen.",
           how: "It reads the screen again by itself in a moment, or press Read again.",
-          fix: {
-            label: "Read again",
-            run: () => {
-              seen.current[k] = signature[k];
-              return runBrief(k);
-            },
-          },
+          fix: { label: "Read again", run: () => runBrief(k) },
         },
       ];
     return [];
@@ -638,6 +635,57 @@ export default function Journey(p: JourneyProps) {
   const [briefText, setBriefText] = useState("");
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const briefTyped = briefText.trim().length >= 20;
+  /** The month's data checks, shared with the Studio header and the plan preview; the Journey only adds its fixes and screen state. */
+  const sharedIssues = monthIssues({
+    config: p.config,
+    client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
+    theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
+    products: productNames,
+    cast: castPeople.map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
+    scene: sceneContext({ config: p.config, theme, products: p.products, client }),
+  });
+  /** The Journey's one-click fix for a post's own problem (the shared check found it). */
+  const fixForProblem = (pr: PostProblem): Issue["fix"] =>
+    pr.fix === "unbag"
+      ? { label: "Take the bag out", run: () => fixPosts([pr]) }
+      : pr.fix === "blank" || pr.fix === "words"
+        ? { label: "Take it out", run: () => fixPosts([pr]) }
+        : pr.fix === "product"
+          ? { label: "Give it a product", run: () => fixPosts([pr]) }
+          : pr.fix === "include"
+            ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
+            : pr.fix === "noplace"
+              ? { label: "Make it a product post", run: () => fixPosts([pr]) }
+              : pr.fix === "shot"
+                ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
+                : { label: "Write the post again", run: () => fixPosts([pr]) };
+  const fixFor = (i: MonthIssue): Issue["fix"] => {
+    switch (i.code) {
+      case "pins-unread":
+        return { label: "Analyse the pins", run: () => readReferences(true) };
+      case "palette":
+        return theme
+          ? {
+              label: p.config?.gridRef ? "Suggest from the grid" : "Suggest from the pins",
+              run: async () => {
+                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, p.config?.gridRef ? { grid: p.config.gridRef } : undefined);
+                p.onThemesChanged(r.themes);
+              },
+            }
+          : undefined;
+      case "greeting":
+        return {
+          label: "Add the greeting post",
+          run: async () => {
+            await post("/api/studio/posts/occasion-posts", { batch: p.batchId });
+            await p.refresh();
+          },
+        };
+      default:
+        return undefined;
+    }
+  };
+  const shared = (...codes: string[]): Issue[] => sharedIssues.filter((i) => codes.includes(i.code)).map((i) => ({ text: i.text, how: i.how, warn: i.warn, fix: fixFor(i) }));
   function issuesFor(k: string): Issue[] {
     const out: Issue[] = [];
     switch (k) {
@@ -646,65 +694,27 @@ export default function Journey(p: JourneyProps) {
         break;
       case "products":
         if (p.uploading) out.push({ text: "Wait for the photos to finish uploading." });
-        // A brief picks its products from the client's Drive: no upload is needed before it is planned.
-        if (!p.products.length && !client?.service?.trim() && !briefTyped && !p.config?.campaign)
-          out.push({
-            text: "No products yet.",
-            how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\" and describe what the client offers.",
-          });
-        else if (p.products.length) out.push(...analysisIssues("products"));
+        // A brief typed but not sent counts as products on the way (shared check otherwise).
+        if (!briefTyped) out.push(...shared("products"));
+        if (p.products.length) out.push(...analysisIssues("products"));
         break;
-      case "count": {
-        if (p.postCount < 1) out.push({ text: "Pick how many posts this month has." });
-        const sel = p.config?.occasions;
-        for (const o of pickedOccasions(p.month, sel))
-          if (o.portrait && !sel?.photos?.[o.id])
-            out.push({ warn: true, text: `${o.name}: upload the official portrait before Generate.`, how: "Use \"Official portrait\" next to it." });
-        const ticked = new Set(sel?.picked ?? []);
-        for (const o of occasionsOf(p.month))
-          if (o.major && !ticked.has(o.id)) out.push({ warn: true, text: `${o.name} (${shortDate(o.date)}) is a big day without a post.` });
+      case "count":
+        out.push(...shared("count", "portrait", "occasion"));
         out.push(...analysisIssues("count"));
         break;
-      }
       case "brand":
-        if (client && !client.logo) out.push({ warn: true, text: "No logo: the posts go out without one.", how: "Upload it in Logos." });
-        if (client && !client.tone?.trim()) out.push({ warn: true, text: "No tone of voice: captions use a neutral tone." });
-        if (client && !client.colors.length) out.push({ warn: true, text: "No brand colours yet." });
+        if (client) out.push(...shared("logo", "tone", "colours"));
         out.push(...analysisIssues("brand"));
         break;
       case "identity":
-        for (const a of castPeople) {
-          if (!a.gender)
-            out.push({ text: `Choose whether ${a.name} is a man or a woman.`, how: "Tick Man or Woman on the ambassador's card." });
-          if (!a.image)
-            out.push({ text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
-        }
+        out.push(...shared("gender", "portrait-missing"));
         if (!theme) out.push({ warn: true, text: "No theme: the posts follow the brand identity and get no shots from pins." });
-        // A month that follows a grid takes its look from the grid: the theme only keeps its colours.
-        else if (!theme.references) {
-          if (!p.config?.gridRef) out.push({ text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
-        }
         else if (reading) out.push({ text: "Wait: the pins are being read." });
-        else if (!theme.shots.length || !analysedAt || (theme.latestRef ?? 0) > analysedAt)
-          out.push({
-            text: "The pins were not read since the last change: the month would follow the old theme.",
-            fix: { label: "Analyse the pins", run: () => readReferences(true) },
-          });
+        else out.push(...shared("pins", "pins-unread"));
         out.push(...analysisIssues("theme"));
         break;
       case "colours":
-        if (theme && !theme.palette.length)
-          out.push({
-            text: "No colours for this month.",
-            how: `Add the colours, or let the ${p.config?.gridRef ? "grid" : "pins"} suggest them.`,
-            fix: {
-              label: p.config?.gridRef ? "Suggest from the grid" : "Suggest from the pins",
-              run: async () => {
-                const r = await post<ThemesReply>(`/api/studio/posts/themes/${theme.id}/palette`, p.config?.gridRef ? { grid: p.config.gridRef } : undefined);
-                p.onThemesChanged(r.themes);
-              },
-            },
-          });
+        out.push(...shared("palette"));
         out.push(...analysisIssues("colours"));
         break;
       case "ideas": {
@@ -740,20 +750,7 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: made ? "A screen was read again after these ideas were written; the posts stay as they are unless you write the ideas again." : "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (p.plan.length !== p.postCount)
           out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite, warn: made });
-        const missing = pickedOccasions(p.month, p.config?.occasions).filter(
-          (o) => !p.plan.some((x) => x.type === "greeting" && x.occasion === o.id),
-        );
-        if (missing.length)
-          out.push({
-            text: `No greeting post yet for ${missing.map((o) => o.name).join(", ")}.`,
-            fix: {
-              label: "Add the greeting post",
-              run: async () => {
-                await post("/api/studio/posts/occasion-posts", { batch: p.batchId });
-                await p.refresh();
-              },
-            },
-          });
+        out.push(...shared("greeting").map((i) => ({ ...i, warn: false })));
         for (const x of p.plan) {
           if (x.type === "offer" && !offerReady(x.offer))
             out.push({ text: `Post ${x.index} is an offer: pick its products, write the price and what it includes, then "Write the offer post".` });
@@ -781,26 +778,8 @@ export default function Journey(p: JourneyProps) {
         if (needsScene && (p.plan.some((x) => !x.scene) || p.config?.shotsFor !== shotsSig))
           out.push({ text: p.posts.some((x) => !!x.url) ? "The shots were written before the current posts; the pictures stay as they are unless you write the shots again." : "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) }, warn: p.posts.some((x) => !!x.url) });
         else
-          for (const x of p.plan)
-            for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene, hasPlaces: !!client?.places?.length || !!client?.drivePlaces }))
-              out.push({
-                text: `Post ${pr.index} ${pr.text}.`,
-                problem: pr,
-                fix:
-                  pr.fix === "unbag"
-                    ? { label: "Take the bag out", run: () => fixPosts([pr]) }
-                    : pr.fix === "blank" || pr.fix === "words"
-                      ? { label: "Take it out", run: () => fixPosts([pr]) }
-                      : pr.fix === "product"
-                        ? { label: "Give it a product", run: () => fixPosts([pr]) }
-                    : pr.fix === "include"
-                      ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
-                      : pr.fix === "noplace"
-                        ? { label: "Make it a product post", run: () => fixPosts([pr]) }
-                    : pr.fix === "shot"
-                      ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
-                      : { label: "Write the post again", run: () => fixPosts([pr]) },
-              });
+          // The posts' own problems come from the shared check (the Studio header and the plan preview show the same list).
+          for (const i of sharedIssues) if (i.problem) out.push({ text: i.text, problem: i.problem, fix: fixForProblem(i.problem) });
         if (needsScene) out.push(...analysisIssues("shots"));
         break;
       }
@@ -1124,7 +1103,20 @@ export default function Journey(p: JourneyProps) {
       case "magic": {
         const blocks = issuesFor("magic").filter((i) => !i.warn);
         if (blocks.length) throw new Error(blocks[0].text);
-        log(`Generating ${p.plan.length} posts…`, "run");
+        // The same plan a person would read: its executable scope and estimate, before anything is paid.
+        log("Reading the plan before paying…", "run");
+        const preview = p.batchId ? await post<{ paid: number; blocked: { index: number }[]; estimate: { total: number; maximum: number; known: boolean } }>("/api/studio/posts/plan-preview", { batch: p.batchId }) : null;
+        const total = preview?.estimate.total ?? 0;
+        const line = preview ? `${preview.paid} picture${preview.paid === 1 ? "" : "s"} to make, about $${total.toFixed(2)}${preview.blocked.length ? `, ${preview.blocked.length} blocked` : ""}.` : "";
+        if (p.autopilotReview) {
+          stopAutopilot(`Plan ready: ${line} Review it and press Generate yourself (Autopilot reviews before paying).`, "done");
+          return;
+        }
+        if (preview && (!preview.estimate.known || total > (p.spendThreshold ?? 20))) {
+          stopAutopilot(`Plan ready: ${line} This is above the spend threshold ($${(p.spendThreshold ?? 20).toFixed(2)}), so a person approves it: press Generate.`, "warn");
+          return;
+        }
+        log(`Generating ${preview?.paid ?? p.plan.length} posts: ${line}`, "run");
         confetti();
         await p.onGenerate();
         setStep(STEPS.findIndex((x) => x.key === "make"));
@@ -1606,9 +1598,9 @@ export default function Journey(p: JourneyProps) {
                       onStyles={p.onStyles}
                       busy={adapting}
                       empty={!theme?.shots.length && !gridMonth}
-                      onRewrite={() => void adaptShots(true)}
+                      onRewrite={() => void adaptShots(true, true)}
                       onReadPins={theme && theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
-                      onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene } : x)))}
+                      onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene, handShot: true } : x)))}
                       batchId={p.batchId}
                       refresh={p.refresh}
                     />
@@ -2837,122 +2829,6 @@ function ColourPreview({
  * words and the art director changes exactly that, answering in the thread. The thread is kept on
  * the month, so it carries on after a reload.
  */
-function IdeasChat({ batchId, config, busy, engineReady, refresh, onNotes }: { batchId: string | null; config: Config | null; busy: boolean; engineReady: boolean; refresh: () => Promise<void>; onNotes: (notes: string) => void }) {
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const thread = config?.chat ?? [];
-  const box = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" });
-  }, [thread.length, sending]);
-  async function send() {
-    const message = text.trim();
-    if (!batchId || !message || sending) return;
-    setSending(true);
-    setText("");
-    try {
-      const r = await post<{ reply: string; changed: number[]; removed: number; make: number[] }>("/api/studio/posts/chat", { batch: batchId, message });
-      await refresh();
-      if (r.make.length) {
-        if (!engineReady) toast.error("No image engine is connected, so the pictures were not made.");
-        else {
-          await post("/api/studio/posts/generate", { batch: batchId, indexes: r.make, regenerate: true });
-          await refresh();
-          toast.success(`Making post${r.make.length > 1 ? "s" : ""} ${r.make.join(", ")}.`);
-        }
-      }
-    } catch (e) {
-      toast.error((e as Error).message, { duration: 10000 });
-      setText(message);
-    } finally {
-      setSending(false);
-      input.current?.focus();
-    }
-  }
-  async function clear() {
-    if (!batchId) return;
-    try {
-      await del(`/api/studio/posts/chat?batch=${encodeURIComponent(batchId)}`);
-      await refresh();
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-  return (
-    <div className="journey-box ideas-chat">
-      <BoxTitle
-        kit="voice"
-        actions={
-          <>
-            {config?.notes?.trim() ? (
-              <button type="button" className="text-button" onClick={() => onNotes("")} title={config.notes}>
-                Forget the standing rules
-              </button>
-            ) : null}
-            {thread.length > 0 && (
-              <button type="button" className="text-button" onClick={() => void clear()}>
-                Clear the thread
-              </button>
-            )}
-          </>
-        }
-      >
-        Talk about the ideas
-      </BoxTitle>
-      <div className="ideas-thread" ref={box}>
-        {thread.length === 0 && !sending && (
-          <div className="ideas-chat-empty">
-            <p>Tell me what to change, the way you would tell a colleague. I read the month and change exactly that:</p>
-            <ul>
-              <li>“Post 3 on the kiwi mojito instead, same idea.”</li>
-              <li>“Move the Christmas post to the 24th and make it a greeting.”</li>
-              <li>“All the captions in Jordanian Arabic, playful, end with a question.”</li>
-              <li>“Add a Mother’s Day post with the cheesecake milkshake.”</li>
-              <li>“Make posts 2 and 5 again.”</li>
-            </ul>
-          </div>
-        )}
-        {config?.notes?.trim() ? (
-          <p className="ideas-chat-rules" dir="auto">
-            <span>Standing rules for the words:</span> {config.notes.trim()}
-          </p>
-        ) : null}
-        {thread.map((t, i) => (
-          <div key={`${t.at}-${i}`} className={`ideas-msg ${t.role === "user" ? "mine" : "theirs"}`} dir="auto">
-            {t.text}
-          </div>
-        ))}
-        {sending && (
-          <div className="ideas-msg theirs thinking">
-            <Orb size={16} variant="caption" /> Reading the month…
-          </div>
-        )}
-      </div>
-      <div className="ideas-composer">
-        <textarea
-          ref={input}
-          dir="auto"
-          value={text}
-          rows={2}
-          disabled={!batchId || busy}
-          placeholder="What should change? Enter sends, Shift+Enter for a new line."
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <button type="button" className="primary" disabled={!text.trim() || sending || busy || !batchId} onClick={() => void send()}>
-          {sending ? <Orb size={13} /> : <Send size={13} />} Send
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function IdeasStep({
   plan,
   config,

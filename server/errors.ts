@@ -4,6 +4,8 @@ export class StudioError extends Error {
     message: string,
     public status = 400,
     public fatal = false,
+    /** Extra fields sent with the error (a run or a paid call to approve first). */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "StudioError";

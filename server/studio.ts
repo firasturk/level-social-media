@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
+import { spendStatus } from "./spend";
+import { previewNoImages } from "./env";
 import { all, first, run, now, uuid } from "./db";
 import {
   advanceBatch,
@@ -131,7 +133,7 @@ async function batchPayload(env: Env, b: BatchRow, user?: User) {
     ),
     all<Task>(
       env.DB,
-      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated, t.post, t.caption, t.preflight FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY t.post, s.name, t.card",
+      "SELECT t.id, t.source, t.card, t.status, t.output, t.qa, t.error, t.prompt, t.attempts, t.request_id, t.brief, t.cost, t.updated, t.post, t.caption, t.preflight, t.made_for, t.making_for FROM tasks t JOIN sources s ON s.id = t.source WHERE t.batch = ? ORDER BY t.post, s.name, t.card",
       b.id,
     ),
   ]);
@@ -144,7 +146,9 @@ async function batchPayload(env: Env, b: BatchRow, user?: User) {
     }
   const { owner: _owner, ...batch } = b;
   void _owner;
-  return { batch, sources, tasks };
+  // The month's spending ledger: what was approved for it and what its attempts have reserved.
+  const spend = await spendStatus(env, b.id);
+  return { batch, sources, tasks, spend };
 }
 
 studioRoutes.get("/state", async (c) => {
@@ -204,6 +208,9 @@ studioRoutes.get("/state", async (c) => {
     trash,
     spend,
     spendThreshold: adminSettings.spendThreshold,
+    workflowV2: adminSettings.workflowV2,
+    autopilotReview: adminSettings.autopilotReview,
+    preview: previewNoImages(c.env) || undefined,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),
     modes: await readModes(c.env),
@@ -223,6 +230,18 @@ studioRoutes.get("/state", async (c) => {
       })(),
     },
   });
+});
+
+/**
+ * Only an admin connects or disconnects an engine: the keys are shared by every client and
+ * every member, and a member can still read the connection status and the model lists.
+ */
+export function requireEngineAdmin(user: User): void {
+  if (user.role !== "admin") throw new StudioError("Only an admin can change the engine connection.", 403);
+}
+studioRoutes.use("/engine/*", async (c, next) => {
+  if (c.req.method !== "GET" && c.req.method !== "HEAD") requireEngineAdmin(c.get("user"));
+  await next();
 });
 
 /** Save an OpenAI key from the app after checking it against the Models endpoint. */

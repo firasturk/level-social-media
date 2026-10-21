@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ImagePlus, Plus, Sparkles, Trash2, UserRound } from "lucide-react";
 import { Orb } from "@/components/Orb";
-import { del, post, postForm, put } from "@/api";
+import { del, post, postForm, postPaid, put } from "@/api";
 import { askConfirm, askInput } from "@/lib/confirm";
 import type { Ambassador, Client } from "@shared/types";
 import { Group } from "./kit";
@@ -146,7 +146,9 @@ function AmbassadorCard({
     await save({ description: look });
     setBusy(true);
     try {
-      onChanged((await post<Reply>(`/api/studio/ambassadors/${a.id}/portrait`, {})).ambassadors);
+      const r = await postPaid<Reply>(`/api/studio/ambassadors/${a.id}/portrait`, {}, `${a.name}'s portrait, one picture`);
+      if (!r) return;
+      onChanged(r.ambassadors);
       toast.success(`Portrait of ${a.name} ready.`);
     } catch (e) {
       toast.error((e as Error).message);

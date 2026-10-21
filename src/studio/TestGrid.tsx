@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Grid3x3, RefreshCw } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
-import { get, post } from "@/api";
+import { get, postPaid } from "@/api";
 import { loadImage, renderOverlay } from "@/lib/overlay";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Post } from "@shared/posts";
@@ -91,7 +91,8 @@ export default function TestGrid({
     if (blocked) return onShowIssues();
     setMaking(true);
     try {
-      const r = await post<{ grid: TestGridInfo }>("/api/studio/posts/test-grid", { batch: batchId });
+      const r = await postPaid<{ grid: TestGridInfo }>("/api/studio/posts/test-grid", { batch: batchId }, "One test-grid picture");
+      if (!r) return;
       setPicture(null);
       setInfo(r.grid);
       toast.success("The test grid is ready: compare it with your grid.");

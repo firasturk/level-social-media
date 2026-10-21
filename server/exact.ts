@@ -3,8 +3,10 @@
  * where it stands in the generated scene (asked of the vision model), and the final picture.
  */
 import { PhotonImage, resize, SamplingFilter } from "@cf-wasm/photon";
-import type { Env } from "./env";
+import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { StudioError } from "./errors";
+import { rateFor } from "@shared/pricing";
+import { reserveSpend } from "./spend";
 import type { ImageBytes } from "./openai";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
@@ -56,7 +58,19 @@ const RATIOS: [string, number][] = [
 ];
 
 /** The product photo as a cut-out PNG (transparent around it), made once and kept next to the photo. */
-export async function productCutout(env: Env, source: { key: string; mime?: string }): Promise<Raster> {
+/** The image-model call one exact post may need beyond its own picture: the product's cut-out mask (made once per photo, then cached). */
+export function exactCallsCost(): number {
+  return rateFor("gemini-3-pro-image")!["1K"];
+}
+
+/** No allowance left for a paid exact-mode call: the scene is kept and the post says so. */
+export class ExactBudgetError extends StudioError {
+  constructor(what: string) {
+    super(`${what} was not made: the month's approved budget is used up. Press Generate to approve more.`, 402);
+  }
+}
+
+export async function productCutout(env: Env, source: { key: string; mime?: string }, scope?: string): Promise<Raster> {
   const cacheKey = `${source.key}.cutout.png`;
   const cached = await env.BUCKET.get(cacheKey);
   if (cached) {
@@ -85,6 +99,9 @@ export async function productCutout(env: Env, source: { key: string; mime?: stri
     if (c > 0.02 && c < 0.97) alpha = a;
   }
   if (!alpha) {
+    if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
+    // A paid mask: reserved against the month before it is asked for.
+    if (scope && !(await reserveSpend(env, scope, rateFor("gemini-3-pro-image")!["1K"])).ok) throw new ExactBudgetError("The product cut-out");
     const { makeGoogleClient } = await import("./engine");
     const engine = await makeGoogleClient(env);
     const ratio = raster.width / raster.height;
@@ -191,7 +208,12 @@ async function findSpot(env: Env, product: ImageBytes, scene: ImageBytes, note: 
  * scene's light on it and the foreground overlapping its base, with the product itself untouched.
  * The composite is returned unchanged when the model fails.
  */
-export async function harmonize(env: Env, composite: ImageBytes, aspectRatio: string, size: "1K" | "2K" | "4K", note: string): Promise<ImageBytes> {
+export async function harmonize(env: Env, composite: ImageBytes, aspectRatio: string, size: "1K" | "2K" | "4K", note: string, scope?: string): Promise<ImageBytes> {
+  // A paid pass: without allowance left it is skipped and the plain composite is kept.
+  if (scope && !(await reserveSpend(env, scope, rateFor("gemini-3-pro-image")![size === "4K" ? "2K" : size])).ok) {
+    console.log("[exact] harmonize skipped: the month's approved budget is used up");
+    return composite;
+  }
   const { makeGoogleClient } = await import("./engine");
   const engine = await makeGoogleClient(env);
   const prompt = [
@@ -216,8 +238,10 @@ export async function placeProduct(
   source: { key: string; reference_key?: string | null; mime?: string },
   scene: ImageBytes,
   note: string,
+  /** The spend scope (the month's batch id) the paid calls reserve against. */
+  scope?: string,
 ): Promise<{ image: ImageBytes; empty: boolean }> {
-  const cut = await productCutout(env, source);
+  const cut = await productCutout(env, source, scope);
   const ref = await env.BUCKET.get(source.reference_key || source.key);
   const productBytes: ImageBytes = ref
     ? { bytes: await ref.arrayBuffer(), mime: ref.httpMetadata?.contentType || "image/jpeg" }

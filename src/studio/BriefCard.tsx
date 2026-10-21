@@ -4,7 +4,7 @@ import { Orb } from "@/components/Orb";
 import type { Config } from "@shared/config";
 import type { Theme } from "@shared/types";
 import { briefLines } from "@shared/brief";
-import { monthLabel, type Post } from "@shared/posts";
+import { monthLabel, planShape, type Post } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
 import { KitIcon } from "./kit";
 
@@ -13,6 +13,8 @@ import { KitIcon } from "./kit";
  * rules each screen added) and how the client answered on the approval link.
  */
 export default function BriefCard({
+  blockers,
+  notes,
   config,
   theme,
   plan,
@@ -35,6 +37,10 @@ export default function BriefCard({
   /** Posts with a picture, posts the review flagged, posts being made now. */
   made?: number;
   toCheck?: number;
+  /** What stops Generate right now (the shared month checks), shown as a count. */
+  blockers?: string[];
+  /** Warnings that do not stop Generate (the Plan stage lists the same). */
+  notes?: string[];
   making?: number;
   /** Minutes left while posts are being made. */
   eta?: number | null;
@@ -61,7 +67,7 @@ export default function BriefCard({
         <KitIcon kit="direction" />
         <div className="brief-card-facts">
           <span>
-            <strong>{plan.length || config.postCount || 12}</strong> posts · {monthLabel(config.month ?? "")}
+            <strong>{plan.length ? planShape(plan).split(":")[0] : `${config.postCount || 12} posts`}</strong> · {monthLabel(config.month ?? "")}
             {dates.length ? ` · ${shortDate(dates[0])} to ${shortDate(dates[dates.length - 1])}` : ""}
           </span>
           {plan.length > 0 && (
@@ -73,10 +79,20 @@ export default function BriefCard({
                 </em>
               ) : (
                 <em className={made === plan.length ? "ok" : ""}>
-                  {made}/{plan.length} made
+                  {made}/{plan.length} designs made
                 </em>
               )}
-              {toCheck > 0 && <em className="warn">{toCheck} to check</em>}
+              {toCheck > 0 && <em className="warn">{toCheck} need review</em>}
+              {!!notes?.length && (
+                <em title={notes.join("\n")}>
+                  {notes.length} note{notes.length === 1 ? "" : "s"}
+                </em>
+              )}
+              {!!blockers?.length && (
+                <em className="warn" title={blockers.join("\n")}>
+                  {blockers.length} thing{blockers.length === 1 ? "" : "s"} to fix before Generate
+                </em>
+              )}
             </span>
           )}
           <span>

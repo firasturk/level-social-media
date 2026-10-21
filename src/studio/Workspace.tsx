@@ -6,7 +6,7 @@ import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { del, get, post, postForm, put } from "@/api";
+import { ApiError, del, get, post, postForm, postPaid, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
@@ -14,8 +14,9 @@ import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/o
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
-import { currentMonth, monthLabel, postFileName, type Format, type Post } from "@shared/posts";
-import { testSize } from "@shared/pricing";
+import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
+import { blocking, monthIssues, sceneContext } from "@shared/issues";
+import { formatUsd, rateFor, testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
@@ -24,6 +25,7 @@ import type {
   StateResponse,
   PersonSpend,
   QA,
+  Take,
   Task,
   Theme,
   User,
@@ -31,8 +33,9 @@ import type {
 import Sidebar, { type Page } from "./Sidebar";
 import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
-import PlanView from "./PlanView";
+import PlanView, { displayName } from "./PlanView";
 import Journey from "./Journey";
+import Flow from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
@@ -45,6 +48,7 @@ import type { EngineInfo } from "./ConnectionDialog";
 const AdminView = lazyScreen(() => import("./AdminView"));
 const BatchesView = lazyScreen(() => import("./BatchesView"));
 const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
+import type { PostEditorTools, Group as EditorGroup } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 
 const CLIENT_KEY = "lsm-client";
@@ -147,6 +151,13 @@ export default function Workspace({
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
+  /** The four-stage workflow (Start, Direction, Plan, Studio) instead of the journey: an admin flag. */
+  const [workflowV2, setWorkflowV2] = useState(false);
+  /** Autopilot stops at the plan for a look (admin setting), and the spend threshold a run must stay under by itself. */
+  const [autopilotReview, setAutopilotReview] = useState(false);
+  const [spendThreshold, setSpendThreshold] = useState(20);
+  /** A preview deployment: a strip says that no picture is made here. */
+  const [previewMode, setPreviewMode] = useState(false);
   /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
   const [kitOpen, setKitOpen] = useState<boolean | null>(null);
   /** Notes for the ideas writer, kept with the month's things in the side panel. */
@@ -199,6 +210,9 @@ export default function Workspace({
     return () => clearTimeout(t);
   }, []);
   useEffect(() => remember(CLIENT_KEY, clientId), [clientId]);
+  useEffect(() => {
+    document.body.classList.toggle("preview-on", previewMode);
+  }, [previewMode]);
   useEffect(() => setKitOpen(null), [clientId, month]);
   useEffect(() => remember(MONTH_KEY, month), [month]);
 
@@ -209,6 +223,10 @@ export default function Workspace({
       setTrash(d.trash ?? []);
       setSpend(d.spend ?? []);
       setEngine(d.engine);
+      setWorkflowV2(!!d.workflowV2);
+      setAutopilotReview(!!d.autopilotReview);
+      setSpendThreshold(Number(d.spendThreshold ?? 20));
+      setPreviewMode(!!d.preview);
       setHero(d.hero ?? "");
       const list = d.clients ?? [];
       setClients(list);
@@ -336,6 +354,11 @@ export default function Workspace({
   const [draftSettings, setDraftSettings] = useState<Partial<OutputSettings>>({});
   useEffect(() => setDraftSettings({}), [batch?.id]);
   const shownSettings = { ...settings, ...draftSettings };
+  const useFlow = workflowV2;
+  /** Which stage the workflow opens on when a rail button asked for one; otherwise where the month is. */
+  const [flowStage, setFlowStage] = useState<0 | 1 | 2 | null>(null);
+  /** The classic journey, opened on purpose from the Studio while the workflow is on. */
+  const [classic, setClassic] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -452,6 +475,8 @@ export default function Workspace({
       /** A grid from the style library ("style:<id>"), or null to stop following one. */
       gridRef?: string | null;
       monthFonts?: { headline: string; body: string } | null;
+      /** The month's standing rules for the words. */
+      notes?: string;
     },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
@@ -719,7 +744,8 @@ export default function Workspace({
   }, [loadPending]);
 
   /** Gallery styles for posts: each is written for its post's product (null takes the style off). */
-  async function assignStyles(assign: { index: number; style: string | null }[]) {
+  /** ask: offer to make the pictures right away; the workflow's Plan stage does that itself, so it passes false. */
+  async function assignStyles(assign: { index: number; style: string | null }[], ask = true) {
     if (!batch || !assign.length) return;
     const t = toast.loading(
       assign.length > 1 ? `Writing ${assign.length} styles for your products…` : "Writing the style for this product…",
@@ -728,9 +754,18 @@ export default function Workspace({
       await post("/api/studio/posts/style", { batch: batch.id, assign });
       await refresh();
       const styled = assign.filter((a) => a.style).map((a) => a.index);
-      toast.success(styled.length ? "Style written for the product. Generating…" : "Style taken off.", { id: t });
-      // A style applied is a picture asked for: the post is made again in the style right away.
-      if (styled.length) await generatePosts(styled, true, false);
+      if (!styled.length) {
+        toast.success("Style taken off.", { id: t });
+        return;
+      }
+      // The style is saved already (idea and shot written); making the picture is a separate step.
+      toast.success("Style saved on the post.", { id: t });
+      if (!ask) return;
+      const ok = await askConfirm(
+        `The style is saved. Make ${styled.length === 1 ? "the picture" : `${styled.length} pictures`} in it now, or keep the style and make ${styled.length === 1 ? "it" : "them"} with the next Generate?`,
+        { ok: "Generate now", cancel: "Keep the style, generate later", danger: false },
+      );
+      if (ok) await generatePosts(styled, true, false);
     } catch (e) {
       toast.error((e as Error).message, { id: t });
     }
@@ -746,7 +781,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false) {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean, run = crypto.randomUUID()): Promise<void> {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -768,6 +803,9 @@ export default function Workspace({
         regenerate,
         test: test || undefined,
         retake: retake || undefined,
+        approve: approve || undefined,
+        retakes,
+        run,
       });
       await refresh();
       if (test && r.planned)
@@ -781,22 +819,36 @@ export default function Workspace({
       if (r.skipped?.length)
         toast.warning(`Offer post${r.skipped.length > 1 ? "s" : ""} ${r.skipped.join(", ")} not generated: fill the offer's products, price and contents first.`);
     } catch (e) {
-      toast.error((e as Error).message);
+      // Above the spend limit: the server started nothing; one approval here starts the same run.
+      const err = e as ApiError;
+      const d = (err.data ?? {}) as { needsApproval?: boolean; images?: number; estimate?: number; maximum?: number; threshold?: number };
+      if (err.status === 409 && d.needsApproval && !approve) {
+        setBusy("");
+        const ok = await askConfirm(
+          `${d.images} picture${d.images === 1 ? "" : "s"}: about ${formatUsd(d.estimate ?? 0)}, at most ${formatUsd(d.maximum ?? d.estimate ?? 0)} if each is retaken once by itself after the review (list prices, an estimate). This is above the $${d.threshold} limit set in Admin.`,
+          { ok: `Approve and generate · up to ${formatUsd(d.maximum ?? d.estimate ?? 0)}`, danger: false, cancel: "Not now" },
+        );
+        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true, retakes, run);
+        return;
+      }
+      toast.error(err.message);
     } finally {
       setBusy("");
     }
   }
 
   /** The test post of the journey's last screen: its image and what the automatic review found. */
-  /** A finished image made before the month's ideas were last written belongs to the old ideas. */
-  const oldImage = (t: { status: string; updated: number }) =>
-    !["queued", "processing", "finalizing"].includes(t.status) && t.updated < (config?.plannedAt ?? 0);
+  /** A finished picture made for an earlier revision of its post's idea (recorded lineage, never a timestamp). */
+  const oldImage = (t: { status: string; output?: string | null; made_for?: number | null }, index: number) => {
+    const p = plan.find((x) => x.index === index);
+    return !["queued", "processing", "finalizing"].includes(t.status) && !!p && olderIdea(t, p, config);
+  };
   const testPost = useMemo(() => {
     const i = config?.testPost;
     if (!i || !plan.some((p) => p.index === i)) return null;
     const t = tasks.find((x) => x.post === i);
     // A test made for older ideas, or one that failed (it keeps an older picture), tests nothing.
-    if (t && (oldImage(t) || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status)))) return null;
+    if (t && (oldImage(t, i) || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status)))) return null;
     let qa: QA | null = null;
     try {
       qa = t?.qa ? (JSON.parse(t.qa) as QA) : null;
@@ -826,7 +878,7 @@ export default function Workspace({
           qa = null;
         }
         // An image made for older ideas is not this post's: it shows as not made yet.
-        const old = !!t && oldImage(t);
+        const old = !!t && oldImage(t, p.index);
         return {
           index: p.index,
           taskId: t?.id ?? null,
@@ -885,13 +937,13 @@ export default function Workspace({
     }
     // A take that failed (it keeps an older picture and says why) is made again too.
     const failed = (t: (typeof tasks)[number]) => t.status === "failed" || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status));
-    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && (t.updated < plannedAt || failed(t)));
+    const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post && (olderIdea(t, p, config) || failed(t))));
     if (!stale) return generatePosts(undefined, false, false);
     // Only what is older than the ideas, missing or failed is made again: a fresh test post stays.
     const due = plan
       .filter((p) => {
         const t = tasks.find((x) => x.post === p.index);
-        return !t || failed(t) || t.updated < plannedAt || (testPost?.draft && testPost.index === p.index);
+        return !t || failed(t) || olderIdea(t, p, config) || (testPost?.draft && testPost.index === p.index);
       })
       .map((p) => p.index);
     await generatePosts(due.length ? due : undefined, true, false);
@@ -1052,12 +1104,16 @@ export default function Workspace({
     if (!batch) return;
     const t = toast.loading("Setting the typography: reading each picture and its product's outline…");
     try {
-      const r = await post<{ set: { index: number; style: string; word: string; font: string }[]; plain: number[]; failed: number[] }>("/api/studio/posts/typography", {
+      const r = await postPaid<{ set: { index: number; style: string; word: string; font: string }[]; plain: number[]; failed: number[] }>("/api/studio/posts/typography", {
         batch: batch.id,
         indexes,
         force: !!indexes || undefined,
         style,
-      });
+      }, "Typography: reading each product's outline");
+      if (!r) {
+        toast.dismiss(t);
+        return;
+      }
       await refresh();
       toast.success(
         r.set.length
@@ -1166,8 +1222,11 @@ export default function Workspace({
       await refresh();
       for (const ch of r.changes) toast.success(`Post ${ch.index}: ${ch.summary || "changed as the client asked"}`, { duration: 12000 });
       if (engineConnected && r.indexes.length) {
-        await post("/api/studio/posts/generate", { batch: batch.id, indexes: r.indexes, regenerate: true });
-        await refresh();
+        const ok = await askConfirm(
+          `The client's changes are saved into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now?`,
+          { ok: "Generate now", cancel: "Keep the changes, generate later", danger: false },
+        );
+        if (ok) await generatePosts(r.indexes, true, false);
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -1273,11 +1332,136 @@ export default function Workspace({
   const selectedSource = selected ? (sources.find((s) => s.id === selected.source) ?? null) : null;
   const reviewable = tasks.filter((t) => !!t.output);
   const selectedIndex = selected ? reviewable.findIndex((t) => t.id === selected.id) : -1;
+  /** A tool of the card asked for from the editor: the Text studio, Animate or Video open on that post. */
+  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video"; index: number; at: number } | null>(null);
+  const prevOutputKey = (t: Task) => `lsm-prev-output:${t.id}`;
+  const prevOutputOf = (t: Task): string | null => {
+    try {
+      const k = localStorage.getItem(prevOutputKey(t));
+      return k && k !== t.output ? k : null;
+    } catch {
+      return null;
+    }
+  };
+  const [selectedPost, setSelectedPost] = useState<number | null>(null);
+  /** The open post's takes, from the server (the editor's Versions list, Previous picture and Compare). */
+  const [takes, setTakes] = useState<{ index: number; list: Take[] } | null>(null);
+  const openPostIndex = selected?.post ?? selectedPost ?? null;
+  const openOutput = selected?.output ?? null;
+  useEffect(() => {
+    if (!batch || openPostIndex === null) {
+      setTakes(null);
+      return;
+    }
+    let live = true;
+    void get<{ takes: Take[] }>(`/api/studio/posts/takes?batch=${encodeURIComponent(batch.id)}&index=${openPostIndex}`)
+      .then((r) => live && setTakes({ index: openPostIndex, list: r.takes }))
+      .catch(() => live && setTakes(null));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, openPostIndex, openOutput]);
+  /** A post opened in the editor without a picture (no task yet), and the group the editor opens on. */
+  const [editorGroup, setEditorGroup] = useState<EditorGroup | undefined>(undefined);
+  const openEditor = (index: number, group?: EditorGroup) => {
+    const t = tasks.find((x) => x.post === index && x.output);
+    setEditorGroup(group);
+    if (t) {
+      setSelectedPost(null);
+      setSelected(t);
+    } else {
+      setSelected(null);
+      setSelectedPost(index);
+    }
+  };
+  const closeEditor = () => {
+    setSelected(null);
+    setSelectedPost(null);
+    setEditorGroup(undefined);
+  };
+  /** The post editor's four groups: the open task's post with every tool the card offers. */
+  const editorPost = selected?.post ? plan.find((p) => p.index === selected.post) : selectedPost !== null ? plan.find((p) => p.index === selectedPost) : undefined;
+  const editor: PostEditorTools | undefined =
+    editorPost && batch
+      ? (() => {
+          const index = editorPost.index;
+          const t: Task | null = selected;
+          const ask = (kind: "text" | "animate" | "video") => () => {
+            setSelected(null);
+            setRequested({ kind, index, at: Date.now() });
+          };
+          let acceptedBy = "";
+          try {
+            const qa = t?.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
+            acceptedBy = qa?.acceptedBy ?? (qa?.notes?.startsWith("Accepted by ") ? qa.notes.slice(12).replace(/\.$/, "") : "");
+          } catch {
+            /* unreadable review */
+          }
+          // The take before the current picture, from the server; the browser's memory is only a fallback for older months.
+          const postTakes = takes?.index === index ? takes.list : [];
+          const prevTake = t?.output ? postTakes.find((x) => x.status === "made" && x.key && x.key !== t.output)?.key ?? null : null;
+          const prev = prevTake ?? (t ? prevOutputOf(t) : null);
+          return {
+            post: editorPost,
+            initialGroup: editorGroup,
+            onMake: !t?.output
+              ? () => {
+                  closeEditor();
+                  void generatePosts([index], false, false);
+                }
+              : undefined,
+            products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => ({ id: s.id, name: displayName(s.name) })),
+            cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => a.name),
+            perPicture: rateFor(shownSettings.model)?.[shownSettings.size] ?? 0,
+            onSavePost: (patch) => savePlan(plan.map((p) => (p.index === index ? { ...p, ...patch } : p))),
+            onEdit: (note) => fixPost(index, note),
+            onAccept: t && flagsOf(t).length && !acceptedBy ? () => acceptPost(index) : undefined,
+            onNewIdea: () => {
+              setSelected(null);
+              void newIdea(index);
+            },
+            onPrevious: prev && t
+              ? async () => {
+                  const was = t.output;
+                  await restorePicture(index, prev);
+                  try {
+                    if (was) localStorage.setItem(prevOutputKey(t), was);
+                  } catch {
+                    /* private mode */
+                  }
+                }
+              : undefined,
+            onOpenText: ask("text"),
+            onAnimate: ask("animate"),
+            onVideo: ask("video"),
+            versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
+            acceptedBy: acceptedBy || undefined,
+            takes: postTakes,
+            onUseTake: (key) => restorePicture(index, key),
+            onCheckWords: t?.output
+              ? async (propose) => {
+                  // The post as it will be published, words and logo drawn by the browser, is what the art director sees.
+                  const canvas = await renderOverlay(outputUrl(t), overlaySpec, { headline: editorPost.headline, subline: editorPost.subline }, editorPost.overlay === false ? null : logoSrc, 900, { patch: editorPost.ov, faces: facesOf(t.qa) });
+                  const r = await post<{ check: { ok: boolean }; post: Post; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] }>("/api/studio/posts/text-check", { batch: batch.id, index, image: canvas.toDataURL("image/jpeg", 0.82), propose });
+                  await refresh();
+                  return { note: r.post.textCheck?.note ?? "", ok: r.check.ok, proposal: r.proposal, applied: r.applied };
+                }
+              : undefined,
+            lineage: !t?.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
+          };
+        })()
+      : undefined;
   const running = batch?.state === "running" || active;
 
   return (
     <div className="studio">
       <BootScreen done={bootTimedOut || stateReady} />
+      {previewMode && (
+        <div className="preview-strip" role="status">
+          Preview: image and video generation is blocked at the server. With no key connected, planning and analysis answer from demo fixtures (free); if you add a Google or OpenAI key in Connection, those text calls are billed by that provider.
+        </div>
+      )}
       <Sidebar
         page={page}
         pendingStyles={pendingStyles}
@@ -1384,6 +1568,39 @@ export default function Workspace({
           </div>
         ) : (
           <>
+            {useFlow && (
+              <nav className="studio-rail" aria-label="Stages">
+                <div className="flow-rail">
+                  {["Start", "Direction", "Plan", "Studio"].map((name, i) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`flow-stage ${i === 3 ? "now" : "done"}`}
+                      disabled={i === 3}
+                      title={i === 3 ? "You are in the Studio" : `Back to ${name}`}
+                      onClick={() => {
+                        setFlowStage(i as 0 | 1 | 2);
+                        setClassic(false);
+                        setJourney(true);
+                      }}
+                    >
+                      <span className="flow-stage-n">{i + 1}</span> {name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  title="The step-by-step journey from before the workflow; everything it does is also in the four stages"
+                  onClick={() => {
+                    setClassic(true);
+                    setJourney(true);
+                  }}
+                >
+                  Classic journey
+                </button>
+              </nav>
+            )}
             {(() => {
               /** "Start new journey" begins at the first screen; "Open the journey" resumes where it was left. */
               const startNew = () => {
@@ -1392,15 +1609,17 @@ export default function Workspace({
                 } catch {
                   /* private mode */
                 }
+                setFlowStage(0);
+                setClassic(false);
                 setJourney(true);
               };
               const actions = (
                 <div className="hero-actions">
                   <button type="button" className="secondary" onClick={startNew}>
-                    <Compass size={15} /> Start new journey
+                    <Compass size={15} /> {useFlow ? "Start" : "Start new journey"}
                   </button>
-                  <button type="button" className="primary" onClick={() => setJourney(true)} title="Open the journey where it was left, to go through its screens and change things">
-                    <FolderOpen size={15} /> Open the journey
+                  <button type="button" className="primary" onClick={() => { setFlowStage(null); setClassic(false); setJourney(true); }} title={useFlow ? "Open the workflow: Start, Direction, Plan, then the Studio" : "Open the journey where it was left, to go through its screens and change things"}>
+                    <FolderOpen size={15} /> {useFlow ? "Open the workflow" : "Open the journey"}
                   </button>
                 </div>
               );
@@ -1455,6 +1674,20 @@ export default function Workspace({
                 plan={plan}
                 onShare={() => void shareMonth()}
                 onWhatsApp={() => void whatsAppMonth()}
+                {...(() => {
+                  const issues = monthIssues({
+                    config,
+                    client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
+                    theme: (() => {
+                      const t = themes.find((x) => x.id === themeId);
+                      return t ? { references: t.references, shots: t.shots, analysed: t.analysed, latestRef: t.latestRef, palette: t.palette } : null;
+                    })(),
+                    products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => displayName(s.name)),
+                    cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
+                    scene: sceneContext({ config, theme: themes.find((x) => x.id === themeId) ?? null, products: sources.filter((s) => (s.kind ?? "product") === "product"), client }),
+                  });
+                  return { blockers: blocking(issues).map((x) => x.text), notes: issues.filter((x) => x.warn).map((x) => x.text) };
+                })()}
                 made={plan.filter((p) => tasks.some((t) => t.post === p.index && t.output)).length}
                 toCheck={tasks.filter((t) => t.post && t.output && !["queued", "processing", "finalizing"].includes(t.status) && flagsOf(t).length).length}
                 making={tasks.filter((t) => t.post && ["queued", "processing", "finalizing"].includes(t.status)).length}
@@ -1534,7 +1767,8 @@ export default function Workspace({
                 onShowOverlay={setShowOverlay}
                 themeRefs={themeRefs}
                 gridRef={config?.gridRef ?? null}
-                plannedAt={config?.plannedAt ?? null}
+                revision={config ?? null}
+                requested={requested}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 fileBase={`${client.slug}_${month}`}
                 palette={themes.find((x) => x.id === themeId)?.palette ?? []}
@@ -1548,6 +1782,8 @@ export default function Workspace({
                 onAccept={acceptPost}
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
+                compact={useFlow}
+                onEdit={openEditor}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
                 typography={typography}
@@ -1577,8 +1813,66 @@ export default function Workspace({
       </main>
 
       <Radio className={journey ? "in-journey" : ""} />
-      {journey && stateReady && clients.some((c) => c.status === "active") && (
+      {journey && useFlow && !classic && stateReady && client && (
+        <Flow
+          initialStage={flowStage ?? undefined}
+          cast={ambassadors.filter((a) => castIds.includes(a.id))}
+          ambassadors={ambassadors}
+          onBrandKit={() => {
+            finishJourney();
+            setKitOpen(true);
+            setTimeout(() => document.querySelector(".brand-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+          }}
+          onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
+          onStyles={(assign) => assignStyles(assign, false)}
+          overlay={overlaySpec}
+          logoSrc={logoSrc}
+          onNotes={(notes) => void updateSettings({ notes })}
+          onMakePosts={(indexes) => generatePosts(indexes, true, false)}
+          onAddPosts={async (n) => {
+            await updateSettings({ postCount: plan.length + n });
+            await generateIdeas("", false, true);
+          }}
+          onGenerateOne={(index) => generatePosts([index], !!tasks.find((t) => t.post === index)?.output, false)}
+          reloadThemes={() => loadThemes(clientId)}
+          user={user}
+          client={client}
+          month={month}
+          batchId={batch?.id ?? null}
+          config={config}
+          plan={plan}
+          tasks={tasks}
+          products={sources.filter((s) => (s.kind ?? "product") === "product")}
+          sourceUrl={(id) => sourceUrl(id)}
+          outputThumb={outputThumb}
+          themes={themes}
+          themeId={themeId}
+          onTheme={(id) => void updateSettings({ theme: id })}
+          onThemesChanged={setThemes}
+          format={shownSettings.format}
+          model={shownSettings.model}
+          size={shownSettings.size}
+          postCount={shownSettings.postCount}
+          previousMonth={previousMonth}
+          onContinue={continueMonth}
+          ensurePlan={ensurePlan}
+          refresh={async () => {
+            await refresh();
+          }}
+          onUpload={uploadProducts}
+          onGrid={pickGrid}
+          onGenerateIdeas={(force, notes, append) => generateIdeas(notes ?? config?.notes ?? "", force, append)}
+          onSavePlan={(next) => savePlan(next)}
+          onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, false, retakes)}
+          onTest={testOnePost}
+          engineReady={engineConnected}
+          onDone={finishJourney}
+        />
+      )}
+      {journey && (!useFlow || classic) && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
+          autopilotReview={autopilotReview}
+          spendThreshold={spendThreshold}
           user={user}
           pendingStyles={pendingStyles}
           onPendingChange={() => void loadPending()}
@@ -1677,12 +1971,19 @@ export default function Workspace({
           originalUrl={selected ? sourceUrl(selected.source, "original") : ""}
           resultUrl={selected ? outputUrl(selected) : ""}
           position={selectedIndex >= 0 ? { index: selectedIndex, total: reviewable.length } : undefined}
-          onClose={() => setSelected(null)}
+          onClose={closeEditor}
           onRevise={revise}
+          editor={editor}
           onRemake={
             selected?.post
               ? () => {
                   const i = selected.post!;
+                  // The picture being replaced stays one click away (Previous picture), as on the card.
+                  try {
+                    if (selected.output) localStorage.setItem(prevOutputKey(selected), selected.output);
+                  } catch {
+                    /* private mode */
+                  }
                   setSelected(null);
                   void generatePosts([i], true, false, false, true);
                 }

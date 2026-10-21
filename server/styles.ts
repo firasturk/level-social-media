@@ -11,6 +11,7 @@ import { all, first, run, now, uuid } from "./db";
 import { askText } from "./posts";
 import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
+import { gridSummary, type GridRead } from "@shared/posts";
 import {
   describeStyleInstruction,
   GRID_STYLE_SCHEMA,
@@ -84,7 +85,7 @@ function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = 
     score: r.score,
     w: r.w,
     h: r.h,
-    tiles: r.tiles ?? 0,
+    tiles: Number(r.tiles) || 0,
     client: r.client || undefined,
     waiting: r.status === "review" || undefined,
   };
@@ -492,6 +493,21 @@ styleRoutes.get("/lookup", async (c) => {
   if (!ids.length) return c.json({ ok: true, styles: [] });
   const rows = await all<StyleRow>(c.env.DB, `SELECT * FROM styles WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
   return c.json({ ok: true, styles: rows.map((r) => toItem(r, c.get("user").role === "admin")) });
+});
+
+/** What a library grid holds, for the picker: its tiles by kind and layout once it was read, else its tile count. */
+styleRoutes.get("/:id/grid", async (c) => {
+  const r = await styleRow(c.env, c.req.param("id"));
+  if (!r) throw new StudioError("Not found.", 404);
+  const row = await first<{ read: string }>(c.env.DB, "SELECT read FROM grid_reads WHERE style = ?", r.id);
+  let read: GridRead | null = null;
+  try {
+    read = row ? (JSON.parse(row.read) as GridRead) : null;
+  } catch {
+    read = null;
+  }
+  const sum = gridSummary(read);
+  return c.json({ ok: true, ...sum, tiles: sum.tiles || r.tiles });
 });
 
 styleRoutes.get("/:id/image", async (c) => {

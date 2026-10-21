@@ -175,6 +175,10 @@ export interface Post {
   offer?: PostOffer;
   /** This post's own shot: the pins' look written for its product, type, occasion and people. */
   scene?: string;
+  /** The designer wrote or edited this post's shot by hand: the shots writer leaves it alone unless asked for this post. */
+  handShot?: boolean;
+  /** Keep this post's reference picture attached even when the reading before paying would leave it out. */
+  keepRef?: boolean;
   /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
   style?: string;
   /** The idea the post had before a style replaced it (it comes back when the style is taken off). */
@@ -244,6 +248,8 @@ export interface PostBrief {
    * ambassadors or into the picture, so the words of the shot describe it instead.
    */
   noRefImage?: boolean;
+  /** The designer asked to keep the reference picture attached whatever the preflight finds. */
+  keepRef?: boolean;
   /** Which take of this post this is; takes after the first ask for a different picture. */
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */
@@ -1427,6 +1433,25 @@ export interface GridRead {
   fonts?: GridFonts;
 }
 
+/** What a read grid holds, in words the picker can show: how many tiles, of what kinds, in what layout. */
+export function gridSummary(read: GridRead | null | undefined): { read: boolean; tiles: number; kinds: { kind: string; n: number }[]; textTiles: number; layout: string; world: string } {
+  if (!read?.tiles?.length) return { read: false, tiles: 0, kinds: [], textTiles: 0, layout: "", world: "" };
+  const counts = new Map<string, number>();
+  let rows = 0;
+  let cols = 0;
+  for (const t of read.tiles) {
+    const kind = t.kind && (TILE_KINDS as readonly string[]).includes(t.kind) ? t.kind : "picture";
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    const m = /row\s*(\d+).*?col\s*(\d+)/i.exec(t.position ?? "");
+    if (m) {
+      rows = Math.max(rows, Number(m[1]));
+      cols = Math.max(cols, Number(m[2]));
+    }
+  }
+  const kinds = [...counts.entries()].map(([kind, n]) => ({ kind, n })).sort((a, b) => b.n - a.n);
+  return { read: true, tiles: read.tiles.length, kinds, textTiles: counts.get("text") ?? 0, layout: rows && cols ? `${rows} rows × ${cols} columns` : "", world: (read.world ?? "").slice(0, 300) };
+}
+
 /** One tile's detailed read, cleaned (null when the model gave none). */
 export function tileSpecOf(t: Partial<TileSpec> | undefined): TileSpec | undefined {
   if (!t || !t.kind || !(TILE_KINDS as readonly string[]).includes(t.kind)) return undefined;
@@ -1777,3 +1802,49 @@ export function gatePostText(post: Pick<Post, "brief" | "scene">): { brief: stri
   const scene = pass("shot", post.scene);
   return { brief, scene, notes: [...new Set(notes)] };
 }
+
+/** The config fields a post's revision stamp reads. */
+export interface RevisionConfig {
+  plannedAt?: number;
+  gridAt?: number;
+}
+
+/**
+ * The revision of a post's idea: the latest of the month's planning, the post's own idea edit, its
+ * pinned picture, the client's note, and (for a grid post) the grid pick. A picture carries the
+ * revision it was made for; a later revision makes it an older idea.
+ */
+export function postRevision(post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): number {
+  return Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0, post.tile ? (config?.gridAt ?? 0) : 0, config?.plannedAt ?? 0);
+}
+
+/** A picture's lineage, as the task row records it. */
+export interface Lineage {
+  output?: string | null;
+  made_for?: number | null;
+}
+
+/** The picture was made for an earlier revision of this post's idea (never guessed from timestamps). */
+export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): boolean {
+  return !!task?.output && task.made_for != null && task.made_for < postRevision(post, config);
+}
+
+/** The picture predates lineage tracking: it stays usable and is shown as "lineage unknown" in details. */
+export function lineageUnknown(task: Lineage | null | undefined): boolean {
+  return !!task?.output && task.made_for == null;
+}
+
+/** "12 posts, one a 5-slide carousel: 16 designs, 15 pictures and 1 text tile drawn here." */
+export function planShape(plan: Post[]): string {
+  if (!plan.length) return "";
+  const groups = new Map<string, number>();
+  for (const p of plan) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
+  const posts = plan.filter((p) => !p.group).length + groups.size;
+  const tiles = plan.filter((p) => p.tileSpec?.kind === "text" && !p.product).length;
+  const designs = plan.length;
+  const pictures = designs - tiles;
+  const carousels = [...groups.values()];
+  const shapeOf = carousels.length ? `, ${carousels.length === 1 ? `one a ${carousels[0]}-slide carousel` : `${carousels.length} of them carousels (${carousels.join(", ")} slides)`}` : "";
+  return `${posts} post${posts === 1 ? "" : "s"}${shapeOf}: ${designs} design${designs === 1 ? "" : "s"}, ${pictures} picture${pictures === 1 ? "" : "s"} to make${tiles ? ` and ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here` : ""}.`;
+}
+

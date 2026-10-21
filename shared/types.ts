@@ -54,6 +54,21 @@ export interface EngineModel {
   reason: string;
 }
 
+/** One take of a post's picture: stored or failed, with what the attempt cost. */
+export interface Take {
+  id: string;
+  index: number;
+  status: "made" | "failed";
+  key: string | null;
+  image: string | null;
+  cost: number;
+  note: string;
+  madeFor: number | null;
+  created: number;
+  /** This take is the post's current picture. */
+  current: boolean;
+}
+
 export interface Source {
   id: string;
   name: string;
@@ -118,6 +133,10 @@ export interface Task {
   caption?: string | null;
   /** What the preflight changed before the engine was paid: JSON {at, notes}. */
   preflight?: string | null;
+  /** The post revision the picture in `output` was made for; null for pictures made before lineage was kept. */
+  made_for?: number | null;
+  /** The post revision the running generation was submitted for. */
+  making_for?: number | null;
 }
 
 /** A theme: a client's visual direction with its reference library (stored as a skill row). */
@@ -141,6 +160,8 @@ export interface Theme {
   palette: { name: string; hex: string }[];
   /** true while the palette is still the suggestion; false once the designer changed it. */
   paletteAuto: boolean;
+  /** Live months on this theme: a change to its palette reaches all of them. */
+  months?: number;
   hidden: boolean;
   references: number;
   thumb?: string;
@@ -259,6 +280,12 @@ export interface StateResponse {
   /** Admin only: what each person spent on pictures, this calendar month and in all. */
   spend?: PersonSpend[];
   spendThreshold: number;
+  /** Admins see the four-stage workflow (Start, Direction, Plan, Studio) instead of the journey. */
+  workflowV2?: boolean;
+  /** Autopilot stops at the plan for a look before paying. */
+  autopilotReview?: boolean;
+  /** A preview deployment: pictures and videos are never made here. */
+  preview?: boolean;
   zaidDirection: string;
   /** Creative direction's Mood board entry (name, tagline, hidden, starred). */
   moodBoard?: MoodBoardInfo;
@@ -285,6 +312,8 @@ export interface BatchResponse {
   batch: Batch;
   sources: Source[];
   tasks: Task[];
+  /** The month's spending ledger (USD list-price estimates): approved by the designer, reserved by attempts. */
+  spend?: { approved: number; reserved: number; remaining: number };
 }
 
 export interface BatchSummary {

@@ -10,3 +10,4 @@ tsconfig.tsbuildinfo
 test-results
 server/generated/assets.ts
 wrangler.deploy.json
+wrangler.preview.json
