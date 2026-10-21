@@ -1688,6 +1688,10 @@ export default function Journey(p: JourneyProps) {
               logoSrc={p.logoSrc}
               checking={textChecking}
               onCheck={(indexes) => void checkText(indexes)}
+              brand={client}
+              batchId={p.batchId}
+              fileBase={client ? `${client.slug}_${p.month}` : "post"}
+              onClientsChanged={p.onClientsChanged}
             />
           )}
 

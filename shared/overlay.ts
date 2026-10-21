@@ -4,6 +4,7 @@
  * spec fits 1:1, 4:5 and 9:16 outputs at any resolution. The engine never draws text; this does.
  */
 import type { PostTypography } from "./typography";
+import type { TextDesign } from "./layers";
 export type OverlayTemplate = "united" | "abusaleh" | "habibah" | "clean" | "none";
 export type LogoPosition = "top-center" | "top-left" | "top-right" | "bottom-center" | "none";
 export type TextPosition = "bottom" | "top" | "center";
@@ -186,6 +187,8 @@ export interface PostOverlayPatch {
   typoFor?: string;
   /** The typography kept aside while the month's typography is switched off. */
   typoOff?: PostTypography;
+  /** The words as editable layers (Text studio): drawn instead of the headline block when present. */
+  design?: TextDesign;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */

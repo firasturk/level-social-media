@@ -1537,6 +1537,8 @@ export default function Workspace({
                 plannedAt={config?.plannedAt ?? null}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 fileBase={`${client.slug}_${month}`}
+                palette={themes.find((x) => x.id === themeId)?.palette ?? []}
+                onClientsChanged={setClients}
                 onUploadProducts={(files) => void uploadProducts(files)}
                 onGenerateIdeas={(notes) => void generateIdeas(notes)}
                 onNewIdea={(i) => void newIdea(i)}

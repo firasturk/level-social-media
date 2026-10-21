@@ -3,8 +3,10 @@
  * using the client's fonts and the overlay spec. Used for previews and for the export.
  */
 import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } from "@shared/overlay";
-import { HEADLINE_FONTS, HOSTED_FONTS, LATIN_FONTS } from "@shared/overlay";
+import { HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
+import { ARABIC, fontStack, loadFont } from "./fonts";
+import { drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
 
 export interface OverlayText {
   headline?: string;
@@ -22,6 +24,8 @@ export interface Rect {
 export interface OverlayLayout {
   logo: Rect | null;
   text: Rect | null;
+  /** Where each layer of a text design landed (only when the post has one). */
+  layers?: LayerBox[];
 }
 
 export interface DrawOptions {
@@ -30,9 +34,9 @@ export interface DrawOptions {
   faces?: number[][];
   /** Entry animation state: progress 0..1 of the chosen preset. */
   anim?: { preset: AnimationPreset; progress: number };
+  /** Text design layers laid out but not painted (the one being typed in the editor). */
+  skipLayers?: Set<string>;
 }
-
-const loadedFonts = new Map<string, Promise<void>>();
 
 /** The faces the review stored on a task's QA, for the renderer to keep the words off them. */
 export function facesOf(qa: string | null | undefined): number[][] {
@@ -61,21 +65,6 @@ function inkOn(hex: string): string {
   return l > 0.6 ? "#1f1a17" : "#ffffff";
 }
 
-/** Loads an uploaded brand font once; hosted Google fonts come from the stylesheet in index.html. */
-export function loadFont(name: string, url: string): Promise<void> {
-  const key = `${name}|${url}`;
-  let p = loadedFonts.get(key);
-  if (!p) {
-    p = (async () => {
-      const face = new FontFace(name, `url(${url})`);
-      await face.load();
-      document.fonts.add(face);
-    })().catch(() => undefined);
-    loadedFonts.set(key, p);
-  }
-  return p;
-}
-
 const images = new Map<string, Promise<HTMLImageElement>>();
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -91,14 +80,6 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     images.set(src, p);
   }
   return p;
-}
-
-const ARABIC = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-
-function fontStack(family: string): string {
-  const quoted = `"${family.replace(/"/g, "")}"`;
-  if (HOSTED_FONTS.includes(family)) return `${quoted}, Tajawal, sans-serif`;
-  return `${quoted}, Tajawal, Inter, sans-serif`;
 }
 
 /** Wraps text to the width, splitting on spaces; a single long word is kept whole. */
@@ -151,9 +132,12 @@ export async function drawOverlay(
   const margin = spec.margin * W;
   const scale = patch.scale ?? 1;
   const faceRects: Rect[] = (opts.faces ?? []).map((f) => ({ x: f[0] * W, y: f[1] * H, w: f[2] * W, h: f[3] * H }));
+  const design = patch.design && patch.design.layers.length ? patch.design : undefined;
   // Typography: the picture as it is, kept to draw the product back over its letters.
-  const typo = !anim && headline ? patch.typo : undefined;
+  const typo = !anim && headline && !design ? patch.typo : undefined;
   const base = typo ? copyCanvas(ctx.canvas) : null;
+  // The design's readability helpers (a wash, a fade, a blur) go under everything, logo included.
+  if (design?.canvas) drawCanvasFx(ctx, W, H, design.canvas, copyCanvas(ctx.canvas));
   // A web font only downloads once something asks for it; a canvas never does on its own, so
   // without this the text silently falls back to the default face. Ask for the exact faces,
   // with the text itself so the right (Arabic or Latin) subset is fetched.
@@ -167,7 +151,7 @@ export async function drawOverlay(
   await document.fonts.ready;
 
   // Scrim behind the text block.
-  if (spec.scrim > 0 && patch.fade !== false && !typo && (headline || subline)) {
+  if (spec.scrim > 0 && patch.fade !== false && !typo && !design && (headline || subline)) {
     const g =
       spec.headline.position === "top"
         ? ctx.createLinearGradient(0, 0, 0, H * 0.5)
@@ -269,6 +253,33 @@ export async function drawOverlay(
     }
   }
 
+  // A text design (editable layers) replaces the headline block and the fade: the designer's own
+  // layout, drawn the same way here, on the cards, on the share link and in the export.
+  if (design) {
+    const picture = copyCanvas(ctx.canvas);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    if (anim && anim.preset !== "typewriter") {
+      ctx.globalAlpha = ease;
+      if (anim.preset === "rise") ctx.translate(0, (1 - ease) * 0.08 * W);
+      if (anim.preset === "zoom") {
+        const k = 0.6 + 0.4 * ease;
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(k, k);
+        ctx.translate(-W / 2, -H / 2);
+      }
+    }
+    const boxes = await drawDesign(ctx, W, H, design, { skip: opts.skipLayers, base: picture });
+    ctx.restore();
+    layout.layers = boxes;
+    if (boxes.length) {
+      const x0 = Math.min(...boxes.map((b) => b.x));
+      const y0 = Math.min(...boxes.map((b) => b.y));
+      layout.text = { x: x0, y: y0, w: Math.max(...boxes.map((b) => b.x + b.w)) - x0, h: Math.max(...boxes.map((b) => b.y + b.h)) - y0 };
+    }
+    return layout;
+  }
   if (!headline && !subline) return layout;
   const typeset = typo && base ? await drawTypography(ctx, W, H, spec, { ...typo, color: typo.color || patch.color || "" }, headline, subline, base, layout.logo, scale, patch, faceRects) : null;
   if (typeset) {
@@ -868,7 +879,7 @@ export async function paintFrame(
   return drawOverlay(ctx, canvas.width, canvas.height, spec, text, logoSrc, opts);
 }
 
-export { loadImage };
+export { loadImage, loadFont };
 
 /** The video MIME type this browser can record, MP4 where available (Safari, newer Chrome), else WebM. */
 export function videoMime(): { mime: string; ext: string } {

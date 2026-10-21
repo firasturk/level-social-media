@@ -30,7 +30,7 @@ import {
   Wand2,
   X, TriangleAlert, Plus } from "lucide-react";
 import { Orb } from "@/components/Orb";
-import OverlayEditor, { type EditorResult } from "./OverlayEditor";
+import TextStudio, { type EditorResult } from "./text/TextStudio";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
@@ -89,6 +89,8 @@ export default function PlanView({
   onPostCount,
   cast,
   onSavePlan,
+  palette,
+  onClientsChanged,
   onGeneratePosts,
   onOpen,
   onExport,
@@ -179,6 +181,9 @@ export default function PlanView({
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
   onSavePlan: (plan: Post[]) => void | Promise<void>;
+  /** The month's colours, offered in the Text studio after the brand's. */
+  palette?: { name: string; hex: string }[];
+  onClientsChanged?: (clients: Client[]) => void;
   onGeneratePosts: (indexes?: number[], regenerate?: boolean) => void;
   onOpen: (t: Task) => void;
   onExport: () => void;
@@ -1076,7 +1081,7 @@ export default function PlanView({
                                 type="button"
                                 className="icon-button"
                                 aria-label="Edit text on the image"
-                                title="Move, colour and size the text on the picture"
+                                title="Open the Text studio: type, fonts, colours, effects and layout on the picture"
                                 onClick={() => setEditing(p.index)}
                               >
                                 <PenLine size={13} />
@@ -1313,7 +1318,7 @@ export default function PlanView({
         const t = p ? taskOf(p.index) : null;
         if (!p || !t?.output) return null;
         return (
-          <OverlayEditor
+          <TextStudio
             open
             src={outputUrl(t)}
             spec={overlay}
@@ -1322,8 +1327,14 @@ export default function PlanView({
             subline={p.subline ?? ""}
             patch={p.ov}
             faces={facesOf(t.qa)}
+            brand={client}
+            palette={palette}
+            batchId={batchId ?? null}
+            index={p.index}
+            fileName={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
+            onClientsChanged={onClientsChanged}
             onClose={() => setEditing(null)}
-            onSave={(r: EditorResult) => {
+            onSave={(r: EditorResult, keepOpen) => {
               const next = draft.map((x) =>
                 x.index === p.index
                   ? { ...x, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov }
@@ -1331,7 +1342,7 @@ export default function PlanView({
               );
               setDraft(next);
               onSavePlan(next);
-              setEditing(null);
+              if (!keepOpen) setEditing(null);
             }}
           />
         );

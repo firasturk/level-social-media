@@ -10,6 +10,7 @@ import {
   type Config,
 } from "./config";
 import { FORMATS, MAX_POST_COUNT, POST_TYPES, TILE_KINDS } from "./posts";
+import { TEXT_DESIGN_SCHEMA } from "./layers";
 
 export const postSchema = z.object({
   index: z.number().int().min(1).max(MAX_POST_COUNT),
@@ -50,6 +51,7 @@ export const postSchema = z.object({
         })
         .optional(),
       typoFor: z.string().max(400).optional(),
+      design: TEXT_DESIGN_SCHEMA.optional(),
       typoOff: z
         .object({
           style: z.enum(["behind", "overlap", "repeat", "outline"]),

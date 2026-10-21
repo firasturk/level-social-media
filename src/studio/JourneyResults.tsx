@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, Check, Download, Eye, ImageOff, Maximize2, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
+import { ArrowUpRight, Check, Download, Eye, ImageOff, Maximize2, PenLine, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
@@ -10,6 +10,7 @@ import { FORMAT_INFO, monthLabel, POST_TYPE_INFO, type Format, type Post } from 
 import { shortDate } from "@shared/occasions";
 import type { OverlaySpec } from "@shared/overlay";
 import OverlayPreview from "./OverlayPreview";
+import TextStudio from "./text/TextStudio";
 import { KitIcon } from "./kit";
 
 /** One post of the month as the journey's last screens see it: its idea and its image. */
@@ -291,6 +292,10 @@ export function CaptionsStep({
   logoSrc,
   checking,
   onCheck,
+  brand,
+  batchId,
+  fileBase,
+  onClientsChanged,
 }: {
   plan: Post[];
   posts: JourneyPost[];
@@ -305,6 +310,11 @@ export function CaptionsStep({
   /** The posts whose text on design is being checked now. */
   checking: number[];
   onCheck: (indexes?: number[]) => void;
+  /** The client (brand fonts and colours) and the month, for the Text studio on each card. */
+  brand?: Client | null;
+  batchId?: string | null;
+  fileBase?: string;
+  onClientsChanged?: (clients: Client[]) => void;
 }) {
   const busy = writing.length > 0 || checking.length > 0;
   const made = plan.filter((p) => posts.find((x) => x.index === p.index)?.url);
@@ -363,6 +373,10 @@ export function CaptionsStep({
             onWrite={() => onWrite([p.index], true)}
             onCheck={() => onCheck([p.index])}
             onSave={onSave}
+            brand={brand ?? null}
+            batchId={batchId ?? null}
+            fileBase={fileBase ?? "post"}
+            onClientsChanged={onClientsChanged}
           />
         ))}
       </div>
@@ -387,6 +401,10 @@ function CaptionCard({
   onWrite,
   onCheck,
   onSave,
+  brand,
+  batchId,
+  fileBase,
+  onClientsChanged,
 }: {
   post: Post;
   job: JourneyPost | undefined;
@@ -399,7 +417,12 @@ function CaptionCard({
   onWrite: () => void;
   onCheck: () => void;
   onSave: (post: Post) => void;
+  brand: Client | null;
+  batchId: string | null;
+  fileBase: string;
+  onClientsChanged?: (clients: Client[]) => void;
 }) {
+  const [editingText, setEditingText] = useState(false);
   const [caption, setCaption] = useState(post.caption);
   const [hashtags, setHashtags] = useState(post.hashtags);
   const save = () => {
@@ -434,6 +457,33 @@ function CaptionCard({
           <span className="design-card-index">{String(post.index).padStart(2, "0")}</span>
           {post.date && <span className="design-card-date">{shortDate(post.date)}</span>}
         </span>
+        {job?.url && brand && post.overlay !== false && (
+          <button type="button" className="design-card-edit" title="Open the Text studio: type, fonts, colours, effects and layout on this picture" onClick={() => setEditingText(true)}>
+            <PenLine size={13} /> Edit text
+          </button>
+        )}
+        {editingText && job?.url && brand && (
+          <TextStudio
+            open
+            src={job.url}
+            spec={overlay}
+            logoSrc={logoSrc}
+            headline={post.headline ?? ""}
+            subline={post.subline ?? ""}
+            patch={post.ov}
+            faces={job.faces}
+            brand={brand}
+            batchId={batchId}
+            index={post.index}
+            fileName={`${fileBase}_post-${String(post.index).padStart(2, "0")}`}
+            onClientsChanged={onClientsChanged}
+            onClose={() => setEditingText(false)}
+            onSave={(r, keepOpen) => {
+              onSave({ ...post, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov });
+              if (!keepOpen) setEditingText(false);
+            }}
+          />
+        )}
         {check && !checking && (
           <span className={`design-card-mark ${check.ok ? "ok" : "warn"}`} title={check.ok ? "The text reads well" : "The text needs a look"}>
             {check.ok ? <Check size={14} /> : <TriangleAlert size={14} />}

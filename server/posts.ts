@@ -21,6 +21,7 @@ import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
+import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
@@ -3314,17 +3315,72 @@ postRoutes.post("/text-check", async (c) => {
   if (!check) throw new StudioError("The art director gave no usable answer. Try again.", 502);
   // The corrections go into the post's text layout; a designer's own placement (dx/dy, or a pinned place) is kept.
   const ov: PostOverlayPatch = { ...(post.ov ?? {}) };
-  if (check.position !== "keep" && ov.dx === undefined && ov.dy === undefined && !ov.pin) ov.position = check.position;
+  // A post laid out in the Text studio keeps the designer's layout: the check only reports.
+  const designed = !!ov.design?.layers.length;
+  if (!designed && check.position !== "keep" && ov.dx === undefined && ov.dy === undefined && !ov.pin) ov.position = check.position;
   // The text is white for every client; only the designer changes its colour, by hand.
-  if (check.fade === "on") delete ov.fade;
-  if (check.fade === "off") ov.fade = false;
-  if (Math.abs(check.scale - 1) >= 0.05) ov.scale = Math.round((ov.scale ?? 1) * check.scale * 100) / 100;
+  if (!designed && check.fade === "on") delete ov.fade;
+  if (!designed && check.fade === "off") ov.fade = false;
+  if (!designed && Math.abs(check.scale - 1) >= 0.05) ov.scale = Math.round((ov.scale ?? 1) * check.scale * 100) / 100;
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
   const next: Post = { ...post, ov: Object.keys(ov).length ? ov : undefined, textCheck: { ok: check.ok, note: check.note || (check.ok ? "The words read well and cover nothing." : [check.covers ? `The words cover ${check.covers}.` : "", !check.readable ? "The words are hard to read." : ""].filter(Boolean).join(" ")), for: t.output, at: now() } };
   cfg.plan = (cfg.plan ?? []).map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, fresh, cfg);
   return c.json({ ok: true, post: next, check });
+});
+
+const safeJson = <T,>(raw: string): T => {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return {} as T;
+  }
+};
+
+/** The Text studio's writing assistant: suggestions only, applied by the designer. */
+postRoutes.post("/text-assist", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      index: z.number().int().min(1).max(MAX_POST_COUNT),
+      action: z.enum(ASSIST_ACTIONS),
+      text: z.string().trim().min(1).max(1500),
+      /** The composed post as a JPEG data URL, for the layout judgement. */
+      image: z.string().regex(/^data:image\/jpeg;base64,/).max(1_500_000).optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === d.index);
+  if (!post) throw new StudioError("That post is not in the plan.", 404);
+  const client = await clientRow(c.env, config.client);
+  const theme = config.theme ? await themeRow(c.env, config.theme).catch(() => null) : null;
+  const palette = monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client);
+  const fontsRow = await first<{ fonts: string | null }>(c.env.DB, "SELECT fonts FROM clients WHERE id = ?", client.id);
+  const images = d.image && d.action === "layout" ? [{ bytes: Uint8Array.from(atob(d.image.slice(d.image.indexOf(",") + 1)), (ch) => ch.charCodeAt(0)).buffer as ArrayBuffer, mime: "image/jpeg" }] : [];
+  const answer = parseAssist(
+    parseJson<unknown>(
+      await askText(
+        c.env,
+        assistInstruction({
+          action: d.action,
+          text: d.text,
+          client: client.name,
+          tone: client.tone || undefined,
+          audience: client.audience || undefined,
+          language: (["ar", "en", "both"] as const).find((l) => l === client.language),
+          brief: post.brief || post.title,
+          brand: { fonts: Object.values(safeJson<Record<string, string>>(fontsRow?.fonts ?? "{}")).filter((f): f is string => !!f), colours: palette },
+        }),
+        ASSIST_SCHEMA,
+        images,
+      ),
+    ),
+  );
+  if (!answer.suggestions.length && !answer.verdict) throw new StudioError("The assistant gave no usable answer. Try again.", 502);
+  return c.json(answer);
 });
 
 /* ───────────── Video: a finished post set in motion on Higgsfield ───────────── */
