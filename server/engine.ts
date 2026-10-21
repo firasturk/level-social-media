@@ -12,8 +12,14 @@ import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfiel
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
 
-/** Findings a second take fixes by itself (a face that looks generated or broken hands never trigger one: that doubled the cost of every post with people). */
-const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile", "brand", "similar"]);
+/**
+ * Findings a second take fixes by itself: hard faults only (a wrong product, writing, an invented
+ * item, a bag, foreign food). Judgment calls (grid tile, staging, size, the brand's look, a look-alike,
+ * a face that looks generated) stay review notes: on a grid month they fired on most pictures and
+ * doubled the cost. One automatic take per post per month, whatever the team regenerates by hand.
+ */
+const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
+const MAX_AUTO_TAKES = 1;
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -139,6 +145,8 @@ interface TaskRow {
   updated: number;
   prompt: string;
   brief: string | null;
+  /** Automatic second takes this post already had this month (never reset by a regenerate). */
+  auto_retries: number;
 }
 
 interface SourceRow {
@@ -516,7 +524,7 @@ async function storeResultBytes(
     // from the post's original reference with the idea as the note; the drift stays as a lesson.
     const pb = postBrief(task);
     const drifted = qa.automated && (qa.flags ?? []).some((f) => f.kind === "idea");
-    if (drifted && pb.originalRef && !pb.retried) {
+    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
       const retry: PostBrief = {
         ...pb,
         retried: true,
@@ -529,7 +537,7 @@ async function storeResultBytes(
       };
       const done = await run(
         env.DB,
-        "UPDATE tasks SET status = 'queued', prompt = ?, brief = ?, qa = ?, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        "UPDATE tasks SET status = 'queued', prompt = ?, brief = ?, qa = ?, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, auto_retries = auto_retries + 1, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
         buildPostPrompt(retry),
         JSON.stringify(retry),
         JSON.stringify({ ...qa, notes: "Drifted from its idea: being made again from the original reference." }),
@@ -544,11 +552,11 @@ async function storeResultBytes(
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
     const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
-    if (fixable.length && !pb.retried) {
+    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
       const retry: PostBrief = { ...pb, retried: true };
       const done = await run(
         env.DB,
-        "UPDATE tasks SET status = 'queued', brief = ?, edit = ?, qa = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
+        "UPDATE tasks SET status = 'queued', brief = ?, edit = ?, qa = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, auto_retries = auto_retries + 1, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
         JSON.stringify(retry),
         fixNote(fixable),
         JSON.stringify({ ...qa, notes: `Being made again by itself: ${fixable.map((f) => f.text).join(" ")}` }),

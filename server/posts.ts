@@ -2421,7 +2421,8 @@ async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
   do {
     const page = await env.BUCKET.list({ prefix: `${b.owner}/${b.id}/output/`, cursor, limit: 1000 });
     for (const o of page.objects) {
-      if (!/\.(png|jpe?g|webp)$/i.test(o.key) || current.has(o.key) || kept.has(o.key)) continue;
+      // Resized copies (…png.w1080.jpg) are the same picture, not another take.
+      if (!/\.(png|jpe?g|webp)$/i.test(o.key) || /\.w\d+\.jpg$/i.test(o.key) || current.has(o.key) || kept.has(o.key)) continue;
       const post = postOf.get(o.key.split("/")[3] ?? "");
       if (post) old.push({ key: o.key, post, at: o.uploaded.getTime() });
     }
