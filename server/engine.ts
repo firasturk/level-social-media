@@ -2010,6 +2010,9 @@ async function submitTask(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
+    // The same order as the Google path and the prompt: products, portraits, place, real people,
+    // then the one look picture. Without them the prompt numbers images the engine never saw.
+    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) imageUrls.push(await signObjectUrl(env, extra.key));
     if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
       imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
       roles.mood = true;
@@ -2643,14 +2646,16 @@ async function collectReferenceKeys(
   }
   if (config.mode === "post") {
     const pb = postBrief(task);
+    // The same order as the Google path and the prompt: products, portraits, place, real people,
+    // then the one look picture (a style, a grid tile, or a theme or grid reference).
     for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) keys.push(extra.key);
-    if (pb.styleKey && !pb.refIsSource && !pb.noRefImage) {
-      keys.push(pb.styleKey);
+    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
+      keys.push((pb.styleKey || pb.tileKey)!);
       roles.mood = true;
     } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      const ref = await first<{ key: string }>(env.DB, "SELECT key FROM refs WHERE id = ?", pb.ref);
-      if (ref) {
-        keys.push(ref.key);
+      const key = await referenceKey(env, pb.ref);
+      if (key) {
+        keys.push(key);
         roles.mood = true;
       }
     }
