@@ -631,17 +631,18 @@ export default function Workspace({
     try {
       const id = await ensurePlan();
       // A month that follows a grid is planned from the grid, tile by tile.
-      const r = await post<{ plan: Post[] }>(config?.gridRef ? "/api/studio/posts/grid-ideas" : "/api/studio/posts/ideas", {
+      // Added posts are written as ideas in the month's world, whatever planned the month (a grid or a brief).
+      const r = await post<{ plan: Post[] }>(config?.gridRef && !append ? "/api/studio/posts/grid-ideas" : "/api/studio/posts/ideas", {
         batch: id,
         ref: config?.gridRef,
         notes: notes || undefined,
         count: shownSettings.postCount,
         force: force || undefined,
-        append: append && !config?.gridRef ? true : undefined,
+        append: append || undefined,
       });
       await refresh();
       toast.success(append ? `${r.plan.length} posts now: the new ones are written, the rest stay as they are. Generate makes the new pictures.` : `${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
-      if (config?.gridRef) await fillProducts(id);
+      if (config?.gridRef && !append) await fillProducts(id);
       return true;
     } catch (e) {
       toast.error((e as Error).message);
