@@ -16557,3 +16557,50 @@ label.cta input {
 .brand-chip:hover {
   background: var(--surface-2);
 }
+
+/* The workflow's loading motif */
+.working {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.working-mark {
+  width: 64px;
+  flex: none;
+}
+.working-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+.working-text small {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.editor-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.editor-proposal ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.editor-proposal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.flow-working {
+  margin: 0 0 14px;
+}

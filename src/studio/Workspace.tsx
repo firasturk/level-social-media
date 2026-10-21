@@ -1439,6 +1439,15 @@ export default function Workspace({
             acceptedBy: acceptedBy || undefined,
             takes: postTakes,
             onUseTake: (key) => restorePicture(index, key),
+            onCheckWords: t?.output
+              ? async (propose) => {
+                  // The post as it will be published, words and logo drawn by the browser, is what the art director sees.
+                  const canvas = await renderOverlay(outputUrl(t), overlaySpec, { headline: editorPost.headline, subline: editorPost.subline }, editorPost.overlay === false ? null : logoSrc, 900, { patch: editorPost.ov, faces: facesOf(t.qa) });
+                  const r = await post<{ check: { ok: boolean }; post: Post; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] }>("/api/studio/posts/text-check", { batch: batch.id, index, image: canvas.toDataURL("image/jpeg", 0.82), propose });
+                  await refresh();
+                  return { note: r.post.textCheck?.note ?? "", ok: r.check.ok, proposal: r.proposal, applied: r.applied };
+                }
+              : undefined,
             lineage: !t?.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
           };
         })()

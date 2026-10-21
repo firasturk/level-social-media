@@ -3680,6 +3680,8 @@ postRoutes.post("/text-check", async (c) => {
       index: z.number().int().min(1).max(MAX_POST_COUNT),
       /** The composed post as a JPEG data URL (the browser draws the words; the server cannot). */
       image: z.string().regex(/^data:image\/jpeg;base64,/).max(1_500_000),
+      /** The corrections are returned as a proposal, not written to the post: the designer applies them by a click. */
+      propose: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
@@ -3715,10 +3717,27 @@ postRoutes.post("/text-check", async (c) => {
   if (!designed && Math.abs(check.scale - 1) >= 0.05) ov.scale = Math.round((ov.scale ?? 1) * check.scale * 100) / 100;
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
-  const next: Post = { ...post, ov: Object.keys(ov).length ? ov : undefined, textCheck: { ok: check.ok, note: check.note || (check.ok ? "The words read well and cover nothing." : [check.covers ? `The words cover ${check.covers}.` : "", !check.readable ? "The words are hard to read." : ""].filter(Boolean).join(" ")), for: t.output, at: now() } };
+  const note = check.note || (check.ok ? "The words read well and cover nothing." : [check.covers ? `The words cover ${check.covers}.` : "", !check.readable ? "The words are hard to read." : ""].filter(Boolean).join(" "));
+  const textCheck = { ok: check.ok, note, for: t.output, at: now() };
+  const moved = JSON.stringify(ov) !== JSON.stringify(post.ov ?? {});
+  // What the corrections would do, in words, for the proposal.
+  const changes: string[] = [];
+  if (moved) {
+    if (ov.position && ov.position !== post.ov?.position) changes.push(`Move the words to the ${ov.position}.`);
+    if ((ov.fade === false) !== (post.ov?.fade === false)) changes.push(ov.fade === false ? "Take the dark fade off." : "Put the dark fade behind the words.");
+    if (ov.scale !== post.ov?.scale) changes.push(`Size the words at ${Math.round((ov.scale ?? 1) * 100)}%.`);
+  }
+  if (d.propose) {
+    // The finding is kept on the post; the layout stays until the designer applies the proposal.
+    const kept: Post = { ...post, textCheck };
+    cfg.plan = (cfg.plan ?? []).map((p) => (p.index === d.index ? kept : p));
+    await saveConfig(c.env, fresh, cfg);
+    return c.json({ ok: true, post: kept, check, proposal: moved ? { ov: Object.keys(ov).length ? ov : undefined, changes } : null });
+  }
+  const next: Post = { ...post, ov: Object.keys(ov).length ? ov : undefined, textCheck };
   cfg.plan = (cfg.plan ?? []).map((p) => (p.index === d.index ? next : p));
   await saveConfig(c.env, fresh, cfg);
-  return c.json({ ok: true, post: next, check });
+  return c.json({ ok: true, post: next, check, proposal: null, applied: changes });
 });
 
 const safeJson = <T,>(raw: string): T => {

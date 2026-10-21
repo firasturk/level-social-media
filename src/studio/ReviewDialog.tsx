@@ -21,6 +21,7 @@ import { fixNote } from "@shared/qa";
 import Zoomable from "./Zoomable";
 import CompareSlider from "./CompareSlider";
 import { formatUsd } from "@shared/pricing";
+import { toast } from "sonner";
 import VoiceInput from "@/components/VoiceInput";
 import { POST_TYPE_INFO, POST_TYPES, type Post } from "@shared/posts";
 
@@ -127,6 +128,8 @@ export interface PostEditorTools {
   versions?: ReactNode;
   /** This post's takes, newest first, from the server. */
   takes?: Take[];
+  /** The art director looks at the post as it will be published (words drawn on): its finding, and the moves it proposes. */
+  onCheckWords?: (propose: boolean) => Promise<{ note: string; ok: boolean; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] }>;
   /** An earlier take back on the post (the current picture stays listed). */
   onUseTake?: (key: string) => Promise<void>;
   /** Who accepted it, when someone did. */
@@ -175,6 +178,28 @@ export default function ReviewDialog({
   const [view, setView] = useState<"compare" | "result" | "original">("compare");
   /** An earlier take put beside the current picture in the compare view (null: the product photo). */
   const [compareWith, setCompareWith] = useState<Take | null>(null);
+  /** The words check: running, its finding, and the moves it proposes until applied or left. */
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ note: string; ok: boolean; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] } | null>(null);
+  const [autoApply, setAutoApply] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("lsm-words-auto") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => setCheckResult(null), [editor?.post.index, task?.output]);
+  async function checkWords() {
+    if (!editor?.onCheckWords) return;
+    setChecking(true);
+    try {
+      setCheckResult(await editor.onCheckWords(!autoApply));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  }
   useEffect(() => setCompareWith(null), [task?.id, task?.output]);
   const [edit, setEdit] = useState("");
   const [group, setGroup] = useState<Group>(editor?.initialGroup ?? "image");
@@ -409,6 +434,62 @@ export default function ReviewDialog({
               Hashtags
               <input value={field("hashtags") ?? ""} onChange={(e) => set("hashtags", e.target.value)} disabled={busy} />
             </label>
+            {editor.onCheckWords && task?.output && (
+              <div className="editor-proposal-wrap">
+                <div className="editor-actions">
+                  <button type="button" className="secondary" disabled={busy || checking || dirty} onClick={() => void checkWords()} title="The art director looks at the post as it will be published: do the words cover the product, do they read? A text and vision call, or the demo fixture.">
+                    {checking ? <Orb size={14} /> : null} Check the words
+                  </button>
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={autoApply}
+                      onChange={(e) => {
+                        setAutoApply(e.target.checked);
+                        try {
+                          localStorage.setItem("lsm-words-auto", e.target.checked ? "1" : "0");
+                        } catch {
+                          /* private mode */
+                        }
+                      }}
+                    />
+                    Apply its moves by itself
+                  </label>
+                </div>
+                {editor.post.textCheck && !checkResult && <small className="editor-accepted">Last check: {editor.post.textCheck.note}</small>}
+                {checkResult && (
+                  <div className="editor-proposal">
+                    <span>{checkResult.note}</span>
+                    {checkResult.applied?.length ? <ul>{checkResult.applied.map((c, i) => <li key={i}>Applied: {c}</li>)}</ul> : null}
+                    {checkResult.proposal && (
+                      <>
+                        <ul>
+                          {checkResult.proposal.changes.map((c, i) => (
+                            <li key={i}>{c}</li>
+                          ))}
+                        </ul>
+                        <span className="editor-proposal-actions">
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={busy}
+                            onClick={async () => {
+                              await editor.onSavePost({ ov: checkResult.proposal!.ov });
+                              setCheckResult({ ...checkResult, proposal: null, applied: checkResult.proposal!.changes });
+                            }}
+                          >
+                            Apply the moves
+                          </button>
+                          <button type="button" className="secondary" onClick={() => setCheckResult({ ...checkResult, proposal: null })}>
+                            Leave the words as they are
+                          </button>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="editor-actions">
               <button type="button" className="primary" disabled={busy || !dirty} onClick={() => void saveDraft()}>
                 Save

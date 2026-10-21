@@ -24,6 +24,7 @@ import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
 import IdeasChat from "./IdeasChat";
 import BrandChip from "./BrandChip";
+import Working from "@/components/Working";
 import TestGrid from "./TestGrid";
 import { askInput } from "@/lib/confirm";
 import type { OverlaySpec } from "@shared/overlay";
@@ -544,6 +545,7 @@ export default function Flow(p: FlowProps) {
                         </Cta>
                         <small className="flow-muted">Reads your words and pictures into a plan (a text call, or the demo fixture). No picture is made here.</small>
                       </div>
+                      {planning && <Working label="Reading your request into a plan" />}
                       {!p.products.length && !client?.service && (
                         <small className="flow-muted">
                           No product photos this month yet: name the products in your request (the client's Drive is searched for them) or upload photos below.
@@ -979,6 +981,10 @@ export default function Flow(p: FlowProps) {
                   Add posts
                 </Cta>
               </div>
+              {reading2 && <Working label="Reading the scenes before paying" count={{ done: 0, of: readyPictures }} className="flow-working" />}
+              {rewriting && <Working label="Writing the ideas" className="flow-working" />}
+              {writingShots && <Working label="Writing the shots" className="flow-working" />}
+              {previewBusy && !preview && <Working label="Reading the plan" className="flow-working" />}
               {chatOpen && (
                 <IdeasChat
                   batchId={p.batchId}
