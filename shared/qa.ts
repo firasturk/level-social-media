@@ -2,8 +2,8 @@
  * The checks a month's posts pass before any image is paid for: what the image engine would get
  * wrong if it were sent as it is. Each problem says where it is and how it is fixed.
  */
-import { BAGS, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post, withoutWordsSentences } from "./posts";
-import { FOREIGN_ITEMS } from "./brief";
+import { BAGS, EDIBLE, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post, withoutWordsSentences } from "./posts";
+import { FOREIGN_ITEMS, foreignItemIn } from "./brief";
 import { AI_LOOK_CHECK, AI_LOOK_FIX } from "./realism";
 
 export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank" | "product" | "words";
@@ -102,11 +102,9 @@ export function postProblems(
   if (withoutWordsSentences(scene) !== scene.trim() || withoutWordsSentences(post.brief) !== post.brief.trim())
     out.push({ index: n, text: "describes words to draw in its picture (a headline, a slogan, a swipe arrow): the engine would paint them, so they are taken out", fix: "words" });
   // Coffee Day may show coffee; every other post shows only what the client sells.
+  // A sentence that rules a drink out ("without any additional liquids") names no drink.
   if (!ctx.sellsDrinks && post.occasion !== "coffee-day") {
-    const drink = (t: string) => {
-      const m = FOREIGN_ITEMS.exec(t);
-      return m ? m[0] : "";
-    };
+    const drink = (t: string) => foreignItemIn(t);
     const s = drink(scene);
     if (s) out.push({ index: n, text: `shows "${s}" in its shot, which the client does not sell`, fix: "shot" });
     else {
@@ -293,7 +291,9 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
   if (!none(str(d.invented))) out.push({ kind: "invented", text: `Invented product: ${str(d.invented)}` });
   if (!none(str(d.text))) out.push({ kind: "text", text: `Writing in the picture: ${str(d.text)}` });
   if (d.bag === true) out.push({ kind: "bag", text: "The product is in or next to a bag." });
-  const foreign = Array.isArray(d.foreign) ? (d.foreign as unknown[]).map(str).filter((x) => !none(x)) : [];
+  // The reviewer is told that only drinks, their vessels and food count as foreign; an item it lists
+  // anyway (a silver fork, a napkin) is a prop, never a flag, never a lesson.
+  const foreign = Array.isArray(d.foreign) ? (d.foreign as unknown[]).map(str).filter((x) => !none(x) && (FOREIGN_ITEMS.test(x) || EDIBLE.test(x))) : [];
   if (foreign.length && !r.sellsDrinks && !r.coffeeDay)
     out.push({ kind: "foreign", text: `Shows what the brand does not sell: ${foreign.join(", ")}` });
   if (!none(str(d.people))) out.push({ kind: "people", text: str(d.people) });

@@ -31,7 +31,7 @@ import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch }
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
 import { requireActiveClient } from "./clients";
-import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
+import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, foreignItemIn, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
@@ -4380,7 +4380,7 @@ postRoutes.post("/shots", async (c) => {
     });
   const bad = [...new Set(invented(shots))];
   if (bad.length) shots = await ask(bad.slice(0, 12).join(", "));
-  else if (!sellsDrinks && [...shots.values()].some((t) => FOREIGN_ITEMS.test(t))) shots = await ask(true);
+  else if (!sellsDrinks && [...shots.values()].some((t) => foreignItemIn(t))) shots = await ask(true);
   if (!shots.size) throw new StudioError("The model returned no shots. Try again.", 502);
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
