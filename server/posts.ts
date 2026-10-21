@@ -20,6 +20,7 @@ import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
+import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
@@ -1405,7 +1406,14 @@ postRoutes.post("/grid-ideas", async (c) => {
  */
 postRoutes.post("/remove", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
-  const user = c.get("user");
+  const cfg = await removePostAt(c.env, c.get("user"), d.batch, d.index);
+  return c.json({ ok: true, plan: cfg.plan, postCount: cfg.postCount });
+});
+
+/** One post leaves the month: its picture stays under Earlier versions, the later posts move up one number. */
+async function removePostAt(env: Env, user: User, batchId: string, index: number): Promise<Config> {
+  const d = { batch: batchId, index };
+  const c = { env };
   const b = await ownedPlan(c.env, user, d.batch);
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
@@ -1453,8 +1461,8 @@ postRoutes.post("/remove", async (c) => {
   });
   cfg.postCount = cfg.plan.length;
   await saveConfig(c.env, fresh, cfg);
-  return c.json({ ok: true, plan: cfg.plan, postCount: cfg.postCount });
-});
+  return cfg;
+}
 
 postRoutes.put("/plan", async (c) => {
   const d = await body(
@@ -4301,6 +4309,133 @@ postRoutes.get("/occasion-photo", async (c) => {
   return new Response(obj.body, {
     headers: { "Content-Type": obj.httpMetadata?.contentType || "image/jpeg", "Cache-Control": "private, max-age=86400" },
   });
+});
+
+/**
+ * The conversation on the Ideas and dates screen: the designer says what to change in their own
+ * words; the art director reads the month, changes exactly that (ideas, words, dates, products,
+ * posts added or removed), keeps the thread on the month and answers in the designer's language.
+ */
+postRoutes.post("/chat", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), message: z.string().trim().min(1).max(3000) }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  const client = await clientRow(c.env, config.client);
+  const sources = await all<SourceRow>(
+    c.env.DB,
+    "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
+    b.id,
+  );
+  await describeProducts(c.env, sources);
+  const names = sources.map(productName);
+  const drive = (await clientDrivePhotos(c.env, config.client ?? "").catch(() => [] as Awaited<ReturnType<typeof clientDrivePhotos>>))
+    .filter((x) => !x.video && (!x.kind || PRODUCT_KINDS.has(x.kind)))
+    .sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
+  const driveOptions = drive.filter((p, i) => !matchProduct(p.name, names) && drive.findIndex((q) => q.name === p.name) === i);
+  const products = [...sources.map((s) => ({ name: productName(s), note: s.note?.trim() || "" })), ...driveOptions.map((p) => ({ name: p.name, note: p.note?.trim() || "" }))];
+  const month = config.month ?? "";
+  const occasions = pickedOccasions(month, config.occasions).map((o) => ({ id: o.id, name: o.name, date: o.date }));
+  const history = (config.chat ?? []).slice(-12);
+  const raw = await askText(
+    c.env,
+    ideasChatInstruction({ client: client.name, month, posts: plan, products, notes: config.notes, history, message: d.message, occasions }),
+    IDEAS_CHAT_SCHEMA,
+  );
+  const answer = parseIdeasChat(parseJson<unknown>(raw), plan, products.map((p) => p.name), month);
+  console.log(`[chat] ${b.id} actions ${JSON.stringify(answer.actions).slice(0, 900)} raw ${raw.slice(0, 600)}`);
+  if (!answer.reply && !answer.actions.length) throw new StudioError("The art director gave no usable answer. Say it once more.", 502);
+  // Drive products the changes name join the month.
+  const imported = new Map<string, string>();
+  const taken = new Set(sources.map((s) => s.stem));
+  const wanted = answer.actions.flatMap((a) => (a.op === "update" ? [a.fields.product] : a.op === "add" ? [a.post.product] : [])).filter((n): n is string => !!n && !matchProduct(n, names));
+  for (const n of [...new Set(wanted)]) {
+    const photo = driveOptions.find((p) => p.name === n);
+    if (!photo) continue;
+    try {
+      const row = await importDrivePhoto(c.env, user.id, b.id, photo.id, photo.name, taken);
+      if (photo.note || photo.kind) await run(c.env.DB, "UPDATE sources SET note = ?, category = ? WHERE id = ?", photo.note ?? null, photo.kind ?? null, row.id);
+      imported.set(n, productName(row as unknown as SourceRow));
+    } catch (e) {
+      console.error("[chat] drive import", photo.name, errorMessage(e));
+    }
+  }
+  const realName = (n?: string) => (n ? (imported.get(n) ?? matchProduct(n, names) ?? n) : undefined);
+  // Removals first (by the original numbers, highest first so the others keep their numbers), then the rest.
+  const removed = answer.actions.filter((a): a is ChatRemove => a.op === "remove").map((a) => a.index).sort((x, y) => y - x);
+  for (const index of removed) await removePostAt(c.env, user, b.id, index).catch((e) => console.error("[chat] remove", errorMessage(e)));
+  const shift = (index: number) => index - removed.filter((r) => r < index).length;
+  const fresh = await ownedPlan(c.env, user, b.id);
+  const cfg = JSON.parse(fresh.config) as Config;
+  const t = now();
+  const changed = new Set<number>();
+  const captions: { index: number; caption: string; hashtags: string }[] = [];
+  cfg.plan = cfg.plan ?? [];
+  for (const a of answer.actions) {
+    if (a.op === "update") {
+      const index = shift(a.index);
+      const p = cfg.plan.find((x) => x.index === index);
+      if (!p || removed.includes(a.index)) continue;
+      const f = a.fields;
+      const next: Post = { ...p, ...(f.title ? { title: f.title } : {}), ...(f.headline ? { headline: f.headline } : {}), ...(f.subline ? { subline: f.subline } : {}), ...(f.date ? { date: f.date } : {}), ...(f.type ? { type: f.type } : {}) };
+      if (f.brief || f.scene) {
+        if (f.brief) next.brief = f.brief;
+        if (f.scene) next.scene = f.scene;
+        next.ideaAt = t;
+      }
+      const product = realName(f.product);
+      if (product && next.type !== "offer") next.product = product;
+      if (f.caption || f.hashtags) {
+        if (f.caption) next.caption = f.caption;
+        if (f.hashtags) next.hashtags = f.hashtags;
+        next.captionHand = true;
+        captions.push({ index, caption: next.caption, hashtags: next.hashtags });
+      }
+      cfg.plan = cfg.plan.map((x) => (x.index === index ? next : x));
+      changed.add(index);
+    } else if (a.op === "add") {
+      const index = cfg.plan.reduce((m, x) => Math.max(m, x.index), 0) + 1;
+      const last = cfg.plan.map((x) => x.date ?? "").filter(Boolean).sort().pop();
+      const product = realName(a.post.product);
+      cfg.plan.push({
+        index,
+        type: a.post.type ?? "lifestyle",
+        title: a.post.title,
+        brief: a.post.brief,
+        scene: a.post.scene,
+        headline: a.post.headline,
+        subline: a.post.subline,
+        caption: a.post.caption,
+        hashtags: a.post.hashtags,
+        date: a.post.date ?? last ?? undefined,
+        product: product && (a.post.type ?? "lifestyle") !== "offer" ? product : undefined,
+        ideaAt: t,
+        captionHand: !!a.post.caption,
+      });
+      changed.add(index);
+    }
+  }
+  for (const x of captions) await run(c.env.DB, "UPDATE tasks SET caption = ? WHERE batch = ? AND post = ?", JSON.stringify({ text: x.caption, hashtags: x.hashtags }), b.id, x.index);
+  // New standing rules only when the designer gave some (an echo of the month's notes is not a change).
+  const notesChanged = answer.notes !== undefined && answer.notes.trim() !== (cfg.notes ?? "").trim();
+  if (notesChanged) cfg.notes = answer.notes;
+  if (cfg.plan.length) cfg.postCount = cfg.plan.length;
+  const make = [...new Set(answer.actions.filter((a): a is ChatMake => a.op === "make").flatMap((a) => a.indexes.map(shift)))].filter((i) => cfg.plan!.some((p) => p.index === i));
+  cfg.chat = [...(cfg.chat ?? []), { role: "user" as const, text: d.message.slice(0, 3000), at: t }, { role: "studio" as const, text: answer.reply || "Done.", at: t + 1 }].slice(-40);
+  await refreshCountNote(c.env, b.id, cfg);
+  await saveConfig(c.env, fresh, cfg);
+  return c.json({ ok: true, reply: answer.reply || "Done.", changed: [...changed], removed: removed.length, make, notes: notesChanged ? answer.notes : undefined, plan: cfg.plan });
+});
+
+/** The thread is cleared; the posts stay as they are. */
+postRoutes.delete("/chat", async (c) => {
+  const batchId = c.req.query("batch") ?? "";
+  const b = await ownedPlan(c.env, c.get("user"), batchId);
+  const cfg = JSON.parse(b.config) as Config;
+  delete cfg.chat;
+  await saveConfig(c.env, b, cfg);
+  return c.json({ ok: true });
 });
 
 /**

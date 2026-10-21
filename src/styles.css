@@ -13622,3 +13622,86 @@ select {
   font-style: normal;
   opacity: 0.8;
 }
+
+/* ── Talk about the ideas (Ideas and dates) ── */
+.ideas-chat {
+  margin-bottom: 12px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ideas-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow: auto;
+  padding: 4px 2px;
+}
+.ideas-chat-empty {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.ideas-chat-empty p {
+  margin: 0 0 6px;
+}
+.ideas-chat-empty ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.5;
+  columns: 2;
+  column-gap: 24px;
+}
+.ideas-chat-rules {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--lime-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.ideas-chat-rules span {
+  font-weight: 600;
+}
+.ideas-msg {
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ideas-msg.mine {
+  align-self: flex-end;
+  background: var(--blue);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+.ideas-msg.theirs {
+  align-self: flex-start;
+  background: var(--surface-2);
+  color: var(--text);
+  border-bottom-left-radius: 6px;
+}
+.ideas-msg.thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+.ideas-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.ideas-composer textarea {
+  flex: 1;
+  min-height: 40px;
+  max-height: 120px;
+  resize: vertical;
+}

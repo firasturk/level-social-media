@@ -23,6 +23,7 @@ import {
   Upload,
   Wand2,
   X,
+  Send,
 } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { del, get, post, postForm, put } from "@/api";
@@ -1596,6 +1597,7 @@ export default function Journey(p: JourneyProps) {
               }}
               onSavePlan={p.onSavePlan}
               onRewrite={p.onRewrite}
+              engineReady={p.engineReady}
             />
           )}
 
@@ -2778,6 +2780,127 @@ function ColourPreview({
 
 /* ───────────── Ideas and captions ───────────── */
 
+/**
+ * The conversation on the Ideas and dates screen: the designer says what to change in their own
+ * words and the art director changes exactly that, answering in the thread. The thread is kept on
+ * the month, so it carries on after a reload.
+ */
+function IdeasChat({ batchId, config, busy, engineReady, refresh, onNotes }: { batchId: string | null; config: Config | null; busy: boolean; engineReady: boolean; refresh: () => Promise<void>; onNotes: (notes: string) => void }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const thread = config?.chat ?? [];
+  const box = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    box.current?.scrollTo({ top: box.current.scrollHeight, behavior: "smooth" });
+  }, [thread.length, sending]);
+  async function send() {
+    const message = text.trim();
+    if (!batchId || !message || sending) return;
+    setSending(true);
+    setText("");
+    try {
+      const r = await post<{ reply: string; changed: number[]; removed: number; make: number[] }>("/api/studio/posts/chat", { batch: batchId, message });
+      await refresh();
+      if (r.make.length) {
+        if (!engineReady) toast.error("No image engine is connected, so the pictures were not made.");
+        else {
+          await post("/api/studio/posts/generate", { batch: batchId, indexes: r.make, regenerate: true });
+          await refresh();
+          toast.success(`Making post${r.make.length > 1 ? "s" : ""} ${r.make.join(", ")}.`);
+        }
+      }
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 10000 });
+      setText(message);
+    } finally {
+      setSending(false);
+      input.current?.focus();
+    }
+  }
+  async function clear() {
+    if (!batchId) return;
+    try {
+      await del(`/api/studio/posts/chat?batch=${encodeURIComponent(batchId)}`);
+      await refresh();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  return (
+    <div className="journey-box ideas-chat">
+      <BoxTitle
+        kit="voice"
+        actions={
+          <>
+            {config?.notes?.trim() ? (
+              <button type="button" className="text-button" onClick={() => onNotes("")} title={config.notes}>
+                Forget the standing rules
+              </button>
+            ) : null}
+            {thread.length > 0 && (
+              <button type="button" className="text-button" onClick={() => void clear()}>
+                Clear the thread
+              </button>
+            )}
+          </>
+        }
+      >
+        Talk about the ideas
+      </BoxTitle>
+      <div className="ideas-thread" ref={box}>
+        {thread.length === 0 && !sending && (
+          <div className="ideas-chat-empty">
+            <p>Tell me what to change, the way you would tell a colleague. I read the month and change exactly that:</p>
+            <ul>
+              <li>“Post 3 on the kiwi mojito instead, same idea.”</li>
+              <li>“Move the Christmas post to the 24th and make it a greeting.”</li>
+              <li>“All the captions in Jordanian Arabic, playful, end with a question.”</li>
+              <li>“Add a Mother’s Day post with the cheesecake milkshake.”</li>
+              <li>“Make posts 2 and 5 again.”</li>
+            </ul>
+          </div>
+        )}
+        {config?.notes?.trim() ? (
+          <p className="ideas-chat-rules" dir="auto">
+            <span>Standing rules for the words:</span> {config.notes.trim()}
+          </p>
+        ) : null}
+        {thread.map((t, i) => (
+          <div key={`${t.at}-${i}`} className={`ideas-msg ${t.role === "user" ? "mine" : "theirs"}`} dir="auto">
+            {t.text}
+          </div>
+        ))}
+        {sending && (
+          <div className="ideas-msg theirs thinking">
+            <Orb size={16} variant="caption" /> Reading the month…
+          </div>
+        )}
+      </div>
+      <div className="ideas-composer">
+        <textarea
+          ref={input}
+          dir="auto"
+          value={text}
+          rows={2}
+          disabled={!batchId || busy}
+          placeholder="What should change? Enter sends, Shift+Enter for a new line."
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <button type="button" className="primary" disabled={!text.trim() || sending || busy || !batchId} onClick={() => void send()}>
+          {sending ? <Orb size={13} /> : <Send size={13} />} Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function IdeasStep({
   plan,
   config,
@@ -2790,6 +2913,7 @@ function IdeasStep({
   onNotes,
   onSavePlan,
   onRewrite,
+  engineReady,
 }: {
   plan: Post[];
   config: Config | null;
@@ -2798,6 +2922,7 @@ function IdeasStep({
   batchId: string | null;
   refresh: () => Promise<void>;
   productNames: string[];
+  engineReady: boolean;
   /** The copy brief of the month (saved on the month; the writers follow it). */
   onNotes: (notes: string) => void;
   onGenerate: (notes?: string) => void;
@@ -2843,9 +2968,6 @@ function IdeasStep({
       .map(([, n]) => n?.at ?? 0),
   );
   const stale = plan.length > 0 && !briefMonth(config) && Math.max(briefAt, config?.gridAt ?? 0) > (config?.plannedAt ?? 0);
-  const [copy, setCopy] = useState(config?.notes ?? "");
-  const [copyOpen, setCopyOpen] = useState(false);
-  useEffect(() => setCopy(config?.notes ?? ""), [config?.notes]);
   const started = useRef(false);
   // Ideas are written by themselves only for a month that has none, once it has loaded (a reload
   // that lands here must never overwrite ideas that are still on their way).
@@ -2873,55 +2995,12 @@ function IdeasStep({
                   : "Every post is lifestyle with your product by default. Change a post's type to make it a tip, a quote, an offer or an announcement; it is written again for that type. The captions are written after the pictures, from what each one shows."}
           </p>
         </div>
-        <button type="button" className="secondary journey-head-action" onClick={() => onGenerate(copy)} disabled={busy}>
+        <button type="button" className="secondary journey-head-action" onClick={() => onGenerate()} disabled={busy}>
           {busy ? <Orb size={15} /> : <Wand2 size={15} />}
           {plan.length ? "Write the ideas again" : "Generate ideas"}
         </button>
       </div>
-      <div className={`journey-box copy-brief ${copyOpen || copy.trim() ? "open" : ""}`}>
-        <BoxTitle
-          kit="voice"
-          actions={
-            <button type="button" className="text-button" onClick={() => setCopyOpen((v) => !v)}>
-              {copyOpen || copy.trim() ? "Hide" : "Brief the words"}
-            </button>
-          }
-        >
-          Copy brief (optional)
-        </BoxTitle>
-        {copyOpen || copy.trim() ? (
-          <>
-            <p className="field-hint">
-              Tell the writer what the words must say before the ideas are written: the headlines you want, the tone, an offer or a launch to mention, phrases to use or to avoid, Arabic or English. It is saved on the month, and every idea, caption and rewrite follows it.
-            </p>
-            <textarea
-              dir="auto"
-              value={copy}
-              onChange={(e) => setCopy(e.target.value)}
-              onBlur={() => copy.trim() !== (config?.notes ?? "").trim() && onNotes(copy.trim())}
-              rows={5}
-              placeholder={"Headlines short and playful, Levantine Arabic. Mention the October offer: 2 for 1 on hot drinks after 6pm. Never use the word 'cheap'. End captions with a question."}
-            />
-            <div className="brief-files">
-              <span className="field-hint">{copy.trim() === (config?.notes ?? "").trim() ? "Saved on the month." : "Saves when you leave the box."}</span>
-              <span className="spacer" />
-              <button
-                type="button"
-                className="primary"
-                disabled={busy || copy.trim().length < 10}
-                onClick={() => {
-                  onNotes(copy.trim());
-                  onGenerate(copy.trim());
-                }}
-              >
-                {busy ? <Orb size={13} /> : <Wand2 size={13} />} {plan.length ? "Write the ideas again with this brief" : "Write the ideas with this brief"}
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="field-hint">No copy brief yet: the words follow the brand kit's tone. Open the box to tell the writer what to say.</p>
-        )}
-      </div>
+      <IdeasChat batchId={batchId} config={config} busy={busy || rewriting} engineReady={engineReady} refresh={refresh} onNotes={onNotes} />
       {busy && !plan.length ? (
         <div className="journey-boxes idea-grid" style={grid}>
           {Array.from({ length: n }, (_, i) => (

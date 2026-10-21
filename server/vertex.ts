@@ -295,6 +295,12 @@ export async function vertexText(
           last = e;
           continue;
         }
+        // A model that never answers (the request aborted on its timeout) hands over like a busy one.
+        if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError" || /aborted due to timeout/i.test(e.message))) {
+          console.log(`[vertex] ${model} timed out; trying the next model`);
+          last = new StudioError(`Google Cloud (Vertex) ${model} did not answer in time (504).`, 504);
+          continue;
+        }
         throw e;
       }
     }
