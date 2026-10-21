@@ -1,0 +1,464 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden prompts > applied gallery style (style alone) 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people.
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+THE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): Low side light across a marble table, one hand lifting a piece.
+
+CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):
+Warm, generous, family hospitality.
+
+CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image 2's product, packaging, logo and print never appear; only its staging is used.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > brief campaign (designer's reference, colours lead) 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is the reference picture the designer attached to the campaign brief (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surfaces, colours, light, props, effects and mood closely, with this brand's product in place of its product and the brief's ingredients (pistachios, honey) where it shows its own; never its product, packaging, text, logo, price, buttons or the identity of its people, and nothing of the page or app it was saved from.
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+THE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): Low side light across a marble table, one hand lifting a piece.
+
+CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+COLOURS: the brief names these colours and they lead the picture, over the reference's colours: Navy #0b1f6b. The backdrop, surfaces, props, fabrics and light are built from them (the first is the main background); the reference gives the composition, camera, set and mood, not its colours. The product keeps the exact colours of its photo and is never recoloured.
+
+BACKGROUND: the backdrop, wall and main surface behind the product are Cream #f3e9d2; the other chosen colours go to the surfaces, the light and the people's clothes.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.
+
+THE REFERENCE'S CONTAINER IS NOT THIS PRODUCT: the cup, can, glass, bottle or box in the reference picture is only a stand-in for where the product goes. The product keeps the exact shape of its own photo (image 1): its height against its width, taper, rim, smooth or ribbed walls, material, transparency, fill and the print and logo in the same place, size and colour. A short smooth cup stays short and smooth even when the reference's is tall and ribbed. LID: when the shot shows the drink open (a splash out of it, a pour, fruit or ice piled into it), the cup is shown without its dome lid, open at the top with the drink visible; nothing else of the cup changes. Otherwise the lid stays as photographed.
+
+THE BRIEF'S INGREDIENTS (the one exception to the rule above): the designer's brief shows the product's own ingredients around it, real and natural, the way the reference picture stages its own: pistachios, honey. They appear as the shot describes them (whole, broken, scattered, in small bowls, a splash of the drink's own liquid); nothing else edible joins them, and nothing is added onto or into the product itself beyond what its photo shows. The reference's own ingredients, garnishes and drinks that are not in this list (its chilies, its other fruit, its can or glass) are NOT in the picture: these ingredients take their places.
+
+PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image 2's product, packaging, logo and print never appear; only its staging is used.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > exact product mode 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role).
+
+Create the scene described below around the product.
+
+THE PRODUCT IS NOT IN THIS PICTURE: the brand's real product photo is set in afterwards. Wherever the post or the shot below describes the product (a box, tin, tray, package or its sweets, open or closed, with its lid), that describes the photo added later: draw none of it, not even a similar or empty one; leave its place as plain empty surface.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+A tray of pistachio baklava on a marble table, warm side light, one piece lifted by hand.
+
+CLIENT STYLE:
+Warm, generous, family hospitality.
+Autumn gatherings: long tables, copper trays, soft evening light.
+
+CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):
+ALWAYS: the brass tray stays in view
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: Low side light across a marble table, one hand lifting a piece.
+The client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene. Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it.
+
+PROPS: none this month. Add no decorations of your own (no geometric blocks, cubes, pedestals, beads, pearls scattered around, fabric accents, ribbons, leaves, flowers or petals): the picture holds the surface, the product, the people the post names and what its idea itself needs.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+EMPTY PLACE FOR THE PRODUCT: the brand's product is photographed separately and set into this picture afterwards, so it is NOT drawn. Leave its place empty: a plain, clear area of the scene's own main surface (the same table top, cloth or backdrop that runs through the picture) in the lower middle of the frame, about the middle 45% of the width and from 45% to 85% of the height, in sharp focus, lit by the scene's light, seen from the same camera angle as the product's photo (straight from above when the product is photographed from above), big enough for that product at its real size. Nothing marks or holds that place: no stand, plinth, tray, ring, frame, plate, mat, box, tin, product, prop, hand or shadow of a missing object; it is simply empty surface. Wherever the post says someone holds, carries or shows the product, they sit or stand beside that place instead, never touching or covering it; the composition leads the eye to it.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it. A cup, glass or drink stands on the table or in a hand, NEVER inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+FINAL CHECK: no product, box, tin, package, tray, plate of sweets or food anywhere in the picture; the lower middle is empty surface.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > grid tile (recreate the composition) 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is the tile of the month's reference grid that this post recreates: recreate its composition, camera angle and distance, arrangement, set, surface and light closely, with this brand's product in place of its products; never its products, packaging, bags, cups, cards, text, logo, brand or the identity of its people.
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+A tray of pistachio baklava on a marble table, warm side light, one piece lifted by hand.
+
+CLIENT STYLE:
+Warm, generous, family hospitality.
+Autumn gatherings: long tables, copper trays, soft evening light.
+
+CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):
+ALWAYS: the brass tray stays in view
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: Tile 3: top-down tray on a dark table.
+The client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene. Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it.
+
+PROPS: none this month. Add no decorations of your own (no geometric blocks, cubes, pedestals, beads, pearls scattered around, fabric accents, ribbons, leaves, flowers or petals): the picture holds the surface, the product, the people the post names and what its idea itself needs.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image 2's product, packaging, logo and print never appear; only its staging is used.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > no product: reference is image 1 1`] = `
+"No product is attached. Image 1 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role).
+
+Create the scene described below.
+
+POST (Tip): Golden hour baklava
+A tray of pistachio baklava on a marble table, warm side light, one piece lifted by hand.
+
+TEXT-LED POST, TEXTURE BACKDROP: the whole frame is a rich, real texture that belongs to this brand, never a plain flat colour, a gradient or an empty wall: the brand's own foods and ingredients close up and filling the frame (the brand sells: baklava, kunafa; so fruit pieces and whole fruit, berries, chocolate, marshmallows, coffee beans, cream, crushed ice, as fits), or a material of its world (its paper cups' texture, a wooden counter, linen, marble), softly and evenly lit, in the month's colours where they fit. About a third of the frame (the middle or the upper middle) stays calmer and lower in contrast (a soft-focus or lightly misted part of the same texture) for the words added later. No packaging, cup, logo or product in the picture, and no words.
+
+CLIENT STYLE:
+Warm, generous, family hospitality.
+Autumn gatherings: long tables, copper trays, soft evening light.
+
+CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):
+ALWAYS: the brass tray stays in view
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: Low side light across a marble table, one hand lifting a piece.
+The client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene.
+
+PROPS: none this month. Add no decorations of your own (no geometric blocks, cubes, pedestals, beads, pearls scattered around, fabric accents, ribbons, leaves, flowers or petals): the picture holds the surface, the product, the people the post names and what its idea itself needs.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+HEADLINE SPACE: keep roughly a third of the frame as a calm, low-contrast, low-detail area (plain surface, soft sky, blurred depth) where a headline can be placed later. The subject stays sharp in the rest of the frame.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > revision with an edit reference 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role).
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+TAKE 2: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.
+
+POST (Product): Golden hour baklava
+A tray of pistachio baklava on a marble table, warm side light, one piece lifted by hand.
+
+CLIENT STYLE:
+Warm, generous, family hospitality.
+Autumn gatherings: long tables, copper trays, soft evening light.
+
+CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):
+ALWAYS: the brass tray stays in view
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: Low side light across a marble table, one hand lifting a piece.
+The client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene. Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it.
+
+PROPS: none this month. Add no decorations of your own (no geometric blocks, cubes, pedestals, beads, pearls scattered around, fabric accents, ribbons, leaves, flowers or petals): the picture holds the surface, the product, the people the post names and what its idea itself needs.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it. A cup, glass or drink stands on the table or in a hand, NEVER inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > style with people (reference described, not attached) 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is the portrait of the brand's ambassador: Image 2: Lina (woman, 30s, hijab). Every ambassador in the picture is exactly this person: the same face, features, hair, skin tone and build as the portrait, in a new pose, expression and outfit that fit the scene; the portrait's background, framing and clothes are not copied. No other people appear unless the post asks for them.
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+THE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): Low side light across a marble table, one hand lifting a piece.
+
+CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):
+Warm, generous, family hospitality.
+
+CLIENT RULES FOR THE PHOTOGRAPH (they never change the picked style's set, composition or scale):
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image 2's product, packaging, logo and print never appear; only its staging is used.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: only the ambassadors from the attached portraits, each exactly once, each with one head, two arms, two hands with five fingers, natural face and expression. No other people: no friends, crowds, staff or passers-by, whatever the style reference shows. Each ambassador keeps their own gender, face, hair and build from the portrait: the reference's person is replaced, never copied onto them, so clothing that belongs to another gender (a headscarf or hijab, a dress or a skirt on a man; a beard on a woman) is never put on an ambassador; they wear clothes that fit them, in the month's colours.
+
+REAL PEOPLE: every person looks photographed, never generated. Real skin with visible pores, fine lines, tiny marks and natural unevenness of tone; no airbrushed, waxy, glossy or plastic skin, no beauty filter. Real hair with stray strands and natural volume. A natural, slightly asymmetric face; eyes that look at something in the scene, not a fixed stare. A candid moment: caught mid-gesture, mid-laugh or mid-conversation, weight on one leg, never a stiff pose or a frozen catalogue smile. Hands are anatomically right, relaxed, holding the product with real weight and contact (fingers wrapping it, a slight press into the box or plate). Clothes with real fabric weave, creases and folds where the body bends. LIGHT ON PEOPLE: motivated by a real source in the scene (a window, daylight through a door, the shop's lamps), soft falloff across the face, true shadows under the chin, nose and where hands meet the product, a natural catch-light in the eyes; the person sits in the same light as the set, never lit separately like a cut-out. CAMERA: a professional photographer's photo on a full-frame camera, 50mm or 85mm lens around f/2.8, focus on the eyes, natural depth of field, subtle film grain, true colours. No HDR glow, no over-sharpening, no perfect symmetry, no smooth CGI look.
+
+SAFE WORDING (mandatory, every prompt):
+- Describe people as models in a retail catalogue. Never describe bodies as attractive, sensual, seductive, sexy, alluring, provocative, sultry or similar; never mention bare skin, curves, wet looks, parted lips or body-hugging fits. Use neutral words: fitted, relaxed, confident, calm, elegant, playful.
+- Children: describe them only as "child model" with an age band, happy and natural; no makeup, no posed sunglasses, no adult poses or expressions, no wording about their bodies beyond "natural child proportions".
+- Underwear, swimwear and sleepwear: plain product words (bra, briefs, swimsuit, pyjama set), calm upright poses, catalogue tone.
+- Never ask for nudity, transparency, see-through fabric or a changed body shape.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
+
+exports[`golden prompts > theme reference (borrow the look) 1`] = `
+"Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
+
+Image 2 is a style reference: take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role).
+
+Create the scene described below around the product.
+
+THE PRODUCT IN IMAGE 1 (as photographed): the product: a round brass tray of layered pistachio baklava, cut in diamonds
+
+POST (Product): Golden hour baklava
+A tray of pistachio baklava on a marble table, warm side light, one piece lifted by hand.
+
+CLIENT STYLE:
+Warm, generous, family hospitality.
+Autumn gatherings: long tables, copper trays, soft evening light.
+
+CLIENT RULES FOR THE PHOTOGRAPH (these override the reference and the brief):
+ALWAYS: the brass tray stays in view
+NEVER: no cutlery
+
+THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):
+Every box keeps its printed lid.
+
+PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): 50mm, eye level, soft window light.
+
+VISUAL LANGUAGE:
+Copper, linen, candle light; shallow depth.
+
+REFERENCE SHOT: this post recreates the place, camera, framing and gesture of one picture of the reference, with new faces for any people: Low side light across a marble table, one hand lifting a piece.
+The client's product is shown the way it is really held or served: a box or tin held level with both hands from below or set on a surface, a tray on a table, one piece lifted between the fingers; it is never squeezed into the reference's cup, cup carrier, glass, wrapper or plate, never put into a bag, and never cut out and pasted onto the scene. Where the shot names any food, drink, pastry, topping, sauce, syrup, drizzle, sprinkles or garnish that the attached product photo does not show, it is NOT in the picture: the product stands there by itself, exactly as photographed, in its own colours, with nothing added onto it.
+
+PROPS: the scene includes dried orange slices, placed naturally around the subject in the same light; they never cover the product.
+
+WARDROBE: the people in the picture wear cream knit. This outfit replaces any clothes the shot or the reference describes; it stays modest where the person's rules say so, and nothing is printed or written on it.
+
+FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
+
+PALETTE: the scene, props, surfaces and light sit inside this palette: Cream #f3e9d2, Pistachio #7a9a5a. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+
+PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
+
+TRUE SIZE AND GRIP: every product keeps its real-world size against hands, people and furniture (a gift box or tin is about as wide as a forearm is long, a tray rests on a table or on both forearms, one piece of baklava fits between two fingers); it is never enlarged to fill the frame. It is held the way a person really holds it: level, with both hands under or around it, or simply set on a surface; never balanced on fingertips, pinched at a rim, hung, tilted to spill, or placed on top of another object. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo, and nothing else is stacked on it. A cup, glass or drink stands on the table or in a hand, NEVER inside a plate, bowl, saucer or tray as if it were food.
+
+PRODUCT: image 1 is the product. Reproduce it exactly: identical shape, proportions, colours, materials, finish, label and packaging; nothing added, removed, restyled or recoloured. It appears once, whole and undistorted, as the clear subject.
+
+TEXT: the image contains no letters, numbers, words, logos, labels, stickers, price tags, watermarks, speech bubbles or user-interface elements, in any language or script. Headlines, prices and logos are added later outside the image. Where the product itself carries printed text on its packaging in image 1, that packaging is reproduced exactly as photographed, nothing else is written anywhere.
+
+FULL FRAME: the photograph fills the entire canvas edge to edge in the requested aspect ratio. When that ratio differs from the model photo's, the scene is extended and re-framed to fill the canvas (more setting to the sides or above and below), never padded. No white or coloured bars, borders, margins, mats, frames, letterboxing or pillarboxing, no picture-inside-a-picture, no polaroid or print edges; if a reference photo carries such bars, they are not part of the scene and are never reproduced.
+
+PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
+
+SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
+
+PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.
+
+MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT (the review rejected them; never repeat any of them):
+- The product is never shown in a bag.
+
+PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.
+
+AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin."
+`;
