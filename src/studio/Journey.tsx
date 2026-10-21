@@ -214,7 +214,7 @@ export interface JourneyProps {
   cast: string[];
   onCast: (ids: string[]) => void;
   plan: Post[];
-  onGenerateIdeas: (force?: boolean, notes?: string) => Promise<boolean>;
+  onGenerateIdeas: (force?: boolean, notes?: string, append?: boolean) => Promise<boolean>;
   onSavePlan: (plan: Post[]) => void;
   ideasBusy: boolean;
   /** A single post is being written again (its type changed or its offer was filled). */
@@ -720,6 +720,11 @@ export default function Journey(p: JourneyProps) {
           out.push({ text: made ? "The month's grid changed after these ideas were written; the posts stay as they are unless you write the ideas again." : "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
           out.push({ text: made ? "A screen was read again after these ideas were written; the posts stay as they are unless you write the ideas again." : "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
+        else if (p.plan.length < p.postCount && made && !p.config?.gridRef)
+          out.push({
+            text: `The month has ${p.postCount} posts but ${p.plan.length} ideas: ${p.postCount - p.plan.length} more will be written and added, the made posts stay.`,
+            fix: { label: `Add ${p.postCount - p.plan.length} post${p.postCount - p.plan.length === 1 ? "" : "s"}`, run: () => void p.onGenerateIdeas(undefined, undefined, true) },
+          });
         else if (p.plan.length !== p.postCount)
           out.push({ text: `The month has ${p.postCount} posts but ${p.plan.length} ideas.`, fix: rewrite, warn: made });
         const missing = pickedOccasions(p.month, p.config?.occasions).filter(

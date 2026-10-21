@@ -1183,12 +1183,15 @@ postRoutes.post("/ideas", async (c) => {
       count: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
       /** The team chose to replace a brief's posts with written ideas. */
       force: z.boolean().optional(),
+      /** Only the posts the month is short of are written and added; the posts already there stay as they are. */
+      append: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
+  const append = !!d.append && (config.plan?.length ?? 0) > 0;
   // A month made from a brief is the brief's posts: nothing rewrites them by itself.
-  if (briefMonth(config) && !d.force)
+  if (briefMonth(config) && !d.force && !append)
     throw new StudioError("This month is your brief's posts. Change the brief to plan it again, or confirm writing new ideas in their place.", 409);
   const client = await clientRow(c.env, config.client);
   const theme = config.theme
@@ -1204,12 +1207,17 @@ postRoutes.post("/ideas", async (c) => {
   const productNotes = Object.fromEntries(
     sources.filter((s) => s.note).map((s) => [productName(s), s.note!]),
   );
-  const count = d.count ?? config.postCount ?? 12;
+  const wanted = d.count ?? config.postCount ?? 12;
+  const kept = append ? (config.plan ?? []) : [];
+  const count = append ? wanted - kept.length : wanted;
+  if (append && count < 1) throw new StudioError(`The month already has ${kept.length} posts. Remove posts by hand to go lower.`, 409);
   const cast = await monthAmbassadors(c.env, config);
   const earlier = await earlierIdeas(c.env, config.client, config.month).catch(() => [] as EarlierPost[]);
+  // The posts already in the month count as earlier ideas: the new ones never repeat them.
+  const thisMonth: EarlierPost[] = kept.map((p) => ({ label: `this month · post ${p.index}`, title: p.title, brief: p.brief }));
   const instruction = ideasInstruction({
     ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id).catch(() => []), {
-      earlier: earlierLines(earlier),
+      earlier: earlierLines([...thisMonth, ...earlier]),
       trends: await trendingLooks(c.env).catch(() => []),
     }),
     count,
@@ -1225,6 +1233,16 @@ postRoutes.post("/ideas", async (c) => {
     (p) => (hidesSubline(client) ? { ...p, subline: undefined } : p),
   );
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
+  if (append) {
+    // The new posts take the next numbers and days of their own; everything made stays as it is.
+    const next = kept.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+    const added = withDates(plan, config.month ?? "").map((p, i) => ({ ...p, index: next + i, ideaAt: now() }));
+    config.plan = withMemory([...kept, ...withPortraits(added, config, b.id)], earlier);
+    config.postCount = wanted;
+    await refreshCountNote(c.env, b.id, config);
+    await saveConfig(c.env, b, config);
+    return c.json({ ok: true, plan: config.plan, added: added.length });
+  }
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
   // The writer may skip a picked occasion: it gets its greeting post all the same.
   config.plan = withMemory((await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast)).plan, earlier);
@@ -1704,6 +1722,7 @@ interface TaskLite {
   output: string | null;
   brief: string | null;
   qa?: string | null;
+  updated?: number;
 }
 
 /** A plain background in one colour, the size of the post: a typographic tile's picture. */
@@ -1846,7 +1865,7 @@ postRoutes.post("/generate", async (c) => {
   const sellsDrinks = sources.some((s) => s.kind === "product" && FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const tasks = await all<TaskLite>(
     c.env.DB,
-    "SELECT id, post, status, output, brief, qa FROM tasks WHERE batch = ?",
+    "SELECT id, post, status, output, brief, qa, updated FROM tasks WHERE batch = ?",
     b.id,
   );
   const byPost = new Map(tasks.filter((t) => t.post).map((t) => [t.post!, t]));
@@ -1938,8 +1957,11 @@ postRoutes.post("/generate", async (c) => {
     if (existing) {
       const busy = existing.status === "processing" || existing.status === "finalizing";
       if (busy) continue;
+      // The pictures follow the ideas: a post whose idea, reference or client note changed after its
+      // picture is made again without being asked.
+      const changed = Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0) > (existing.updated ?? 0) && !!existing.output;
       // A smaller test image is made again at the month's size with the rest.
-      if (!d.regenerate && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
+      if (!d.regenerate && !changed && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
     }
     // A text tile of the grid is a typographic post. A plain background is drawn here, exactly in its
     // colour and without the image engine; the headline goes on it as the tile has it.
@@ -2203,7 +2225,12 @@ postRoutes.post("/generate", async (c) => {
       );
     planned++;
   }
-  if (!planned) throw new StudioError("Nothing to generate: every post already has an image.");
+  if (!planned)
+    throw new StudioError(
+      skipped.length || missingProduct.length
+        ? "Nothing to generate yet: see the posts that were skipped."
+        : "Every post already has its picture. Change a post's idea, words or reference and press Generate again (it is made again by itself), or press Make again on the post.",
+    );
   if (d.test) config.testPost = d.indexes![0];
   if (d.test || gated)
     statements.push(
