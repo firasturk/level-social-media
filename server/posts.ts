@@ -2126,7 +2126,10 @@ postRoutes.post("/generate", async (c) => {
     // colours and the ingredients; a carousel's slides share the ingredients of its ingredients slide.
     const campaign =
       (post.group || styled?.status === "brief") && !gridLeads
-        ? { ingredients: (post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined)) || undefined }
+        ? {
+            ingredients: (post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined)) || undefined,
+            colours: config.campaign?.colours?.length ? config.campaign.colours.map((x) => `${x.name} ${x.hex}`.trim()) : undefined,
+          }
         : undefined;
     const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);
     if (refId) used.set(refId, (used.get(refId) ?? 0) + 1);
@@ -2217,8 +2220,8 @@ postRoutes.post("/generate", async (c) => {
       type: post.type,
       title: post.title,
       brief: post.brief,
-      palette: monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client),
-      paletteChosen: monthPaletteOf(theme).length > 0,
+      palette: campaign?.colours?.length ? campaign.colours : monthPaletteOf(theme).length ? monthPaletteOf(theme) : paletteOf(client),
+      paletteChosen: !!campaign?.colours?.length || monthPaletteOf(theme).length > 0,
       style: client.style,
       theme: theme ? [theme.goal, theme.description].filter(Boolean).join("\n") : "",
       library: theme?.library || undefined,
@@ -3218,8 +3221,8 @@ postRoutes.post("/campaign", async (c) => {
     .filter((x) => !/\b(designer|upload|must|needs? to|should|ensure|make sure)\b/i.test(x))
     .join(" ")
     .trim();
-  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
-  config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined };
+  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", planned.colours.length ? `Colours read from the brief: ${planned.colours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
+  config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined, colours: planned.colours.length ? planned.colours : undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).
@@ -4379,7 +4382,7 @@ async function writeStyleScenes(
           category: src?.category || undefined,
           post: { type: POST_TYPE_INFO[post.type]?.label ?? post.type, headline: post.headline ?? "", brief: withoutProductNames(post.brief, names).slice(0, 500) },
           brand: { name: client.name, style: client.style, always: photoRules(client.dos), never: photoRules(client.donts) },
-          palette: reference ? [] : palette,
+          palette: reference ? (config.campaign?.colours?.map((x) => `${x.name} ${x.hex}`.trim()) ?? []) : palette,
           people: (post.people ?? [])
             .map((n) => cast.find((x) => x.name.toLowerCase() === n.toLowerCase()))
             .filter((x): x is AmbassadorRow => !!x)

@@ -3,7 +3,7 @@
  * slide, a series of posts on one product, a single post) with reference pictures. The planner
  * turns it into posts; the reference pictures become private styles the posts follow.
  */
-import { CAPTION_WORDS, matchProduct, POST_TYPES, type Post, type PostType } from "./posts";
+import { CAPTION_WORDS, matchProduct, POST_TYPES, type Post, type PostType, parsePalette } from "./posts";
 
 export type GroupKind = "carousel" | "series";
 
@@ -21,6 +21,7 @@ export const BRIEF_PLAN_SCHEMA = {
   type: "object",
   properties: {
     summary: { type: "string" },
+    colours: { type: "array", items: { type: "object", properties: { name: { type: "string" }, hex: { type: "string" } }, required: ["name", "hex"] } },
     posts: {
       type: "array",
       items: {
@@ -47,7 +48,7 @@ export const BRIEF_PLAN_SCHEMA = {
       },
     },
   },
-  required: ["summary", "posts"],
+  required: ["summary", "colours", "posts"],
 };
 
 export function briefPlanInstruction(r: {
@@ -98,7 +99,8 @@ export function briefPlanInstruction(r: {
     r.brand.dos?.trim() ? `ALWAYS: ${r.brand.dos.trim().slice(0, 300)}` : "",
     r.brand.donts?.trim() ? `NEVER: ${r.brand.donts.trim().slice(0, 300)}` : "",
     `The month already has ${r.existing} post${r.existing === 1 ? "" : "s"}; yours come after them.`,
-    'Return ONLY JSON: {"summary": "one or two sentences on the plan and anything the designer must add", "posts": [{"type": "lifestyle", "group": "carousel", "slide": 1, "of": 3, "role": "teaser", "title": "...", "headline": "...", "subline": "", "brief": "...", "product": "exact name or empty", "products": [], "ingredients": "", "exact": false, "reference": 1, "caption": "...", "hashtags": "#..."}]}.',
+    'colours: the colours the brief itself names for these posts (a colour word, a hex code, "the brand\'s navy and gold"), each with a name and a six-digit hex (a named colour gets its usual hex; "navy" is #0b1f6b, "gold" is #c9a227, "beige" is #e8dcc8); the first is the main background colour. [] when the brief names no colours: never invent any, and never read them from the reference pictures.',
+    'Return ONLY JSON: {"summary": "one or two sentences on the plan and anything the designer must add", "colours": [{"name": "navy", "hex": "#0b1f6b"}], "posts": [{"type": "lifestyle", "group": "carousel", "slide": 1, "of": 3, "role": "teaser", "title": "...", "headline": "...", "subline": "", "brief": "...", "product": "exact name or empty", "products": [], "ingredients": "", "exact": false, "reference": 1, "caption": "...", "hashtags": "#..."}]}.',
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -119,7 +121,7 @@ export interface PlannedPost {
 }
 
 /** The planner's answer as posts, numbered after the existing ones; groups get one id each. */
-export function parseBriefPlan(raw: unknown, products: string[], firstIndex: number, groupId: () => string): { summary: string; posts: PlannedPost[] } {
+export function parseBriefPlan(raw: unknown, products: string[], firstIndex: number, groupId: () => string): { summary: string; posts: PlannedPost[]; colours: { name: string; hex: string }[] } {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const list = Array.isArray(d.posts) ? (d.posts as Record<string, unknown>[]) : [];
   const out: PlannedPost[] = [];
@@ -171,5 +173,5 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
     // A separator is a plain backdrop: no reference picture shapes it.
     out.push({ post, reference: role === "separator" ? 0 : Math.max(0, Math.round(Number(x.reference) || 0)) });
   }
-  return { summary: String(d.summary ?? "").trim().slice(0, 600), posts: out };
+  return { summary: String(d.summary ?? "").trim().slice(0, 600), posts: out, colours: parsePalette(d.colours).slice(0, 6) };
 }

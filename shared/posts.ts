@@ -267,7 +267,7 @@ export interface PostBrief {
    * look, the colours and the ingredients around the product; the month's palette and the client's
    * look step back, and the brief's ingredients are never foreign.
    */
-  campaign?: { ingredients?: string };
+  campaign?: { ingredients?: string; /** The colours the brief named ("navy #0b1f6b"): they lead the picture over the reference's colours. */ colours?: string[] };
   /** The designer's own reference picture for this take, attached after the style reference. */
   editRef?: { key: string; note?: string };
   /** The client's change request this take answers. */
@@ -621,7 +621,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   const unbagged = (t: string) => withoutBags(t);
   const clean = (t: string) => withoutLettering(unbagged(withoutProductNames(t, names)));
   // A campaign brief keeps its reference's own colours: the month's palette does not apply.
-  const chosen = !!b.paletteChosen && b.palette.length > 0 && !b.campaign;
+  const chosen = !!b.paletteChosen && b.palette.length > 0 && (!b.campaign || !!b.campaign.colours?.length);
   const styleRef =
     "take its place, light, camera, colour grade, mood and the way it stages people (how many, how framed, what they do), never its specific objects, its text, or the identity of its people (new faces, same role)";
   // A grid month's own tile: its composition is the picture, the brand is not.
@@ -771,9 +771,11 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   parts.push(socialFrameRule(b.format));
   if (b.type === "offer" || b.type === "quote" || b.type === "tip" || b.type === "testimonial" || b.wordsSpace)
     parts.push(HEADLINE_SPACE_RULE);
-  const palette = b.campaign
-    ? `COLOURS: this post follows a campaign brief, so the month's palette does not apply. The backdrop, surfaces, props and light keep the colours, contrast and mood of the attached reference picture (a dark moody scene stays dark); the product keeps the exact colours of its photo and is never recoloured.`
-    : paletteRule(b.palette, !!b.paletteChosen);
+  const palette = b.campaign?.colours?.length
+    ? `COLOURS: the brief names these colours and they lead the picture, over the reference's colours: ${b.campaign.colours.join(", ")}. The backdrop, surfaces, props, fabrics and light are built from them (the first is the main background); the reference gives the composition, camera, set and mood, not its colours. The product keeps the exact colours of its photo and is never recoloured.`
+    : b.campaign
+      ? `COLOURS: this post follows a campaign brief, so the month's palette does not apply. The backdrop, surfaces, props and light keep the colours, contrast and mood of the attached reference picture (a dark moody scene stays dark); the product keeps the exact colours of its photo and is never recoloured.`
+      : paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
   if (chosen)
     parts.push(

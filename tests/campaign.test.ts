@@ -211,3 +211,13 @@ describe("a client's own image rules", () => {
     expect(pf).toContain("FLAT PRINTED GRAPHICS");
   });
 });
+
+describe("the brief's colours", () => {
+  it("are read with a hex each and never invented", async () => {
+    const { parseBriefPlan, briefPlanInstruction } = await import("@shared/campaign");
+    const r = parseBriefPlan({ summary: "ok", colours: [{ name: "navy", hex: "#0B1F6B" }, { name: "gold", hex: "#c9a227" }, { name: "bad", hex: "blue" }], posts: [] }, [], 1, () => "g");
+    expect(r.colours).toEqual([{ name: "navy", hex: "#0b1f6b" }, { name: "gold", hex: "#c9a227" }]);
+    expect(parseBriefPlan({ summary: "ok", posts: [] }, [], 1, () => "g").colours).toEqual([]);
+    expect(briefPlanInstruction({ client: "X", brief: "navy and gold", month: "2026-10", products: [], references: 0, brand: {}, language: "ar", existing: 0 } as Parameters<typeof briefPlanInstruction>[0])).toContain("never read them from the reference pictures");
+  });
+});

@@ -78,7 +78,7 @@ export interface Config {
   /** The conversation on the Ideas and dates screen (the last turns), kept on the month. */
   chat?: { role: "user" | "studio"; text: string; at: number }[];
   /** The campaign brief the designer gave, and what the planner made of it (or why it failed). */
-  campaign?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean; /** The brief's reference pictures, kept as private styles (reused when the brief is planned again without files). */ styles?: string[] };
+  campaign?: { text: string; at: number; added?: number; summary?: string; error?: string; only?: boolean; /** The brief's reference pictures, kept as private styles (reused when the brief is planned again without files). */ styles?: string[]; /** The colours the brief named: the posts' backdrop, surfaces and props follow them, over the reference's. */ colours?: { name: string; hex: string }[] };
   /** When the plan was last written by the ideas writer; posts generated before it are stale. */
   plannedAt?: number;
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */
