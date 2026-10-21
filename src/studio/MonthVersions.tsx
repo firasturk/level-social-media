@@ -44,7 +44,8 @@ export default function MonthVersions({
   const load = useCallback(
     () =>
       get<{ versions: Version[] }>(`/api/studio/posts/versions?batch=${encodeURIComponent(batchId)}`)
-        .then((r) => setVersions(r.versions.filter((v) => v.posts.some((p) => p.image))))
+        // Versions with pictures, and versions that kept ideas alone (a replan of a month before any picture).
+        .then((r) => setVersions(r.versions.filter((v) => v.posts.some((p) => p.image) || v.withPlan)))
         .catch(() => setVersions([])),
     [batchId],
   );
@@ -96,7 +97,7 @@ export default function MonthVersions({
             </span>
             <strong>{v.label}</strong>
             <small>
-              {when(v.created)} · {Math.max(v.takes.length, v.posts.filter((p) => p.image).length)} pictures
+              {when(v.created)} · {v.posts.some((p) => p.image) ? `${Math.max(v.takes.length, v.posts.filter((p) => p.image).length)} pictures` : `${v.posts.length} posts, ideas only`}
             </small>
           </button>
         ))}

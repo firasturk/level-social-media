@@ -2859,11 +2859,12 @@ postRoutes.post("/captions", async (c) => {
  */
 async function keepMonthVersion(env: Env, b: BatchRow): Promise<void> {
   const old = JSON.parse(b.config) as Config;
+  // A month with ideas and no pictures yet is kept too: a replan never loses what was written.
+  if (!old.plan?.length) return;
   const tasks = await all<{ post: number | null; output: string | null }>(env.DB, "SELECT post, output FROM tasks WHERE batch = ? AND post IS NOT NULL AND output IS NOT NULL", b.id);
-  if (!tasks.length || !old.plan?.length) return;
   const outputs = Object.fromEntries(tasks.map((t) => [String(t.post), t.output!]));
   const grid = old.gridRef?.startsWith("style:") ? await first<{ title: string }>(env.DB, "SELECT title FROM styles WHERE id = ?", old.gridRef.slice(6)) : null;
-  const label = grid?.title ? `Grid “${grid.title}”` : old.gridRef ? "Grid" : "Ideas";
+  const label = `${grid?.title ? `Grid “${grid.title}”` : old.gridRef ? "Grid" : "Ideas"}${tasks.length ? "" : " · ideas only"}`;
   await run(
     env.DB,
     "INSERT INTO month_versions (id, batch, kind, label, grid, plan, outputs, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?, ?)",
