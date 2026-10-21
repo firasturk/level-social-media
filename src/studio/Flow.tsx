@@ -99,6 +99,10 @@ export interface FlowProps {
   ambassadors: Ambassador[];
   /** Opens the brand kit (the Studio's brand panel), outside the flow. */
   onBrandKit: () => void;
+  /** The theme's references (for the card pictures), the preview flag, and a fresh grid in the month. */
+  themeRefs: { id: string }[];
+  previewMode: boolean;
+  onNewGrid: () => Promise<void>;
   user: User;
   client: Client | null;
   /** Every active client and the month, switchable from the top bar. */
@@ -482,7 +486,11 @@ export default function Flow(p: FlowProps) {
           </select>
           <input type="month" value={p.month} onChange={(e) => e.target.value && p.onMonth(e.target.value)} aria-label="Month" title="The month you are working on" />
         </span>
+        {p.previewMode && <span className="flow-sample-pill">Sample data (fictional)</span>}
         {client && <BrandChip client={client} ambassadors={p.ambassadors} onOpen={p.onBrandKit} />}
+        <span className="flow-avatar" title={p.user.name}>
+          {(p.user.name || p.user.email || "?").trim().charAt(0).toUpperCase()}
+        </span>
         <button type="button" className="text-button" onClick={() => p.onDone()}>
           Skip to the Studio
         </button>
@@ -505,7 +513,50 @@ export default function Flow(p: FlowProps) {
                     <span className="flow-way-check" aria-hidden>
                       <Check size={12} />
                     </span>
-                    <span className="flow-way-icon">{w.icon}</span>
+                    <span className="flow-way-art" aria-hidden>
+                      {w.key === "brief" && (
+                        <span className="flow-art-brief">
+                          <i className="bar long" />
+                          <i className="bar" />
+                          <i className="bar" />
+                          <i className="bar short" />
+                          <span className="flow-art-row">
+                            {p.products.slice(0, 2).map((s) => (
+                              <img key={s.id} src={p.sourceUrl(s.id)} alt="" />
+                            ))}
+                            <span className="flow-art-plus">+</span>
+                          </span>
+                        </span>
+                      )}
+                      {w.key === "grid" &&
+                        (shownGrid ? (
+                          <img className="flow-art-full" src={styleThumb(shownGrid)} alt="" />
+                        ) : (
+                          <span className="flow-art-grid">
+                            {Array.from({ length: 9 }, (_, i) => {
+                              const pic = p.products[i % Math.max(1, p.products.length)];
+                              const tile = i === 1 ? "word" : i === 5 || i === 8 ? "colour" : "pic";
+                              const colour = palette[(i === 5 ? 0 : 1) % Math.max(1, palette.length)]?.hex;
+                              if (tile === "word") return <span key={i} className="flow-art-tile word" style={colour ? { background: colour } : undefined}>MENU</span>;
+                              if (tile === "colour" || !pic) return <span key={i} className="flow-art-tile" style={colour ? { background: colour } : undefined} />;
+                              return <img key={i} src={p.sourceUrl(pic.id)} alt="" />;
+                            })}
+                          </span>
+                        ))}
+                      {w.key === "refs" && (
+                        <span className="flow-art-refs">
+                          {(p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => `/api/studio/references/${r.id}/file`) : p.products.slice(0, 3).map((s) => p.sourceUrl(s.id))).map((src, i) => (
+                            <img key={i} src={src} alt="" style={{ left: 14 + i * 70, top: [14, 8, 18][i], transform: `rotate(${[-4, 2, 5][i]}deg)` }} />
+                          ))}
+                        </span>
+                      )}
+                      {w.key === "style" && (
+                        <span className="flow-art-style">
+                          {startStyle ? <img src={styleThumb(startStyle)} alt="" /> : p.products[0] ? <img src={p.sourceUrl(p.products[0].id)} alt="" /> : <span className="flow-art-tile" />}
+                          <span className="flow-art-label">{startStyle?.title ?? "A look from the gallery"}</span>
+                        </span>
+                      )}
+                    </span>
                     <strong>{w.title}</strong>
                     <span className="flow-way-desc">{w.desc}</span>
                     <span className="flow-way-controls">
@@ -718,35 +769,73 @@ export default function Flow(p: FlowProps) {
                     ))}
                   </div>
                   <small className="flow-muted">Product photos are always used; they come from the client's Drive folder and this month's uploads, not from a method.</small>
-                  <div className="flow-glance">
-                    <div>
-                      <span className="flow-eyebrow">Product photos</span>
-                      <div className="flow-thumbs">
-                        {p.products.slice(0, 6).map((s) => (
-                          <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} />
-                        ))}
-                        {p.products.length > 6 && <span className="flow-thumb-more">+{p.products.length - 6}</span>}
-                      </div>
-                      <small>
-                        {p.products.length} this month ·{" "}
-                        <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                          upload
-                        </button>
-                      </small>
-                    </div>
-                    <div>
-                      <span className="flow-eyebrow">Plan size</span>
-                      <p className="flow-text">{shape || `${p.postCount} posts planned · ${p.format}`}</p>
-                    </div>
-                    {p.previousMonth && (
-                      <div>
-                        <span className="flow-eyebrow">Shortcut</span>
-                        <button type="button" className="text-button" onClick={() => void p.onContinue()}>
-                          Continue from {monthLabel(p.previousMonth)}
-                        </button>
-                      </div>
-                    )}
+                </section>
+              </div>
+              <div className="flow-glance3">
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Product photos</span>
+                  <div className="flow-thumbs">
+                    {p.products.slice(0, 6).map((s) => (
+                      <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} />
+                    ))}
+                    {p.products.length > 6 && <span className="flow-thumb-more">+{p.products.length - 6}</span>}
                   </div>
+                  <small>
+                    {(() => {
+                      const names = p.products.map((s) => displayName(s.name).toLowerCase());
+                      const missing = [...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? [])]).filter((n): n is string => !!n && !names.includes(n.toLowerCase())))];
+                      return `${p.products.length} with photos${missing.length ? ` · ${missing.slice(0, 2).join(", ")} ${missing.length === 1 ? "has" : "have"} none yet` : ""} · `;
+                    })()}
+                    <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                      upload
+                    </button>
+                  </small>
+                </section>
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Plan size</span>
+                  {(() => {
+                    const groups = new Map<string, { kind: string; n: number }>();
+                    for (const x of p.plan) if (x.group) groups.set(x.group.id, { kind: x.group.kind, n: (groups.get(x.group.id)?.n ?? 0) + 1 });
+                    const posts = p.plan.filter((x) => !x.group).length + groups.size;
+                    const carousels = [...groups.values()].filter((g) => g.kind === "carousel");
+                    const tiles = p.plan.filter((x) => x.tileSpec?.kind === "text" && !x.product).length;
+                    return (
+                      <>
+                        <div className="flow-big">
+                          <span>
+                            <b>{p.plan.length ? posts : p.postCount}</b> posts
+                          </span>
+                          {carousels.length > 0 && (
+                            <span>
+                              <b>{carousels.length}</b> carousel{carousels.length === 1 ? "" : "s"} · {carousels.reduce((n, g) => n + g.n, 0)} slides
+                            </span>
+                          )}
+                          {p.plan.length > 0 && (
+                            <span>
+                              <b>{p.plan.length}</b> designs
+                            </span>
+                          )}
+                        </div>
+                        <small>
+                          {p.plan.length ? `${p.plan.length - tiles} pictures to make${tiles ? ` · ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here, free` : ""}` : "Planned on the next screens"} · {p.format}
+                        </small>
+                      </>
+                    );
+                  })()}
+                </section>
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Shortcuts</span>
+                  {p.previousMonth && (
+                    <button type="button" className="flow-shortcut" onClick={() => void p.onContinue()}>
+                      <ArrowRight size={14} /> Continue from {monthLabel(p.previousMonth)}
+                    </button>
+                  )}
+                  <button type="button" className="flow-shortcut" onClick={() => p.onDone()}>
+                    <Grid3x3 size={14} /> Open {monthLabel(p.month)} in the Studio
+                  </button>
+                  <button type="button" className="flow-shortcut" onClick={() => void p.onNewGrid()}>
+                    <ImagePlus size={14} /> Fresh grid in {monthLabel(p.month)}
+                  </button>
                 </section>
               </div>
               <footer className="flow-foot">

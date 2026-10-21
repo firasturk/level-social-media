@@ -1820,6 +1820,11 @@ export default function Workspace({
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
           ambassadors={ambassadors}
+          themeRefs={themeRefs}
+          previewMode={previewMode}
+          onNewGrid={async () => {
+            await newGrid();
+          }}
           clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
           onClient={setClientId}
           onMonth={setMonth}

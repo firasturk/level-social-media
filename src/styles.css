@@ -16632,7 +16632,210 @@ label.cta input {
   border: 1px solid transparent;
 }
 .radio.in-flow {
-  bottom: 20px;
+  /* The workflow owns the bottom-right corner (Continue). The music sits bottom-left, icon only. */
+  bottom: 14px;
   top: auto;
-  right: 20px;
+  right: auto;
+  left: 14px;
+}
+.radio.in-flow .radio-label {
+  display: none;
+}
+.radio.in-flow .radio-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.radio.in-flow .radio-pop {
+  left: 0;
+  right: auto;
+}
+
+/* ───────────── Start board, as designed: a picture on each way, three cells at a glance ───────────── */
+.flow-way-art {
+  display: block;
+  height: 140px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.flow-way-art img {
+  display: block;
+}
+.flow-art-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+  background: var(--blue-soft);
+}
+.flow-art-brief .bar {
+  display: block;
+  height: 7px;
+  width: 88%;
+  border-radius: 4px;
+  background: var(--blue-pale);
+}
+.flow-art-brief .bar.long {
+  height: 10px;
+  width: 62%;
+  background: var(--blue);
+}
+.flow-art-brief .bar.short {
+  width: 70%;
+}
+.flow-art-row {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.flow-art-row img,
+.flow-art-plus {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.flow-art-plus {
+  border: 1px dashed var(--sky);
+  color: var(--sky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.flow-art-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  height: 100%;
+}
+.flow-art-grid img,
+.flow-art-tile {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  min-height: 0;
+}
+.flow-art-tile.word {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue);
+}
+.flow-art-full {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.flow-art-refs {
+  position: relative;
+  display: block;
+  height: 100%;
+  background: var(--mint);
+}
+.flow-art-refs img {
+  position: absolute;
+  width: 90px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.18);
+}
+.flow-art-style {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+.flow-art-style img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.flow-art-label {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-glance3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.flow-glance3 .flow-box {
+  gap: 10px;
+}
+.flow-big {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.flow-big b {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink-900);
+  margin-right: 4px;
+}
+.flow-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-900);
+  text-align: left;
+}
+.flow-shortcut svg {
+  color: var(--blue);
+}
+.flow-shortcut:hover {
+  color: var(--blue);
+}
+.flow-sample-pill {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a3b00;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--blue-soft);
+  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .flow-glance3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
