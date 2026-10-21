@@ -321,7 +321,10 @@ export default function PlanView({
         const productChanged = ("product" in p && !same(x.product, p.product)) || ("products" in p && !same(x.products, p.products)) || ("people" in p && !same(x.people, p.people));
         const briefChanged = "brief" in p && !same(x.brief, p.brief);
         // A new product, a new cast or a new idea: the old shot no longer describes the post.
-        if (productChanged || briefChanged) next.scene = undefined;
+        if (productChanged || briefChanged) {
+          next.scene = undefined;
+          next.handShot = undefined;
+        }
         if (productChanged) refitDue.current.add(index);
         return next;
       }),

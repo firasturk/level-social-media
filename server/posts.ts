@@ -4279,8 +4279,14 @@ postRoutes.post("/shots", async (c) => {
   };
   const cast = await monthAmbassadors(c.env, config);
   const occasions = pickedOccasions(config.month ?? "", config.occasions);
-  // A post with a gallery style keeps its own shot (that style written for its product).
-  const wanted = new Set((d.indexes ?? plan.map((p) => p.index)).filter((i) => !plan.find((p) => p.index === i)?.style));
+  // A post with a gallery style keeps its own shot (that style written for its product), and so
+  // does a shot the designer wrote by hand, unless this post is asked for by name.
+  const wanted = new Set(
+    (d.indexes ?? plan.map((p) => p.index)).filter((i) => {
+      const p = plan.find((x) => x.index === i);
+      return !!p && !p.style && (!p.handShot || !!d.indexes || !!d.all);
+    }),
+  );
   const styledMissing = plan
     .filter((p) => p.style && ((d.all && !p.group) || !p.scene) && (!d.indexes || d.indexes.includes(p.index)))
     .map((p) => ({ index: p.index, style: p.style! }));

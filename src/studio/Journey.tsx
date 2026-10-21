@@ -376,15 +376,19 @@ export default function Journey(p: JourneyProps) {
     `v3|${p.themeId}|${p.config?.gridRef ?? ""}|${(theme?.shots ?? []).join("|")}|${planSig}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`,
   );
   const adaptedFor = useRef("");
+  /**
+   * force: run even if this signature was written already (a button, not the screen opening).
+   * all: rewrite styled and hand-written shots too (the Rewrite button); otherwise they are kept.
+   */
   const adaptShots = useCallback(
-    async (force = false) => {
+    async (force = false, all = false) => {
       // Styled posts are rewritten from their styles even when the theme has no pin shots.
       if (!p.batchId || !p.plan.length || (!theme?.shots.length && !gridMonth && !p.plan.some((x) => x.style))) return;
       if (!force && adaptedFor.current === shotsSig) return;
       adaptedFor.current = shotsSig;
       setAdapting(true);
       try {
-        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, all: force || undefined });
+        await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, all: all || undefined });
         await p.refresh();
       } catch (e) {
         toast.error((e as Error).message);
@@ -395,9 +399,12 @@ export default function Journey(p: JourneyProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [p.batchId, theme?.shots, gridMonth, shotsSig, p.refresh],
   );
+  // The shots are written by themselves only when no post has one yet. Once any shot exists, a
+  // change that makes them out of date is shown as a note with "Write the shots" (issuesFor):
+  // opening the screen never rewrites a shot the designer may have edited.
   useEffect(() => {
     if (key !== "scene" || !p.config || reading) return;
-    if (p.plan.every((x) => x.scene) && p.config.shotsFor === shotsSig) return;
+    if (p.plan.some((x) => x.scene)) return;
     void adaptShots();
   }, [key, shotsSig, p.config?.shotsFor, reading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1606,9 +1613,9 @@ export default function Journey(p: JourneyProps) {
                       onStyles={p.onStyles}
                       busy={adapting}
                       empty={!theme?.shots.length && !gridMonth}
-                      onRewrite={() => void adaptShots(true)}
+                      onRewrite={() => void adaptShots(true, true)}
                       onReadPins={theme && theme.references > 0 ? () => void readReferences(true).then(p.refresh) : undefined}
-                      onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene } : x)))}
+                      onSave={(index, scene) => p.onSavePlan(p.plan.map((x) => (x.index === index ? { ...x, scene, handShot: true } : x)))}
                       batchId={p.batchId}
                       refresh={p.refresh}
                     />

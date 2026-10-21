@@ -175,6 +175,8 @@ export interface Post {
   offer?: PostOffer;
   /** This post's own shot: the pins' look written for its product, type, occasion and people. */
   scene?: string;
+  /** The designer wrote or edited this post's shot by hand: the shots writer leaves it alone unless asked for this post. */
+  handShot?: boolean;
   /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
   style?: string;
   /** The idea the post had before a style replaced it (it comes back when the style is taken off). */

@@ -85,6 +85,7 @@ export const postSchema = z.object({
     .optional(),
   occasion: z.string().max(80).optional(),
   scene: z.string().max(1500).optional(),
+  handShot: z.boolean().optional(),
   style: z
     .string()
     .max(80)
