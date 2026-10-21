@@ -16604,3 +16604,12 @@ label.cta input {
 .flow-working {
   margin: 0 0 14px;
 }
+
+/* A radio or a checkbox never stretches: the global input width is for text fields. */
+.check-row input[type="radio"],
+.check-row input[type="checkbox"],
+.flow-scope input,
+.editor-group input[type="radio"] {
+  width: auto;
+  flex: none;
+}
