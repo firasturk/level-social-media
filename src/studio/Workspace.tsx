@@ -204,6 +204,9 @@ export default function Workspace({
     return () => clearTimeout(t);
   }, []);
   useEffect(() => remember(CLIENT_KEY, clientId), [clientId]);
+  useEffect(() => {
+    document.body.classList.toggle("preview-on", previewMode);
+  }, [previewMode]);
   useEffect(() => setKitOpen(null), [clientId, month]);
   useEffect(() => remember(MONTH_KEY, month), [month]);
 

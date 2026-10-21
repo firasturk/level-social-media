@@ -240,7 +240,9 @@ export default function Flow(p: FlowProps) {
   const estimate = preview?.estimate;
   const total = estimate ? estimate.total : readyPictures * perPicture;
   const maximum = retakes ? total * (1 + (estimate?.retakes ?? 1)) : total;
-  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)];
+  // A blocked post is listed once, from the preview; the same finding from the issues list is left out.
+  const blockedIdx = new Set(blockedList.map((b) => b.index));
+  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)].filter((x) => !(x.post && blockedIdx.has(x.post)));
   const taskOf = (index: number) => p.tasks.find((t) => t.post === index) ?? null;
 
   /* ── Direction: colours ── */

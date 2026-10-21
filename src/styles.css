@@ -15299,6 +15299,10 @@ select {
 }
 
 /* ───────────── The four-stage workflow (Start, Direction, Plan) ───────────── */
+/* Under the preview strip, the workflow's top bar steps down so nothing sits beneath it. */
+.preview-on .journey-top {
+  padding-top: 40px;
+}
 .flow-rail {
   display: flex;
   align-items: center;
@@ -15904,6 +15908,7 @@ select {
   right: 0;
   top: 0;
   z-index: 80;
+  pointer-events: none;
   padding: 6px 16px;
   text-align: center;
   font-size: 12px;

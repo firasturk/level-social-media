@@ -754,7 +754,7 @@ export default function PlanView({
                         ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
                         : t?.status === "failed"
                           ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
-                          : flags
+                          : flags?.length
                             ? null
                             : t?.output
                               ? (() => {
@@ -857,7 +857,7 @@ export default function PlanView({
                                 void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
                               }}
                             >
-                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Make it again
+                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Edit this picture
                             </button>
                             {onAccept && (
                               <button

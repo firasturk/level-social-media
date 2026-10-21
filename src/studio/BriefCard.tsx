@@ -4,7 +4,7 @@ import { Orb } from "@/components/Orb";
 import type { Config } from "@shared/config";
 import type { Theme } from "@shared/types";
 import { briefLines } from "@shared/brief";
-import { monthLabel, type Post } from "@shared/posts";
+import { monthLabel, planShape, type Post } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
 import { KitIcon } from "./kit";
 
@@ -61,7 +61,7 @@ export default function BriefCard({
         <KitIcon kit="direction" />
         <div className="brief-card-facts">
           <span>
-            <strong>{plan.length || config.postCount || 12}</strong> posts · {monthLabel(config.month ?? "")}
+            <strong>{plan.length ? planShape(plan).split(":")[0] : `${config.postCount || 12} posts`}</strong> · {monthLabel(config.month ?? "")}
             {dates.length ? ` · ${shortDate(dates[0])} to ${shortDate(dates[dates.length - 1])}` : ""}
           </span>
           {plan.length > 0 && (
@@ -73,10 +73,10 @@ export default function BriefCard({
                 </em>
               ) : (
                 <em className={made === plan.length ? "ok" : ""}>
-                  {made}/{plan.length} made
+                  {made}/{plan.length} designs made
                 </em>
               )}
-              {toCheck > 0 && <em className="warn">{toCheck} to check</em>}
+              {toCheck > 0 && <em className="warn">{toCheck} need review</em>}
             </span>
           )}
           <span>
