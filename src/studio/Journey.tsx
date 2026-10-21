@@ -3095,6 +3095,11 @@ function IdeaCard({
         {occasion && <span className="journey-tag occ-religious">{occasion}</span>}
       </div>
       <strong className="idea-title">{post.title}</strong>
+      {post.seenBefore && (
+        <span className="journey-tag seen-before" title="Campaign memory: this idea reads like one the client already posted. Change it or write the ideas again.">
+          Seen before · {post.seenBefore}
+        </span>
+      )}
       {isOffer ? (
         <div className="idea-offer">
           <div className="offer-products">

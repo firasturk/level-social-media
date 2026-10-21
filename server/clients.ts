@@ -27,6 +27,8 @@ interface ClientRow {
   donts: string;
   /** The client's own picture rules, sent to the engine with every post. */
   image_rules?: string | null;
+  audience?: string | null;
+  photography?: string | null;
   style: string;
   service?: string | null;
   grid_rhythm: string;
@@ -59,6 +61,8 @@ function toClient(r: ClientRow): Client {
     dos: r.dos,
     donts: r.donts,
     imageRules: r.image_rules ?? "",
+    audience: r.audience ?? "",
+    photography: r.photography ?? "",
     style: r.style,
     service: r.service ?? "",
     gridRhythm: r.grid_rhythm,
@@ -174,6 +178,8 @@ const patch = z.object({
   dos: z.string().trim().max(4000).optional(),
   donts: z.string().trim().max(4000).optional(),
   imageRules: z.string().trim().max(8000).optional(),
+  audience: z.string().trim().max(1500).optional(),
+  photography: z.string().trim().max(1500).optional(),
   style: z.string().trim().max(20000).optional(),
   service: z.string().trim().max(600).optional(),
   gridRhythm: z.string().trim().max(4000).optional(),
@@ -204,6 +210,8 @@ clientRoutes.put("/:id", async (c) => {
   if (d.dos !== undefined) set("dos", d.dos);
   if (d.donts !== undefined) set("donts", d.donts);
   if (d.imageRules !== undefined) set("image_rules", d.imageRules);
+  if (d.audience !== undefined) set("audience", d.audience);
+  if (d.photography !== undefined) set("photography", d.photography);
   if (d.style !== undefined) set("style", d.style);
   if (d.service !== undefined) set("service", d.service);
   if (d.gridRhythm !== undefined) set("grid_rhythm", d.gridRhythm);

@@ -13,7 +13,7 @@ import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
 
 /** Findings a second take fixes by itself (a face that looks generated or broken hands never trigger one: that doubled the cost of every post with people). */
-const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile"]);
+const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile", "brand"]);
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLesson, rememberLessons } from "./lessons";
@@ -671,9 +671,22 @@ async function settleFailedAttempt(
     await requeue(env, task, `Engine rate limited; retrying in ${Math.round(wait / 1000)} s.${detail ? ` ${detail}` : ""}`);
     return;
   }
-  if (isTransientEngineError(e) && task.attempts < MAX_AUTO_ATTEMPTS)
+  if (isTransientEngineError(e) && task.attempts < MAX_AUTO_ATTEMPTS) {
     await requeue(env, task, message);
-  else await failTask(env, task, message, task.output);
+    return;
+  }
+  // The router: an engine that fails this picture for its own reasons hands it to another connected
+  // engine once (the batch's choice stays for the other pictures); only then does the post fail.
+  if (!task.model && !isFatalEngineError(e) && task.attempts <= MAX_AUTO_ATTEMPTS) {
+    const fallback = await contentFallbackModel(env, config.model);
+    if (fallback) {
+      await run(env.DB, "UPDATE tasks SET model = ? WHERE id = ?", fallback, task.id);
+      console.log(`[router] task ${task.id}: ${config.model ?? "the batch engine"} failed (${message.slice(0, 120)}); moving to ${fallback}`);
+      await requeue(env, task, `${config.model ?? "the batch engine"} could not make this picture; trying ${fallback}. ${message}`);
+      return;
+    }
+  }
+  await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
 
@@ -2018,6 +2031,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     campaignStaging: !!pb.campaign || !!pb.editRef,
     idea: pb.brief,
     coffeeDay: pb.occasionId === "coffee-day",
+    brand: pb.palette?.length || pb.photography ? { palette: pb.palette ?? [], photography: pb.photography } : undefined,
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.
     tile: pb.grid && pb.tile ? tileForPeople(tileWithoutBags(pb.tile, !!pb.hasProduct || !!pb.exact), (pb.ambassadors ?? []).length) : undefined,

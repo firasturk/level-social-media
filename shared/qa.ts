@@ -146,7 +146,7 @@ export function postProblems(
 
 /* ───────────── The automatic review of a finished post image ───────────── */
 
-export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging" | "idea" | "client";
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging" | "idea" | "client" | "brand";
 
 /** One thing the review found wrong in a generated post. */
 export interface PostFlag {
@@ -169,9 +169,10 @@ export const POST_REVIEW_SCHEMA = {
     aiLook: { type: "string" },
     staging: { type: "string" },
     idea: { type: "string" },
+    brand: { type: "string" },
     faces: { type: "array", items: { type: "object", properties: { box_2d: { type: "array", items: { type: "integer" } } }, required: ["box_2d"] } },
   },
-  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "idea", "faces"],
+  required: ["productSame", "productIssue", "sizeRight", "invented", "text", "bag", "foreign", "people", "tile", "aiLook", "staging", "idea", "brand", "faces"],
 };
 
 export const FACES_SCHEMA = {
@@ -228,6 +229,8 @@ export interface ReviewContext {
   campaignStaging?: boolean;
   /** The post's idea: staging it asks for (a cup mounted on a sign, a product with wheels) is intended, never a flaw. */
   idea?: string;
+  /** The brand's look to keep: its colours (named with hex) and its photography direction. */
+  brand?: { palette: string[]; photography?: string };
 }
 
 export function postReviewInstruction(r: ReviewContext): string {
@@ -271,12 +274,15 @@ export function postReviewInstruction(r: ReviewContext): string {
     r.idea?.trim()
       ? 'idea: the post must show the main elements its idea (above) names. Describe in one short sentence a main element that is missing or replaced (the street sign is missing, the cup is not on the sign, no figure pulls it, the product stands alone on a table instead), else "". Colours, light, small props, the exact sign wording and the product\'s own details never count.'
       : 'idea: "".',
+    r.brand && (r.brand.palette.length || r.brand.photography)
+      ? `brand: the brand's look is ${r.brand.palette.length ? `these colours: ${r.brand.palette.join(", ")}` : ""}${r.brand.palette.length && r.brand.photography ? "; " : ""}${r.brand.photography ? `photography: ${r.brand.photography}` : ""}. Describe in one short sentence only a clear break from it (a loud colour world far from these colours taking most of the frame, a flat harsh look against the photography direction), else "". The product's own colours, skin, wood, greenery and small props never count.`
+      : 'brand: "".',
     `${FACES_ASK} The designer's words are kept off these boxes.`,
     `Post type: ${r.type}. Return ONLY the JSON.`,
   ].join("\n");
 }
 
-export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay" | "tile" | "idea">): PostFlag[] {
+export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" | "sellsDrinks" | "coffeeDay" | "tile" | "idea" | "brand">): PostFlag[] {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   const none = (t: string) => !t || /^(none|no|n\/a|nothing|-)\.?$/i.test(t);
@@ -295,6 +301,7 @@ export function parsePostReview(raw: unknown, r: Pick<ReviewContext, "products" 
   if (!none(str(d.aiLook))) out.push({ kind: "ailook", text: `Looks AI-made: ${str(d.aiLook)}` });
   if (!none(str(d.staging))) out.push({ kind: "staging", text: `Not how it is served: ${str(d.staging)}` });
   if (r.idea?.trim() && !none(str(d.idea))) out.push({ kind: "idea", text: `Not like its idea: ${str(d.idea)}` });
+  if (r.brand && !none(str(d.brand))) out.push({ kind: "brand", text: `Off the brand's look: ${str(d.brand)}` });
   return out;
 }
 
@@ -331,6 +338,8 @@ export function lessonLine(kind: FlagKind, text: string): string {
       return `The idea: an earlier picture drifted from its idea (${strip(/^Not like its idea:\s*/i)}). Every main element the idea names is in the picture, staged as the idea says.`;
     case "client":
       return `The client's preference: ${t}`;
+    case "brand":
+      return `The brand's look: an earlier picture was ${strip(/^Off the brand's look:\s*/i)}. The brand's colours lead the frame and its photography direction is kept.`;
   }
 }
 
@@ -348,6 +357,7 @@ export function fixNote(flags: PostFlag[]): string {
     staging: "Stage it as it is really served: a drink stays in its cup on the table or in a hand, never inside a plate, bowl or saucer; every object rests where it really would",
     idea: "Stage it exactly as its idea says, with every main element the idea names",
     client: "Follow the client's preference",
+    brand: "Bring the picture back to the brand's look: its colours lead the frame and its photography direction is kept",
   };
   return FRESH_TAKE + flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }
@@ -548,3 +558,7 @@ export function parsePreflight(raw: unknown): Preflight | null {
     note: String(d.note ?? "").trim().slice(0, 300),
   };
 }
+
+/** "Enhance": the same picture again at a higher quality, nothing else changed (a revision on the previous take). */
+export const ENHANCE_NOTE =
+  "Keep this exact picture: the same composition, product, people, colours, light and crop. Only raise the quality: sharper fine detail and textures, natural skin, clean edges, no blur, no noise, no artefacts; nothing is added, removed or moved.";

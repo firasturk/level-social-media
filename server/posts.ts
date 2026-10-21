@@ -21,6 +21,7 @@ import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
+import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { testSize } from "@shared/pricing";
@@ -175,6 +176,8 @@ interface ClientRow {
   donts: string;
   /** The client's own picture rules, sent with every post. */
   image_rules?: string | null;
+  audience?: string | null;
+  photography?: string | null;
   style: string;
   language: string;
   status: string;
@@ -908,6 +911,48 @@ function withPortraits(plan: Post[], config: Config, batchId: string): Post[] {
 }
 
 /** The fixed part of an ideas request: the client, its theme and its products. */
+/** Campaign memory: the client's last three months' posts, newest first ("October 2026 · post 4"). */
+async function earlierIdeas(env: Env, clientId: string | undefined, month: string | undefined): Promise<EarlierPost[]> {
+  if (!clientId || !month) return [];
+  const rows = await all<{ month: string; config: string }>(
+    env.DB,
+    "SELECT month, config FROM batches WHERE client = ? AND month < ? AND deleted IS NULL ORDER BY month DESC, updated DESC LIMIT 3",
+    clientId,
+    month,
+  );
+  const out: EarlierPost[] = [];
+  for (const r of rows) {
+    let plan: Post[] = [];
+    try {
+      plan = (JSON.parse(r.config) as Config).plan ?? [];
+    } catch {
+      continue;
+    }
+    for (const p of plan) if (p.brief?.trim()) out.push({ label: `${monthLabel(r.month)} · post ${p.index}`, title: p.title, brief: p.brief });
+  }
+  return out;
+}
+
+/** The plan with "Seen before" on every post that reads like one of the client's earlier posts. */
+function withMemory(plan: Post[], earlier: EarlierPost[]): Post[] {
+  return plan.map((p) => {
+    const hit = earlier.length ? seenBefore(p, earlier) : undefined;
+    const rest: Post = { ...p };
+    delete rest.seenBefore;
+    return hit ? { ...rest, seenBefore: hit } : rest;
+  });
+}
+
+/** Trending looks: the newest styles in the library (the last two weeks), one line each. */
+async function trendingLooks(env: Env): Promise<string[]> {
+  const rows = await all<{ title: string; note: string | null; prompt: string | null; category: string | null }>(
+    env.DB,
+    "SELECT title, note, prompt, category FROM styles WHERE status = 'active' AND category != 'grid' AND created >= ? ORDER BY created DESC LIMIT 6",
+    now() - 14 * 86_400_000,
+  );
+  return rows.map((r) => `${r.title}${r.category ? ` (${r.category})` : ""}: ${(r.note || r.prompt || "").replace(/\s+/g, " ").slice(0, 140)}`);
+}
+
 function ideasContext(
   client: ClientRow,
   theme: ThemeRow | null,
@@ -917,6 +962,7 @@ function ideasContext(
   ambassadors: AmbassadorRow[] = [],
   profile = "",
   lessons: string[] = [],
+  more: { earlier?: string[]; trends?: string[] } = {},
 ): Omit<IdeasRequest, "count"> {
   // Chosen colours win: the colour words of the references and the brand style give way.
   const chosen = monthPaletteOf(theme).length > 0;
@@ -925,6 +971,10 @@ function ideasContext(
     clientName: client.name,
     tone: client.tone,
     profile,
+    audience: client.audience?.trim() || undefined,
+    photography: client.photography?.trim() || undefined,
+    earlier: more.earlier,
+    trends: more.trends,
     // Layout rules (logo placement, bands, marks) are the overlay's business, not the scene's.
     dos: photoRules(client.dos),
     donts: photoRules(client.donts),
@@ -1156,8 +1206,12 @@ postRoutes.post("/ideas", async (c) => {
   );
   const count = d.count ?? config.postCount ?? 12;
   const cast = await monthAmbassadors(c.env, config);
+  const earlier = await earlierIdeas(c.env, config.client, config.month).catch(() => [] as EarlierPost[]);
   const instruction = ideasInstruction({
-    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id).catch(() => [])),
+    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id).catch(() => []), {
+      earlier: earlierLines(earlier),
+      trends: await trendingLooks(c.env).catch(() => []),
+    }),
     count,
     notes: d.notes ?? config.notes,
     types: d.types,
@@ -1173,7 +1227,7 @@ postRoutes.post("/ideas", async (c) => {
   if (!plan.length) throw new StudioError("The model returned no usable ideas. Try again.", 502);
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
   // The writer may skip a picked occasion: it gets its greeting post all the same.
-  config.plan = (await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast)).plan;
+  config.plan = withMemory((await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast)).plan, earlier);
   config.plannedAt = now();
   config.postCount = count;
   await refreshCountNote(c.env, b.id, config);
@@ -1491,6 +1545,7 @@ postRoutes.put("/plan", async (c) => {
       p.index,
     );
   }
+  config.plan = withMemory(config.plan, await earlierIdeas(c.env, config.client, config.month).catch(() => []));
   // Adding or removing posts by hand sets the month's count, so Regenerate ideas keeps that number.
   if (config.plan.length) config.postCount = config.plan.length;
   await refreshCountNote(c.env, b.id, config);
@@ -2057,6 +2112,7 @@ postRoutes.post("/generate", async (c) => {
       always: client.dos?.trim() || undefined,
       never: client.donts?.trim() || undefined,
       rules: client.image_rules?.trim() || undefined,
+      photography: client.photography?.trim() || undefined,
       lessons: lessons.length ? lessons : undefined,
       // A post with a style follows the style alone: the grid gives it only the month's colours.
       grid: config.gridRef && !styled ? config.gridNotes || undefined : undefined,
@@ -2278,6 +2334,7 @@ postRoutes.post("/captions", async (c) => {
     const instruction = captionFromImageInstruction({
       clientName: client.name,
       tone: client.tone,
+      audience: client.audience?.trim() || undefined,
       language,
       dos: photoRules(client.dos),
       donts: photoRules(client.donts),

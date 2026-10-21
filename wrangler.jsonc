@@ -31,6 +31,8 @@
     "@shared/campaign": "./shared/campaign.ts",
     "@shared/client-changes": "./shared/client-changes.ts",
     "@shared/ideas-chat": "./shared/ideas-chat.ts",
+    "@shared/memory": "./shared/memory.ts",
+    "@shared/photography": "./shared/photography.ts",
     "@shared/occasions": "./shared/occasions.ts",
     "@shared/qa": "./shared/qa.ts",
     "@shared/cast": "./shared/cast.ts",

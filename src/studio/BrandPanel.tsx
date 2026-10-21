@@ -25,6 +25,7 @@ import FontPicker from "./FontPicker";
 import Ambassadors from "./Ambassadors";
 import { Group, KitIcon, type KitKey } from "./kit";
 import type { Ambassador, Client, EngineModel, Theme } from "@shared/types";
+import { PHOTOGRAPHY_PRESETS } from "@shared/photography";
 import { colourName, FORMATS, FORMAT_INFO, MAX_POST_COUNT, type Format } from "@shared/posts";
 import { SIZES, type Size } from "@shared/config";
 import {
@@ -261,6 +262,8 @@ interface KitDraft {
   dos: string;
   donts: string;
   imageRules: string;
+  audience: string;
+  photography: string;
   style: string;
 }
 
@@ -273,6 +276,8 @@ function draftOf(c: Client): KitDraft {
     dos: c.dos,
     donts: c.donts,
     imageRules: c.imageRules ?? "",
+    audience: c.audience ?? "",
+    photography: c.photography ?? "",
     style: c.style,
   };
 }
@@ -364,6 +369,8 @@ export function BrandKit({
         dos: draft.dos,
         donts: draft.donts,
         imageRules: draft.imageRules,
+        audience: draft.audience,
+        photography: draft.photography,
         style: draft.style,
       });
       onClientsChanged(r.clients);
@@ -560,6 +567,48 @@ export function BrandKit({
         onBlur={() => void save(true)}
           />
         </div>
+      </div>
+      <div>
+        <label className="field-label" htmlFor="audience">
+          Audience
+        </label>
+        <textarea
+          id="audience"
+          rows={2}
+          value={draft.audience}
+          placeholder="Who the posts speak to, in your words: young families in Amman who order for the weekend; office workers at lunch… It stands above the Analysis."
+          onChange={(e) => setDraft((d) => ({ ...d, audience: e.target.value }))}
+          onBlur={() => void save(true)}
+        />
+      </div>
+      <div>
+        <label className="field-label" htmlFor="photography">
+          Photography direction
+        </label>
+        <div className="photo-presets">
+          {PHOTOGRAPHY_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`journey-chip small ${draft.photography.trim() === p.text ? "active" : ""}`}
+              title={p.text}
+              onClick={() => {
+                setDraft((d) => ({ ...d, photography: d.photography.trim() === p.text ? "" : p.text }));
+                setTimeout(() => void save(true), 0);
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <textarea
+          id="photography"
+          rows={2}
+          value={draft.photography}
+          placeholder="Lens, light and angle for every picture of this brand: pick a preset above or write your own. The ideas and the engine follow it."
+          onChange={(e) => setDraft((d) => ({ ...d, photography: e.target.value }))}
+          onBlur={() => void save(true)}
+        />
       </div>
       <div>
         <label className="field-label" htmlFor="image-rules">

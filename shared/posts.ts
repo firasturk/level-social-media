@@ -157,6 +157,8 @@ export interface Post {
   reference?: PostReference;
   /** The client's last change request on this post, and what the studio did about it. */
   clientNote?: { note: string; at: number; summary?: string };
+  /** Campaign memory: the earlier post this idea reads like ("October 2026 · post 4"). */
+  seenBefore?: string;
   /** When the designer last changed the idea or the shot by hand: a picture older than this is offered an update. */
   ideaAt?: number;
   /** Which tile of a reference grid this post follows (grid mode). */
@@ -270,6 +272,8 @@ export interface PostBrief {
   editRef?: { key: string; note?: string };
   /** The client's change request this take answers. */
   clientChange?: string;
+  /** The brand's photography direction: lens, light and angle for every picture. */
+  photography?: string;
   /** The post's original reference (its own reference or its brief style's picture): a take that drifts from the idea is made again from it. */
   originalRef?: string;
   /** This take is already the second one, made from the original reference. */
@@ -735,6 +739,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.rules?.trim())
     parts.push(`THE CLIENT'S OWN IMAGE RULES (they stand above every default about realism, light, people and product fidelity; the set, composition and scale still follow the picked style or the grid tile):\n${b.rules.trim()}`);
+  if (b.photography?.trim())
+    parts.push(`PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand; the picked style or grid tile keeps its set and composition): ${b.photography.trim()}`);
   const library = b.library && !b.styleKey && !b.grid ? (chosen ? withoutPaletteText(b.library.trim()) : b.library.trim()) : "";
   if (library) parts.push(`VISUAL LANGUAGE:\n${library}`);
   if (b.shot?.trim() && !b.styleKey)
@@ -937,6 +943,14 @@ export interface IdeasRequest {
   count: number;
   /** Extra wishes typed by the designer for this month. */
   notes?: string;
+  /** Who the posts speak to, in the team's words (above the profile's audience). */
+  audience?: string;
+  /** The brand's photography direction: the briefs describe light and camera this way. */
+  photography?: string;
+  /** Campaign memory: the client's earlier months' ideas, never planned again. */
+  earlier?: string[];
+  /** Trending looks in the styles library now, for inspiration only. */
+  trends?: string[];
   /** Post types to prefer, when the designer limited them. */
   types?: PostType[];
   /** The occasions the designer picked for this month: each gets one greeting post. */
@@ -1027,6 +1041,10 @@ export function ideasInstruction(r: IdeasRequest): string {
     r.profile ? `CLIENT PROFILE (the Analysis of their Instagram and website; write for this audience, in this voice, by these rules for headlines and captions; other brands are never copied):\n${r.profile}` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
+    r.audience?.trim() ? `THE AUDIENCE (in the team's own words; it wins over the profile): ${r.audience.trim()}. Every idea, headline and caption speaks to these people, in their situations and their language.` : "",
+    r.photography?.trim() ? `PHOTOGRAPHY DIRECTION (every brief describes its light and camera this way): ${r.photography.trim()}` : "",
+    r.earlier?.length ? `EARLIER MONTHS OF THIS CLIENT (campaign memory): these ideas were already posted. Never plan the same idea, staging, moment or headline again; every post this month takes a new angle:\n${r.earlier.map((l) => `- ${l}`).join("\n")}` : "",
+    r.trends?.length ? `TRENDING LOOKS IN THE LIBRARY NOW (inspiration only: borrow a mood or a staging idea where it suits this brand, never copy a picture):\n${r.trends.map((l) => `- ${l}`).join("\n")}` : "",
     r.lessons?.length ? `MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES (the review rejected them; write nothing that leads to them again):\n${r.lessons.map((l) => `- ${l}`).join("\n")}` : "",
     r.monthPalette?.length
       ? `COLOURS THIS MONTH (chosen by the designer; they win over everything else): ${r.monthPalette.join(", ")}. The background of every brief (wall, backdrop, main surface) is ${r.monthPalette[0]}; the other colours go to ${r.props?.trim() ? "props, fabrics and accents" : "surfaces, light and the people's clothes"}. Every colour a brief names comes from this list: a car, a cloth, a wall or a cup in the brief is described in one of these colours, never in a colour of the reference (no red car or crimson velvet unless red is in this list).${r.palette.length ? ` Brand colours for small accents only: ${r.palette.join(", ")}.` : ""}`
@@ -1143,6 +1161,8 @@ export const CAPTION_SCHEMA = {
 };
 
 export interface CaptionRequest {
+  /** Who the posts speak to, in the team's words (above the profile's audience). */
+  audience?: string;
   clientName: string;
   tone: string;
   language: "ar" | "en" | "both";
@@ -1166,6 +1186,7 @@ export function captionFromImageInstruction(r: CaptionRequest): string {
     `CLIENT TONE OF VOICE: ${r.tone || "friendly, clear, professional"}.`,
     `LANGUAGE (this setting wins over anything the tone of voice says about languages): ${languageRule(r.language)}`,
     r.profile ? `CLIENT PROFILE (their audience, their voice at its best and the rules for their captions):\n${r.profile}` : "",
+    r.audience?.trim() ? `THE AUDIENCE (in the team's own words; it wins over the profile): ${r.audience.trim()}. The caption speaks to these people.` : "",
     r.dos ? `ALWAYS: ${r.dos}` : "",
     r.donts ? `NEVER: ${r.donts}` : "",
     `THE POST: ${info?.label ?? p.type} (${info?.description ?? ""}).`,

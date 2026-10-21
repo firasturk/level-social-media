@@ -13705,3 +13705,19 @@ select {
   max-height: 120px;
   resize: vertical;
 }
+
+/* ── Brand kit: photography presets; campaign memory; enhance ── */
+.photo-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.journey-tag.seen-before {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.post-enhance {
+  align-self: flex-start;
+  margin-top: 6px;
+}

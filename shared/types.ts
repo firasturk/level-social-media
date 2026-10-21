@@ -205,6 +205,10 @@ export interface Client {
   donts: string;
   /** The client's own picture rules (an editorial spec, how its products must be kept): sent with every post. */
   imageRules?: string;
+  /** Who the posts speak to, in the team's words; it stands above the Analysis. */
+  audience?: string;
+  /** The photography direction every picture follows: lens, light, angle (a preset or the team's own words). */
+  photography?: string;
   /** "Analyse identity" result, editable. */
   style: string;
   /** A client with no products: what it offers (insurance, banking...); the posts are built around it. */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
-import { fixNote } from "@shared/qa";
+import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
 import {
@@ -841,10 +841,29 @@ export default function PlanView({
                     />
                   )}
                   {onFix && t?.output && !inFlight && <PostChangeBox index={p.index} disabled={running || !!busy} onChange={onFix} />}
+                  {onFix && t?.output && !inFlight && (
+                    <button
+                      type="button"
+                      className="btn-pill post-enhance"
+                      disabled={fixing !== null || running || !!busy}
+                      title="The same picture again at a higher quality: sharper detail, clean edges, nothing else changed"
+                      onClick={() => {
+                        setFixing(p.index);
+                        void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null));
+                      }}
+                    >
+                      {fixing === p.index ? <Orb size={13} /> : <Sparkles size={13} />} Enhance
+                    </button>
+                  )}
                   <div className="post-fields">
                     {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
                       <p className="post-approval-note" dir="auto">
                         “{approvals[String(p.index)].note}”
+                      </p>
+                    )}
+                    {p.seenBefore && (
+                      <p className="post-approval-note" title="Campaign memory: this idea reads like one the client already posted.">
+                        Seen before · {p.seenBefore}
                       </p>
                     )}
                     {!approvals[String(p.index)] && p.clientNote && (
