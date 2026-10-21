@@ -30,6 +30,7 @@ interface AdminUser {
 interface AdminSettings {
   inviteCode: string;
   spendThreshold: number;
+  workflowV2: boolean;
   retentionDays: number;
   notifyWebhook: string;
   notifyEmail: string;
@@ -84,6 +85,7 @@ export default function AdminView({ me }: { me: string }) {
       setForm({
         inviteCode: d.settings.inviteCode,
         spendThreshold: d.settings.spendThreshold,
+        workflowV2: d.settings.workflowV2,
         retentionDays: d.settings.retentionDays,
         notifyWebhook: d.settings.notifyWebhook,
         notifyEmail: d.settings.notifyEmail,
@@ -278,6 +280,13 @@ export default function AdminView({ me }: { me: string }) {
               onChange={(e) => setForm({ ...form, spendThreshold: Number(e.target.value) })}
             />
             <small>A confirmation appears when a run's estimate exceeds this.</small>
+          </label>
+          <label className="check-row">
+            <input type="checkbox" checked={!!form.workflowV2} onChange={(e) => setForm({ ...form, workflowV2: e.target.checked })} />
+            <span>
+              <span className="field-label">Four-stage workflow for admins</span>
+              <small>Start, Direction, Plan, Studio instead of the journey. Members keep the journey until it is turned on for everyone.</small>
+            </span>
           </label>
           <label>
             <span className="field-label">Delete batches after (days)</span>

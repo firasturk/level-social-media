@@ -251,13 +251,13 @@ export default function ReviewDialog({
                       className="primary"
                       disabled={busy || inFlight}
                       onClick={() => void onRevise(fixNote(qa.flags!))}
-                      title="Make the picture again without what the review found"
+                      title="Edit this picture: the current photo is changed to take out what the review found"
                     >
-                      <RefreshCw size={15} /> Make it again
+                      <RefreshCw size={15} /> Edit this picture
                     </button>
                     {onRemake && (
-                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={onRemake} title="A new picture from the same post">
-                        Make it again
+                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={onRemake} title="Make another version: a fresh picture of the same idea; this one stays under Versions">
+                        Make another version
                       </button>
                     )}
                   </div>

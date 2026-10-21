@@ -297,6 +297,15 @@ export default function PlanView({
     return t?.status === "processing" ? "Generating…" : paused ? "Paused" : "Queued";
   };
   const taskOf = (index: number) => tasks.find((t) => t.post === index) ?? null;
+  /** Who on the team accepted the picture as it is (from the review record), or "". */
+  const acceptedBy = (t: Task | null): string => {
+    try {
+      const qa = t?.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
+      return qa?.acceptedBy ?? (qa?.notes?.startsWith("Accepted by ") ? qa.notes.slice(12).replace(/\.$/, "") : "");
+    } catch {
+      return "";
+    }
+  };
   const generated = plan.filter((p) => !!taskOf(p.index)?.output).length;
   // A post is due when it has no image, failed, or was generated before the plan was rewritten
   // (new ideas or a new reference grid), so Generate stays available after a re-plan.
@@ -748,7 +757,14 @@ export default function PlanView({
                           : flags
                             ? null
                             : t?.output
-                              ? { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status }
+                              ? (() => {
+                                  // An internal acceptance (the team) is named apart from the client's approval; an
+                                  // older idea's picture says so; a picture made before lineage was kept says nothing.
+                                  const accepted = acceptedBy(t);
+                                  if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
+                                  if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
+                                  return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                                })()
                               : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                       return (
                         <header className="post-head">

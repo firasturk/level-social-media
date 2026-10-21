@@ -265,6 +265,8 @@ export interface StateResponse {
   /** Admin only: what each person spent on pictures, this calendar month and in all. */
   spend?: PersonSpend[];
   spendThreshold: number;
+  /** Admins see the four-stage workflow (Start, Direction, Plan, Studio) instead of the journey. */
+  workflowV2?: boolean;
   zaidDirection: string;
   /** Creative direction's Mood board entry (name, tagline, hidden, starred). */
   moodBoard?: MoodBoardInfo;

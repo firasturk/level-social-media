@@ -1973,6 +1973,8 @@ const GENERATE_BODY = z.object({
       note: z.string().trim().max(3000).optional(),
       /** The designer approved this run's estimate (shown when it exceeds the spend limit). */
       approve: z.boolean().optional(),
+      /** false: no automatic retake after the review this month (the budget covers the pictures only). */
+      retakes: z.boolean().optional(),
     });
 type GenerateBody = z.infer<typeof GENERATE_BODY>;
 
@@ -2500,11 +2502,15 @@ postRoutes.post("/generate", async (c) => {
   const estimate = estimateCost({ ...config, model, size: draft ?? config.size }, paid);
   const exactExtras = exactPlanned * exactCallsCost();
   const perRun = estimate.total + exactExtras;
-  const budget = perRun * (1 + MAX_AUTO_TAKES);
+  // The automatic retake is the designer's choice: off, the approval covers the pictures alone and
+  // the engine never retakes by itself this month.
+  if (d.retakes !== undefined) config.autoRetakes = d.retakes;
+  const retakes = config.autoRetakes === false ? 0 : MAX_AUTO_TAKES;
+  const budget = perRun * (1 + retakes);
   if (threshold > 0 && estimate.known && budget > threshold && !d.approve)
     return c.json(
       {
-        error: `${paid} image${paid === 1 ? "" : "s"} ≈ ${formatUsd(perRun)}, at most ${formatUsd(budget)} with one automatic retake each, above the $${threshold} limit. Press Generate on the month to approve this run.`,
+        error: `${paid} image${paid === 1 ? "" : "s"} ≈ ${formatUsd(perRun)}${retakes ? `, at most ${formatUsd(budget)} with one automatic retake each` : ""}, above the $${threshold} limit. Press Generate on the month to approve this run.`,
         needsApproval: true,
         images: paid,
         estimate: perRun,
@@ -3126,7 +3132,8 @@ postRoutes.post("/accept", async (c) => {
   } catch {
     qa = {};
   }
-  await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: "Accepted by the team." }), now(), t.id);
+  const who = c.get("user");
+  await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: `Accepted by ${who.name || "the team"}.`, acceptedBy: who.name || who.email }), now(), t.id);
   return c.json({ ok: true });
 });
 

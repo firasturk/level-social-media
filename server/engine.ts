@@ -1016,6 +1016,7 @@ function taskConfig(config: Config, task: TaskRow): Config {
  * fits by then pauses the month instead of spending past the budget.
  */
 export async function autoTakeAllowed(env: Env, batch: BatchRow, _config: Config, task: TaskRow): Promise<{ ok: boolean; why: string }> {
+  if (_config.autoRetakes === false) return { ok: false, why: "automatic retakes are off for this month" };
   const cfg = taskConfig(_config, task);
   const unit = estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card]).total;
   const fit = await spendFits(env, batch.id, unit);

@@ -33,6 +33,7 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView from "./PlanView";
 import Journey from "./Journey";
+import Flow from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
@@ -147,6 +148,8 @@ export default function Workspace({
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
+  /** The four-stage workflow (Start, Direction, Plan, Studio) instead of the journey: an admin flag. */
+  const [workflowV2, setWorkflowV2] = useState(false);
   /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
   const [kitOpen, setKitOpen] = useState<boolean | null>(null);
   /** Notes for the ideas writer, kept with the month's things in the side panel. */
@@ -209,6 +212,7 @@ export default function Workspace({
       setTrash(d.trash ?? []);
       setSpend(d.spend ?? []);
       setEngine(d.engine);
+      setWorkflowV2(!!d.workflowV2);
       setHero(d.hero ?? "");
       const list = d.clients ?? [];
       setClients(list);
@@ -336,6 +340,7 @@ export default function Workspace({
   const [draftSettings, setDraftSettings] = useState<Partial<OutputSettings>>({});
   useEffect(() => setDraftSettings({}), [batch?.id]);
   const shownSettings = { ...settings, ...draftSettings };
+  const useFlow = workflowV2 && user.role === "admin";
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -754,7 +759,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false): Promise<void> {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean): Promise<void> {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -777,6 +782,7 @@ export default function Workspace({
         test: test || undefined,
         retake: retake || undefined,
         approve: approve || undefined,
+        retakes,
       });
       await refresh();
       if (test && r.planned)
@@ -799,7 +805,7 @@ export default function Workspace({
           `${d.images} picture${d.images === 1 ? "" : "s"}: about ${formatUsd(d.estimate ?? 0)}, at most ${formatUsd(d.maximum ?? d.estimate ?? 0)} if each is retaken once by itself after the review (list prices, an estimate). This is above the $${d.threshold} limit set in Admin.`,
           { ok: `Approve and generate · up to ${formatUsd(d.maximum ?? d.estimate ?? 0)}`, danger: false, cancel: "Not now" },
         );
-        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true);
+        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true, retakes);
         return;
       }
       toast.error(err.message);
@@ -1427,10 +1433,10 @@ export default function Workspace({
               const actions = (
                 <div className="hero-actions">
                   <button type="button" className="secondary" onClick={startNew}>
-                    <Compass size={15} /> Start new journey
+                    <Compass size={15} /> {useFlow ? "Start" : "Start new journey"}
                   </button>
-                  <button type="button" className="primary" onClick={() => setJourney(true)} title="Open the journey where it was left, to go through its screens and change things">
-                    <FolderOpen size={15} /> Open the journey
+                  <button type="button" className="primary" onClick={() => setJourney(true)} title={useFlow ? "Open the workflow: Start, Direction, Plan, then the Studio" : "Open the journey where it was left, to go through its screens and change things"}>
+                    <FolderOpen size={15} /> {useFlow ? "Open the workflow" : "Open the journey"}
                   </button>
                 </div>
               );
@@ -1607,7 +1613,44 @@ export default function Workspace({
       </main>
 
       <Radio className={journey ? "in-journey" : ""} />
-      {journey && stateReady && clients.some((c) => c.status === "active") && (
+      {journey && useFlow && stateReady && client && (
+        <Flow
+          user={user}
+          client={client}
+          month={month}
+          batchId={batch?.id ?? null}
+          config={config}
+          plan={plan}
+          tasks={tasks}
+          products={sources.filter((s) => (s.kind ?? "product") === "product")}
+          sourceUrl={(id) => sourceUrl(id)}
+          outputThumb={outputThumb}
+          themes={themes}
+          themeId={themeId}
+          onTheme={(id) => void updateSettings({ theme: id })}
+          onThemesChanged={setThemes}
+          format={shownSettings.format}
+          model={shownSettings.model}
+          size={shownSettings.size}
+          postCount={shownSettings.postCount}
+          previousMonth={previousMonth}
+          onContinue={continueMonth}
+          ensurePlan={ensurePlan}
+          refresh={async () => {
+            await refresh();
+          }}
+          onUpload={uploadProducts}
+          onGrid={pickGrid}
+          onGenerateIdeas={(force, notes, append) => generateIdeas(notes ?? config?.notes ?? "", force, append)}
+          onStyles={assignStyles}
+          onSavePlan={(next) => savePlan(next)}
+          onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, false, retakes)}
+          onTest={testOnePost}
+          engineReady={engineConnected}
+          onDone={finishJourney}
+        />
+      )}
+      {journey && !useFlow && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
           user={user}
           pendingStyles={pendingStyles}

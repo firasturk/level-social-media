@@ -207,6 +207,7 @@ studioRoutes.get("/state", async (c) => {
     trash,
     spend,
     spendThreshold: adminSettings.spendThreshold,
+    workflowV2: adminSettings.workflowV2,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),
     modes: await readModes(c.env),

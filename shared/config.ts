@@ -87,6 +87,8 @@ export interface Config {
   palette?: { name: string; hex: string }[];
   /** Where the month's colours came from. */
   paletteFrom?: "brief" | "grid" | "designer";
+  /** false: the engine never retakes a picture by itself after the review this month. */
+  autoRetakes?: boolean;
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */
   ambassadors?: string[];
   /**

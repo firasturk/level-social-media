@@ -9,6 +9,7 @@ import {
   deleteSetting,
   INVITE_CODE_SETTING,
   SPEND_THRESHOLD_SETTING,
+  WORKFLOW_V2_SETTING,
   RETENTION_DAYS_SETTING,
   NOTIFY_WEBHOOK_SETTING,
   NOTIFY_EMAIL_SETTING,
@@ -31,6 +32,8 @@ adminRoutes.use("*", async (c, next) => {
 export interface AdminSettings {
   inviteCode: string;
   spendThreshold: number;
+  /** The four-stage workflow (Start, Direction, Plan, Studio) for admins, instead of the journey. */
+  workflowV2: boolean;
   retentionDays: number;
   notifyWebhook: string;
   notifyEmail: string;
@@ -41,6 +44,7 @@ export async function readAdminSettings(env: Env): Promise<AdminSettings> {
   return {
     inviteCode: (await getSetting(env, INVITE_CODE_SETTING)) || env.INVITE_CODE || "",
     spendThreshold: Number((await getSetting(env, SPEND_THRESHOLD_SETTING)) ?? 20),
+    workflowV2: (await getSetting(env, WORKFLOW_V2_SETTING)) === "1",
     retentionDays: Number((await getSetting(env, RETENTION_DAYS_SETTING)) ?? 90),
     notifyWebhook: (await getSetting(env, NOTIFY_WEBHOOK_SETTING)) || "",
     notifyEmail: (await getSetting(env, NOTIFY_EMAIL_SETTING)) || "",
@@ -93,6 +97,7 @@ adminRoutes.post("/users/role", async (c) => {
 const settingsSchema = z.object({
   inviteCode: z.string().trim().max(100).optional(),
   spendThreshold: z.number().min(0).max(100000).optional(),
+  workflowV2: z.boolean().optional(),
   retentionDays: z.number().int().min(0).max(3650).optional(),
   notifyWebhook: z.string().trim().max(500).optional(),
   notifyEmail: z.string().trim().max(500).optional(),
@@ -109,6 +114,7 @@ adminRoutes.post("/settings", async (c) => {
   }
   if (d.spendThreshold !== undefined)
     await setSetting(c.env, SPEND_THRESHOLD_SETTING, String(d.spendThreshold));
+  if (d.workflowV2 !== undefined) await setSetting(c.env, WORKFLOW_V2_SETTING, d.workflowV2 ? "1" : "0");
   if (d.retentionDays !== undefined)
     await setSetting(c.env, RETENTION_DAYS_SETTING, String(d.retentionDays));
   if (d.notifyWebhook !== undefined) {
