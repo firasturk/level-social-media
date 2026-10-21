@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FolderOpen, RotateCcw, Trash2 } from "lucide-react";
 import { Orb } from "@/components/Orb";
-import type { Batch, Client, SkillInfo } from "@shared/types";
+import type { Batch, Client, SkillInfo, PersonSpend } from "@shared/types";
 import { isSkillCampaign, type Config } from "@shared/config";
 
 import { MODES, type ModeInfo } from "./constants";
@@ -33,8 +33,11 @@ export default function BatchesView({
   skills = [],
   clients = [],
   modes = MODES,
+  spend,
 }: {
   batches: Batch[];
+  /** Admin: what each person spent on pictures. */
+  spend?: PersonSpend[];
   /** Deleted months waiting in the bin. */
   trash?: Batch[];
   onRestore?: (b: Batch) => void;
@@ -118,8 +121,42 @@ export default function BatchesView({
       </>
     );
   }
+  const people = spend?.filter((p) => p.pictures > 0 || p.role !== "admin") ?? [];
+  const spendBox = people.length > 0 && (
+    <section className="spend-by-person" aria-label="Spend by person">
+      <h3>Spend by person</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Person</th>
+            <th>This month</th>
+            <th>All time</th>
+            <th>Months</th>
+          </tr>
+        </thead>
+        <tbody>
+          {people.map((p) => (
+            <tr key={p.id}>
+              <td>
+                <strong>{p.name}</strong> <small>{p.role}</small>
+              </td>
+              <td>
+                ≈ ${p.monthSpent.toFixed(2)} <small>· {p.monthPictures} pictures</small>
+              </td>
+              <td>
+                ≈ ${p.spent.toFixed(2)} <small>· {p.pictures} pictures</small>
+              </td>
+              <td>{p.months}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">A picture's cost adds up over its takes; "this month" counts pictures last made this calendar month.</p>
+    </section>
+  );
   return (
     <>
+      {spendBox}
       {filter}
       <div className="batches-table" role="table" aria-label="Saved batches">
       <div className="batches-head" role="row">
@@ -176,6 +213,8 @@ export default function BatchesView({
               <span>
                 <strong>{b.name}</strong>
                 <small>
+                  {b.ownerName ? <b className="batches-owner">{b.ownerName}</b> : null}
+                  {b.ownerName ? " · " : ""}
                   {new Date(b.created).toLocaleDateString("en-GB")} · updated {ago(b.updated)}
                 </small>
               </span>

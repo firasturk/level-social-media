@@ -60,7 +60,7 @@ import { purgeBatch } from "./batchfiles";
 import { resizedPicture, thumbWidth } from "./thumbs";
 import { buildPrompt } from "@shared/prompts";
 import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/naming";
-import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User } from "@shared/types";
+import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User, PersonSpend } from "@shared/types";
 import type { EditorialBrief } from "./editorial";
 import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
@@ -153,14 +153,14 @@ studioRoutes.get("/state", async (c) => {
     Batch & { total: number; completed: number; review: number; failed: number; queued: number }
   >(
     c.env.DB,
-    `SELECT b.id, b.name, b.config, b.client, b.month, b.theme, b.state, b.last_error, b.created, b.updated,
+    `SELECT b.id, b.name, b.config, b.client, b.month, b.theme, b.state, b.last_error, b.created, b.updated, u.name AS ownerName,
        COUNT(t.id) AS total,
        COALESCE(SUM(t.cost), 0) AS spent,
        SUM(CASE WHEN t.output IS NOT NULL THEN 1 ELSE 0 END) AS completed,
        SUM(CASE WHEN t.status = 'review' THEN 1 ELSE 0 END) AS review,
        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
        SUM(CASE WHEN t.status IN ('queued','processing','finalizing') THEN 1 ELSE 0 END) AS queued
-     FROM batches b LEFT JOIN tasks t ON t.batch = b.id
+     FROM batches b LEFT JOIN tasks t ON t.batch = b.id LEFT JOIN users u ON u.id = b.owner
      WHERE b.deleted IS NULL AND ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
     ...(user.role === "admin" ? [] : [user.id]),
   );
@@ -183,12 +183,33 @@ studioRoutes.get("/state", async (c) => {
   for (const r of thumbRows)
     thumbsByBatch.set(r.batch, [...(thumbsByBatch.get(r.batch) ?? []), r.id]);
   for (const b of batches) b.thumbs = thumbsByBatch.get(b.id) ?? [];
+  // Admin: what each person spent on pictures, this calendar month and in all (a task's cost adds up over its takes).
+  const monthStart = (() => {
+    const d = new Date();
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  })();
+  const spend =
+    user.role === "admin"
+      ? await all<PersonSpend>(
+          c.env.DB,
+          `SELECT u.id, u.name, u.role,
+             COALESCE(SUM(CASE WHEN t.updated >= ?1 THEN 1 ELSE 0 END), 0) AS monthPictures,
+             COALESCE(SUM(CASE WHEN t.updated >= ?1 THEN t.cost ELSE 0 END), 0) AS monthSpent,
+             COUNT(t.id) AS pictures,
+             COALESCE(SUM(t.cost), 0) AS spent,
+             COUNT(DISTINCT b.id) AS months
+           FROM users u LEFT JOIN batches b ON b.owner = u.id LEFT JOIN tasks t ON t.batch = b.id
+           GROUP BY u.id ORDER BY spent DESC`,
+          monthStart,
+        )
+      : undefined;
   const engineKey = await resolveEngineKey(c.env);
   const adminSettings = await readAdminSettings(c.env);
   return c.json({
     user,
     batches,
     trash,
+    spend,
     spendThreshold: adminSettings.spendThreshold,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),

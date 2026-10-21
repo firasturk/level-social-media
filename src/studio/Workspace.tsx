@@ -22,6 +22,7 @@ import type {
   Client,
   EngineModel,
   StateResponse,
+  PersonSpend,
   QA,
   Task,
   Theme,
@@ -111,6 +112,7 @@ export default function Workspace({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [spend, setSpend] = useState<PersonSpend[]>([]);
   /** Deleted months waiting in the bin, restorable. */
   const [trash, setTrash] = useState<Batch[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -202,6 +204,7 @@ export default function Workspace({
       const d = await get<StateResponse>("/api/studio/state");
       setBatches(d.batches);
       setTrash(d.trash ?? []);
+      setSpend(d.spend ?? []);
       setEngine(d.engine);
       setHero(d.hero ?? "");
       const list = d.clients ?? [];
@@ -1290,6 +1293,7 @@ export default function Workspace({
                 <BatchesView
                   batches={batches}
                   clients={clients}
+                  spend={user.role === "admin" ? spend : undefined}
                   busyId={openingId}
                   onOpen={(id) => void openPlan(id)}
                   onDelete={(b) => void deletePlanById(b)}

@@ -32,6 +32,8 @@ export interface Batch {
   last_error?: string | null;
   created: number;
   updated: number;
+  /** Who made the month (users.name); on the batches list only. */
+  ownerName?: string | null;
   /** Present on the batches list only. */
   spent?: number;
   total?: number;
@@ -239,11 +241,26 @@ export interface ModeOverride {
   hidden?: boolean;
 }
 
+export interface PersonSpend {
+  id: string;
+  name: string;
+  role: string;
+  /** Pictures made this calendar month and their cost. */
+  monthPictures: number;
+  monthSpent: number;
+  /** All time. */
+  pictures: number;
+  spent: number;
+  months: number;
+}
+
 export interface StateResponse {
   user: User;
   batches: Batch[];
   /** Deleted months still in the bin, restorable. */
   trash?: Batch[];
+  /** Admin only: what each person spent on pictures, this calendar month and in all. */
+  spend?: PersonSpend[];
   spendThreshold: number;
   zaidDirection: string;
   /** Creative direction's Mood board entry (name, tagline, hidden, starred). */

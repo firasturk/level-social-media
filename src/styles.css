@@ -13721,3 +13721,46 @@ select {
   align-self: flex-start;
   margin-top: 6px;
 }
+
+/* ── Months: who made it, spend by person ── */
+.batches-owner {
+  font-weight: 600;
+  color: var(--text);
+}
+.spend-by-person {
+  margin: 4px 12px 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.spend-by-person h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.spend-by-person table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.spend-by-person th,
+.spend-by-person td {
+  text-align: left;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.spend-by-person th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+.spend-by-person tr:last-child td {
+  border-bottom: 0;
+}
+.spend-by-person small {
+  color: var(--text-muted);
+}
+.spend-by-person p {
+  margin: 8px 0 0;
+}
