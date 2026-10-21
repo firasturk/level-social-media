@@ -24,6 +24,15 @@ import {
   Wand2,
   X,
   Send,
+  Camera,
+  Lightbulb,
+  Megaphone,
+  MessageCircle,
+  Package,
+  PartyPopper,
+  Quote,
+  Tag,
+  type LucideIcon,
 } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { del, get, post, postForm, put } from "@/api";
@@ -2121,12 +2130,12 @@ function BriefBox({
           ) : null
         }
       >
-        Brief (optional)
+        Have a quick post, a separator, a carousel? Brief me and I'll do it for you
       </BoxTitle>
       {showing ? (
         <>
           <p className="field-hint">
-            Paste your brief: the product, the idea, how many posts and the text on each. A carousel (slides of one post), a series (several posts on one product, side by side, different visuals) or a single post. I pick the products from this month's photos and the client's Drive, plan every slide, and the pictures you attach become the style the posts follow. Press "Plan from the brief", or Next.
+            Write it the way you would brief a designer: what it is (a quick post for today, a separator, a carousel slide by slide, a series on one product), the product, the idea and the text on each. Paste an Instagram link to follow its carousel. I pick the products from this month's photos and the client's Drive, plan every post, and the pictures you attach become the style the posts follow. Press "Plan from the brief", or Next.
           </p>
           <textarea
             dir="auto"
@@ -2176,7 +2185,7 @@ function BriefBox({
         </>
       ) : (
         <div className="brief-files">
-          <p className="field-hint">Have a brief for a carousel, a series on one product, or a specific post? Write it here with its reference pictures, or paste an Instagram post link in the text and its slides become the references; I plan it with this month's photos and the client's Drive.</p>
+          <p className="field-hint">A quick post for today, a separator between two campaigns, a carousel slide by slide, a series on one product: write it the way you would brief a designer, attach reference pictures or paste an Instagram post link, and I plan it with this month's photos and the client's Drive.</p>
           <span className="spacer" />
           <button type="button" className="secondary" onClick={() => setOpen(true)}>
             <Wand2 size={13} /> Write a brief
@@ -2992,8 +3001,7 @@ function IdeasStep({
   const rows = Math.ceil(n / cols);
   const grid = {
     gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-    gridTemplateRows: rows <= 3 ? `repeat(${rows}, minmax(0, 1fr))` : undefined,
-    gridAutoRows: rows > 3 ? "minmax(240px, 1fr)" : undefined,
+    gridAutoRows: "minmax(250px, auto)",
   };
   // The shots are read after the ideas now: only the screens before this one make them stale.
   const briefAt = Math.max(
@@ -3047,7 +3055,7 @@ function IdeasStep({
           ))}
         </div>
       ) : (
-        <div className={`journey-boxes idea-grid ${rows > 3 ? "scrolls" : ""}`} style={grid}>
+        <div className="journey-boxes idea-grid scrolls" style={grid}>
           {plan.map((post, i) => (
             <IdeaCard
               key={`${post.index}:${config?.plannedAt ?? 0}:${post.type}:${post.title}`}
@@ -3066,6 +3074,19 @@ function IdeasStep({
     </>
   );
 }
+
+/** One coloured icon per post type, as the Text on design cards have them. */
+const IDEA_TYPE_ICON: Record<string, LucideIcon> = {
+  product: Package,
+  lifestyle: Sparkles,
+  offer: Tag,
+  tip: Lightbulb,
+  quote: Quote,
+  announcement: Megaphone,
+  behind: Camera,
+  testimonial: MessageCircle,
+  greeting: PartyPopper,
+};
 
 function IdeaCard({
   post,
@@ -3092,17 +3113,21 @@ function IdeaCard({
     if (headline !== (post.headline ?? "")) onSave({ ...post, headline: headline || undefined });
   };
   const isOffer = post.type === "offer";
+  const TypeIcon = IDEA_TYPE_ICON[post.type] ?? Sparkles;
   return (
-    <article className={`journey-box idea-card ${compact ? "compact" : ""}`} style={{ "--i": order } as React.CSSProperties}>
+    <article className={`journey-box idea-card design-card idea-card2 type-${post.type} ${compact ? "compact" : ""}`} style={{ "--i": order } as React.CSSProperties}>
       <div className="idea-meta">
+        <span className="idea-icon" aria-hidden="true">
+          <TypeIcon size={15} />
+        </span>
         <span className="idea-index">{String(post.index).padStart(2, "0")}</span>
+        {post.date && <span className="journey-tag idea-date">{shortDate(post.date)}</span>}
         {post.group && (
           <span className={`post-group ${post.group.kind}`} title={post.group.role ? `${post.group.kind}: ${post.group.role}` : post.group.kind}>
             {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
             {post.group.role ? ` · ${post.group.role}` : ""}
           </span>
         )}
-        {post.date && <span className="journey-tag">{shortDate(post.date)}</span>}
         <select
           className="idea-type"
           value={post.type}
@@ -3170,8 +3195,14 @@ function IdeaCard({
           </button>
         </div>
       ) : null}
-      <input className="idea-headline" dir="auto" value={headline} onChange={(e) => setHeadline(e.target.value)} onBlur={save} aria-label="Headline on the image" />
-      <p className="idea-brief">{post.brief}</p>
+      <label className="idea-field">
+        <span>Headline on the image</span>
+        <input className="idea-headline" dir="auto" value={headline} onChange={(e) => setHeadline(e.target.value)} onBlur={save} aria-label="Headline on the image" placeholder="The words drawn on the picture" />
+      </label>
+      <div className="idea-field idea-field-brief">
+        <span>The idea</span>
+        <p className="idea-brief">{post.brief}</p>
+      </div>
     </article>
   );
 }

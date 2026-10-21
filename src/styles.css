@@ -13801,3 +13801,128 @@ select {
   flex-basis: 100%;
   padding-top: 6px;
 }
+
+/* ── Ideas and dates: the idea cards in the card language of Text on design ── */
+.idea-card2.design-card {
+  padding: 14px 16px 16px;
+  gap: 10px;
+  border-radius: 22px;
+  overflow: visible;
+}
+.idea-card2 .idea-meta {
+  gap: 6px;
+}
+.idea-card2 .idea-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--blue);
+  flex: none;
+}
+.idea-card2.type-product .idea-icon { background: #1129d3; }
+.idea-card2.type-lifestyle .idea-icon { background: #5b8c2a; }
+.idea-card2.type-offer .idea-icon { background: #d9480f; }
+.idea-card2.type-tip .idea-icon { background: #b7791f; }
+.idea-card2.type-quote .idea-icon { background: #6f42c1; }
+.idea-card2.type-announcement .idea-icon { background: #c2255c; }
+.idea-card2.type-behind .idea-icon { background: #1f7a8c; }
+.idea-card2.type-testimonial .idea-icon { background: #0b7285; }
+.idea-card2.type-greeting .idea-icon { background: #e8590c; }
+.idea-card2 .idea-index {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--ink-900);
+  color: var(--on-fill);
+  font-size: 12px;
+  font-weight: 700;
+}
+.idea-card2 .journey-tag.idea-date {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  font-size: 11.5px;
+  background: var(--blue-soft, #e6e9fb);
+  color: var(--blue);
+}
+.idea-card2 .idea-type {
+  height: 24px;
+  padding: 0 24px 0 9px;
+  font-size: 11.5px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+.idea-card2 .idea-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.idea-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.idea-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.idea-card2 .idea-headline {
+  width: 100%;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.idea-card2 .idea-headline:focus {
+  background: var(--surface);
+  border-color: var(--blue);
+  outline: none;
+}
+.idea-field-brief {
+  flex: 1;
+  min-height: 0;
+}
+.idea-card2 .idea-brief {
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 150px;
+  overflow: auto;
+}
+.idea-card2.compact .idea-brief {
+  max-height: 96px;
+}
+.idea-card2 .journey-tag.seen-before {
+  align-self: flex-start;
+}
+
+.idea-card2 .idea-meta,
+.idea-card2 .idea-title,
+.idea-card2 .idea-field {
+  flex: none;
+}
+.idea-card2 .idea-field-brief {
+  flex: 1 1 auto;
+  min-height: 72px;
+}
+.idea-card2.design-card {
+  min-height: 250px;
+}
