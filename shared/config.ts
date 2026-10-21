@@ -117,8 +117,6 @@ export interface Config {
   approvals?: Record<string, Approval>;
   /** The month's typography is switched off: every post shows its plain headline. */
   typographyOff?: boolean;
-  /** Image spend approved for this month so far (USD, estimates): each approved Generate adds its estimate, automatic retakes included. The engine makes no automatic retake past it. */
-  spend?: { approved: number; at: number };
   mode: Mode;
   /** Kept optional so batches saved before the category picker was removed still load. */
   category?: string;

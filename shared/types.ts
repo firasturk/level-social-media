@@ -285,6 +285,8 @@ export interface BatchResponse {
   batch: Batch;
   sources: Source[];
   tasks: Task[];
+  /** The month's spending ledger (USD list-price estimates): approved by the designer, reserved by attempts. */
+  spend?: { approved: number; reserved: number; remaining: number };
 }
 
 export interface BatchSummary {

@@ -11,6 +11,8 @@ import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SP
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeClient, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
+import { approveSpend, reserveOrAsk, reserveSpend, spendFits } from "./spend";
+import { exactCallsCost } from "./exact";
 import { signObjectUrl } from "./signed";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
@@ -25,7 +27,7 @@ import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
-import { estimateCost, formatUsd, testSize } from "@shared/pricing";
+import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
@@ -2020,6 +2022,9 @@ postRoutes.post("/generate", async (c) => {
     }
   };
   let planned = 0;
+  /** Posts that go to the image engine: a text tile drawn here is planned but never paid for. */
+  let paid = 0;
+  let exactPlanned = 0;
   const skipped: number[] = [];
   const missingProduct: { index: number; product: string }[] = [];
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
@@ -2329,6 +2334,8 @@ postRoutes.post("/generate", async (c) => {
         ),
       );
     planned++;
+    paid++;
+    if (exactProduct) exactPlanned++;
   }
   if (!planned)
     throw new StudioError(
@@ -2336,26 +2343,31 @@ postRoutes.post("/generate", async (c) => {
         ? "Nothing to generate yet: see the posts that were skipped."
         : "Every post already has its picture. Change a post's idea, words or reference and press Generate again (it is made again by itself), or press Make again on the post.",
     );
-  // The spend limit: a run whose estimate (one automatic retake per picture included) exceeds it
-  // is not started until the designer approves it once. Every run adds its estimate to the month's
-  // approved budget, which caps the engine's automatic retakes (see autoTakeAllowed).
+  // The spend limit: every run's estimate (one automatic retake per picture included, and the
+  // exact-mode cut-out and harmonising calls) is approved into the month's ledger when it starts;
+  // a run above the limit waits for the designer's one approval. Every engine attempt, automatic
+  // retakes included, then reserves its own cost against that ledger (see reserveSpend).
   const threshold = Number((await getSetting(c.env, SPEND_THRESHOLD_SETTING)) ?? 20);
-  const estimate = estimateCost({ ...config, model: config.model || (await resolveEngineModel(c.env)), size: draft ?? config.size }, planned);
-  const budget = estimate.total * (1 + MAX_AUTO_TAKES);
+  const model = config.model || (await resolveEngineModel(c.env));
+  const estimate = estimateCost({ ...config, model, size: draft ?? config.size }, paid);
+  const exactExtras = exactPlanned * exactCallsCost();
+  const perRun = estimate.total + exactExtras;
+  const budget = perRun * (1 + MAX_AUTO_TAKES);
   if (threshold > 0 && estimate.known && budget > threshold && !d.approve)
     return c.json(
       {
-        error: `${planned} image${planned === 1 ? "" : "s"} ≈ ${formatUsd(budget)} with one automatic retake each, above the $${threshold} limit. Press Generate on the month to approve this run.`,
+        error: `${paid} image${paid === 1 ? "" : "s"} ≈ ${formatUsd(perRun)}, at most ${formatUsd(budget)} with one automatic retake each, above the $${threshold} limit. Press Generate on the month to approve this run.`,
         needsApproval: true,
-        images: planned,
-        estimate: budget,
+        images: paid,
+        estimate: perRun,
+        maximum: budget,
         perImage: estimate.perImage,
         known: estimate.known,
         threshold,
       },
       409,
     );
-  config.spend = { approved: Math.round(((config.spend?.approved ?? 0) + budget) * 1000) / 1000, at: now() };
+  await approveSpend(c.env, b.id, budget);
   if (d.test) config.testPost = d.indexes![0];
   statements.push(
     c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
@@ -2374,7 +2386,7 @@ postRoutes.post("/generate", async (c) => {
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return c.json({ ok: true, planned, skipped, missingProduct, draft: !!draft });
+  return c.json({ ok: true, planned, paid, skipped, missingProduct, draft: !!draft, approved: budget });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */

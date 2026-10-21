@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
+import { spendStatus } from "./spend";
 import { all, first, run, now, uuid } from "./db";
 import {
   advanceBatch,
@@ -144,7 +145,9 @@ async function batchPayload(env: Env, b: BatchRow, user?: User) {
     }
   const { owner: _owner, ...batch } = b;
   void _owner;
-  return { batch, sources, tasks };
+  // The month's spending ledger: what was approved for it and what its attempts have reserved.
+  const spend = await spendStatus(env, b.id);
+  return { batch, sources, tasks, spend };
 }
 
 studioRoutes.get("/state", async (c) => {

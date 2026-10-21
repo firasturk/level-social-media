@@ -106,7 +106,7 @@ app.notFound((c) => c.json({ error: "Not found." }, 404));
 
 app.onError((e, c) => {
   c.header("X-Build", BUILD_ID);
-  if (e instanceof StudioError) return c.json({ error: e.message }, e.status as 400);
+  if (e instanceof StudioError) return c.json({ ...(e.data ?? {}), error: e.message }, e.status as 400);
   console.error("[studio]", e instanceof Error ? e.stack || e.message : e);
   return c.json({ error: `Studio request failed. Retry shortly. (${c.req.method} ${c.req.path.replace(/^\/api\/studio\//, "")})` }, 500);
 });

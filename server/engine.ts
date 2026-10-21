@@ -20,6 +20,7 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
 export const MAX_AUTO_TAKES = 1;
+import { releaseSpend, reserveSpend, spendFits } from "./spend";
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -93,7 +94,6 @@ import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
   getSetting,
-  SPEND_THRESHOLD_SETTING,
   resolveEngineKey,
   resolveEngineModel,
   resolveFalKey,
@@ -369,6 +369,7 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
           estimate,
           task.id,
         );
+        await releaseSpend(env, batch.id, estimate);
         if (task.attempts <= MAX_AUTO_ATTEMPTS + 2)
           await requeue(env, task, "submission was interrupted, starting again");
         else
@@ -478,7 +479,7 @@ async function storeResultBytes(
         const product = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact.source);
         if (!product) throw new StudioError("the product photo of this post was removed");
         const { placeProduct } = await import("./exact");
-        const placed = await placeProduct(env, product, result, pb.product ?? "");
+        const placed = await placeProduct(env, product, result, pb.product ?? "", batch.id);
         result = placed.image;
         url = null;
         if (!placed.empty) exactNote = "The empty place was not clear: check that nothing stands behind the product.";
@@ -677,8 +678,13 @@ async function settleFailedAttempt(
     estimateCost({ ...config, model: config.model || (await resolveEngineModel(env)) }, 1, [
       task.card,
     ]).total + (task.edit || task.recenter ? 0.008 : 0);
-  await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
   const message = errorMessage(e, "Generation failed.");
+  // A refused attempt may still be billed by the vendor: its cost and its reservation stay. Any
+  // other failure produced nothing, so both are given back.
+  if (!isContentPolicyError(message)) {
+    await run(env.DB, "UPDATE tasks SET cost = MAX(0, cost - ?) WHERE id = ?", refund, task.id);
+    await releaseSpend(env, batch.id, refund);
+  }
   if (isCreditsDepleted(e)) {
     await requeue(env, task, creditsMessage(e));
     await pauseBatch(env, batch.id, creditsMessage(e));
@@ -942,6 +948,26 @@ async function submitNext(
     const attemptCost =
       estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card])
         .total + (task.edit || task.recenter ? 0.008 : 0);
+    // Every attempt, automatic retakes and retries included, reserves its cost against the month's
+    // approved budget before anything is sent. The reservation is one conditional UPDATE, so two
+    // attempts cannot spend the same remaining allowance; past the budget the month pauses and
+    // says so, and the designer's next Generate approves more.
+    const reserved = await reserveSpend(env, batch.id, attemptCost);
+    if (!reserved.ok) {
+      const why = reserved.status.approved
+        ? `The month's approved budget ($${reserved.status.approved.toFixed(2)}) is used up ($${reserved.status.reserved.toFixed(2)} reserved). Press Generate to approve more.`
+        : "This month has no approved budget yet. Press Generate to approve its pictures.";
+      await run(
+        env.DB,
+        "UPDATE tasks SET status = 'queued', lease = NULL, leased_at = NULL, attempts = MAX(0, attempts - 1), error = ?, updated = ? WHERE id = ? AND lease = ?",
+        why,
+        now(),
+        task.id,
+        token,
+      );
+      await pauseBatch(env, batch.id, why);
+      return;
+    }
     await run(env.DB, "UPDATE tasks SET cost = cost + ? WHERE id = ?", attemptCost, task.id);
     try {
       const requestId = tFal
@@ -984,24 +1010,24 @@ function taskConfig(config: Config, task: TaskRow): Config {
 }
 
 /**
- * May the engine spend on one more take of this post by itself? Only when a spend limit is set
- * and the month carries an approved budget (every approved Generate adds its estimate, automatic
- * retakes included): the month's spend so far plus this take must stay inside it. A month with
- * no budget record (made before budgets existed) is treated as before.
+ * May the engine queue one more take of this post by itself? Only while the month's approved
+ * budget (every approved Generate adds its estimate, automatic retakes included) still covers it.
+ * This is a read: the submission itself reserves the cost atomically, so a take that no longer
+ * fits by then pauses the month instead of spending past the budget.
  */
-export async function autoTakeAllowed(env: Env, batch: BatchRow, config: Config, task: TaskRow): Promise<{ ok: boolean; why: string }> {
-  const threshold = Number((await getSetting(env, SPEND_THRESHOLD_SETTING)) ?? 20);
-  if (!(threshold > 0) || !config.spend) return { ok: true, why: "" };
-  const spent = (await first<{ n: number }>(env.DB, "SELECT COALESCE(SUM(cost), 0) AS n FROM tasks WHERE batch = ?", batch.id))?.n ?? 0;
-  const unit = estimateCost({ ...taskConfig(config, task), model: taskConfig(config, task).model || (await resolveEngineModel(env)) }, 1, [task.card]).total;
-  if (spent + unit <= config.spend.approved + 1e-6) return { ok: true, why: "" };
-  return { ok: false, why: `the month's approved budget ($${config.spend.approved.toFixed(2)}) is used up ($${spent.toFixed(2)} spent)` };
+export async function autoTakeAllowed(env: Env, batch: BatchRow, _config: Config, task: TaskRow): Promise<{ ok: boolean; why: string }> {
+  const cfg = taskConfig(_config, task);
+  const unit = estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card]).total;
+  const fit = await spendFits(env, batch.id, unit);
+  if (fit.ok) return { ok: true, why: "" };
+  return {
+    ok: false,
+    why: fit.status.approved
+      ? `the month's approved budget ($${fit.status.approved.toFixed(2)}) is used up ($${fit.status.reserved.toFixed(2)} reserved)`
+      : "this month has no approved budget",
+  };
 }
 
-/**
- * Another connected engine for a photo a content checker refused: Nano Banana Pro through Google,
- * else through Higgsfield, else OpenAI. Null when nothing else is connected.
- */
 async function contentFallbackModel(env: Env, current: string | undefined): Promise<string | null> {
   const candidates: string[] = [];
   if ((await resolveGoogleAuth(env)).auth) candidates.push("gemini-3-pro-image");
