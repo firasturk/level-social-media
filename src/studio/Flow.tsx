@@ -101,6 +101,10 @@ export interface FlowProps {
   onBrandKit: () => void;
   user: User;
   client: Client | null;
+  /** Every active client and the month, switchable from the top bar. */
+  clients: { id: string; name: string }[];
+  onClient: (id: string) => void;
+  onMonth: (m: string) => void;
   month: string;
   batchId: string | null;
   config: Config | null;
@@ -455,7 +459,6 @@ export default function Flow(p: FlowProps) {
   const themeNote = p.config?.brief?.theme;
 
   const lead = LEADS[way];
-  const where = client ? `${client.name} · ${monthLabel(p.month)}` : "";
 
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
@@ -468,7 +471,17 @@ export default function Flow(p: FlowProps) {
             </button>
           ))}
         </nav>
-        <span className="journey-where">{where}</span>
+        <span className="journey-where flow-where">
+          <select value={client?.id ?? ""} onChange={(e) => p.onClient(e.target.value)} aria-label="Client" title="The client you are working on">
+            {!client && <option value="">Pick a client</option>}
+            {p.clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <input type="month" value={p.month} onChange={(e) => e.target.value && p.onMonth(e.target.value)} aria-label="Month" title="The month you are working on" />
+        </span>
         {client && <BrandChip client={client} ambassadors={p.ambassadors} onOpen={p.onBrandKit} />}
         <button type="button" className="text-button" onClick={() => p.onDone()}>
           Skip to the Studio
@@ -1006,7 +1019,11 @@ export default function Flow(p: FlowProps) {
               <section className="flow-summary">
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Objective</span>
-                  <p>{p.config?.campaign?.summary || p.config?.notes || theme?.direction?.split(/(?<=\.)\s/)[0] || "The month's posts for the brand."}</p>
+                  <p>
+                    {p.config?.gridRef && monthGrid
+                      ? `The month follows the grid "${monthGrid.title}", tile by tile.${p.config.gridNotes ? ` ${p.config.gridNotes.split(/(?<=\.)\s/)[0]}` : ""}`
+                      : p.config?.campaign?.summary || p.config?.notes || theme?.direction?.split(/(?<=\.)\s/)[0] || "The month's posts for the brand."}
+                  </p>
                 </div>
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Products</span>
@@ -1181,7 +1198,9 @@ export default function Flow(p: FlowProps) {
               <footer className="flow-confirm">
                 <div className="flow-confirm-text">
                   <b>
-                    {readyPictures} picture{readyPictures === 1 ? "" : "s"} · {estimate?.model ?? p.model} · {estimate?.size ?? p.size} · about {formatUsd(estimate?.perImage ?? perPicture)} each
+                    {preview && !readyPictures && !readyTiles && made > 0
+                      ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
+                      : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
                   </b>
                   <span className="flow-muted">
                     Estimate {formatUsd(total)}

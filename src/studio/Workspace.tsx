@@ -692,7 +692,8 @@ export default function Workspace({
     }
   }
 
-  async function gridIdeas(refId: string, notes: string) {
+  /** force: a month planned from a request is planned again over the grid (the workflow confirms this first). */
+  async function gridIdeas(refId: string, notes: string, force = false) {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return;
@@ -705,6 +706,7 @@ export default function Workspace({
         ref: refId,
         notes: notes || undefined,
         count: shownSettings.postCount,
+        force: force || undefined,
       });
       await refresh();
       toast.success(`${r.plan.length} posts planned from the reference grid.`);
@@ -1812,18 +1814,21 @@ export default function Workspace({
         </footer>
       </main>
 
-      <Radio className={journey ? "in-journey" : ""} />
+      <Radio className={journey ? (useFlow && !classic ? "in-flow" : "in-journey") : ""} />
       {journey && useFlow && !classic && stateReady && client && (
         <Flow
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
           ambassadors={ambassadors}
+          clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
+          onClient={setClientId}
+          onMonth={setMonth}
           onBrandKit={() => {
             finishJourney();
             setKitOpen(true);
             setTimeout(() => document.querySelector(".brand-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
           }}
-          onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
+          onGridIdeas={(ref, notes) => gridIdeas(ref, notes, true)}
           onStyles={(assign) => assignStyles(assign, false)}
           overlay={overlaySpec}
           logoSrc={logoSrc}

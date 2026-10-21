@@ -16613,3 +16613,26 @@ label.cta input {
   width: auto;
   flex: none;
 }
+
+/* The workflow's top bar: the client and the month are switchable there; the radio sits at the bottom */
+.flow-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flow-where select,
+.flow-where input[type="month"] {
+  width: auto;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+}
+.radio.in-flow {
+  bottom: 20px;
+  top: auto;
+  right: 20px;
+}
