@@ -209,6 +209,7 @@ studioRoutes.get("/state", async (c) => {
     spend,
     spendThreshold: adminSettings.spendThreshold,
     workflowV2: adminSettings.workflowV2,
+    autopilotReview: adminSettings.autopilotReview,
     preview: previewNoImages(c.env) || undefined,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",
     moodBoard: await readMoodBoard(c.env, user.id),

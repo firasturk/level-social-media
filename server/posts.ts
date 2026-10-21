@@ -280,7 +280,7 @@ function monthPaletteOf(theme: ThemeRow | null): string[] {
  */
 function monthPalette(config: Pick<Config, "palette"> | null | undefined, theme: ThemeRow | null): string[] {
   if (config?.palette?.length) return parsePalette(config.palette).map((c) => colourLabel(c.hex));
-  return monthPalette(config, theme);
+  return monthPaletteOf(theme);
 }
 
 /**
@@ -2006,6 +2006,8 @@ export interface PreparedPost {
   prompt?: string;
   /** A picture exists and would be replaced. */
   existing?: boolean;
+  /** What was taken out of the post's text before paying, and which input stepped back for which (precedence), in words. */
+  changes?: string[];
 }
 
 interface PreparedPlan {
@@ -2174,6 +2176,8 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
   // What went wrong in this client's earlier pictures: the prompt forbids it by name.
   const lessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   for (const post of plan) {
+    /** What changed or was excluded for this post, said once each, for the plan to show before paying. */
+    const changes: string[] = [];
     // The gate before paying: what the review would flag and the words already show is taken out
     // of the idea and the shot here, so no credit is spent on a picture that would be rejected
     // (the config is saved with the run, so the cleaned text is kept).
@@ -2182,6 +2186,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       if (g.notes.length) {
         post.brief = g.brief;
         if (g.scene !== undefined) post.scene = g.scene;
+        changes.push(...g.notes.map((n) => `Taken out before paying: ${n}.`));
       }
     }
     if (!wanted.has(post.index)) continue;
@@ -2282,6 +2287,9 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     const gridLeads = !!config.gridRef && !!post.tile;
     const styled0 = post.style ? styles.get(post.style) : undefined;
     const styled = gridLeads && styled0?.status === "brief" ? undefined : styled0;
+    if (gridLeads && styled0 && !styled) changes.push("The request's reference picture is not used: this post follows its grid tile.");
+    if (gridLeads && config.campaign?.colours?.length) changes.push("The request's colours step back on this post: the grid's tile leads, with the month's colours.");
+    if (styled && theme) changes.push(`The theme's look is off for this post: the style "${styled.title ?? "picked"}" leads (the month's colours stay).`);
     // A post from a campaign brief: the designer's reference picture and brief decide the look, the
     // colours and the ingredients; a carousel's slides share the ingredients of its ingredients slide.
     const campaign =
@@ -2304,6 +2312,8 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     const held = /\b(hands?|held|holding|holds|lifts?|lifting|grips?)\b/i.test(`${post.brief} ${post.scene ?? ""}`);
     const wantsExact = !!(config.exact || post.exact) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
     const exactProduct = wantsExact && (await import("./exact").then((m) => m.cutsCleanly(env, product!))) ? product : undefined;
+    if (exactProduct) changes.push("Exact product: the engine paints the place and the real photo is set in afterwards.");
+    else if ((config.exact || post.exact) && product) changes.push(held ? "Exact product asked, but the product is held in a hand: it is drawn from its photo instead." : extraProducts.length ? "Exact product asked, but the post shows several products: they are drawn from their photos." : "Exact product asked, but the photo cannot be cut out cleanly (a busy background): the product is drawn from its photo.");
     let sourceId = exactProduct ? undefined : product?.id;
     if (!sourceId && styled) {
       // No product photo in the picture: the style's own picture is image 1.
@@ -2326,11 +2336,16 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       }
     }
     if (!sourceId) {
-      if (!refId)
-        throw new StudioError(
-          `Post ${post.index} has no product. Add reference photos to the theme so the post can use one as its image, or pick a product for it.`,
-          428,
-        );
+      if (!refId) {
+        // The plan preview lists the post as blocked with the reason; a run stops here and says so.
+        const why = `Post ${post.index} has no product. Add reference photos to the theme so the post can use one as its image, or pick a product for it.`;
+        if (dry) {
+          skipped.push(post.index);
+          outcomes.push({ index: post.index, title: post.title, status: "blocked", why });
+          continue;
+        }
+        throw new StudioError(why, 428);
+      }
       const ref = refs.find((r) => r.id === refId)!;
       const stem = `ref-${refId}`;
       const existingRef = sources.find((s) => s.stem === stem);
@@ -2440,6 +2455,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       campaign,
       // The designer's own reference for this post: attached to every take until it is taken off.
       editRef: post.reference?.key ? { key: post.reference.key, note: post.reference.note?.trim() || undefined } : undefined,
+      keepRef: post.keepRef || undefined,
       occasionId: post.occasion || undefined,
       ambassadors: (() => {
         if (portraitDay) return undefined;
@@ -2461,7 +2477,12 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     if (!brief.ambassadors?.length) delete brief.realRef;
     // With ambassadors in the picture, a reference that shows people is described, not attached:
     // the engine copies a reference's people (their age, their gender) over the portraits.
-    if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || ((brief.tileKey || (brief.ref && brief.grid)) && post.tileSpec?.kind === "person"))) brief.noRefImage = true;
+    if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || ((brief.tileKey || (brief.ref && brief.grid)) && post.tileSpec?.kind === "person"))) {
+      brief.noRefImage = true;
+      changes.push("The reference shows people, so it is described and not attached: the engine copies no one over the portraits.");
+    }
+    if (brief.refIsSource) changes.push("No product photo on this post: the reference picture is image 1 and is recreated.");
+    if (brief.editRef) changes.push("A picture pinned to this post is attached: it wins over the grid tile and the theme reference here.");
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)
@@ -2490,7 +2511,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     planned++;
     paid++;
     if (exactProduct) exactPlanned++;
-    outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "picture", paid: true, exact: !!exactProduct, brief, prompt, existing: !!existing?.output });
+    outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "picture", paid: true, exact: !!exactProduct, brief, prompt, existing: !!existing?.output, changes: changes.length ? changes : undefined });
   }
   return { statements, planned, paid, exactPlanned, skipped, missingProduct, outcomes, notes, draft };
 }
@@ -2591,13 +2612,27 @@ postRoutes.post("/plan-preview", async (c) => {
     id.startsWith("style:")
       ? ((await first<{ image_key: string | null }>(c.env.DB, "SELECT image_key FROM styles WHERE id = ?", id.slice(6)))?.image_key ?? null)
       : ((await first<{ key: string }>(c.env.DB, "SELECT key FROM refs WHERE id = ?", id))?.key ?? null);
+  const { preflightInputs } = await import("./engine");
+  const readings = new Map(
+    (await all<{ post: number; revision: number | null; inputs: string; notes: string; brief: string; created: number }>(c.env.DB, "SELECT post, revision, inputs, notes, brief, created FROM plan_preflights WHERE batch = ?", b.id).catch(() => [])).map((r) => [r.post, r]),
+  );
   const posts = [];
   for (const o of prep.outcomes) {
     if (!o.brief) {
       posts.push(o);
       continue;
     }
-    const sent = await postImages(o.brief, resolveRef);
+    // The reading made from the Plan for this post, when it still applies (same revision, same inputs).
+    const post = (config.plan ?? []).find((x) => x.index === o.index);
+    const r = readings.get(o.index);
+    const preflight =
+      r && post && r.revision === postRevision(post, config) && r.inputs === preflightInputs(o.brief)
+        ? (() => {
+            const pb = JSON.parse(r.brief) as PostBrief;
+            return { notes: JSON.parse(r.notes) as string[], dropped: !!pb.noRefImage && !o.brief.noRefImage, at: r.created, shot: pb.shot ?? pb.brief };
+          })()
+        : null;
+    const sent = await postImages(preflight ? (JSON.parse(r!.brief) as PostBrief) : o.brief, resolveRef);
     let highest = 0;
     for (const m of (o.prompt ?? "").matchAll(/Images? (\d+)(?: to (\d+))?/g)) highest = Math.max(highest, Number(m[2] ?? m[1]));
     posts.push({
@@ -2606,6 +2641,7 @@ postRoutes.post("/plan-preview", async (c) => {
       reference: o.brief.editRef ? "pinned picture" : o.brief.styleKey ? "style" : o.brief.tileKey ? "grid tile" : o.brief.ref && o.brief.grid ? "grid" : o.brief.ref ? "theme reference" : "brief",
       images: [{ role: o.brief.hasProduct ? "product" : "reference", key: "" }, ...sent.images.map((i) => ({ role: i.role, key: i.key }))],
       highestImage: highest,
+      preflight,
       brief: c.get("user").role === "admin" ? o.brief : undefined,
     });
   }
@@ -2620,6 +2656,41 @@ postRoutes.post("/plan-preview", async (c) => {
     estimate: { model, size: config.size, perImage: estimate.perImage, total: perRun, maximum: perRun * (1 + MAX_AUTO_TAKES), known: estimate.known, retakes: MAX_AUTO_TAKES },
     spend: await spendStatus(c.env, b.id),
   });
+});
+
+/**
+ * The art director's reading of the ready posts, made from the Plan before anything is paid: what
+ * it would take out or leave out is shown there, and the engine reuses the reading as it is when
+ * the post is unchanged. Text and vision calls (or the demo fixture); no picture is made.
+ */
+postRoutes.post("/plan-preflight", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional() }));
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const prep = await preparePlan(c.env, user, b, config, { batch: d.batch, indexes: d.indexes, regenerate: !!d.indexes }, true);
+  const { preflightBrief, preflightInputs } = await import("./engine");
+  const read: { index: number; notes: string[]; dropped: boolean }[] = [];
+  for (const o of prep.outcomes) {
+    if (o.status !== "ready" || !o.brief || !o.paid) continue;
+    const post = (config.plan ?? []).find((x) => x.index === o.index);
+    if (!post) continue;
+    const inputs = preflightInputs(o.brief);
+    const r = await preflightBrief(c.env, b, { ...o.brief });
+    await run(
+      c.env.DB,
+      "INSERT OR REPLACE INTO plan_preflights (batch, post, revision, brief, inputs, notes, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      b.id,
+      o.index,
+      postRevision(post, config),
+      JSON.stringify(r.pb),
+      inputs,
+      JSON.stringify(r.notes),
+      now(),
+    );
+    read.push({ index: o.index, notes: r.notes, dropped: r.dropped });
+  }
+  return c.json({ ok: true, read });
 });
 
 /** Remove a product upload from the plan (its posts keep nothing: their tasks are removed too). */
@@ -2863,6 +2934,36 @@ async function rebuildMonthVersions(env: Env, b: BatchRow): Promise<void> {
   }
   await run(env.DB, "INSERT INTO month_versions (id, batch, kind, created) VALUES (?, ?, 'scanned', ?)", uuid(), b.id, now());
 }
+
+/** Every take of one post (or of the month), newest first: its picture, its cost, its note. */
+postRoutes.get("/takes", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const index = Number(c.req.query("index") ?? 0) || null;
+  const rows = await all<{ id: string; post: number; task: string; status: string; key: string | null; cost: number; note: string; made_for: number | null; created: number }>(
+    c.env.DB,
+    index
+      ? "SELECT id, post, task, status, key, cost, note, made_for, created FROM post_takes WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 60"
+      : "SELECT id, post, task, status, key, cost, note, made_for, created FROM post_takes WHERE batch = ? ORDER BY created DESC LIMIT 300",
+    ...(index ? [b.id, index] : [b.id]),
+  );
+  const current = new Map((await all<{ post: number; output: string | null }>(c.env.DB, "SELECT post, output FROM tasks WHERE batch = ? AND post IS NOT NULL", b.id)).map((t) => [t.post, t.output]));
+  const imageUrl = (key: string) => `/api/studio/posts/versions/image?batch=${b.id}&key=${encodeURIComponent(key)}`;
+  return c.json({
+    ok: true,
+    takes: rows.map((r) => ({
+      id: r.id,
+      index: r.post,
+      status: r.status as "made" | "failed",
+      key: r.key,
+      image: r.key ? imageUrl(r.key) : null,
+      cost: r.cost,
+      note: r.note,
+      madeFor: r.made_for,
+      created: r.created,
+      current: !!r.key && current.get(r.post) === r.key,
+    })),
+  });
+});
 
 /** The month's earlier versions, newest first: their grid, their posts and pictures. */
 postRoutes.get("/versions", async (c) => {

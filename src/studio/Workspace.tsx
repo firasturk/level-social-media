@@ -25,6 +25,7 @@ import type {
   StateResponse,
   PersonSpend,
   QA,
+  Take,
   Task,
   Theme,
   User,
@@ -152,6 +153,9 @@ export default function Workspace({
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
   /** The four-stage workflow (Start, Direction, Plan, Studio) instead of the journey: an admin flag. */
   const [workflowV2, setWorkflowV2] = useState(false);
+  /** Autopilot stops at the plan for a look (admin setting), and the spend threshold a run must stay under by itself. */
+  const [autopilotReview, setAutopilotReview] = useState(false);
+  const [spendThreshold, setSpendThreshold] = useState(20);
   /** A preview deployment: a strip says that no picture is made here. */
   const [previewMode, setPreviewMode] = useState(false);
   /** The brand kit panel beside the posts: folded away once a month has pictures, unless the team opened it. */
@@ -220,6 +224,8 @@ export default function Workspace({
       setSpend(d.spend ?? []);
       setEngine(d.engine);
       setWorkflowV2(!!d.workflowV2);
+      setAutopilotReview(!!d.autopilotReview);
+      setSpendThreshold(Number(d.spendThreshold ?? 20));
       setPreviewMode(!!d.preview);
       setHero(d.hero ?? "");
       const list = d.clients ?? [];
@@ -469,6 +475,8 @@ export default function Workspace({
       /** A grid from the style library ("style:<id>"), or null to stop following one. */
       gridRef?: string | null;
       monthFonts?: { headline: string; body: string } | null;
+      /** The month's standing rules for the words. */
+      notes?: string;
     },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
@@ -1335,8 +1343,26 @@ export default function Workspace({
       return null;
     }
   };
-  /** A post opened in the editor without a picture (no task yet), and the group the editor opens on. */
   const [selectedPost, setSelectedPost] = useState<number | null>(null);
+  /** The open post's takes, from the server (the editor's Versions list, Previous picture and Compare). */
+  const [takes, setTakes] = useState<{ index: number; list: Take[] } | null>(null);
+  const openPostIndex = selected?.post ?? selectedPost ?? null;
+  const openOutput = selected?.output ?? null;
+  useEffect(() => {
+    if (!batch || openPostIndex === null) {
+      setTakes(null);
+      return;
+    }
+    let live = true;
+    void get<{ takes: Take[] }>(`/api/studio/posts/takes?batch=${encodeURIComponent(batch.id)}&index=${openPostIndex}`)
+      .then((r) => live && setTakes({ index: openPostIndex, list: r.takes }))
+      .catch(() => live && setTakes(null));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batch?.id, openPostIndex, openOutput]);
+  /** A post opened in the editor without a picture (no task yet), and the group the editor opens on. */
   const [editorGroup, setEditorGroup] = useState<EditorGroup | undefined>(undefined);
   const openEditor = (index: number, group?: EditorGroup) => {
     const t = tasks.find((x) => x.post === index && x.output);
@@ -1372,7 +1398,10 @@ export default function Workspace({
           } catch {
             /* unreadable review */
           }
-          const prev = t ? prevOutputOf(t) : null;
+          // The take before the current picture, from the server; the browser's memory is only a fallback for older months.
+          const postTakes = takes?.index === index ? takes.list : [];
+          const prevTake = t?.output ? postTakes.find((x) => x.status === "made" && x.key && x.key !== t.output)?.key ?? null : null;
+          const prev = prevTake ?? (t ? prevOutputOf(t) : null);
           return {
             post: editorPost,
             initialGroup: editorGroup,
@@ -1408,6 +1437,8 @@ export default function Workspace({
             onVideo: ask("video"),
             versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
             acceptedBy: acceptedBy || undefined,
+            takes: postTakes,
+            onUseTake: (key) => restorePicture(index, key),
             lineage: !t?.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
           };
         })()
@@ -1777,8 +1808,22 @@ export default function Workspace({
         <Flow
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
+          ambassadors={ambassadors}
+          onBrandKit={() => {
+            finishJourney();
+            setKitOpen(true);
+            setTimeout(() => document.querySelector(".brand-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+          }}
           onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
           onStyles={(assign) => assignStyles(assign, false)}
+          overlay={overlaySpec}
+          logoSrc={logoSrc}
+          onNotes={(notes) => void updateSettings({ notes })}
+          onMakePosts={(indexes) => generatePosts(indexes, true, false)}
+          onAddPosts={async (n) => {
+            await updateSettings({ postCount: plan.length + n });
+            await generateIdeas("", false, true);
+          }}
           onGenerateOne={(index) => generatePosts([index], !!tasks.find((t) => t.post === index)?.output, false)}
           reloadThemes={() => loadThemes(clientId)}
           user={user}
@@ -1817,6 +1862,8 @@ export default function Workspace({
       )}
       {journey && (!useFlow || classic) && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
+          autopilotReview={autopilotReview}
+          spendThreshold={spendThreshold}
           user={user}
           pendingStyles={pendingStyles}
           onPendingChange={() => void loadPending()}

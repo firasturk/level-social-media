@@ -177,6 +177,8 @@ export interface Post {
   scene?: string;
   /** The designer wrote or edited this post's shot by hand: the shots writer leaves it alone unless asked for this post. */
   handShot?: boolean;
+  /** Keep this post's reference picture attached even when the reading before paying would leave it out. */
+  keepRef?: boolean;
   /** A style picked from the gallery (styles.id): the scene is that style written for this product. */
   style?: string;
   /** The idea the post had before a style replaced it (it comes back when the style is taken off). */
@@ -246,6 +248,8 @@ export interface PostBrief {
    * ambassadors or into the picture, so the words of the shot describe it instead.
    */
   noRefImage?: boolean;
+  /** The designer asked to keep the reference picture attached whatever the preflight finds. */
+  keepRef?: boolean;
   /** Which take of this post this is; takes after the first ask for a different picture. */
   take?: number;
   /** The reference shot this post follows (one of the theme's shots), when any. */

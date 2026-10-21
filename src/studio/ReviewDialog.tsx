@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { QA, Source, Task } from "@shared/types";
+import type { QA, Source, Take, Task } from "@shared/types";
 import { fixNote } from "@shared/qa";
 import Zoomable from "./Zoomable";
 import CompareSlider from "./CompareSlider";
@@ -125,6 +125,10 @@ export interface PostEditorTools {
   onVideo?: () => void;
   /** The month's earlier versions (the MonthVersions panel). */
   versions?: ReactNode;
+  /** This post's takes, newest first, from the server. */
+  takes?: Take[];
+  /** An earlier take back on the post (the current picture stays listed). */
+  onUseTake?: (key: string) => Promise<void>;
   /** Who accepted it, when someone did. */
   acceptedBy?: string;
   lineage: "current" | "older" | "unknown" | "none";
@@ -169,6 +173,9 @@ export default function ReviewDialog({
   onNext?: () => void;
 }) {
   const [view, setView] = useState<"compare" | "result" | "original">("compare");
+  /** An earlier take put beside the current picture in the compare view (null: the product photo). */
+  const [compareWith, setCompareWith] = useState<Take | null>(null);
+  useEffect(() => setCompareWith(null), [task?.id, task?.output]);
   const [edit, setEdit] = useState("");
   const [group, setGroup] = useState<Group>(editor?.initialGroup ?? "image");
   useEffect(() => setGroup(editor?.initialGroup ?? (task?.output ? "image" : "idea")), [editor?.post.index, editor?.initialGroup, task?.id, task?.output]);
@@ -439,6 +446,41 @@ export default function ReviewDialog({
                 Previous picture
               </button>
             )}
+            {editor.takes && editor.takes.length > 0 && (
+              <div className="takes">
+                <span className="field-label">This post's takes · {editor.takes.length}</span>
+                <ul className="takes-list">
+                  {editor.takes.map((tk) => (
+                    <li key={tk.id} className={`${tk.status} ${tk.current ? "current" : ""}`}>
+                      {tk.image ? <img src={tk.image} alt="" loading="lazy" /> : <span className="take-blank" aria-hidden />}
+                      <span className="take-text">
+                        <b>
+                          {tk.status === "failed" ? "Failed" : tk.current ? "Current picture" : "Earlier take"}
+                          {tk.cost > 0 ? ` · ${formatUsd(tk.cost)}` : tk.status === "failed" ? " · nothing charged" : ""}
+                        </b>
+                        <small>
+                          {new Date(tk.created).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          {tk.note ? ` · ${tk.note}` : ""}
+                        </small>
+                        {tk.status === "failed" && tk.cost > 0 && <small>The cost the engine reported for the attempt; it may still be billed.</small>}
+                      </span>
+                      {tk.status === "made" && !tk.current && tk.key && (
+                        <span className="take-actions">
+                          <button type="button" className="text-button" disabled={busy} onClick={() => { setCompareWith(tk); setGroup("image"); setView("compare"); }}>
+                            Compare
+                          </button>
+                          {editor.onUseTake && (
+                            <button type="button" className="text-button" disabled={busy || inFlight} onClick={() => void editor.onUseTake!(tk.key!)}>
+                              Use this picture
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {editor.versions}
           </div>
         )}
@@ -459,8 +501,13 @@ export default function ReviewDialog({
                 className={view === "compare" ? "chosen" : ""}
                 onClick={() => setView("compare")}
               >
-                Compare
+                {compareWith ? "Earlier take · now" : "Compare"}
               </button>
+              {compareWith && (
+                <button type="button" className="text-button" onClick={() => setCompareWith(null)} title="Back to the product photo beside the picture">
+                  Product photo
+                </button>
+              )}
               <button
                 className={view === "result" ? "chosen" : ""}
                 onClick={() => setView("result")}
@@ -485,7 +532,7 @@ export default function ReviewDialog({
             <div className="review-photo">
               {task && view === "compare" && (
                 <CompareSlider
-                  before={originalUrl}
+                  before={compareWith?.image ?? originalUrl}
                   after={resultUrl}
                   alt="Generated product photo"
                 />

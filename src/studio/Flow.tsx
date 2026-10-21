@@ -22,6 +22,11 @@ import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/is
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
+import IdeasChat from "./IdeasChat";
+import BrandChip from "./BrandChip";
+import TestGrid from "./TestGrid";
+import { askInput } from "@/lib/confirm";
+import type { OverlaySpec } from "@shared/overlay";
 
 type Way = "brief" | "grid" | "refs" | "style";
 type Stage = 0 | 1 | 2;
@@ -72,6 +77,9 @@ export interface FlowPreview {
     images?: { role: string; key: string }[];
     highestImage?: number;
     existing?: boolean;
+    changes?: string[];
+    /** The reading made from the Plan for this post, when it still applies. */
+    preflight?: { notes: string[]; dropped: boolean; at: number; shot: string } | null;
   }[];
   planned: number;
   paid: number;
@@ -85,8 +93,11 @@ export interface FlowPreview {
 export interface FlowProps {
   /** The stage to open on (a rail button in the Studio); otherwise where the month is. */
   initialStage?: Stage;
-  /** The month's cast (the chosen ambassadors). */
+  /** The month's cast (the chosen ambassadors), and the client's whole roster (for the brand chip). */
   cast: Ambassador[];
+  ambassadors: Ambassador[];
+  /** Opens the brand kit (the Studio's brand panel), outside the flow. */
+  onBrandKit: () => void;
   user: User;
   client: Client | null;
   month: string;
@@ -117,6 +128,15 @@ export interface FlowProps {
   onGenerateOne: (index: number) => Promise<void>;
   /** The themes read again (their reference counts) after references change. */
   reloadThemes: () => Promise<void>;
+  /** The client's overlay and logo, for the test grid's words. */
+  overlay: OverlaySpec;
+  logoSrc: string | null;
+  /** The month's standing rules for the words (config.notes). */
+  onNotes: (notes: string) => void;
+  /** Makes these posts' pictures again (the budget handshake asks with the cost). */
+  onMakePosts: (indexes: number[]) => Promise<void>;
+  /** N more posts written in the month's world, the current ones untouched. */
+  onAddPosts: (n: number) => Promise<void>;
   onGenerateIdeas: (force?: boolean, notes?: string, append?: boolean) => Promise<boolean>;
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
   onSavePlan: (plan: Post[]) => void | Promise<void>;
@@ -337,6 +357,28 @@ export default function Flow(p: FlowProps) {
   const [preview, setPreview] = useState<FlowPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [retakes, setRetakes] = useState(() => p.config?.autoRetakes !== false);
+  const [reading2, setReading2] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  /** The art director's reading of the ready posts, from the Plan: what it would take out or leave out, before paying. */
+  async function readScenes(indexes?: number[]) {
+    if (!p.batchId) return;
+    setReading2(true);
+    try {
+      const r = await post<{ read: { index: number; notes: string[]; dropped: boolean }[] }>("/api/studio/posts/plan-preflight", { batch: p.batchId, indexes });
+      await loadPreview();
+      const changed = r.read.filter((x) => x.notes.length);
+      toast.success(changed.length ? `${r.read.length} post${r.read.length === 1 ? "" : "s"} read: ${changed.length} changed before paying (see each post).` : `${r.read.length} post${r.read.length === 1 ? "" : "s"} read: nothing to take out.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setReading2(false);
+    }
+  }
+  async function keepReference(index: number, keep: boolean) {
+    await p.onSavePlan(p.plan.map((y) => (y.index === index ? { ...y, keepRef: keep || undefined } : y)));
+    await readScenes([index]);
+  }
   const [open, setOpen] = useState<number | null>(null);
   const planKey = JSON.stringify(p.plan.map((x) => [x.index, x.ideaAt, x.product, x.reference?.at, x.style]));
   const loadPreview = useCallback(async () => {
@@ -426,6 +468,7 @@ export default function Flow(p: FlowProps) {
           ))}
         </nav>
         <span className="journey-where">{where}</span>
+        {client && <BrandChip client={client} ambassadors={p.ambassadors} onOpen={p.onBrandKit} />}
         <button type="button" className="text-button" onClick={() => p.onDone()}>
           Skip to the Studio
         </button>
@@ -894,6 +937,66 @@ export default function Flow(p: FlowProps) {
                   {previewBusy ? <Orb size={14} /> : <Wand2 size={14} />} Read again
                 </button>
               </div>
+              <div className="flow-tools">
+                <Cta kind="secondary" icon={reading2 ? <Orb size={15} /> : <BadgeCheck size={16} />} disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
+                  Read the scenes before paying
+                </Cta>
+                <Cta kind="secondary" icon={<MessageSquareText size={16} />} onClick={() => setChatOpen((o) => !o)}>
+                  {chatOpen ? "Close the chat" : "Talk about the ideas"}
+                </Cta>
+                <Cta
+                  kind="secondary"
+                  icon={rewriting ? <Orb size={15} /> : <Sparkles size={16} />}
+                  disabled={rewriting}
+                  onClick={async () => {
+                    const ok = await askConfirm(`Write the month's ${p.plan.length} ideas again? The current posts, their words and pictures are kept under Versions; pictures already made are not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
+                    if (!ok) return;
+                    setRewriting(true);
+                    try {
+                      await p.onGenerateIdeas(true);
+                    } finally {
+                      setRewriting(false);
+                    }
+                  }}
+                >
+                  Write the ideas again
+                </Cta>
+                <Cta
+                  kind="secondary"
+                  icon={<ImagePlus size={16} />}
+                  disabled={rewriting}
+                  onClick={async () => {
+                    const n = Number(await askInput("How many posts to add?", "1", { ok: "Add", placeholder: "1" }));
+                    if (!n || n < 1 || n > 12) return;
+                    setRewriting(true);
+                    try {
+                      await p.onAddPosts(n);
+                    } finally {
+                      setRewriting(false);
+                    }
+                  }}
+                >
+                  Add posts
+                </Cta>
+              </div>
+              {chatOpen && (
+                <IdeasChat
+                  batchId={p.batchId}
+                  config={p.config}
+                  busy={rewriting}
+                  engineReady={p.engineReady}
+                  refresh={async () => {
+                    await p.refresh();
+                    await loadPreview();
+                  }}
+                  onNotes={p.onNotes}
+                  onMake={async (indexes) => {
+                    const ok = await askConfirm(`The changes are saved. Make post${indexes.length > 1 ? "s" : ""} ${indexes.join(", ")} now, about ${formatUsd((estimate?.perImage ?? perPicture) * indexes.length)}?`, { ok: `Make ${indexes.length} · about ${formatUsd((estimate?.perImage ?? perPicture) * indexes.length)}`, cancel: "Keep the changes, make them later", danger: false });
+                    if (ok) await p.onMakePosts(indexes);
+                    else toast.message("The posts are changed; the Plan's button makes the pictures when you want them.");
+                  }}
+                />
+              )}
               <section className="flow-summary">
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Objective</span>
@@ -1026,6 +1129,37 @@ export default function Flow(p: FlowProps) {
                                   {t && lineageUnknown(t) ? " · this picture was made before lineage was kept (unknown lineage)" : ""}
                                 </small>
                               </div>
+                              {(o?.changes?.length || (o?.images && o.highestImage && o.highestImage < o.images.length)) ? (
+                                <div className="flow-post-changes">
+                                  <span className="flow-eyebrow">What changed or was excluded</span>
+                                  <ul>
+                                    {(o?.changes ?? []).map((ch, k) => (
+                                      <li key={k}>{ch}</li>
+                                    ))}
+                                    {o?.images && o.highestImage && o.highestImage < o.images.length ? <li>The prompt names {o.highestImage} picture{o.highestImage === 1 ? "" : "s"} of the {o.images.length} attached: this engine reads only those.</li> : null}
+                                  </ul>
+                                </div>
+                              ) : null}
+                              {o?.status === "ready" && o.paid && (
+                                <div className={`flow-post-changes reading ${o.preflight ? "" : "none"}`}>
+                                  <span className="flow-eyebrow">Read before paying</span>
+                                  {o.preflight ? (
+                                    <>
+                                      <ul>
+                                        {o.preflight.notes.length ? o.preflight.notes.map((n, k) => <li key={k}>{n}</li>) : <li>Nothing to take out: the engine gets the scene as written.</li>}
+                                      </ul>
+                                      {(o.preflight.dropped || x.keepRef) && (o.reference === "style" || o.reference === "grid tile" || o.reference === "grid" || o.reference === "theme reference") && (
+                                        <label className="check-row">
+                                          <input type="checkbox" checked={!!x.keepRef} onChange={(e) => void keepReference(x.index, e.target.checked)} />
+                                          <span>Keep my reference attached anyway (the {o.reference})</span>
+                                        </label>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <small className="flow-muted">Not read yet, or the post changed since: the reading runs at Generate, or now with "Read the scenes before paying".</small>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </li>
@@ -1033,6 +1167,11 @@ export default function Flow(p: FlowProps) {
                     })}
                 </ul>
               </section>
+              {p.batchId && p.plan.length > 0 && (
+                <section className="flow-testgrid">
+                  <TestGrid batchId={p.batchId} plan={p.plan} overlay={p.overlay} logoSrc={p.logoSrc} reference={monthGrid ? styleThumb(monthGrid, true) : null} blocked={blocking(issues).length > 0} onShowIssues={() => toast.error(blocking(issues)[0]?.text ?? "Fix the month's blockers first.")} />
+                </section>
+              )}
               <footer className="flow-confirm">
                 <div className="flow-confirm-text">
                   <b>

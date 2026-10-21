@@ -150,6 +150,9 @@ interface TaskRow {
   brief: string | null;
   /** Automatic second takes this post already had this month (never reset by a regenerate). */
   auto_retries: number;
+  /** The post this picture is for (a post month), and the post's revision it is being made for. */
+  post: number | null;
+  making_for: number | null;
 }
 
 interface SourceRow {
@@ -459,6 +462,34 @@ async function storeResult(
   await storeResultBytes(env, batch, config, task, await downloadImage(url), url);
 }
 
+/** What one attempt of this task is recorded as costing (the same figure the budget reserved). */
+async function attemptCostOf(env: Env, config: Config, task: TaskRow): Promise<number> {
+  const cfg = taskConfig(config, task);
+  return estimateCost({ ...cfg, model: cfg.model || (await resolveEngineModel(env)) }, 1, [task.card]).total + (task.edit || task.recenter ? 0.008 : 0);
+}
+
+/**
+ * A take of a post's picture, kept as its own row as it lands or fails: the editor's Versions list,
+ * "Previous picture" and the compare read these, so nothing depends on a browser's memory.
+ */
+async function recordTake(env: Env, batch: BatchRow, task: TaskRow, take: { status: "made" | "failed"; key: string | null; cost: number; note: string }): Promise<void> {
+  if (task.post == null) return;
+  await run(
+    env.DB,
+    "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    uuid(),
+    batch.id,
+    task.post,
+    task.id,
+    take.status,
+    take.key,
+    Math.round(take.cost * 1000) / 1000,
+    take.note.slice(0, 500),
+    task.making_for ?? null,
+    now(),
+  ).catch((e) => console.error("[takes]", task.id, errorMessage(e)));
+}
+
 async function storeResultBytes(
   env: Env,
   batch: BatchRow,
@@ -506,6 +537,7 @@ async function storeResultBytes(
     task.id,
   );
   if (phash) await run(env.DB, "UPDATE tasks SET phash = ? WHERE id = ?", phash, task.id).catch(() => undefined);
+  await recordTake(env, batch, task, { status: "made", key, cost: await attemptCostOf(env, config, task), note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
 
   let qa: QA;
   if (config.mode === "post") {
@@ -736,6 +768,9 @@ async function settleFailedAttempt(
       return;
     }
   }
+  // The failed attempt is listed with what it cost (nothing when the vendor refused the request
+  // before working, its recorded cost otherwise, which may be billed).
+  await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: message });
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
@@ -1821,10 +1856,31 @@ function sizeOf(config: Config, task: TaskRow): Config["size"] {
  * would get wrong (a reference's adults over child ambassadors, words to copy, a garment staged
  * against its print, an impossible action, a bag). Runs once per brief; never blocks a submission.
  */
-async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<void> {
-  if (task.preflight !== null && task.preflight !== undefined) return;
-  const pb = postBrief(task);
+/** What the preflight reads from: when any of it changes, a stored reading no longer applies. */
+export function preflightInputs(pb: PostBrief): string {
+  return JSON.stringify({
+    brief: pb.brief,
+    shot: pb.shot ?? "",
+    product: pb.product ?? "",
+    extra: (pb.extraProducts ?? []).map((e) => e.name),
+    people: (pb.ambassadors ?? []).map((a) => a.name),
+    style: pb.styleKey ?? "",
+    tile: pb.tileKey ?? "",
+    ref: pb.ref ?? "",
+    editRef: pb.editRef?.key ?? "",
+    exact: !!pb.exact,
+    keepRef: !!pb.keepRef,
+    ingredients: pb.ingredients ?? "",
+  });
+}
+
+/**
+ * The reading itself, over a brief: returns the brief as the engine should get it and the notes.
+ * A text (and vision) call, or the demo fixture; never throws (a failed reading leaves the brief as it is).
+ */
+export async function preflightBrief(env: Env, batch: BatchRow, pb: PostBrief): Promise<{ pb: PostBrief; notes: string[]; dropped: boolean }> {
   const notes: string[] = [];
+  let dropped = false;
   try {
     const { askText, parseJson } = await import("./posts");
     const scene = pb.shot?.trim() || pb.brief.trim();
@@ -1872,17 +1928,37 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
         else pb.brief = pf.scene;
         notes.push("the shot was written again without them");
       }
-      // A campaign brief's reference is the designer's own picture: it is never left out.
-      if (pf.dropReference && reference && !pb.campaign) {
+      // A campaign brief's reference is the designer's own picture, and so is one the designer asked
+      // to keep: neither is ever left out.
+      if (pf.dropReference && reference && !pb.campaign && !pb.keepRef) {
         pb.noRefImage = true;
+        dropped = true;
         notes.push(`the ${reference} image was left out so the engine copies nothing from it`);
-      }
+      } else if (pf.dropReference && reference && pb.keepRef) notes.push(`the ${reference} image is kept as you asked, though the reading would have left it out`);
     }
   } catch (e) {
-    console.error("[preflight]", task.id, errorMessage(e));
+    console.error("[preflight]", errorMessage(e));
   }
-  task.brief = JSON.stringify(pb);
-  task.preflight = JSON.stringify({ at: now(), notes });
+  return { pb, notes, dropped };
+}
+
+async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<void> {
+  if (task.preflight !== null && task.preflight !== undefined) return;
+  const pb = postBrief(task);
+  // A reading made from the Plan for this very post and these very inputs is used as it is: the plan
+  // showed what the engine gets, and nothing is read twice.
+  if (task.post != null) {
+    const stored = await first<{ revision: number | null; brief: string; inputs: string; notes: string }>(env.DB, "SELECT revision, brief, inputs, notes FROM plan_preflights WHERE batch = ? AND post = ?", batch.id, task.post).catch(() => null);
+    if (stored && stored.revision === (task.making_for ?? null) && stored.inputs === preflightInputs(pb)) {
+      task.brief = stored.brief;
+      task.preflight = JSON.stringify({ at: now(), notes: JSON.parse(stored.notes) as string[], reused: true });
+      await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
+      return;
+    }
+  }
+  const read = await preflightBrief(env, batch, pb);
+  task.brief = JSON.stringify(read.pb);
+  task.preflight = JSON.stringify({ at: now(), notes: read.notes });
   await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
 }
 

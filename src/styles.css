@@ -16446,3 +16446,114 @@ label.cta input {
   font-size: 12.5px;
   color: var(--ink-500);
 }
+
+/* The editor's takes list */
+.takes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.takes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.takes-list li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.takes-list li.current {
+  border-color: var(--blue-pale);
+  background: var(--blue-soft);
+}
+.takes-list li.failed {
+  background: var(--surface-2);
+}
+.takes-list img,
+.take-blank {
+  width: 56px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-3);
+  display: block;
+}
+.take-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+.take-text small {
+  color: var(--ink-500);
+  font-size: 12px;
+}
+.take-actions {
+  display: flex;
+  gap: 12px;
+  white-space: nowrap;
+}
+.flow-post-changes {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.flow-post-changes ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-700);
+}
+.flow-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 14px;
+}
+.flow-post-changes.reading {
+  background: var(--blue-soft);
+}
+.flow-post-changes.reading.none {
+  background: var(--surface-2);
+}
+.flow-testgrid {
+  margin: 0 0 16px;
+}
+.flow-testgrid .journey-box {
+  padding: 16px;
+}
+.brand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-700);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.brand-chip.ready {
+  color: var(--success);
+  border-color: var(--success-soft);
+  background: var(--success-soft);
+}
+.brand-chip:hover {
+  background: var(--surface-2);
+}

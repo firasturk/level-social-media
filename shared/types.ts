@@ -54,6 +54,21 @@ export interface EngineModel {
   reason: string;
 }
 
+/** One take of a post's picture: stored or failed, with what the attempt cost. */
+export interface Take {
+  id: string;
+  index: number;
+  status: "made" | "failed";
+  key: string | null;
+  image: string | null;
+  cost: number;
+  note: string;
+  madeFor: number | null;
+  created: number;
+  /** This take is the post's current picture. */
+  current: boolean;
+}
+
 export interface Source {
   id: string;
   name: string;
@@ -267,6 +282,8 @@ export interface StateResponse {
   spendThreshold: number;
   /** Admins see the four-stage workflow (Start, Direction, Plan, Studio) instead of the journey. */
   workflowV2?: boolean;
+  /** Autopilot stops at the plan for a look before paying. */
+  autopilotReview?: boolean;
   /** A preview deployment: pictures and videos are never made here. */
   preview?: boolean;
   zaidDirection: string;
