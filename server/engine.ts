@@ -1835,6 +1835,44 @@ async function preflightPost(env: Env, batch: BatchRow, task: TaskRow): Promise<
   await run(env.DB, "UPDATE tasks SET brief = ?, preflight = ? WHERE id = ?", task.brief, task.preflight, task.id);
 }
 
+/** One picture the engine receives for a post, in the order the prompt numbers them. */
+export interface PostImage {
+  key: string;
+  role: "product" | "portrait" | "place" | "realRef" | "look" | "editRef";
+  /** The reference-library id behind a look picture, for an engine that uploads references by id. */
+  refId?: string;
+}
+
+/**
+ * The pictures a post sends after its own product photo, in the prompt's order: extra products,
+ * ambassador portraits, the client's place, the real-people photo, then ONE look picture (an
+ * applied style, a grid tile, or a theme or library reference), then the designer's reference for
+ * this take. Every engine path draws from this list, so "Image n" in the prompt names what was sent.
+ */
+export async function postImages(pb: PostBrief, resolveRef: (id: string) => Promise<string | null>): Promise<{ images: PostImage[]; mood: boolean; reference: boolean }> {
+  const images: PostImage[] = [];
+  for (const e of pb.extraProducts ?? []) images.push({ key: e.key, role: "product" });
+  for (const a of pb.ambassadors ?? []) images.push({ key: a.key, role: "portrait" });
+  if (pb.place) images.push({ key: pb.place.key, role: "place" });
+  if (pb.realRef) images.push({ key: pb.realRef.key, role: "realRef" });
+  let mood = false;
+  if (!pb.refIsSource && !pb.noRefImage) {
+    if (pb.styleKey || pb.tileKey) {
+      images.push({ key: (pb.styleKey || pb.tileKey)!, role: "look" });
+      mood = true;
+    } else if (pb.ref) {
+      const key = await resolveRef(pb.ref);
+      if (key) {
+        images.push({ key, role: "look", refId: pb.ref });
+        mood = true;
+      }
+    }
+  }
+  const reference = !!pb.editRef?.key;
+  if (pb.editRef?.key) images.push({ key: pb.editRef.key, role: "editRef" });
+  return { images, mood, reference };
+}
+
 function postBrief(task: TaskRow): PostBrief {
   if (!task.brief) throw new StudioError("This post has no brief. Generate the posts again.", 500);
   const b = JSON.parse(task.brief) as Partial<PostBrief>;
@@ -2009,21 +2047,10 @@ async function submitTask(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    // The same order as the Google path and the prompt: products, portraits, place, real people,
-    // then the one look picture. Without them the prompt numbers images the engine never saw.
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) imageUrls.push(await signObjectUrl(env, extra.key));
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
-      imageUrls.push(await signObjectUrl(env, (pb.styleKey || pb.tileKey)!));
-      roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      imageUrls.push(await referenceEngineUrl(env, client, pb.ref));
-      roles.mood = true;
-    }
-    if (pb.editRef?.key) {
-      imageUrls.push(await signObjectUrl(env, pb.editRef.key));
-      roles.reference = true;
-    }
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) imageUrls.push(i.refId ? await referenceEngineUrl(env, client, i.refId) : await signObjectUrl(env, i.key));
+    roles.mood = post.mood;
+    roles.reference = post.reference;
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
@@ -2213,32 +2240,17 @@ async function submitOpenAITask(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    // Order matters: the prompt numbers products, then ambassador portraits, then the reference.
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) {
-      const obj = await env.BUCKET.get(extra.key);
-      if (obj)
-        images.push({
-          bytes: await obj.arrayBuffer(),
-          mime: obj.httpMetadata?.contentType || "image/jpeg",
-        });
-    }
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
-      const obj = await env.BUCKET.get((pb.styleKey || pb.tileKey)!);
-      if (obj) {
-        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
-        roles.mood = true;
+    // Order matters: the prompt numbers products, then portraits, then the one reference.
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) {
+      const obj = await env.BUCKET.get(i.key);
+      if (!obj) {
+        if (i.refId) throw new StudioError("Reference photo is missing from the library.", 500);
+        continue;
       }
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      images.push(await referenceBytes(env, pb.ref));
-      roles.mood = true;
-    }
-    if (pb.editRef?.key) {
-      const obj = await env.BUCKET.get(pb.editRef.key);
-      if (obj) {
-        images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
-        roles.reference = true;
-      }
+      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      if (i.role === "look") roles.mood = true;
+      if (i.role === "editRef") roles.reference = true;
     }
   }
   const edit = task.edit?.trim() ?? "";
@@ -2645,24 +2657,10 @@ async function collectReferenceKeys(
     }
   }
   if (config.mode === "post") {
-    const pb = postBrief(task);
-    // The same order as the Google path and the prompt: products, portraits, place, real people,
-    // then the one look picture (a style, a grid tile, or a theme or grid reference).
-    for (const extra of [...(pb.extraProducts ?? []), ...(pb.ambassadors ?? []), ...(pb.place ? [pb.place] : []), ...(pb.realRef ? [pb.realRef] : [])]) keys.push(extra.key);
-    if ((pb.styleKey || pb.tileKey) && !pb.refIsSource && !pb.noRefImage) {
-      keys.push((pb.styleKey || pb.tileKey)!);
-      roles.mood = true;
-    } else if (pb.ref && !pb.refIsSource && !pb.noRefImage) {
-      const key = await referenceKey(env, pb.ref);
-      if (key) {
-        keys.push(key);
-        roles.mood = true;
-      }
-    }
-    if (pb.editRef?.key) {
-      keys.push(pb.editRef.key);
-      roles.reference = true;
-    }
+    const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
+    for (const i of post.images) keys.push(i.key);
+    roles.mood = post.mood;
+    roles.reference = post.reference;
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
