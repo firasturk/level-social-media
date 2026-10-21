@@ -14060,3 +14060,9 @@ select {
   margin: 0;
   flex: none;
 }
+.journey-autopilot-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+}
