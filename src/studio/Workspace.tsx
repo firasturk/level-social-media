@@ -732,11 +732,11 @@ export default function Workspace({
         toast.success("Style taken off.", { id: t });
         return;
       }
-      // Applying a style writes the post's idea and shot; making the picture is a separate, paid step.
-      toast.success("Style written for the product.", { id: t });
+      // The style is saved already (idea and shot written); making the picture is a separate step.
+      toast.success("Style saved on the post.", { id: t });
       const ok = await askConfirm(
-        `Make ${styled.length === 1 ? "the picture" : `${styled.length} pictures`} in this style now? Image generation is paid. Cancel keeps the style; the picture is made when you press Generate.`,
-        { ok: "Apply & Generate", danger: false },
+        `The style is saved. Make ${styled.length === 1 ? "the picture" : `${styled.length} pictures`} in it now, or keep the style and make ${styled.length === 1 ? "it" : "them"} with the next Generate?`,
+        { ok: "Generate now", cancel: "Keep the style, generate later", danger: false },
       );
       if (ok) await generatePosts(styled, true, false);
     } catch (e) {
@@ -1188,8 +1188,8 @@ export default function Workspace({
       for (const ch of r.changes) toast.success(`Post ${ch.index}: ${ch.summary || "changed as the client asked"}`, { duration: 12000 });
       if (engineConnected && r.indexes.length) {
         const ok = await askConfirm(
-          `The client's changes are written into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now? Image generation is paid.`,
-          { ok: "Generate", danger: false },
+          `The client's changes are saved into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now?`,
+          { ok: "Generate now", cancel: "Keep the changes, generate later", danger: false },
         );
         if (ok) await generatePosts(r.indexes, true, false);
       }

@@ -2863,7 +2863,7 @@ function IdeasChat({ batchId, config, busy, engineReady, refresh, onNotes }: { b
       await refresh();
       if (r.make.length) {
         if (!engineReady) toast.error("No image engine is connected, so the pictures were not made.");
-        else if (await askConfirm(`Make post${r.make.length > 1 ? "s" : ""} ${r.make.join(", ")} now? Image generation is paid.`, { ok: "Generate", danger: false })) {
+        else if (await askConfirm(`The changes are saved. Make post${r.make.length > 1 ? "s" : ""} ${r.make.join(", ")} now?`, { ok: "Generate now", cancel: "Keep the changes, generate later", danger: false })) {
           await post("/api/studio/posts/generate", { batch: batchId, indexes: r.make, regenerate: true });
           await refresh();
           toast.success(`Making post${r.make.length > 1 ? "s" : ""} ${r.make.join(", ")}.`);

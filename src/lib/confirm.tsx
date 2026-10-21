@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
  */
 export function askConfirm(
   message: string,
-  { ok = "Remove", danger = true }: { ok?: string; danger?: boolean } = {},
+  { ok = "Remove", danger = true, cancel = "Cancel" }: { ok?: string; danger?: boolean; /** What the other button keeps or does, when "Cancel" would leave the person guessing. */ cancel?: string } = {},
 ): Promise<boolean> {
   return new Promise((resolve) => {
     const host = document.createElement("div");
@@ -18,18 +18,20 @@ export function askConfirm(
       host.remove();
       resolve(v);
     };
-    root.render(<ConfirmBox message={message} ok={ok} danger={danger} onDone={done} />);
+    root.render(<ConfirmBox message={message} ok={ok} cancel={cancel} danger={danger} onDone={done} />);
   });
 }
 
 function ConfirmBox({
   message,
   ok,
+  cancel,
   danger,
   onDone,
 }: {
   message: string;
   ok: string;
+  cancel: string;
   danger: boolean;
   onDone: (v: boolean) => void;
 }) {
@@ -53,7 +55,7 @@ function ConfirmBox({
         <p>{message}</p>
         <div className="confirm-actions">
           <button type="button" className="secondary" onClick={() => onDone(false)}>
-            Cancel
+            {cancel}
           </button>
           <button
             ref={okRef}
