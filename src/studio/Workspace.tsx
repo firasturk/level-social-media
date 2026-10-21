@@ -852,6 +852,37 @@ export default function Workspace({
   async function generateFromJourney() {
     askNotifications();
     const plannedAt = config?.plannedAt ?? 0;
+    // The brief, the grid or the count changed after the ideas were written: Generate writes fresh
+    // ideas from the brief and the grid first, then makes them all (the current posts stay under Earlier versions).
+    const gridChanged = !!config?.gridRef && (config?.gridAt ?? 0) > plannedAt;
+    const countChanged = plan.length > 0 && plan.length !== shownSettings.postCount;
+    if (batch && plan.length && (gridChanged || countChanged)) {
+      const n = shownSettings.postCount;
+      const ok = await askConfirm(
+        `${gridChanged ? "The grid was picked after these ideas were written." : `The month is set to ${n} posts but has ${plan.length} ideas.`} Write ${n} fresh ideas from the brief and the grid, then make them? The current posts and pictures stay under Earlier versions.`,
+        { ok: `Write ${n} fresh ideas and make them`, danger: false },
+      );
+      if (ok) {
+        setBusy("ideas");
+        try {
+          const r = await post<{ plan: Post[] }>(config?.gridRef ? "/api/studio/posts/grid-ideas" : "/api/studio/posts/ideas", {
+            batch: batch.id,
+            ref: config?.gridRef,
+            count: n,
+            force: true,
+          });
+          await refresh();
+          if (config?.gridRef) await fillProducts(batch.id);
+          toast.success(`${r.plan.length} fresh ideas written. Making them…`);
+        } catch (e) {
+          toast.error((e as Error).message);
+          setBusy("");
+          return;
+        }
+        setBusy("");
+        return generatePosts(undefined, true, false);
+      }
+    }
     // A take that failed (it keeps an older picture and says why) is made again too.
     const failed = (t: (typeof tasks)[number]) => t.status === "failed" || (!!t.error && !["queued", "processing", "finalizing"].includes(t.status));
     const stale = tasks.some((t) => t.post && plan.some((p) => p.index === t.post) && (t.updated < plannedAt || failed(t)));

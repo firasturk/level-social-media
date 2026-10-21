@@ -1356,12 +1356,16 @@ postRoutes.post("/grid-ideas", async (c) => {
       ref: z.string().min(1).max(80),
       notes: z.string().max(2000).optional(),
       count: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+      /** A brief month planned again over the grid: the brief gives the content, the grid the rhythm and the world. */
+      force: z.boolean().optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
-  if (briefMonth(config))
+  if (briefMonth(config) && !d.force)
     throw new StudioError("This month is your brief's posts. Change the brief to plan it again.", 409);
+  const briefText = config.campaign?.text?.trim() ? `THE DESIGNER'S BRIEF FOR THIS MONTH (every post's content comes from it; the grid gives the rhythm, the sets and the world): ${config.campaign.text.trim().slice(0, 4000)}` : "";
+  const notesForGrid = [d.notes ?? config.notes ?? "", briefText].filter(Boolean).join("\n\n") || undefined;
   const ref = await gridImage(c.env, d.ref);
   const obj = ref ? await c.env.BUCKET.get(ref.key) : null;
   if (!ref || !obj) throw new StudioError("Reference image not found.", 404);
@@ -1415,7 +1419,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     productNotes,
     month: config.month ?? "",
     count,
-    notes: d.notes ?? config.notes,
+    notes: notesForGrid,
   });
   const text = await askText(c.env, instruction, GRID_SCHEMA, [image]);
   const read = parseJson<Partial<GridRead> & { posts?: unknown }>(text);
@@ -1465,6 +1469,8 @@ postRoutes.post("/grid-ideas", async (c) => {
     config.gridFonts = { headline: f.headline, body: f.body && HOSTED_FONTS.includes(f.body) ? f.body : f.headline, why: String(f.why ?? "").slice(0, 400) };
   else delete config.gridFonts;
   if (d.notes !== undefined) config.notes = d.notes;
+  // The grid's plan now carries the brief: the month is no longer "the brief's posts alone".
+  if (config.campaign?.only) config.campaign = { ...config.campaign, only: false };
   await keepMonthVersion(c.env, b);
   await saveConfig(c.env, b, config);
   return c.json({ ok: true, plan: config.plan, grid });

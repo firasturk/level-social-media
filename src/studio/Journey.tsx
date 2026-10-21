@@ -714,7 +714,7 @@ export default function Journey(p: JourneyProps) {
         const made = p.posts.some((x) => !!x.url);
         // A month made from a brief is the brief's posts: no reading, grid or count makes them stale.
         // Only what comes before the captions makes them old: new pins or their new reading, never props or styles.
-        if (p.plan.length < p.postCount && made)
+        if (p.plan.length < p.postCount && made && (p.config?.gridAt ?? 0) <= plannedAt)
           out.push({
             text: `The month has ${p.postCount} posts but ${p.plan.length} ideas: ${p.postCount - p.plan.length} more will be written and added, the made posts stay.`,
             fix: { label: `Add ${p.postCount - p.plan.length} post${p.postCount - p.plan.length === 1 ? "" : "s"}`, run: () => void p.onGenerateIdeas(undefined, undefined, true) },
