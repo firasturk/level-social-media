@@ -19,7 +19,7 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  * doubled the cost. One automatic take per post per month, whatever the team regenerates by hand.
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
-const MAX_AUTO_TAKES = 1;
+export const MAX_AUTO_TAKES = 1;
 
 /** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
 async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
@@ -93,6 +93,7 @@ import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
   getSetting,
+  SPEND_THRESHOLD_SETTING,
   resolveEngineKey,
   resolveEngineModel,
   resolveFalKey,
@@ -523,8 +524,10 @@ async function storeResultBytes(
     // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
     // from the post's original reference with the idea as the note; the drift stays as a lesson.
     const pb = postBrief(task);
+    // An automatic retake spends money: it stays inside the month's approved budget.
+    const budget = await autoTakeAllowed(env, batch, config, task);
     const drifted = qa.automated && (qa.flags ?? []).some((f) => f.kind === "idea");
-    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
+    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = {
         ...pb,
         retried: true,
@@ -552,7 +555,8 @@ async function storeResultBytes(
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
     const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
-    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES) {
+    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && !budget.ok) qa = { ...qa, notes: `${qa.notes ? `${qa.notes} ` : ""}Not made again by itself: ${budget.why}. Press Fix it to make it again.` };
+    if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = { ...pb, retried: true };
       const done = await run(
         env.DB,
@@ -977,6 +981,21 @@ async function submitNext(
 /** The batch config with the image's own engine when a refusal moved it to another one. */
 function taskConfig(config: Config, task: TaskRow): Config {
   return task.model ? { ...config, model: task.model } : config;
+}
+
+/**
+ * May the engine spend on one more take of this post by itself? Only when a spend limit is set
+ * and the month carries an approved budget (every approved Generate adds its estimate, automatic
+ * retakes included): the month's spend so far plus this take must stay inside it. A month with
+ * no budget record (made before budgets existed) is treated as before.
+ */
+export async function autoTakeAllowed(env: Env, batch: BatchRow, config: Config, task: TaskRow): Promise<{ ok: boolean; why: string }> {
+  const threshold = Number((await getSetting(env, SPEND_THRESHOLD_SETTING)) ?? 20);
+  if (!(threshold > 0) || !config.spend) return { ok: true, why: "" };
+  const spent = (await first<{ n: number }>(env.DB, "SELECT COALESCE(SUM(cost), 0) AS n FROM tasks WHERE batch = ?", batch.id))?.n ?? 0;
+  const unit = estimateCost({ ...taskConfig(config, task), model: taskConfig(config, task).model || (await resolveEngineModel(env)) }, 1, [task.card]).total;
+  if (spent + unit <= config.spend.approved + 1e-6) return { ok: true, why: "" };
+  return { ok: false, why: `the month's approved budget ($${config.spend.approved.toFixed(2)}) is used up ($${spent.toFixed(2)} spent)` };
 }
 
 /**

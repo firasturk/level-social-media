@@ -6,7 +6,7 @@ import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { del, get, post, postForm, put } from "@/api";
+import { ApiError, del, get, post, postForm, put } from "@/api";
 import { useTheme } from "@/theme";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
@@ -15,7 +15,7 @@ import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, monthLabel, postFileName, type Format, type Post } from "@shared/posts";
-import { testSize } from "@shared/pricing";
+import { formatUsd, testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
@@ -754,7 +754,7 @@ export default function Workspace({
     }
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false) {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false): Promise<void> {
     if (!batch) return;
     if (!engineConnected) {
       setConnection(true);
@@ -776,6 +776,7 @@ export default function Workspace({
         regenerate,
         test: test || undefined,
         retake: retake || undefined,
+        approve: approve || undefined,
       });
       await refresh();
       if (test && r.planned)
@@ -789,7 +790,19 @@ export default function Workspace({
       if (r.skipped?.length)
         toast.warning(`Offer post${r.skipped.length > 1 ? "s" : ""} ${r.skipped.join(", ")} not generated: fill the offer's products, price and contents first.`);
     } catch (e) {
-      toast.error((e as Error).message);
+      // Above the spend limit: the server started nothing; one approval here starts the same run.
+      const err = e as ApiError;
+      const d = (err.data ?? {}) as { needsApproval?: boolean; images?: number; estimate?: number; threshold?: number };
+      if (err.status === 409 && d.needsApproval && !approve) {
+        setBusy("");
+        const ok = await askConfirm(
+          `${d.images} image${d.images === 1 ? "" : "s"}, about ${formatUsd(d.estimate ?? 0)} including one automatic retake per picture. This is above the $${d.threshold} limit set in Admin. Generate?`,
+          { ok: "Approve and generate", danger: false },
+        );
+        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true);
+        return;
+      }
+      toast.error(err.message);
     } finally {
       setBusy("");
     }

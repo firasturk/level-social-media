@@ -3,6 +3,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** The server's JSON body, for answers that carry more than a message (a run to approve). */
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -29,7 +31,7 @@ function watchBuild(r: Response): void {
 async function parse<T>(r: Response): Promise<T> {
   watchBuild(r);
   const data = (await r.json().catch(() => ({}))) as { error?: string } & T;
-  if (!r.ok) throw new ApiError(data.error || `Request failed (${r.status})`, r.status);
+  if (!r.ok) throw new ApiError(data.error || `Request failed (${r.status})`, r.status, data as Record<string, unknown>);
   return data;
 }
 

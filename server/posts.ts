@@ -7,10 +7,10 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
-import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
+import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
-import { advanceBatch, makeClient, makeGoogleClient } from "./engine";
+import { advanceBatch, makeClient, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
 import { signObjectUrl } from "./signed";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
@@ -25,7 +25,7 @@ import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
-import { testSize } from "@shared/pricing";
+import { estimateCost, formatUsd, testSize } from "@shared/pricing";
 import { postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
@@ -1886,6 +1886,8 @@ postRoutes.post("/generate", async (c) => {
       retake: z.boolean().optional(),
       /** "Make it again": the review's findings, carried into the fresh take of a brief rebuilt from the plan as it is now. */
       note: z.string().trim().max(3000).optional(),
+      /** The designer approved this run's estimate (shown when it exceeds the spend limit). */
+      approve: z.boolean().optional(),
     }),
   );
   const user = c.get("user");
@@ -2023,16 +2025,15 @@ postRoutes.post("/generate", async (c) => {
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
   // What went wrong in this client's earlier pictures: the prompt forbids it by name.
   const lessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
-  let gated = false;
   for (const post of plan) {
     // The gate before paying: what the review would flag and the words already show is taken out
-    // of the idea and the shot here, so no credit is spent on a picture that would be rejected.
+    // of the idea and the shot here, so no credit is spent on a picture that would be rejected
+    // (the config is saved with the run, so the cleaned text is kept).
     {
       const g = gatePostText(post);
       if (g.notes.length) {
         post.brief = g.brief;
         if (g.scene !== undefined) post.scene = g.scene;
-        gated = true;
       }
     }
     if (!wanted.has(post.index)) continue;
@@ -2335,11 +2336,30 @@ postRoutes.post("/generate", async (c) => {
         ? "Nothing to generate yet: see the posts that were skipped."
         : "Every post already has its picture. Change a post's idea, words or reference and press Generate again (it is made again by itself), or press Make again on the post.",
     );
-  if (d.test) config.testPost = d.indexes![0];
-  if (d.test || gated)
-    statements.push(
-      c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
+  // The spend limit: a run whose estimate (one automatic retake per picture included) exceeds it
+  // is not started until the designer approves it once. Every run adds its estimate to the month's
+  // approved budget, which caps the engine's automatic retakes (see autoTakeAllowed).
+  const threshold = Number((await getSetting(c.env, SPEND_THRESHOLD_SETTING)) ?? 20);
+  const estimate = estimateCost({ ...config, model: config.model || (await resolveEngineModel(c.env)), size: draft ?? config.size }, planned);
+  const budget = estimate.total * (1 + MAX_AUTO_TAKES);
+  if (threshold > 0 && estimate.known && budget > threshold && !d.approve)
+    return c.json(
+      {
+        error: `${planned} image${planned === 1 ? "" : "s"} ≈ ${formatUsd(budget)} with one automatic retake each, above the $${threshold} limit. Press Generate on the month to approve this run.`,
+        needsApproval: true,
+        images: planned,
+        estimate: budget,
+        perImage: estimate.perImage,
+        known: estimate.known,
+        threshold,
+      },
+      409,
     );
+  config.spend = { approved: Math.round(((config.spend?.approved ?? 0) + budget) * 1000) / 1000, at: now() };
+  if (d.test) config.testPost = d.indexes![0];
+  statements.push(
+    c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
+  );
   statements.push(
     c.env.DB
       .prepare(
