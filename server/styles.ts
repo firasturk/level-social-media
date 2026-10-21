@@ -85,7 +85,7 @@ function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = 
     score: r.score,
     w: r.w,
     h: r.h,
-    tiles: r.tiles ?? 0,
+    tiles: Number(r.tiles) || 0,
     client: r.client || undefined,
     waiting: r.status === "review" || undefined,
   };

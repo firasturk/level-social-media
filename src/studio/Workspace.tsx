@@ -736,7 +736,8 @@ export default function Workspace({
   }, [loadPending]);
 
   /** Gallery styles for posts: each is written for its post's product (null takes the style off). */
-  async function assignStyles(assign: { index: number; style: string | null }[]) {
+  /** ask: offer to make the pictures right away; the workflow's Plan stage does that itself, so it passes false. */
+  async function assignStyles(assign: { index: number; style: string | null }[], ask = true) {
     if (!batch || !assign.length) return;
     const t = toast.loading(
       assign.length > 1 ? `Writing ${assign.length} styles for your products…` : "Writing the style for this product…",
@@ -751,6 +752,7 @@ export default function Workspace({
       }
       // The style is saved already (idea and shot written); making the picture is a separate step.
       toast.success("Style saved on the post.", { id: t });
+      if (!ask) return;
       const ok = await askConfirm(
         `The style is saved. Make ${styled.length === 1 ? "the picture" : `${styled.length} pictures`} in it now, or keep the style and make ${styled.length === 1 ? "it" : "them"} with the next Generate?`,
         { ok: "Generate now", cancel: "Keep the style, generate later", danger: false },
@@ -1776,6 +1778,7 @@ export default function Workspace({
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
           onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
+          onStyles={(assign) => assignStyles(assign, false)}
           onGenerateOne={(index) => generatePosts([index], !!tasks.find((t) => t.post === index)?.output, false)}
           reloadThemes={() => loadThemes(clientId)}
           user={user}
@@ -1805,7 +1808,6 @@ export default function Workspace({
           onUpload={uploadProducts}
           onGrid={pickGrid}
           onGenerateIdeas={(force, notes, append) => generateIdeas(notes ?? config?.notes ?? "", force, append)}
-          onStyles={assignStyles}
           onSavePlan={(next) => savePlan(next)}
           onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, false, retakes)}
           onTest={testOnePost}
