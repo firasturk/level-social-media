@@ -35,7 +35,7 @@ export const PROMPT_LESSONS = 10;
 const MAX_LESSONS = 60;
 
 /** Notes that describe this one picture's run, not a mistake to avoid next time. */
-const NOT_A_LESSON = /could not be placed|Automatic review|empty place was not clear/i;
+const NOT_A_LESSON = /could not be placed|Automatic review|empty place was not clear|Looks like an earlier picture/i;
 
 export async function rememberLessons(env: Env, client: string | null, batch: string, flags: PostFlag[] | undefined, source: LessonSource = "review"): Promise<void> {
   if (!client || !flags?.length) return;

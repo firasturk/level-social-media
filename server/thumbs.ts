@@ -51,3 +51,51 @@ export async function resizedPicture(env: Env, key: string, w: ThumbWidth): Prom
 export function pictureKeys(key: string): string[] {
   return [key, ...THUMB_WIDTHS.map((w) => `${key}.w${w}.jpg`)];
 }
+
+/**
+ * A difference hash of a picture: 9×8 grey pixels, each bit says whether a pixel is brighter than
+ * its right neighbour. Two pictures with the same composition give hashes a few bits apart.
+ */
+export async function pictureHash(bytes: ArrayBuffer): Promise<string | null> {
+  try {
+    const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
+    const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
+    try {
+      const small = resize(img, 9, 8, SamplingFilter.Triangle);
+      try {
+        const px = small.get_raw_pixels();
+        const grey = (x: number, y: number) => {
+          const i = (y * 9 + x) * 4;
+          return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        };
+        let hex = "";
+        for (let y = 0; y < 8; y++) {
+          let byte = 0;
+          for (let x = 0; x < 8; x++) byte = (byte << 1) | (grey(x, y) > grey(x + 1, y) ? 1 : 0);
+          hex += byte.toString(16).padStart(2, "0");
+        }
+        return hex;
+      } finally {
+        small.free();
+      }
+    } finally {
+      img.free();
+    }
+  } catch {
+    return null;
+  }
+}
+
+/** How many bits two fingerprints differ in (0 = the same picture, under 10 = the same composition). */
+export function hashDistance(a: string, b: string): number {
+  if (a.length !== b.length) return 64;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) {
+      d += x & 1;
+      x >>= 1;
+    }
+  }
+  return d;
+}

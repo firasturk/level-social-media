@@ -198,6 +198,10 @@ export function profileBrief(p: ClientProfile | null | undefined): string {
     p.direction ? `Direction: ${p.direction}` : "",
     p.tips.headlines.length ? `Headline rules: ${p.tips.headlines.join("; ")}` : "",
     p.tips.captions.length ? `Caption rules: ${p.tips.captions.join("; ")}` : "",
+    ...p.refs
+      .filter((r) => r.kind === "competitor" && (r.gaps.length || r.takeaways.length))
+      .slice(0, 4)
+      .map((r) => `Competitor ${r.name}: ${r.gaps.length ? `what they leave open: ${r.gaps.slice(0, 3).join("; ")}` : ""}${r.gaps.length && r.takeaways.length ? ". " : ""}${r.takeaways.length ? `what to learn from them: ${r.takeaways.slice(0, 3).join("; ")}` : ""}`),
   ];
-  return lines.filter(Boolean).join("\n").slice(0, 2400);
+  return lines.filter(Boolean).join("\n").slice(0, 3000);
 }

@@ -13,10 +13,32 @@ import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
 
 /** Findings a second take fixes by itself (a face that looks generated or broken hands never trigger one: that doubled the cost of every post with people). */
-const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile", "brand"]);
+const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign", "staging", "size", "tile", "brand", "similar"]);
+
+/** The client's earlier picture this one looks like ("October 2026 · post 4"), when their fingerprints sit within a few bits. */
+async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string): Promise<string | null> {
+  if (!batch.client) return null;
+  const rows = await all<{ id: string; post: number | null; month: string | null; batch: string; phash: string }>(
+    env.DB,
+    "SELECT t.id, t.post, b.month, t.batch, t.phash FROM tasks t JOIN batches b ON b.id = t.batch WHERE b.client = ? AND b.deleted IS NULL AND t.phash IS NOT NULL AND t.output IS NOT NULL AND t.id != ? AND NOT (t.batch = ? AND t.post = ?) ORDER BY t.updated DESC LIMIT 400",
+    batch.client,
+    task.id,
+    batch.id,
+    task.card,
+  );
+  let best: { row: (typeof rows)[number]; d: number } | null = null;
+  for (const row of rows) {
+    const d = hashDistance(phash, row.phash);
+    if (d <= 8 && (!best || d < best.d)) best = { row, d };
+  }
+  if (!best) return null;
+  const where = best.row.batch === batch.id ? "this month" : best.row.month ? monthLabel(best.row.month) : "an earlier month";
+  return `${where} · post ${best.row.post ?? "?"}`;
+}
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLesson, rememberLessons } from "./lessons";
+import { hashDistance, pictureHash } from "./thumbs";
 import {
   StudioError,
   errorMessage,
@@ -60,7 +82,7 @@ import {
   type FramingCheck,
 } from "./editorial";
 import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
-import { buildPostPrompt, tileWithoutBags, type PostBrief, splitEdit, tileForPeople } from "@shared/posts";
+import { buildPostPrompt, monthLabel, tileWithoutBags, type PostBrief, splitEdit, tileForPeople } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
 import {
@@ -462,6 +484,7 @@ async function storeResultBytes(
   await env.BUCKET.put(key, result.bytes, {
     httpMetadata: { contentType: result.mime || "image/png" },
   });
+  const phash = await pictureHash(result.bytes);
   // Save the image before the (slow) automatic review so an evicted isolate never loses a paid
   // result; the review then upgrades the status if it is still waiting for it.
   await run(
@@ -473,6 +496,7 @@ async function storeResultBytes(
     now(),
     task.id,
   );
+  if (phash) await run(env.DB, "UPDATE tasks SET phash = ? WHERE id = ?", phash, task.id).catch(() => undefined);
 
   let qa: QA;
   if (config.mode === "post") {
@@ -482,6 +506,9 @@ async function storeResultBytes(
       // Every finding is kept as a lesson: the client's next prompts forbid it explicitly.
       if (qa.automated) await rememberLessons(env, batch.client, batch.id, qa.flags).catch((e) => console.error("[lessons]", e));
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
+      // A picture that looks like one of the client's earlier posts (the same composition) is noticed.
+      const twin = phash ? await lookAlike(env, batch, task, phash).catch(() => null) : null;
+      if (twin) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "similar", text: `Looks like an earlier picture: ${twin}` }] };
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
     }

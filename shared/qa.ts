@@ -146,7 +146,7 @@ export function postProblems(
 
 /* ───────────── The automatic review of a finished post image ───────────── */
 
-export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging" | "idea" | "client" | "brand";
+export type FlagKind = "product" | "size" | "invented" | "text" | "bag" | "foreign" | "people" | "tile" | "ailook" | "staging" | "idea" | "client" | "brand" | "similar";
 
 /** One thing the review found wrong in a generated post. */
 export interface PostFlag {
@@ -340,6 +340,8 @@ export function lessonLine(kind: FlagKind, text: string): string {
       return `The client's preference: ${t}`;
     case "brand":
       return `The brand's look: an earlier picture was ${strip(/^Off the brand's look:\s*/i)}. The brand's colours lead the frame and its photography direction is kept.`;
+    case "similar":
+      return "Variety: an earlier picture repeated the composition of another post. Each post has its own arrangement, angle and distance.";
   }
 }
 
@@ -358,6 +360,7 @@ export function fixNote(flags: PostFlag[]): string {
     idea: "Stage it exactly as its idea says, with every main element the idea names",
     client: "Follow the client's preference",
     brand: "Bring the picture back to the brand's look: its colours lead the frame and its photography direction is kept",
+    similar: "Make it its own picture: a different arrangement, angle, distance and placement of the product, keeping the brief, the product and the look",
   };
   return FRESH_TAKE + flags.map((f) => `${ask[f.kind]} (${f.text.replace(/\.$/, "")}).`).join(" ");
 }
