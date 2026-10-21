@@ -1571,6 +1571,89 @@ postRoutes.put("/plan", async (c) => {
   return c.json({ ok: true, plan: config.plan, postCount: config.postCount });
 });
 
+/**
+ * A grid picked for a month that already has its posts: the grid is read and every post takes a
+ * tile of it (its scene, product placement and lettering) and the grid's world, keeping its own
+ * idea, words and pictures. The next Generate or Make again then follows the grid.
+ */
+async function applyGridToMonth(env: Env, b: BatchRow, config: Config): Promise<number> {
+  const plan = [...(config.plan ?? [])].sort((x, y) => x.index - y.index);
+  if (!plan.length || !config.gridRef) return 0;
+  const ref = await gridImage(env, config.gridRef);
+  const obj = ref ? await env.BUCKET.get(ref.key) : null;
+  if (!ref || !obj) throw new StudioError("Reference image not found.", 404);
+  const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
+  const client = await clientRow(env, config.client);
+  const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
+  const sources = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name", b.id);
+  await describeProducts(env, sources);
+  const products = [...new Set(sources.map(productName))];
+  const productNotes = Object.fromEntries(sources.filter((s) => s.note).map((s) => [productName(s), s.note!]));
+  const cast = await monthAmbassadors(env, config);
+  const hasPlaces = await clientHasPlaces(env, client.id);
+  const instruction = gridIdeasInstruction({
+    hasPlaces,
+    clientName: client.name,
+    tone: client.tone,
+    profile: await profileOf(env, client.id),
+    dos: client.dos,
+    donts: client.donts,
+    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both",
+    palette: paletteOf(client),
+    style: client.style,
+    themeTitle: theme?.title ?? "",
+    themeDirection: theme?.goal ?? "",
+    props: theme?.props ?? "",
+    noSubline: hidesSubline(client),
+    monthPalette: monthPaletteOf(theme),
+    ambassadors: cast.map((a) => ({ name: a.name, description: a.description })),
+    products,
+    productNotes,
+    month: config.month ?? "",
+    count: plan.length,
+    notes: config.notes,
+  });
+  const read = parseJson<Partial<GridRead>>(await askText(env, instruction, GRID_SCHEMA, [image]));
+  const grid: GridRead = {
+    world: String(read.world ?? "").trim(),
+    tiles: Array.isArray(read.tiles) ? (read.tiles as GridRead["tiles"]).filter((t) => t && typeof t === "object").slice(0, 30) : [],
+  };
+  if (!grid.tiles.length) throw new StudioError("The grid could not be read into tiles. Try again.", 502);
+  // The feed shows the newest post first: the first posts of the month take the grid's last tiles.
+  const n = plan.length;
+  const used = grid.tiles.slice(0, Math.min(n, grid.tiles.length));
+  const byIndex = new Map(plan.map((p, k) => [p.index, used.length - 1 - (k % used.length)]));
+  config.plan = (config.plan ?? []).map((p) => {
+    const i = byIndex.get(p.index) ?? 0;
+    const t = used[i];
+    if (!t) return p;
+    const tileNo = grid.tiles.indexOf(t) + 1;
+    const spec = tileSpecOf(t);
+    if (spec?.kind === "place" && !hasPlaces) spec.kind = "food";
+    return {
+      ...p,
+      tile: `Tile ${tileNo} (${t.position}): ${t.scene} Product: ${t.productPlacement}${t.items ? ` Items: ${t.items}` : ""}`,
+      ...(spec ? { tileSpec: spec, ...overlayFromTile(spec.text, spec.kind) } : {}),
+    };
+  });
+  config.gridNotes = gridNotes(grid).slice(0, 12000);
+  config.gridAt = now();
+  const f = (read as { fonts?: Partial<GridFonts> }).fonts;
+  if (f?.headline && HOSTED_FONTS.includes(f.headline)) config.gridFonts = { headline: f.headline, body: f.body && HOSTED_FONTS.includes(f.body) ? f.body : f.headline, why: String(f.why ?? "").slice(0, 400) };
+  return n;
+}
+
+/** The picked grid is applied to the month's posts as they are (after a pick on a made month, or to apply it again). */
+postRoutes.post("/grid-apply", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  if (!config.gridRef) throw new StudioError("Pick a grid first.");
+  const n = await applyGridToMonth(c.env, b, config);
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true, posts: n, plan: config.plan });
+});
+
 /** Month settings: theme, format, engine, count, notes. */
 postRoutes.put("/settings", async (c) => {
   const d = await body(
@@ -1659,10 +1742,18 @@ postRoutes.put("/settings", async (c) => {
         throw new StudioError("That grid is waiting for the admin's approval. Ask the admin to approve it on the Approvals page, or add it to this client's own grids first.", 409);
     }
     // The month takes the grid's posts: one per tile. Its tiles are read when the ideas are written.
-    if (config.gridRef !== d.gridRef) delete config.gridNotes;
+    const changedGrid = config.gridRef !== d.gridRef;
+    if (changedGrid) delete config.gridNotes;
     config.gridRef = d.gridRef;
     config.gridAt = now();
-    config.postCount = gridPostCount(st.tiles, config.postCount ?? 12);
+    // A month that already has its posts keeps them: they take the grid's tiles and world as they are.
+    if (config.plan?.length && (changedGrid || !config.gridNotes || config.plan.some((p) => !p.tile))) {
+      try {
+        await applyGridToMonth(c.env, b, config);
+      } catch (e) {
+        console.error("[grid] apply failed", errorMessage(e));
+      }
+    } else config.postCount = gridPostCount(st.tiles, config.postCount ?? 12);
     await refreshCountNote(c.env, b.id, config);
   }
   await saveConfig(c.env, b, config);
@@ -1959,7 +2050,7 @@ postRoutes.post("/generate", async (c) => {
       if (busy) continue;
       // The pictures follow the ideas: a post whose idea, reference or client note changed after its
       // picture is made again without being asked.
-      const changed = Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0) > (existing.updated ?? 0) && !!existing.output;
+      const changed = Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0, post.tile ? (config.gridAt ?? 0) : 0) > (existing.updated ?? 0) && !!existing.output;
       // A smaller test image is made again at the month's size with the rest.
       if (!d.regenerate && !changed && existing.status !== "failed" && !(isDraft(existing) && !d.test)) continue;
     }
@@ -2021,11 +2112,14 @@ postRoutes.post("/generate", async (c) => {
     // Grid mode: every post follows the same reference grid; otherwise rotate the theme's photos.
     const gridRef = await gridImage(c.env, config.gridRef);
     if (gridRef && !refs.some((r) => r.id === gridRef.id)) refs.push(gridRef);
-    const styled = post.style ? styles.get(post.style) : undefined;
+    // A grid picked for the month leads: a brief's reference style and its colour world step back for a post that has its tile.
+    const gridLeads = !!config.gridRef && !!post.tile;
+    const styled0 = post.style ? styles.get(post.style) : undefined;
+    const styled = gridLeads && styled0?.status === "brief" ? undefined : styled0;
     // A post from a campaign brief: the designer's reference picture and brief decide the look, the
     // colours and the ingredients; a carousel's slides share the ingredients of its ingredients slide.
     const campaign =
-      post.group || styled?.status === "brief"
+      (post.group || styled?.status === "brief") && !gridLeads
         ? { ingredients: (post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined)) || undefined }
         : undefined;
     const refId = styled ? null : gridRef ? gridRef.id : pickLeastUsed(refs, used);

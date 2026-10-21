@@ -722,7 +722,11 @@ export default function Journey(p: JourneyProps) {
         else if (briefMonth(p.config)) {
           /* the brief's posts stand as written */
         } else if ((p.config?.gridAt ?? 0) > plannedAt)
-          out.push({ text: made ? "The month's grid changed after these ideas were written; the posts stay as they are unless you write the ideas again." : "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
+          out.push(
+            made
+              ? { text: "The grid was picked after these pictures were made: Generate makes the posts again in the grid's world, keeping their ideas and words.", fix: { label: "Make the posts again in the grid", run: () => void p.onGenerate() }, warn: true }
+              : { text: "The month's grid changed after these ideas were written: they follow the old one.", fix: rewrite },
+          );
         else if (briefAt > plannedAt || (theme && Math.max(theme.analysed ?? 0, theme.latestRef ?? 0) > plannedAt))
           out.push({ text: made ? "A screen was read again after these ideas were written; the posts stay as they are unless you write the ideas again." : "The brief or the theme changed after these ideas were written: they follow the old one.", fix: rewrite, warn: made });
         else if (p.plan.length !== p.postCount)
