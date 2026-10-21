@@ -920,7 +920,7 @@ export default function Journey(p: JourneyProps) {
       form.set("batch", p.batchId);
       form.set("brief", briefText);
       // Every reference is redrawn by the browser first, so an SVG logo or a phone photo reaches the server as a plain PNG or JPEG.
-      for (const f of briefFiles.slice(0, 4)) {
+      for (const f of briefFiles.slice(0, 12)) {
         const ready = await rasterize(f);
         form.append("file", ready, ready.name);
       }
@@ -2157,7 +2157,7 @@ function BriefBox({
             </span>
           </label>
           <div className="brief-files">
-            <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 4))} />
+            <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => setFiles([...(e.target.files ?? [])].slice(0, 12))} />
             <button type="button" className="secondary" onClick={() => input.current?.click()} disabled={busy}>
               {files.length ? `${files.length} reference picture${files.length > 1 ? "s" : ""}` : "Attach reference pictures"}
             </button>

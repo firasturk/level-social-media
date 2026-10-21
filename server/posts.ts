@@ -3026,7 +3026,7 @@ postRoutes.post("/campaign", async (c) => {
   const only = form.get("only") === "1";
   if (!batchId) throw new StudioError("Batch id is required.");
   if (text.length < 20) throw new StudioError("Write the brief first (what the posts are about, how many, the text on each).");
-  const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 4);
+  const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 12);
   const user = c.get("user");
   const b = await ownedPlan(c.env, user, batchId);
   // The references: the attached pictures, and the slides of any Instagram post linked in the brief.
@@ -3041,7 +3041,7 @@ postRoutes.post("/campaign", async (c) => {
     const post = await instagramPostSlides(c.env, link);
     let n = 0;
     for (const slide of post.slides.slice(0, 6)) {
-      if (refs.length >= 8) break;
+      if (refs.length >= 12) break;
       try {
         const r = await fetch(slide.url, { signal: AbortSignal.timeout(20_000) });
         if (!r.ok) continue;
