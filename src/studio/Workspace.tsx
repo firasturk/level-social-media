@@ -14,9 +14,9 @@ import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/o
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
-import { currentMonth, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
-import { blocking, monthIssues } from "@shared/issues";
-import { formatUsd, testSize } from "@shared/pricing";
+import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
+import { blocking, monthIssues, sceneContext } from "@shared/issues";
+import { formatUsd, rateFor, testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
@@ -32,7 +32,7 @@ import type {
 import Sidebar, { type Page } from "./Sidebar";
 import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
-import PlanView from "./PlanView";
+import PlanView, { displayName } from "./PlanView";
 import Journey from "./Journey";
 import Flow from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
@@ -47,6 +47,7 @@ import type { EngineInfo } from "./ConnectionDialog";
 const AdminView = lazyScreen(() => import("./AdminView"));
 const BatchesView = lazyScreen(() => import("./BatchesView"));
 const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
+import type { PostEditorTools } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 
 const CLIENT_KEY = "lsm-client";
@@ -347,7 +348,11 @@ export default function Workspace({
   const [draftSettings, setDraftSettings] = useState<Partial<OutputSettings>>({});
   useEffect(() => setDraftSettings({}), [batch?.id]);
   const shownSettings = { ...settings, ...draftSettings };
-  const useFlow = workflowV2 && user.role === "admin";
+  const useFlow = workflowV2;
+  /** Which stage the workflow opens on when a rail button asked for one; otherwise where the month is. */
+  const [flowStage, setFlowStage] = useState<0 | 1 | 2 | null>(null);
+  /** The classic journey, opened on purpose from the Studio while the workflow is on. */
+  const [classic, setClassic] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -1317,6 +1322,68 @@ export default function Workspace({
   const selectedSource = selected ? (sources.find((s) => s.id === selected.source) ?? null) : null;
   const reviewable = tasks.filter((t) => !!t.output);
   const selectedIndex = selected ? reviewable.findIndex((t) => t.id === selected.id) : -1;
+  /** A tool of the card asked for from the editor: the Text studio, Animate or Video open on that post. */
+  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video"; index: number; at: number } | null>(null);
+  const prevOutputKey = (t: Task) => `lsm-prev-output:${t.id}`;
+  const prevOutputOf = (t: Task): string | null => {
+    try {
+      const k = localStorage.getItem(prevOutputKey(t));
+      return k && k !== t.output ? k : null;
+    } catch {
+      return null;
+    }
+  };
+  /** The post editor's four groups: the open task's post with every tool the card offers. */
+  const editorPost = selected?.post ? plan.find((p) => p.index === selected.post) : undefined;
+  const editor: PostEditorTools | undefined =
+    selected && editorPost && batch
+      ? (() => {
+          const index = editorPost.index;
+          const t = selected;
+          const ask = (kind: "text" | "animate" | "video") => () => {
+            setSelected(null);
+            setRequested({ kind, index, at: Date.now() });
+          };
+          let acceptedBy = "";
+          try {
+            const qa = t.qa ? (JSON.parse(t.qa) as { acceptedBy?: string; notes?: string }) : null;
+            acceptedBy = qa?.acceptedBy ?? (qa?.notes?.startsWith("Accepted by ") ? qa.notes.slice(12).replace(/\.$/, "") : "");
+          } catch {
+            /* unreadable review */
+          }
+          const prev = prevOutputOf(t);
+          return {
+            post: editorPost,
+            products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => ({ id: s.id, name: displayName(s.name) })),
+            cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => a.name),
+            perPicture: rateFor(shownSettings.model)?.[shownSettings.size] ?? 0,
+            onSavePost: (patch) => savePlan(plan.map((p) => (p.index === index ? { ...p, ...patch } : p))),
+            onEdit: (note) => fixPost(index, note),
+            onAccept: flagsOf(t).length && !acceptedBy ? () => acceptPost(index) : undefined,
+            onNewIdea: () => {
+              setSelected(null);
+              void newIdea(index);
+            },
+            onPrevious: prev
+              ? async () => {
+                  const was = t.output;
+                  await restorePicture(index, prev);
+                  try {
+                    if (was) localStorage.setItem(prevOutputKey(t), was);
+                  } catch {
+                    /* private mode */
+                  }
+                }
+              : undefined,
+            onOpenText: ask("text"),
+            onAnimate: ask("animate"),
+            onVideo: ask("video"),
+            versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
+            acceptedBy: acceptedBy || undefined,
+            lineage: !t.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",
+          };
+        })()
+      : undefined;
   const running = batch?.state === "running" || active;
 
   return (
@@ -1433,6 +1500,39 @@ export default function Workspace({
           </div>
         ) : (
           <>
+            {useFlow && (
+              <nav className="studio-rail" aria-label="Stages">
+                <div className="flow-rail">
+                  {["Start", "Direction", "Plan", "Studio"].map((name, i) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`flow-stage ${i === 3 ? "now" : "done"}`}
+                      disabled={i === 3}
+                      title={i === 3 ? "You are in the Studio" : `Back to ${name}`}
+                      onClick={() => {
+                        setFlowStage(i as 0 | 1 | 2);
+                        setClassic(false);
+                        setJourney(true);
+                      }}
+                    >
+                      <span className="flow-stage-n">{i + 1}</span> {name}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  title="The step-by-step journey from before the workflow; everything it does is also in the four stages"
+                  onClick={() => {
+                    setClassic(true);
+                    setJourney(true);
+                  }}
+                >
+                  Classic journey
+                </button>
+              </nav>
+            )}
             {(() => {
               /** "Start new journey" begins at the first screen; "Open the journey" resumes where it was left. */
               const startNew = () => {
@@ -1441,6 +1541,8 @@ export default function Workspace({
                 } catch {
                   /* private mode */
                 }
+                setFlowStage(0);
+                setClassic(false);
                 setJourney(true);
               };
               const actions = (
@@ -1448,7 +1550,7 @@ export default function Workspace({
                   <button type="button" className="secondary" onClick={startNew}>
                     <Compass size={15} /> {useFlow ? "Start" : "Start new journey"}
                   </button>
-                  <button type="button" className="primary" onClick={() => setJourney(true)} title={useFlow ? "Open the workflow: Start, Direction, Plan, then the Studio" : "Open the journey where it was left, to go through its screens and change things"}>
+                  <button type="button" className="primary" onClick={() => { setFlowStage(null); setClassic(false); setJourney(true); }} title={useFlow ? "Open the workflow: Start, Direction, Plan, then the Studio" : "Open the journey where it was left, to go through its screens and change things"}>
                     <FolderOpen size={15} /> {useFlow ? "Open the workflow" : "Open the journey"}
                   </button>
                 </div>
@@ -1512,8 +1614,9 @@ export default function Workspace({
                       const t = themes.find((x) => x.id === themeId);
                       return t ? { references: t.references, shots: t.shots, analysed: t.analysed, latestRef: t.latestRef, palette: t.palette } : null;
                     })(),
-                    products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => s.name.replace(/\.[a-z0-9]+$/i, "")),
-                    cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => ({ name: a.name, gender: a.gender, image: a.image })),
+                    products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => displayName(s.name)),
+                    cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
+                    scene: sceneContext({ config, theme: themes.find((x) => x.id === themeId) ?? null, products: sources.filter((s) => (s.kind ?? "product") === "product"), client }),
                   }),
                 ).map((x) => x.text)}
                 made={plan.filter((p) => tasks.some((t) => t.post === p.index && t.output)).length}
@@ -1596,6 +1699,7 @@ export default function Workspace({
                 themeRefs={themeRefs}
                 gridRef={config?.gridRef ?? null}
                 revision={config ?? null}
+                requested={requested}
                 onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 fileBase={`${client.slug}_${month}`}
                 palette={themes.find((x) => x.id === themeId)?.palette ?? []}
@@ -1638,8 +1742,10 @@ export default function Workspace({
       </main>
 
       <Radio className={journey ? "in-journey" : ""} />
-      {journey && useFlow && stateReady && client && (
+      {journey && useFlow && !classic && stateReady && client && (
         <Flow
+          initialStage={flowStage ?? undefined}
+          cast={ambassadors.filter((a) => castIds.includes(a.id))}
           user={user}
           client={client}
           month={month}
@@ -1675,7 +1781,7 @@ export default function Workspace({
           onDone={finishJourney}
         />
       )}
-      {journey && !useFlow && stateReady && clients.some((c) => c.status === "active") && (
+      {journey && (!useFlow || classic) && stateReady && clients.some((c) => c.status === "active") && (
         <Journey
           user={user}
           pendingStyles={pendingStyles}
@@ -1777,10 +1883,17 @@ export default function Workspace({
           position={selectedIndex >= 0 ? { index: selectedIndex, total: reviewable.length } : undefined}
           onClose={() => setSelected(null)}
           onRevise={revise}
+          editor={editor}
           onRemake={
             selected?.post
               ? () => {
                   const i = selected.post!;
+                  // The picture being replaced stays one click away (Previous picture), as on the card.
+                  try {
+                    if (selected.output) localStorage.setItem(prevOutputKey(selected), selected.output);
+                  } catch {
+                    /* private mode */
+                  }
                   setSelected(null);
                   void generatePosts([i], true, false, false, true);
                 }

@@ -30,7 +30,7 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { olderIdea, planShape, postRevision } from "@shared/posts";
-import { monthIssues } from "@shared/issues";
+import { monthIssues, sceneContext } from "@shared/issues";
 import { postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
@@ -2562,13 +2562,17 @@ postRoutes.post("/plan-preview", async (c) => {
   const client = await clientRow(c.env, config.client);
   const theme = config.theme ? (await toThemes(c.env, [await themeRow(c.env, config.theme)]))[0] : null;
   const cast = await monthAmbassadors(c.env, config);
-  const products = (await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ? AND kind = 'product'", b.id)).map(productName);
+  const productRows = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product'", b.id);
+  const products = productRows.map(productName);
+  const placeCount = await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM brand_assets WHERE client = ? AND kind = 'place'", client.id);
+  const drivePlaces = (await clientPlacePhotos(c.env, client.id)).length;
   const issues = monthIssues({
     config,
     client: { logo: !!client.logo_key, tone: client.tone, colors: (() => { try { return JSON.parse(client.colors) as { hex: string }[]; } catch { return []; } })(), service: client.service },
     theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
     products,
-    cast: cast.map((a) => ({ name: a.name, gender: a.gender, image: !!a.image_key })),
+    cast: cast.map((a) => ({ name: a.name, gender: a.gender, image: !!a.image_key, description: a.description, modest: !!a.modest })),
+    scene: sceneContext({ config, theme, products: productRows, client: { places: Array.from({ length: placeCount?.n ?? 0 }), drivePlaces } }),
   });
   const model = config.model || (await resolveEngineModel(c.env));
   const estimate = estimateCost({ ...config, model }, prep.paid);

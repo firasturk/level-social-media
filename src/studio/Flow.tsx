@@ -12,10 +12,11 @@ import { Orb } from "@/components/Orb";
 import { post, postForm } from "@/api";
 import { rasterize } from "@/lib/image";
 import { askConfirm } from "@/lib/confirm";
-import type { Client, Source, Task, Theme, User } from "@shared/types";
+import type { Ambassador, Client, Source, Task, Theme, User } from "@shared/types";
+import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
 import { lineageUnknown, monthLabel, olderIdea, planShape, type Format, type Post } from "@shared/posts";
-import { blocking, monthIssues, type MonthIssue } from "@shared/issues";
+import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
@@ -80,6 +81,10 @@ export interface FlowPreview {
 }
 
 export interface FlowProps {
+  /** The stage to open on (a rail button in the Studio); otherwise where the month is. */
+  initialStage?: Stage;
+  /** The month's cast (the chosen ambassadors). */
+  cast: Ambassador[];
   user: User;
   client: Client | null;
   month: string;
@@ -117,7 +122,7 @@ export interface FlowProps {
 const STAGES = ["Start", "Direction", "Plan", "Studio"];
 
 export default function Flow(p: FlowProps) {
-  const [stage, setStage] = useState<Stage>(() => (p.plan.length ? 2 : p.config?.campaign || p.config?.gridRef ? 1 : 0));
+  const [stage, setStage] = useState<Stage>(() => p.initialStage ?? (p.plan.length ? 2 : p.config?.campaign || p.config?.gridRef ? 1 : 0));
   const [way, setWay] = useState<Way>(() => (p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "brief"));
   const client = p.client;
   const theme = p.themes.find((t) => t.id === p.themeId) ?? null;
@@ -226,10 +231,11 @@ export default function Flow(p: FlowProps) {
         config: p.config,
         client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
         theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
-        products: p.products.map((s) => s.name.replace(/\.[a-z0-9]+$/i, "")),
-        cast: [],
+        products: p.products.map((s) => displayName(s.name)),
+        cast: p.cast.map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
+        scene: sceneContext({ config: p.config, theme, products: p.products, client }),
       }),
-    [p.config, client, theme, p.products],
+    [p.config, client, theme, p.products, p.cast],
   );
   const outcomeOf = (index: number) => preview?.posts.find((x) => x.index === index);
   const ready = preview?.posts.filter((x) => x.status === "ready") ?? [];

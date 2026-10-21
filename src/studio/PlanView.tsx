@@ -80,6 +80,7 @@ export default function PlanView({
   themeRefs,
   gridRef,
   revision,
+  requested,
   onGridIdeas,
   fileBase,
   onUploadProducts,
@@ -151,6 +152,8 @@ export default function PlanView({
   gridRef: string | null;
   /** The month's revision stamps (plannedAt, gridAt): a picture made for an earlier revision is due again. */
   revision: RevisionConfig | null;
+  /** The post editor asks for one of this view's own screens (the Text studio, Animate, Video) on a post. */
+  requested?: { kind: "text" | "animate" | "video"; index: number; at: number } | null;
   onGridIdeas: (refId: string, notes: string) => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
@@ -206,6 +209,13 @@ export default function PlanView({
   const [dragging, setDragging] = useState(false);
   const [gridPicker, setGridPicker] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
+  useEffect(() => {
+    if (!requested) return;
+    if (requested.kind === "text") setEditing(requested.index);
+    else if (requested.kind === "animate") setAnimating(requested.index);
+    else setVideoFor(requested.index);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requested?.at]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only

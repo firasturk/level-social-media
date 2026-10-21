@@ -1,6 +1,8 @@
 import type { Config } from "./config";
 import { occasionsOf, pickedOccasions } from "./occasions";
 import { matchProduct, offerReady, type Post } from "./posts";
+import { postProblems, type PostProblem } from "./qa";
+import { FOREIGN_ITEMS } from "./brief";
 
 /**
  * What stands between a month and its pictures, read from the month's data alone: the same list
@@ -16,6 +18,8 @@ export interface MonthIssue {
   warn?: boolean;
   /** The post it concerns, when it concerns one. */
   post?: number;
+  /** A post's own problem (its shot, a bag, words to draw): the Journey fixes these in one go. */
+  problem?: PostProblem;
 }
 
 export interface MonthIssueInput {
@@ -25,7 +29,12 @@ export interface MonthIssueInput {
   /** Display names of this month's product photos. */
   products: string[];
   /** The month's cast. */
-  cast: { name: string; gender?: string; image?: boolean }[];
+  cast: { name: string; gender?: string; image?: boolean; description?: string; modest?: boolean }[];
+  /**
+   * The context of each post's own checks (shot, bags, words, foreign items, places). Left out,
+   * only the offer and product checks run.
+   */
+  scene?: { needsScene: boolean; sellsDrinks?: boolean; hasPlaces?: boolean };
 }
 
 export function monthIssues(i: MonthIssueInput): MonthIssue[] {
@@ -65,19 +74,49 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
     if (config.postCount && plan.length !== config.postCount) out.push({ code: "count-mismatch", warn: true, text: `The month has ${config.postCount} posts but ${plan.length} ideas.` });
     const missing = pickedOccasions(month, sel).filter((o) => !plan.some((x) => x.type === "greeting" && x.occasion === o.id));
     if (missing.length) out.push({ code: "greeting", warn: true, text: `No greeting post yet for ${missing.map((o) => o.name).join(", ")}.` });
-    for (const p of plan) out.push(...postIssues(p, i.products));
+    for (const p of plan) out.push(...postIssues(p, i.products, i.scene ? { ...i.scene, cast: i.cast.map((a) => ({ name: a.name, description: a.description ?? "", gender: a.gender, modest: a.modest })) } : undefined));
   }
   return out;
 }
 
 /** The problems that keep one post from being made. */
-export function postIssues(p: Post, products: string[]): MonthIssue[] {
+export function postIssues(
+  p: Post,
+  products: string[],
+  scene?: { needsScene: boolean; sellsDrinks?: boolean; hasPlaces?: boolean; cast: { name: string; description: string; gender?: string; modest?: boolean }[] },
+): MonthIssue[] {
   const out: MonthIssue[] = [];
   if (p.type === "offer" && !offerReady(p.offer)) out.push({ code: "offer", post: p.index, text: `Post ${p.index}: fill the offer's products, price and contents.` });
   const typographic = p.tileSpec?.kind === "text" && !p.product;
   const names = p.type === "offer" ? (p.offer?.products ?? []) : typographic ? [] : [p.product, ...(p.products ?? [])].filter((n): n is string => !!n);
   for (const n of names) if (!matchProduct(n, products)) out.push({ code: "product-missing", post: p.index, text: `Post ${p.index}: no photo of ${n} this month.`, how: "Pick it from the gallery or the Drive, or choose another product on the post." });
+  // The post's own problems (shot, bag, words to draw, foreign items, an invented shop): the same
+  // list the Journey's Props and shots screen fixes, so the Studio and the plan preview agree.
+  if (scene)
+    for (const pr of postProblems(p, { products, cast: scene.cast, sellsDrinks: scene.sellsDrinks, needsScene: scene.needsScene, hasPlaces: scene.hasPlaces }))
+      // The empty offer is already the "offer" issue above; it is not listed twice.
+      if (!(pr.fix === "post" && pr.text.startsWith("is an offer without"))) out.push({ code: `post-${pr.fix}`, post: p.index, text: `Post ${pr.index} ${pr.text}.`, problem: pr });
   return out;
+}
+
+/**
+ * The context of the posts' own checks, read the same way everywhere: whether the posts need a
+ * written shot (a theme with shots, or a grid month), whether the brand sells drinks (so a cup in
+ * a shot is not foreign) and whether it has photos of its own place.
+ */
+export function sceneContext(i: {
+  config: Pick<Config, "gridRef" | "plan"> | null;
+  theme: { shots: string[] } | null;
+  products: { note?: string | null; category?: string | null }[];
+  client: { places?: unknown[]; drivePlaces?: number } | null;
+}): NonNullable<MonthIssueInput["scene"]> {
+  const plan = i.config?.plan ?? [];
+  const gridMonth = !!i.config?.gridRef && plan.some((x) => x.tile);
+  return {
+    needsScene: !!i.theme?.shots.length || gridMonth,
+    sellsDrinks: i.products.some((x) => FOREIGN_ITEMS.test(`${x.note ?? ""} ${x.category ?? ""}`)),
+    hasPlaces: !!i.client?.places?.length || !!i.client?.drivePlaces,
+  };
 }
 
 /** The issues that stop Generate (the warnings are left out). */

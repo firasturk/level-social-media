@@ -58,9 +58,9 @@ import {
   type Format,
   type Post, withoutWordsSentences } from "@shared/posts";
 import { occasionsOf, pickedOccasions, shortDate, spreadDates, type MonthOccasions } from "@shared/occasions";
-import { briefLines, FOREIGN_ITEMS } from "@shared/brief";
-import { fixNote, postProblems, type PostProblem } from "@shared/qa";
-import { monthIssues, type MonthIssue } from "@shared/issues";
+import { briefLines } from "@shared/brief";
+import { fixNote, type PostProblem } from "@shared/qa";
+import { monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import type { StyleItem } from "@shared/styles";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import DrivePicker from "./DrivePicker";
@@ -554,7 +554,6 @@ export default function Journey(p: JourneyProps) {
   const go = (k: string) => () => setStep(Math.max(0, STEPS.findIndex((x) => x.key === k)));
   const castPeople = p.ambassadors.filter((a) => p.cast.includes(a.id));
   const productNames = p.products.map((x) => displayName(x.name));
-  const sellsDrinks = p.products.some((x) => FOREIGN_ITEMS.test(`${x.note ?? ""} ${x.category ?? ""}`));
   const briefAt = Math.max(
     0,
     ...Object.entries(p.config?.brief ?? {})
@@ -638,8 +637,24 @@ export default function Journey(p: JourneyProps) {
     client: client ? { logo: client.logo, tone: client.tone, colors: client.colors, service: client.service } : null,
     theme: theme ? { references: theme.references, shots: theme.shots, analysed: theme.analysed, latestRef: theme.latestRef, palette: theme.palette } : null,
     products: productNames,
-    cast: castPeople.map((a) => ({ name: a.name, gender: a.gender, image: a.image })),
+    cast: castPeople.map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
+    scene: sceneContext({ config: p.config, theme, products: p.products, client }),
   });
+  /** The Journey's one-click fix for a post's own problem (the shared check found it). */
+  const fixForProblem = (pr: PostProblem): Issue["fix"] =>
+    pr.fix === "unbag"
+      ? { label: "Take the bag out", run: () => fixPosts([pr]) }
+      : pr.fix === "blank" || pr.fix === "words"
+        ? { label: "Take it out", run: () => fixPosts([pr]) }
+        : pr.fix === "product"
+          ? { label: "Give it a product", run: () => fixPosts([pr]) }
+          : pr.fix === "include"
+            ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
+            : pr.fix === "noplace"
+              ? { label: "Make it a product post", run: () => fixPosts([pr]) }
+              : pr.fix === "shot"
+                ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
+                : { label: "Write the post again", run: () => fixPosts([pr]) };
   const fixFor = (i: MonthIssue): Issue["fix"] => {
     switch (i.code) {
       case "pins-unread":
@@ -759,26 +774,8 @@ export default function Journey(p: JourneyProps) {
         if (needsScene && (p.plan.some((x) => !x.scene) || p.config?.shotsFor !== shotsSig))
           out.push({ text: p.posts.some((x) => !!x.url) ? "The shots were written before the current posts; the pictures stay as they are unless you write the shots again." : "The shots do not follow the current posts yet.", fix: { label: "Write the shots", run: () => adaptShots(true) }, warn: p.posts.some((x) => !!x.url) });
         else
-          for (const x of p.plan)
-            for (const pr of postProblems(x, { products: productNames, cast: castPeople, sellsDrinks, needsScene, hasPlaces: !!client?.places?.length || !!client?.drivePlaces }))
-              out.push({
-                text: `Post ${pr.index} ${pr.text}.`,
-                problem: pr,
-                fix:
-                  pr.fix === "unbag"
-                    ? { label: "Take the bag out", run: () => fixPosts([pr]) }
-                    : pr.fix === "blank" || pr.fix === "words"
-                      ? { label: "Take it out", run: () => fixPosts([pr]) }
-                      : pr.fix === "product"
-                        ? { label: "Give it a product", run: () => fixPosts([pr]) }
-                    : pr.fix === "include"
-                      ? { label: "Add it to the picture", run: () => fixPosts([pr]) }
-                      : pr.fix === "noplace"
-                        ? { label: "Make it a product post", run: () => fixPosts([pr]) }
-                    : pr.fix === "shot"
-                      ? { label: "Rewrite its shot", run: () => fixPosts([pr]) }
-                      : { label: "Write the post again", run: () => fixPosts([pr]) },
-              });
+          // The posts' own problems come from the shared check (the Studio header and the plan preview show the same list).
+          for (const i of sharedIssues) if (i.problem) out.push({ text: i.text, problem: i.problem, fix: fixForProblem(i.problem) });
         if (needsScene) out.push(...analysisIssues("shots"));
         break;
       }

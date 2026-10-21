@@ -284,8 +284,8 @@ export default function AdminView({ me }: { me: string }) {
           <label className="check-row">
             <input type="checkbox" checked={!!form.workflowV2} onChange={(e) => setForm({ ...form, workflowV2: e.target.checked })} />
             <span>
-              <span className="field-label">Four-stage workflow for admins</span>
-              <small>Start, Direction, Plan, Studio instead of the journey. Members keep the journey until it is turned on for everyone.</small>
+              <span className="field-label">Four-stage workflow</span>
+              <small>Start, Direction, Plan, Studio instead of the journey, for everyone on the team. The classic journey stays one click away in the Studio.</small>
             </span>
           </label>
           <label>
