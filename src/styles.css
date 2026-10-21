@@ -15970,6 +15970,20 @@ select {
   .flow-rail {
     display: none;
   }
+  /* The Studio keeps its rail on a phone, compact. */
+  .studio-rail {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .studio-rail .flow-rail {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .studio-rail .flow-stage {
+    height: 26px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
   .flow-ways {
     grid-template-columns: minmax(0, 1fr);
   }
