@@ -3149,9 +3149,19 @@ postRoutes.post("/campaign", async (c) => {
   );
   const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
   const planned = parseBriefPlan(raw, [...names, ...driveOptions.map((p) => p.name)], nextIndex, () => uuid().slice(0, 8));
-  // The colours the brief names become this month's colours (the Colours screen shows them, the first as the background).
-  if (planned.colours.length && config.theme)
-    await run(c.env.DB, "UPDATE skills SET palette = ?, palette_auto = 0 WHERE id = ?", JSON.stringify(planned.colours), config.theme).catch((e) => console.error("[brief] colours", errorMessage(e)));
+  // This month's colours come from the brief: the colours it names, else the colour story of its
+  // reference pictures (the Colours screen shows them, the first as the background).
+  let monthColours = planned.colours;
+  if (!monthColours.length && images.length && config.theme) {
+    try {
+      const d = parseJson<{ palette?: unknown }>(await askText(c.env, paletteInstruction(images.length), PALETTE_SCHEMA, images));
+      monthColours = parsePalette(d.palette).slice(0, 6);
+    } catch (e) {
+      console.error("[brief] reference colours", errorMessage(e));
+    }
+  }
+  if (monthColours.length && config.theme)
+    await run(c.env.DB, "UPDATE skills SET palette = ?, palette_auto = ? WHERE id = ?", JSON.stringify(monthColours), planned.colours.length ? 0 : 1, config.theme).catch((e) => console.error("[brief] colours", errorMessage(e)));
   // Drive products the planner picked: imported once into the month, with what vision read in them.
   const imported = new Map<string, string>();
   const taken = new Set(sources.map((s) => s.stem));
@@ -3224,7 +3234,7 @@ postRoutes.post("/campaign", async (c) => {
     .filter((x) => !/\b(designer|upload|must|needs? to|should|ensure|make sure)\b/i.test(x))
     .join(" ")
     .trim();
-  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", planned.colours.length ? `Colours read from the brief and set as this month's colours: ${planned.colours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
+  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", monthColours.length ? `${planned.colours.length ? "Colours read from the brief" : "Colours read from the reference pictures"} and set as this month's colours: ${monthColours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
   config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined, colours: planned.colours.length ? planned.colours : undefined };
   await saveConfig(c.env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
