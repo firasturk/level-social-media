@@ -58,8 +58,12 @@ export interface StyleItem {
   h: number;
   /** A grid's number of post tiles (0 for a photo style). */
   tiles: number;
-  /** The client a suggested grid was found for. */
+  /** The client a grid was found or added for. */
   client?: string;
+  /** That client's name, for the shelf label. */
+  clientName?: string;
+  /** The kind of brand a grid suits (GRID_GENRES). */
+  genre?: string;
   /** Still waiting for the admin's approval (shown to the admin picking a month's grid). */
   waiting?: boolean;
   /** In the collection of the client the list was asked for ("Add to Habibah's"). */
@@ -123,6 +127,26 @@ export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: 
 /** A grid enters the library from this score (a feed is judged as a month's plan, not one ad). */
 export const GRID_MIN_SCORE = 7;
 
+/** The kinds of brand a feed grid suits: the Grids shelf is browsed by them. */
+export const GRID_GENRES: { id: string; label: string; words: string[] }[] = [
+  { id: "food", label: "Food", words: ["food", "restaurant", "bakery", "bread", "pastry", "burger", "pizza", "kitchen", "meal", "dish", "chef"] },
+  { id: "drinks", label: "Drinks", words: ["drink", "coffee", "cafe", "café", "juice", "tea", "latte", "mojito", "beverage", "smoothie"] },
+  { id: "sweets", label: "Sweets", words: ["sweet", "dessert", "chocolate", "cake", "kunafa", "kunafeh", "ice cream", "candy", "cookie"] },
+  { id: "fashion", label: "Fashion", words: ["fashion", "clothing", "apparel", "outfit", "wear", "dress", "abaya", "shoe", "bag", "streetwear"] },
+  { id: "beauty", label: "Beauty", words: ["beauty", "skincare", "cosmetic", "perfume", "makeup", "salon", "hair", "spa"] },
+  { id: "corporate", label: "Corporate", words: ["corporate", "insurance", "bank", "finance", "telecom", "tech", "software", "clinic", "medical", "real estate", "b2b", "service"] },
+  { id: "lifestyle", label: "Lifestyle", words: ["lifestyle", "home", "interior", "furniture", "decor", "travel", "fitness", "gym", "wellness", "family"] },
+  { id: "luxury", label: "Luxury", words: ["luxury", "jewellery", "jewelry", "gold", "watch", "premium", "gift"] },
+  { id: "seasonal", label: "Seasonal", words: ["ramadan", "eid", "christmas", "winter", "summer", "valentine", "mother's day", "national day", "seasonal"] },
+];
+export const GRID_GENRE_IDS = GRID_GENRES.map((g) => g.id);
+
+/** The genre a grid was read with (its tags start with "genre:<id>"). */
+export function gridGenre(tags: string | null | undefined): string | undefined {
+  const m = /(?:^|\s)genre:([a-z]+)/.exec(tags ?? "");
+  return m && GRID_GENRE_IDS.includes(m[1]) ? m[1] : undefined;
+}
+
 export const GRID_STYLE_SCHEMA = {
   type: "object",
   properties: {
@@ -132,8 +156,9 @@ export const GRID_STYLE_SCHEMA = {
     tags: { type: "string" },
     tiles: { type: "integer" },
     prompt: { type: "string" },
+    genre: { type: "string", enum: GRID_GENRE_IDS },
   },
-  required: ["keep", "score", "title", "tags", "tiles", "prompt"],
+  required: ["keep", "score", "title", "tags", "tiles", "prompt", "genre"],
 };
 
 /** The vision model reads a picture of an Instagram feed into a grid a brand's month can follow. */
@@ -146,29 +171,33 @@ export function gridStyleInstruction(note: string, previous?: { title: string; p
     'title: 2-3 words naming the feed\'s look ("Sunlit Pastel Cafe", "Bold Colour Blocks", "Night Gold Luxury").',
     "tags: 3-5 short words, comma separated (palette, light, mood, kind of brand).",
     "tiles: how many post tiles the feed shows.",
+    `genre: the kind of brand this feed suits best, one of: ${GRID_GENRE_IDS.join(", ")}.`,
     "prompt: 120-200 words in English for ANY brand: first the feed's world (palette written as 'the brand's main colour' and named neutrals, light, sets, materials, camera habits), then its rhythm tile by tile in reading order, one short line each (\"1 product hero on a plinth, 2 lifestyle with the brand ambassador, 3 calm text tile\"). Write 'the product' for the item; never a brand name, a logo or a specific food.",
     previous
       ? `This grid already exists as "${previous.title}": ${previous.prompt}\nWrite it again as a FRESH reading: the same feed, described anew.`
       : "",
-    'Return ONLY JSON: {"keep": true, "score": 8, "title": "...", "tags": "...", "tiles": 9, "prompt": "..."}.',
+    'Return ONLY JSON: {"keep": true, "score": 8, "title": "...", "tags": "...", "tiles": 9, "prompt": "...", "genre": "food"}.',
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function parseGridStyle(raw: unknown): { keep: boolean; score: number; title: string; tags: string; tiles: number; prompt: string } {
+export function parseGridStyle(raw: unknown): { keep: boolean; score: number; title: string; tags: string; tiles: number; prompt: string; genre?: string } {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const prompt = String(d.prompt ?? "").trim().slice(0, 2000);
   const title = String(d.title ?? "").trim().replace(/^["']|["']$/g, "").slice(0, 60);
   const score = Math.max(0, Math.min(10, Math.round(Number(d.score) || 0)));
   const tiles = Math.max(0, Math.min(30, Math.round(Number(d.tiles) || 0)));
+  const genre = GRID_GENRE_IDS.includes(String(d.genre ?? "")) ? String(d.genre) : undefined;
   return {
     keep: d.keep !== false && prompt.length > 40 && !!title && score >= GRID_MIN_SCORE && tiles >= 6,
     score,
     title,
-    tags: String(d.tags ?? "").trim().slice(0, 120),
+    // The genre leads the tags so the shelf can be browsed by it.
+    tags: `${genre ? `genre:${genre} ` : ""}${String(d.tags ?? "").trim().slice(0, 120)}`.trim(),
     tiles,
     prompt,
+    genre,
   };
 }
 

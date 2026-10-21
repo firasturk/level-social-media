@@ -13795,3 +13795,9 @@ select {
 .feed-open-date small {
   color: var(--text-muted);
 }
+
+/* ── Pick your grid: kinds of brand ── */
+.style-genres {
+  flex-basis: 100%;
+  padding-top: 6px;
+}

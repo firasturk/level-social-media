@@ -6,7 +6,7 @@ import { Orb } from "@/components/Orb";
 import { del, get, post, postForm } from "@/api";
 import { AnimatedLevelLogo } from "@/components/LevelLogo";
 import LessonsLearned from "./LessonsLearned";
-import { STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
+import { GRID_GENRES, STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
 
 type Page = {
   styles: StyleItem[];
@@ -68,9 +68,9 @@ const TABS: { id: string; label: string }[] = [
   ...STYLE_CATEGORIES.filter((c) => c.id !== "grid").map((c) => ({ id: c.id, label: c.label })),
 ];
 
-const shelfLabel = (s: Pick<StyleItem, "category" | "tiles" | "client" | "waiting">) =>
+const shelfLabel = (s: Pick<StyleItem, "category" | "tiles" | "client" | "clientName" | "waiting" | "genre">) =>
   s.category === "grid"
-    ? `${s.waiting ? "Waiting · " : ""}${s.client ? "Suggested · " : ""}Grid${s.tiles ? ` · ${s.tiles} posts` : ""}`
+    ? `${s.waiting ? "Waiting · " : ""}${s.clientName ? `${s.clientName} · ` : s.client ? "Suggested · " : ""}${s.genre ? (GRID_GENRES.find((g) => g.id === s.genre)?.label ?? "Grid") : "Grid"}${s.tiles ? ` · ${s.tiles} posts` : ""}`
     : (STYLE_CATEGORIES.find((c) => c.id === s.category)?.label ?? "Style");
 
 /** Pages already loaded open instantly when the team comes back to them. */
@@ -122,7 +122,9 @@ export default function StyleScreen({
   const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const key = `${tab}|${q}|${page}|${forClient?.id ?? pick?.client ?? ""}`;
+  /** The kind of brand the grids shown suit (Pick your grid). */
+  const [genre, setGenre] = useState("");
+  const key = `${tab}|${q}|${page}|${genre}|${forClient?.id ?? pick?.client ?? ""}`;
   const [data, setData] = useState<Page | null>(pages.get(key) ?? null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<StyleItem[]>([]);
@@ -173,8 +175,9 @@ export default function StyleScreen({
         q,
         page: String(page),
         ...(clientId ? { client: clientId } : {}),
+        ...(genre ? { genre } : {}),
       }).toString(),
-    [tab, q, page, clientId],
+    [tab, q, page, clientId, genre],
   );
 
   const load = useCallback(
@@ -307,15 +310,15 @@ export default function StyleScreen({
     setBusy("add");
     try {
       const client = toClient && forClient ? forClient.id : undefined;
-      const r = await post<Page & { added: number; failed: string[] }>("/api/studio/styles/add", { links: list.slice(0, 20), grid: asGrid || undefined, related: withRelated || undefined, client });
+      const r = await post<Page & { added: number; failed: string[]; background?: number }>("/api/studio/styles/add", { links: list.slice(0, 20), grid: asGrid || undefined, related: withRelated || undefined, client });
       pages.clear();
       remember(r.styles);
-      toast.success(`${r.added} ${asGrid ? "grid" : "pin"}${r.added === 1 ? "" : "s"} added${client ? ` to ${forClient!.name}'s styles` : asGrid ? " (on Grids)" : " (on Trends)"}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}`, { duration: 8000 });
+      toast.success(`${r.added} ${asGrid ? "grid" : "pin"}${r.added === 1 ? "" : "s"} added${client ? ` to ${forClient!.name}'s styles` : asGrid ? " (on Grids)" : " (on Trends)"}.${r.failed.length ? ` ${r.failed.length} could not be read.` : ""}${r.background ? ` Up to ${r.background} related pins are being read in the background: they appear on New within a few minutes.` : ""}`, { duration: 12000 });
       if (client) onPendingChange?.();
       setLinks("");
       setAdding(false);
       setTyped("");
-      setTab(asGrid ? "grid" : "trends");
+      setTab(asGrid ? (pick?.mode === "feed" ? "grid-new" : "grid") : "trends");
       setPage(1);
     } catch (e) {
       toast.error((e as Error).message);
@@ -379,16 +382,20 @@ export default function StyleScreen({
   if (!open) return null;
   const n = selected.length;
   // A month's grid is picked from the Grids shelf only; a post never takes a whole grid.
-  const shelves = pick?.mode === "feed" ? TABS.filter((t) => t.id === "grid") : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
+  // Pick your grid: the new grids first, then every grid, then the client's own.
+  const shelves = pick?.mode === "feed" ? [{ id: "grid-new", label: "New" }, { id: "grid", label: "All grids" }] : pick ? TABS.filter((t) => t.id !== "grid") : TABS;
   const tabs = approvals
     ? [
         { id: "review-grid", label: "Grids to approve" },
         { id: "review-style", label: "Styles to approve" },
         { id: "lessons", label: "Lessons learned" },
       ]
-    : forClient && pick?.mode !== "feed"
-      ? [{ id: "saved", label: `${forClient.name}'s` }, ...shelves]
+    : forClient
+      ? pick?.mode === "feed"
+        ? [...shelves, { id: "saved", label: `${forClient.name}'s` }]
+        : [{ id: "saved", label: `${forClient.name}'s` }, ...shelves]
       : shelves;
+  const gridShelf = tab === "grid" || tab === "grid-new" || (tab === "saved" && pick?.mode === "feed");
   const counts = data?.counts ?? {};
   const pageCount = data?.pages ?? 1;
   const useLabel = !pick
@@ -513,6 +520,25 @@ export default function StyleScreen({
               </button>
             ))}
           </div>
+          {gridShelf && (
+            <div className="style-tabs style-genres" role="tablist" aria-label="Kind of brand">
+              {[{ id: "", label: "Every kind" }, ...GRID_GENRES].map((g) => (
+                <button
+                  key={g.id || "all"}
+                  type="button"
+                  role="tab"
+                  aria-selected={genre === g.id}
+                  className={`journey-chip small ${genre === g.id ? "active" : ""}`}
+                  onClick={() => {
+                    setGenre(g.id);
+                    setPage(1);
+                  }}
+                >
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="style-select" hidden={single}>
             <button type="button" className="text-button" onClick={() => setSelected((sel) => [...sel, ...shown.filter((s) => !sel.some((x) => x.id === s.id))])}>
               Select all

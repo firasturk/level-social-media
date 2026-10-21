@@ -30,6 +30,8 @@ import {
   type StyleCategory,
   type StyleItem,
   type StyleKind,
+  GRID_GENRES,
+  gridGenre,
 } from "@shared/styles";
 
 type Variables = { user: User };
@@ -66,8 +68,10 @@ export interface StyleRow {
   client: string;
 }
 
-function toItem(r: StyleRow, admin: boolean): StyleItem {
+function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = new Map()): StyleItem {
   return {
+    genre: r.category === "grid" ? gridGenre(r.tags) : undefined,
+    clientName: r.client ? clientNames.get(r.client) : undefined,
     id: r.id,
     kind: r.kind,
     category: (r.category as StyleCategory) || "",
@@ -87,7 +91,7 @@ function toItem(r: StyleRow, admin: boolean): StyleItem {
 }
 
 /** One page of the library: a tab (all, trends or a category), a search and a page number. */
-async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string } = {}) {
+async function list(env: Env, user: User, opts: { tab?: string; q?: string; page?: number; client?: string; genre?: string } = {}) {
   const admin = user.role === "admin";
   // The admin's queue: what the daily update and New ideas brought, waiting for approval.
   // The admin's queue, whole or split into grids and photo styles (the Approvals page).
@@ -107,12 +111,22 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   } else if (opts.tab === "trends") {
     where.push("created >= ?", "category != 'grid'");
     args.push(trendsFrom);
+  } else if (opts.tab === "grid-new") {
+    // New: the grids of the last two weeks.
+    where.push("category = 'grid'", "created >= ?");
+    args.push(trendsFrom);
   } else if (opts.tab && STYLE_CATEGORY_IDS.includes(opts.tab as StyleCategory)) {
     where.push("category = ?");
     args.push(opts.tab);
   } else {
     // The grids have their own shelf: All shows the photo styles a post can take.
     where.push("category != 'grid'");
+  }
+  // A grid genre: grids read with it, or whose words say it (grids read before genres existed).
+  const genre = GRID_GENRES.find((g) => g.id === opts.genre);
+  if (genre && (opts.tab === "grid" || opts.tab === "grid-new" || saved)) {
+    where.push(`(tags LIKE ? OR ${genre.words.map(() => "LOWER(title || ' ' || tags || ' ' || COALESCE(prompt, '') || ' ' || COALESCE(note, '')) LIKE ?").join(" OR ")})`);
+    args.push(`genre:${genre.id}%`, ...genre.words.map((w) => `%${w}%`));
   }
   const q = (opts.q ?? "").trim().toLowerCase().slice(0, 60);
   if (q)
@@ -123,7 +137,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
     }
   // For a client: the styles saved to it first, then (on the Grids shelf) the grids its profile suggested.
   const forClient = `${opts.client ? "(id IN (SELECT style FROM client_styles WHERE client = ?)) DESC, " : ""}${opts.tab === "grid" && opts.client ? "(client = ?) DESC, " : ""}`;
-  const order = `${forClient}${opts.tab === "trends" || reviewing ? "created DESC" : "score DESC, created DESC"}`;
+  const order = `${forClient}${opts.tab === "trends" || opts.tab === "grid-new" || reviewing ? "created DESC" : "score DESC, created DESC"}`;
   const total = (await first<{ n: number }>(env.DB, `SELECT COUNT(*) AS n FROM styles WHERE ${where.join(" AND ")}`, ...args))?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / STYLE_PAGE_SIZE));
   const page = Math.min(pages, Math.max(1, opts.page ?? 1));
@@ -140,6 +154,8 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   const trends = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'active' AND category != 'grid' AND created >= ?", trendsFrom))?.n ?? 0;
   const pool = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'pool'"))?.n ?? 0;
   const counts: Record<string, number> = { all: cats.filter((c) => c.category !== "grid").reduce((x, c) => x + c.n, 0), trends };
+  counts["grid-new"] = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'active' AND category = 'grid' AND created >= ?", trendsFrom))?.n ?? 0;
+  const clientNames = new Map((await all<{ id: string; name: string }>(env.DB, "SELECT id, name FROM clients")).map((r) => [r.id, r.name]));
   for (const c of STYLE_CATEGORIES) counts[c.id] = cats.find((x) => x.category === c.id)?.n ?? 0;
   if (admin) {
     const queue = await all<{ grid: number; n: number }>(env.DB, "SELECT category = 'grid' AS grid, COUNT(*) AS n FROM styles WHERE status = 'review' GROUP BY category = 'grid'");
@@ -150,7 +166,7 @@ async function list(env: Env, user: User, opts: { tab?: string; q?: string; page
   counts.gridWaiting = (await first<{ n: number }>(env.DB, "SELECT COUNT(*) AS n FROM styles WHERE status = 'review' AND category = 'grid'"))?.n ?? 0;
   const mine = opts.client ? new Set((await all<{ style: string }>(env.DB, "SELECT style FROM client_styles WHERE client = ?", opts.client)).map((r) => r.style)) : new Set<string>();
   if (opts.client) counts.saved = mine.size;
-  return { ok: true, styles: rows.map((r) => ({ ...toItem(r, user.role === "admin"), ...(mine.has(r.id) ? { saved: true } : {}) })), total, page, pages, counts, pool };
+  return { ok: true, styles: rows.map((r) => ({ ...toItem(r, user.role === "admin", clientNames), ...(mine.has(r.id) ? { saved: true } : {}) })), total, page, pages, counts, pool };
 }
 
 /** The query of a list request. */
@@ -160,6 +176,7 @@ function listQuery(c: { req: { query: (k: string) => string | undefined } }) {
     q: c.req.query("q") ?? "",
     page: Number(c.req.query("page") ?? 1) || 1,
     client: c.req.query("client") ?? "",
+    genre: c.req.query("genre") ?? "",
   };
 }
 
@@ -591,9 +608,19 @@ styleRoutes.post("/add", async (c) => {
     }),
   );
   const admin = c.get("user").role === "admin";
-  if (d.client && !(await first(c.env.DB, "SELECT 1 AS x FROM clients WHERE id = ?", d.client))) throw new StudioError("Client not found.", 404);
+  const client = d.client ? await first<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM clients WHERE id = ?", d.client) : null;
+  if (d.client && !client) throw new StudioError("Client not found.", 404);
   const added: string[] = [];
   const failed: string[] = [];
+  const pins: Pin[] = [];
+  /** A grid added for a client carries the client's name and joins its collection. */
+  const own = async (id: string) => {
+    if (!client) return;
+    await run(c.env.DB, "INSERT OR IGNORE INTO client_styles (client, style, added) VALUES (?, ?, ?)", client.id, id, now());
+    if (!d.grid) return;
+    const n = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM styles WHERE client = ? AND category = 'grid'", client.id))?.n ?? 0;
+    await run(c.env.DB, "UPDATE styles SET client = ?, title = CASE WHEN title LIKE ? THEN title ELSE ? || title END WHERE id = ?", client.id, `${client.name} ·%`, `${client.name} · ${n + 1} · `, id);
+  };
   await Promise.all(
     d.links.map(async (link) => {
       try {
@@ -602,28 +629,43 @@ styleRoutes.post("/add", async (c) => {
         const id = await addOwnPin(c.env, admin, pin, !!d.grid);
         if (!id) return failed.push(link);
         added.push(id);
-        if (!d.related) return;
-        const related = (await relatedPins(pin.pin)).slice(0, RELATED_WITH_PIN);
-        // A few at a time: each one is downloaded and read by vision.
-        for (let i = 0; i < related.length; i += 4) {
-          const ids = await Promise.all(
-            related.slice(i, i + 4).map((r) =>
-              addOwnPin(c.env, admin, r, !!d.grid).catch((e) => {
-                console.error("[styles] related add failed", r.pin, errorMessage(e));
-                return null;
-              }),
-            ),
-          );
-          for (const x of ids) if (x) added.push(x);
-        }
+        await own(id);
+        pins.push(pin);
       } catch (e) {
         console.error("[styles] add failed", link, errorMessage(e));
         failed.push(link);
       }
     }),
   );
-  if (d.client) for (const id of new Set(added)) await run(c.env.DB, "INSERT OR IGNORE INTO client_styles (client, style, added) VALUES (?, ?, ?)", d.client, id, now());
-  return c.json({ ...(await list(c.env, c.get("user"), { tab: d.grid ? "grid" : admin ? "trends" : "all", client: d.client })), added: new Set(added).size, failed });
+  // The related pins (up to 24 per link, each downloaded and read by vision) take minutes: they are
+  // added in the background after the answer, so the screen never waits on them.
+  let background = 0;
+  if (d.related && pins.length) {
+    background = pins.length * RELATED_WITH_PIN;
+    c.executionCtx.waitUntil(
+      (async () => {
+        for (const pin of pins) {
+          try {
+            const related = (await relatedPins(pin.pin)).slice(0, RELATED_WITH_PIN);
+            for (let i = 0; i < related.length; i += 4) {
+              const ids = await Promise.all(
+                related.slice(i, i + 4).map((r) =>
+                  addOwnPin(c.env, admin, r, !!d.grid).catch((e) => {
+                    console.error("[styles] related add failed", r.pin, errorMessage(e));
+                    return null;
+                  }),
+                ),
+              );
+              for (const x of ids) if (x) await own(x);
+            }
+          } catch (e) {
+            console.error("[styles] related failed", pin.pin, errorMessage(e));
+          }
+        }
+      })(),
+    );
+  }
+  return c.json({ ...(await list(c.env, c.get("user"), { tab: d.grid ? "grid" : admin ? "trends" : "all", client: d.client })), added: new Set(added).size, failed, background });
 });
 
 /**
