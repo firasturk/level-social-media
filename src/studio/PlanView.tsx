@@ -28,7 +28,7 @@ import {
   Trash2,
   Type,
   Wand2,
-  X, TriangleAlert } from "lucide-react";
+  X, TriangleAlert, Plus } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import OverlayEditor, { type EditorResult } from "./OverlayEditor";
 import AnimateDialog from "./AnimateDialog";
@@ -60,6 +60,10 @@ export default function PlanView({
   client,
   month,
   onMonth,
+  grids,
+  gridId,
+  onGrid,
+  onNewGrid,
   plan,
   postCount,
   format,
@@ -119,6 +123,11 @@ export default function PlanView({
   client: Client;
   month: string;
   onMonth: (m: string) => void;
+  /** The grids of this client's month (several when the team started a fresh one). */
+  grids?: { id: string; name: string }[];
+  gridId?: string | null;
+  onGrid?: (id: string) => void;
+  onNewGrid?: () => Promise<void>;
   plan: Post[];
   postCount: number;
   format: Format;
@@ -407,6 +416,23 @@ export default function PlanView({
             value={month}
             onChange={(e) => e.target.value && onMonth(e.target.value)}
           />
+          {grids && grids.length > 1 && onGrid && (
+            <>
+              <label htmlFor="plan-grid">Grid</label>
+              <select id="plan-grid" value={gridId ?? ""} onChange={(e) => e.target.value && onGrid(e.target.value)} title="This month holds several grids: pick the one to work on">
+                {grids.map((g, i) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name.replace(/^.*· \d{4}-\d{2}(?: · )?/, "") || `grid ${grids.length - i}`}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {onNewGrid && (
+            <button type="button" className="text-button" disabled={running} onClick={() => void onNewGrid()} title="Start another grid in this same month; the grids already made stay with their posts, pictures and client links">
+              <Plus size={13} /> New grid
+            </button>
+          )}
           <label htmlFor="plan-post-count">Posts</label>
           <input
             id="plan-post-count"

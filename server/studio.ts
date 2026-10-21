@@ -183,24 +183,17 @@ studioRoutes.get("/state", async (c) => {
   for (const r of thumbRows)
     thumbsByBatch.set(r.batch, [...(thumbsByBatch.get(r.batch) ?? []), r.id]);
   for (const b of batches) b.thumbs = thumbsByBatch.get(b.id) ?? [];
-  // Admin: what each person spent on pictures, this calendar month and in all (a task's cost adds up over its takes).
-  const monthStart = (() => {
-    const d = new Date();
-    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
-  })();
+  // Admin: what each person spent on pictures in all (a task's cost adds up over its takes).
   const spend =
     user.role === "admin"
       ? await all<PersonSpend>(
           c.env.DB,
           `SELECT u.id, u.name, u.role,
-             COALESCE(SUM(CASE WHEN t.updated >= ?1 THEN 1 ELSE 0 END), 0) AS monthPictures,
-             COALESCE(SUM(CASE WHEN t.updated >= ?1 THEN t.cost ELSE 0 END), 0) AS monthSpent,
              COUNT(t.id) AS pictures,
              COALESCE(SUM(t.cost), 0) AS spent,
              COUNT(DISTINCT b.id) AS months
            FROM users u LEFT JOIN batches b ON b.owner = u.id LEFT JOIN tasks t ON t.batch = b.id
            GROUP BY u.id ORDER BY spent DESC`,
-          monthStart,
         )
       : undefined;
   const engineKey = await resolveEngineKey(c.env);

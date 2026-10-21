@@ -129,9 +129,9 @@ export default function BatchesView({
         <thead>
           <tr>
             <th>Person</th>
-            <th>This month</th>
-            <th>All time</th>
-            <th>Months</th>
+            <th>Spent</th>
+            <th>Pictures</th>
+            <th>Grids</th>
           </tr>
         </thead>
         <tbody>
@@ -141,17 +141,15 @@ export default function BatchesView({
                 <strong>{p.name}</strong> <small>{p.role}</small>
               </td>
               <td>
-                ≈ ${p.monthSpent.toFixed(2)} <small>· {p.monthPictures} pictures</small>
+                <strong>≈ ${p.spent.toFixed(2)}</strong>
               </td>
-              <td>
-                ≈ ${p.spent.toFixed(2)} <small>· {p.pictures} pictures</small>
-              </td>
+              <td>{p.pictures}</td>
               <td>{p.months}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="muted small">A picture's cost adds up over its takes; "this month" counts pictures last made this calendar month.</p>
+      <p className="muted small">All time. A picture's cost adds up over every take made of it.</p>
     </section>
   );
   return (

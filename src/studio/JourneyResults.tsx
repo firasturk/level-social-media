@@ -532,6 +532,7 @@ export function FeedStep({
   onRetake,
   approvals = {},
   onFix,
+  onDate,
 }: {
   client: Client;
   month: string;
@@ -554,6 +555,8 @@ export function FeedStep({
   approvals?: Record<string, Approval>;
   /** Changes one post's picture as a note asks. */
   onFix: (index: number, edit: string) => Promise<void>;
+  /** The posting day of one post, set by hand on the feed before the client link goes out. */
+  onDate?: (index: number, date: string) => void;
 }) {
   const [sharing, setSharing] = useState(false);
   const [fixing, setFixing] = useState<number | null>(null);
@@ -604,6 +607,7 @@ export function FeedStep({
                   title={approvals[String(p.index)]?.note || drift?.text}
                 >
                   {approvals[String(p.index)] && <span className={`feed-mark ${approvals[String(p.index)].status}`}>{approvals[String(p.index)].status === "approved" ? "✓" : "!"}</span>}
+                  {p.date && <span className="feed-day">{shortDate(p.date)}</span>}
                   {j?.url ? (
                     p.overlay !== false && (p.headline || logoSrc) ? (
                       <OverlayPreview src={j.url} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={j.faces} width={420} alt={p.title} />
@@ -717,6 +721,13 @@ export function FeedStep({
               <strong dir="auto">{opened.headline ?? opened.title}</strong>
               <p dir="auto">{opened.caption}</p>
               <small dir="auto">{opened.hashtags}</small>
+              {onDate && (
+                <label className="feed-open-date">
+                  <span>Posting day</span>
+                  <input type="date" value={opened.date ?? ""} onChange={(e) => e.target.value && onDate(opened.index, e.target.value)} />
+                  <small>Change it here before the client link goes out; the feed and the link follow it.</small>
+                </label>
+              )}
               <button type="button" className="secondary btn-pill" onClick={() => onOpenStudio(opened.index)}>
                 <ArrowUpRight size={14} /> Open this post in the studio
               </button>

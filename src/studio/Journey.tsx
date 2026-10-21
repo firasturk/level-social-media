@@ -183,6 +183,10 @@ export interface JourneyProps {
   onContinue: () => Promise<void>;
   continuing: boolean;
   ensurePlan: () => Promise<string>;
+  /** The grids of this client's month, newest first; a fresh one can be started beside them. */
+  grids?: { id: string; name: string }[];
+  onGrid?: (id: string) => void;
+  onNewGrid?: () => Promise<void>;
   refresh: () => Promise<void>;
   products: Source[];
   sourceUrl: (id: string) => string;
@@ -1323,6 +1327,27 @@ export default function Journey(p: JourneyProps) {
                   <button type="button" className="primary" onClick={() => setStep(STEPS.findIndex((x) => x.key === "feed"))}>
                     <Grid3x3 size={14} /> Open the feed
                   </button>
+                  {p.onNewGrid && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      title="Another grid in this same month (a carousel, a single post, a second try): this one stays with its posts, pictures and client link"
+                      onClick={() => {
+                        void p.onNewGrid!().then(() => setStep(1));
+                      }}
+                    >
+                      <Plus size={14} /> Fresh grid in {monthLabel(p.month)}
+                    </button>
+                  )}
+                </div>
+              )}
+              {client && (p.grids?.length ?? 0) > 1 && p.onGrid && (
+                <div className="journey-months" role="radiogroup" aria-label="Grid">
+                  {p.grids!.map((g, i) => (
+                    <button key={g.id} type="button" role="radio" aria-checked={p.batchId === g.id} className={`journey-chip small ${p.batchId === g.id ? "active" : ""}`} onClick={() => p.onGrid!(g.id)}>
+                      {g.name.replace(/^.*· \d{4}-\d{2}(?: · )?/, "") || `grid ${p.grids!.length - i}`}
+                    </button>
+                  ))}
                 </div>
               )}
               {client && <ProfileBar key={client.id} client={client} onClientsChanged={p.onClientsChanged} />}
@@ -1668,6 +1693,7 @@ export default function Journey(p: JourneyProps) {
               onRetake={p.onRetake}
               approvals={p.config?.approvals}
               onFix={p.onFix}
+              onDate={(i, d) => p.onSavePlan(p.plan.map((x) => (x.index === i ? { ...x, date: d } : x)))}
               reference={
                 p.config?.gridRef
                   ? p.config.gridRef.startsWith("style:")

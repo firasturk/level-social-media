@@ -245,9 +245,6 @@ export interface PersonSpend {
   id: string;
   name: string;
   role: string;
-  /** Pictures made this calendar month and their cost. */
-  monthPictures: number;
-  monthSpent: number;
   /** All time. */
   pictures: number;
   spent: number;

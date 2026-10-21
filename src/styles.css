@@ -13764,3 +13764,34 @@ select {
 .spend-by-person p {
   margin: 8px 0 0;
 }
+
+/* ── Feed: the posting day, shown on the tile and set by hand on the opened post ── */
+.feed-tile .feed-day {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.feed-open-date {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.feed-open-date span {
+  font-weight: 600;
+}
+.feed-open-date input {
+  max-width: 200px;
+}
+.feed-open-date small {
+  color: var(--text-muted);
+}

@@ -134,7 +134,10 @@ export default function Workspace({
   const [stateReady, setStateReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const [clientId, setClientId] = useState<string>(() => remembered(CLIENT_KEY));
-  const [month, setMonth] = useState<string>(() => remembered(MONTH_KEY) || currentMonth());
+  // The studio makes grids for the month we are in: it opens on the current calendar month, never on a later one.
+  const [month, setMonth] = useState<string>(() => currentMonth());
+  /** Which grid of a client's month is open, when the month holds several ("client|month" → batch id). */
+  const [gridPick, setGridPick] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
   const [exporting, setExporting] = useState(false);
   const [acting, setActing] = useState(false);
@@ -286,10 +289,23 @@ export default function Workspace({
     for (const f of client?.fontFiles ?? [])
       void loadFont(f.name, `/api/studio/clients/${client!.id}/fonts/${f.id}/file`);
   }, [client]);
+  /** Every grid of a client's month, newest first. */
+  const gridsOf = useCallback((c: string, m: string) => batches.filter((b) => b.client === c && b.month === m), [batches]);
   const planOf = useCallback(
-    (c: string, m: string) => batches.find((b) => b.client === c && b.month === m) ?? null,
-    [batches],
+    (c: string, m: string) => {
+      const list = gridsOf(c, m);
+      if (!list.length) return null;
+      const picked = gridPick[`${c}|${m}`];
+      return list.find((b) => b.id === picked) ?? list[0];
+    },
+    [gridsOf, gridPick],
   );
+  /** Opens one grid of the current client's month. */
+  const pickGrid = useCallback((id: string) => {
+    const b = batches.find((x) => x.id === id);
+    if (!b?.client || !b.month) return;
+    setGridPick((g) => ({ ...g, [`${b.client}|${b.month}`]: id }));
+  }, [batches]);
   // The open plan follows the client and the month.
   useEffect(() => {
     const plan = planOf(clientId, month);
@@ -370,6 +386,26 @@ export default function Workspace({
       ambassadors: castIds.length ? castIds : undefined,
     });
     const { id } = await post<{ id: string }>("/api/studio/batch", { config: cfg });
+    await loadState();
+    await open(id);
+    return id;
+  }
+
+  /** A fresh grid in the same month: the grids already made stay, each with its own posts, pictures and client link. */
+  async function newGrid(): Promise<string> {
+    if (!client) throw new Error("Pick a client first.");
+    const n = gridsOf(client.id, month).length + 1;
+    const cfg = postConfig(client.id, month, {
+      theme: themeId || undefined,
+      model: shownSettings.model || undefined,
+      format: shownSettings.format,
+      ratio: shownSettings.format,
+      size: shownSettings.size,
+      postCount: shownSettings.postCount,
+      ambassadors: castIds.length ? castIds : undefined,
+    });
+    const { id } = await post<{ id: string }>("/api/studio/batch", { config: cfg, name: `${client.name} · ${month} · grid ${n}` });
+    setGridPick((g) => ({ ...g, [`${client.id}|${month}`]: id }));
     await loadState();
     await open(id);
     return id;
@@ -1174,6 +1210,7 @@ export default function Workspace({
     try {
       if (b.client) setClientId(b.client);
       if (b.month) setMonth(b.month);
+      if (b.client && b.month) setGridPick((g) => ({ ...g, [`${b.client}|${b.month}`]: id }));
       await open(id);
       setPage("studio");
     } catch (e) {
@@ -1444,6 +1481,10 @@ export default function Workspace({
                 client={client}
                 month={month}
                 onMonth={setMonth}
+                grids={gridsOf(clientId, month).map((b) => ({ id: b.id, name: b.name }))}
+                gridId={batch?.id ?? null}
+                onGrid={pickGrid}
+                onNewGrid={() => newGrid().then(() => undefined)}
                 plan={plan}
                 postCount={shownSettings.postCount}
                 format={shownSettings.format}
@@ -1518,6 +1559,9 @@ export default function Workspace({
           onContinue={continueMonth}
           continuing={busy === "continue"}
           ensurePlan={ensurePlan}
+          grids={gridsOf(clientId, month).map((b) => ({ id: b.id, name: b.name }))}
+          onGrid={pickGrid}
+          onNewGrid={() => newGrid().then(() => undefined)}
           refresh={async () => {
             await refresh();
           }}
