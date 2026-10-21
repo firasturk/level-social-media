@@ -225,6 +225,18 @@ studioRoutes.get("/state", async (c) => {
   });
 });
 
+/**
+ * Only an admin connects or disconnects an engine: the keys are shared by every client and
+ * every member, and a member can still read the connection status and the model lists.
+ */
+export function requireEngineAdmin(user: User): void {
+  if (user.role !== "admin") throw new StudioError("Only an admin can change the engine connection.", 403);
+}
+studioRoutes.use("/engine/*", async (c, next) => {
+  if (c.req.method !== "GET" && c.req.method !== "HEAD") requireEngineAdmin(c.get("user"));
+  await next();
+});
+
 /** Save an OpenAI key from the app after checking it against the Models endpoint. */
 studioRoutes.post("/engine/openai-key", async (c) => {
   if (c.env.OPENAI_API_KEY)
