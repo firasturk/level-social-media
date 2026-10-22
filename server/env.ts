@@ -11,7 +11,7 @@ export interface Env {
   SESSION_SECRET?: string;
   WEBHOOK_TOKEN?: string;
   PUBLIC_BASE_URL?: string;
-  /** The short public address (levelstudio.pages.dev); page visits on workers.dev go there. */
+  /** The studio's own address (studio.levelmena.com); page visits on workers.dev and pages.dev go there. */
   CANONICAL_ORIGIN?: string;
   MAX_CONCURRENT_GENERATIONS?: string;
   /** "1" on a preview deployment: no picture or video is ever sent to an image engine. */
