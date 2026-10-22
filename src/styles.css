@@ -17325,3 +17325,18 @@ label.cta input {
     grid-template-columns: 1fr;
   }
 }
+
+.studio-feedback {
+  margin-top: 16px;
+}
+.editor-feedback summary,
+.editor-drive summary,
+.editor-ocr summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.editor-drive,
+.editor-ocr {
+  margin: 8px 0;
+}

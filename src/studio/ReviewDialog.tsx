@@ -146,6 +146,8 @@ export interface PostEditorTools {
   /** The OCR check of the picture and the artwork (a panel of its own), and the Drive reference picker. */
   ocrPanel?: ReactNode;
   drivePicker?: ReactNode;
+  /** The client's feedback on this post, read into reviewable changes. */
+  feedbackPanel?: ReactNode;
   onAnimate?: () => void;
   onVideo?: () => void;
   /** The month's earlier versions (the MonthVersions panel). */
@@ -554,6 +556,14 @@ export default function ReviewDialog({
               )}
             </div>
             <span className="revision-note">Words and the caption are saved free. The Text studio redraws the words on the saved picture; Animate and Video use the engine.</span>
+          </div>
+        )}
+        {editor && group === "idea" && editor.feedbackPanel && (
+          <div className="editor-group editor-feedback" role="region" aria-label="Client feedback">
+            <details>
+              <summary>Client feedback on this post</summary>
+              {editor.feedbackPanel}
+            </details>
           </div>
         )}
         {editor && group === "versions" && (

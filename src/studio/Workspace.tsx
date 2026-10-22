@@ -42,6 +42,7 @@ import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
+import FeedbackPanel from "./FeedbackPanel";
 import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
@@ -1464,6 +1465,16 @@ export default function Workspace({
                 />
               ) : undefined,
             drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
+            feedbackPanel: (
+              <FeedbackPanel
+                batchId={batch.id}
+                post={index}
+                posts={plan.map((p) => ({ index: p.index, title: p.title, headline: p.headline, caption: p.caption, hasPicture: tasks.some((x) => x.post === p.index && !!x.output), slides: p.group?.kind === "carousel" ? p.group.of : undefined }))}
+                onApplied={refresh}
+                model={shownSettings.model}
+                size={shownSettings.size}
+              />
+            ),
             onCheckWords: t?.output
               ? async (propose) => {
                   // The post as it will be published, words and logo drawn by the browser, is what the art director sees.
@@ -1846,6 +1857,18 @@ export default function Workspace({
               <div className="plan-column">
                 {useFlow && studioTab === "words" && batch && <WordsView plan={plan} tasks={tasks} outputThumb={outputThumb} onSavePlan={savePlan} />}
                 {useFlow && studioTab === "approval" && <ApprovalView plan={plan} tasks={tasks} approvals={config?.approvals} outputThumb={outputThumb} onClientLink={() => void shareMonth()} onWhatsApp={() => void whatsAppMonth()} onOpen={(i) => openEditor(i)} />}
+                {useFlow && studioTab === "approval" && batch && (
+                  <section className="journey-box flow-box studio-feedback">
+                    <span className="flow-eyebrow">Client feedback · the month</span>
+                    <FeedbackPanel
+                      batchId={batch.id}
+                      posts={plan.map((p) => ({ index: p.index, title: p.title, headline: p.headline, caption: p.caption, hasPicture: tasks.some((t) => t.post === p.index && !!t.output), slides: p.group?.kind === "carousel" ? p.group.of : undefined }))}
+                      onApplied={refresh}
+                      model={shownSettings.model}
+                      size={shownSettings.size}
+                    />
+                  </section>
+                )}
                 {useFlow && studioTab === "versions" && (batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : <p className="flow-muted studio-empty">No month yet.</p>)}
                 <div className={useFlow && studioTab !== "posts" ? "studio-hidden" : ""}>
                 <PlanView
