@@ -19927,4 +19927,32 @@ a.publish-pill.published:hover {
   margin-top: 6px;
   opacity: 0.85;
   line-height: 1.4;
+/* ───────────── Photo studio entry points: the dialog's button and the card's aperture icon ───────────── */
+.editor-open-photo-studio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line, #e5e5ea);
+  background: var(--ink-900, #1d1d1f);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.editor-open-photo-studio small {
+  font-weight: 400;
+  opacity: 0.75;
+}
+.editor-open-photo-studio:hover {
+  background: var(--blue, #1129d3);
+}
+.pc-photo-studio:hover,
+.pc-photo-studio:focus-visible {
+  background: var(--blue, #1129d3);
 }

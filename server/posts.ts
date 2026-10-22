@@ -3142,6 +3142,78 @@ postRoutes.post("/versions/restore", async (c) => {
   return c.json({ ok: true, restored });
 });
 
+/** The largest picture the Photo studio sends back (its Adjust tool draws at most 4096 px a side). */
+const PICTURE_UPLOAD_MAX = 20 * 1024 * 1024;
+
+/**
+ * A picture adjusted in the browser (the Photo studio's free Adjust tool: crop, rotate, light,
+ * colour) becomes the post's picture. It is stored like any picture of the month, recorded as a
+ * take (cost 0, with what changed as its note), and the picture it replaces stays a take and in the
+ * month's earlier pictures, exactly as a restored picture does. The words and the logo are layers
+ * drawn by the page, so they are redrawn over the new picture; nothing is generated.
+ */
+postRoutes.post("/picture/upload", async (c) => {
+  const form = await c.req.formData().catch(() => {
+    throw new StudioError("Send the picture as a form: the month, the post and the file.");
+  });
+  const batchId = String(form.get("batch") ?? "");
+  const index = Math.round(Number(form.get("index")));
+  const note = (String(form.get("note") ?? "").trim() || "Adjusted in the Photo studio").slice(0, 500);
+  const file = form.get("file");
+  const b = await ownedPlan(c.env, c.get("user"), batchId);
+  if (!(typeof file === "object" && file !== null && "arrayBuffer" in file)) throw new StudioError("Attach the picture file.");
+  if (!/^image\/(png|jpeg|webp)$/i.test(file.type)) throw new StudioError("The picture must be a PNG, JPEG or WebP.", 415);
+  if (file.size > PICTURE_UPLOAD_MAX) throw new StudioError("The picture is too big: at most 20 MB.", 413);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  if (!post) throw new StudioError("That post is not in the month.", 404);
+  const t = await first<{ id: string; output: string | null; status: string }>(c.env.DB, "SELECT id, output, status FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, index);
+  if (!t) throw new StudioError(`Post ${index} has no picture yet: make its picture once first.`, 409);
+  if (["queued", "processing", "finalizing"].includes(t.status)) throw new StudioError("This post is being made: wait for it first.", 409);
+  const bytes = await file.arrayBuffer();
+  // The picture is decoded once (an unreadable file is refused with a clear message) and a small thumbnail kept.
+  const id = uuid();
+  const stored = await storeBytes(c.env, id, bytes, file.type);
+  const key = `${b.owner}/${b.id}/output/${t.id}/${id}.${/png/i.test(file.type) ? "png" : /webp/i.test(file.type) ? "webp" : "jpg"}`;
+  await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: file.type } });
+  // The month's pictures live under the month; the decoded copy is not kept twice.
+  await c.env.BUCKET.delete(stored.image).catch(() => undefined);
+  // The designer adjusted and took this picture now: it is the picture of the idea as it is now.
+  const madeFor = postRevision(post, config);
+  await run(
+    c.env.DB,
+    "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, made_for = ?, updated = ? WHERE id = ?",
+    key,
+    madeFor,
+    now() + 1,
+    t.id,
+  );
+  await run(
+    c.env.DB,
+    "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)",
+    uuid(),
+    b.id,
+    index,
+    t.id,
+    key,
+    note,
+    madeFor,
+    now(),
+  );
+  if (t.output)
+    await run(
+      c.env.DB,
+      "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)",
+      uuid(),
+      b.id,
+      `Post ${index} before the Photo studio`,
+      JSON.stringify({ [String(index)]: t.output }),
+      JSON.stringify([{ post: index, key: t.output, at: now() }]),
+      now(),
+    );
+  return c.json({ ok: true, task: t.id, key, thumb: stored.thumb, width: stored.w, height: stored.h, previous: t.output });
+});
+
 /** One picture of an earlier version (only the month's own pictures). */
 postRoutes.get("/versions/image", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));

@@ -118,6 +118,7 @@ export default function PlanView({
   compact = false,
   toolbar = true,
   onEdit,
+  onPhotoStudio,
   onDeletePlan,
   saveStatus,
   onRetrySave,
@@ -230,6 +231,8 @@ export default function PlanView({
   /** False folds the month toolbar away (the Studio board's More menu opens it). */
   toolbar?: boolean;
   onEdit?: (index: number, group?: EditorGroup) => void;
+  /** The Photo studio (the full-screen picture workspace) on a post with a picture; the card's "Edit picture" opens it. */
+  onPhotoStudio?: (index: number, panel?: "edit" | "versions") => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
@@ -823,6 +826,7 @@ export default function PlanView({
                       styleTitle={p.style ? (styleOf(p.style)?.title ?? "Gallery style") : null}
                       dayTitle={occasionOn(p.date) || undefined}
                       onEdit={(g) => onEdit(p.index, g)}
+                      onPhotoStudio={onPhotoStudio && t?.output ? () => onPhotoStudio(p.index, "edit") : undefined}
                       onTextStudio={p.overlay !== false ? () => setEditing(p.index) : undefined}
                       onEditVideo={videos[String(p.index)]?.done ? () => openVideoEditor(p.index) : undefined}
                       onFixReview={onFix ? () => { setFixing(p.index); void onFix(p.index, fixNote(reviewFlags(t!)!)).finally(() => setFixing(null)); } : undefined}
@@ -1616,6 +1620,14 @@ export default function PlanView({
             fileName={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
             onClientsChanged={onClientsChanged}
             onClose={() => setEditing(null)}
+            onPhotoStudio={
+              onPhotoStudio
+                ? () => {
+                    setEditing(null);
+                    onPhotoStudio(p.index, "edit");
+                  }
+                : undefined
+            }
             onSave={(r: EditorResult, keepOpen) => {
               const next = draftRef.current.map((x) =>
                 x.index === p.index

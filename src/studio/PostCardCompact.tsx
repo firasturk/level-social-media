@@ -4,7 +4,7 @@
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Clapperboard, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
+import { Aperture, Check, Clapperboard, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
@@ -31,6 +31,7 @@ export default function PostCardCompact({
   styleTitle,
   dayTitle,
   onEdit,
+  onPhotoStudio,
   onTextStudio,
   onEditVideo,
   onFixReview,
@@ -53,6 +54,8 @@ export default function PostCardCompact({
   styleTitle?: string | null;
   dayTitle?: string;
   onEdit: (group?: EditorGroup) => void;
+  /** Opens the Photo studio on this post's picture: "Edit picture" and the aperture icon above the picture. Only when the post has a picture. */
+  onPhotoStudio?: () => void;
   /** Opens the Text studio on this post's words and layers: the icon above the picture. No picture is made. */
   onTextStudio?: () => void;
   /** Opens the Video editor on the post's selected video version: the icon under the T. Only when a finished clip exists. */
@@ -115,8 +118,22 @@ export default function PostCardCompact({
               </span>
             )
           )}
-          {task?.output && !inFlight && (onTextStudio || onEditVideo) && (
+          {task?.output && !inFlight && (onTextStudio || onEditVideo || onPhotoStudio) && (
             <span className="pc-head-tools">
+              {onPhotoStudio && (
+                <button
+                  type="button"
+                  className="pc-text-studio pc-photo-studio"
+                  title="Photo studio: the picture large, with every picture tool"
+                  aria-label="Photo studio"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPhotoStudio();
+                  }}
+                >
+                  <Aperture size={13} />
+                </button>
+              )}
               {onTextStudio && (
                 <button
                   type="button"
@@ -195,14 +212,14 @@ export default function PostCardCompact({
               <button type="button" className="cta primary small" onClick={primary.onClick} disabled={inFlight || primary.disabled || primary.busy} title={primary.title}>
                 {primary.busy ? <Orb size={13} /> : <Sparkles size={14} />} {primary.label}
               </button>
-              <button type="button" className="cta secondary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "Open the editor on the picture: retake, fix, compare" : "Open the editor on the idea and the shot; no picture is made"}>
-                <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+              <button type="button" className="cta secondary small" onClick={() => (task?.output && onPhotoStudio ? onPhotoStudio() : onEdit(task?.output ? "image" : "idea"))} disabled={inFlight} title={task?.output ? "Open the Photo studio: the picture large, with the AI edit, free adjustments, the Photo lab, versions and checks" : "Open the editor on the idea and the shot; no picture is made"}>
+                {task?.output ? <Aperture size={14} /> : <Pencil size={14} />} {task?.output ? "Edit picture" : "Edit the idea"}
               </button>
             </>
           ) : (
             <>
-              <button type="button" className="cta primary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "Open the editor on the picture: retake, fix, compare" : "Open the editor on the idea and the shot; no picture is made"}>
-                <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+              <button type="button" className="cta primary small" onClick={() => (task?.output && onPhotoStudio ? onPhotoStudio() : onEdit(task?.output ? "image" : "idea"))} disabled={inFlight} title={task?.output ? "Open the Photo studio: the picture large, with the AI edit, free adjustments, the Photo lab, versions and checks" : "Open the editor on the idea and the shot; no picture is made"}>
+                {task?.output ? <Aperture size={14} /> : <Pencil size={14} />} {task?.output ? "Edit picture" : "Edit the idea"}
               </button>
               <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture; no picture is made">
                 Words &amp; layout

@@ -68,6 +68,8 @@ import type { PostEditorTools, Group as EditorGroup } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 const DeliverDialog = lazyScreen(() => import("./DeliverDialog"));
 const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
+const PhotoStudio = lazyScreen(() => import("./photo/PhotoStudio"));
+import type { PhotoPanel } from "./photo/types";
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -1471,10 +1473,22 @@ export default function Workspace({
       setSelectedPost(index);
     }
   };
+  /** The Photo studio open on the selected task's post, and the panel it opened on. */
+  const [photoStudio, setPhotoStudio] = useState<{ panel: PhotoPanel } | null>(null);
   const closeEditor = () => {
     setSelected(null);
     setSelectedPost(null);
     setEditorGroup(undefined);
+    setPhotoStudio(null);
+  };
+  /** The full-screen picture workspace on a post with a picture (a post without one opens the editor on its idea). */
+  const openPhotoStudio = (index: number, panel: PhotoPanel = "edit") => {
+    const t = tasks.find((x) => x.post === index && x.output);
+    if (!t) return openEditor(index);
+    setEditorGroup(undefined);
+    setSelectedPost(null);
+    setSelected(t);
+    setPhotoStudio({ panel });
   };
   /** The post editor's four groups: the open task's post with every tool the card offers. */
   const editorPost = selected?.post ? plan.find((p) => p.index === selected.post) : selectedPost !== null ? plan.find((p) => p.index === selectedPost) : undefined;
@@ -2079,6 +2093,7 @@ export default function Workspace({
                 onOpen={setSelected}
                 compact={useFlow}
                 onEdit={openEditor}
+                onPhotoStudio={openPhotoStudio}
                 onExport={() => void exportMonth()}
                 onExportPdf={() => void exportFeedPdf()}
                 typography={typography}
@@ -2293,8 +2308,40 @@ export default function Workspace({
             await loadModels();
           }}
         />
+        {photoStudio && selected?.output && selected.post && editor && (
+          <PhotoStudio
+            open
+            editor={editor}
+            task={selected}
+            busy={acting}
+            originalUrl={sourceUrl(selected.source, "original")}
+            resultUrl={outputUrl(selected)}
+            clientId={config?.client ?? null}
+            initialPanel={photoStudio.panel}
+            onRevise={revise}
+            onRemake={() => {
+              const i = selected.post!;
+              try {
+                if (selected.output) localStorage.setItem(prevOutputKey(selected), selected.output);
+              } catch {
+                /* private mode */
+              }
+              closeEditor();
+              void generatePosts([i], true, false, false, true);
+            }}
+            onPrev={selectedIndex > 0 ? () => setSelected(reviewable[selectedIndex - 1]) : undefined}
+            onNext={selectedIndex >= 0 && selectedIndex < reviewable.length - 1 ? () => setSelected(reviewable[selectedIndex + 1]) : undefined}
+            onClose={closeEditor}
+            onTextStudio={() => {
+              const i = selected.post!;
+              closeEditor();
+              setWordsRequest({ index: i, at: Date.now() });
+            }}
+            onPictureChanged={refresh}
+          />
+        )}
         <ReviewDialog
-          task={selected}
+          task={photoStudio ? null : selected}
           source={selectedSource}
           busy={acting}
           originalUrl={selected ? sourceUrl(selected.source, "original") : ""}
@@ -2302,7 +2349,8 @@ export default function Workspace({
           position={selectedIndex >= 0 ? { index: selectedIndex, total: reviewable.length } : undefined}
           onClose={closeEditor}
           onRevise={revise}
-          editor={editor}
+          editor={photoStudio ? undefined : editor}
+          onPhotoStudio={selected?.post && selected.output ? (panel) => openPhotoStudio(selected.post!, panel) : undefined}
           onRemake={
             selected?.post
               ? () => {

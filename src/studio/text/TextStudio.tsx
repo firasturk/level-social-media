@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { postForm } from "@/api";
@@ -48,6 +48,8 @@ interface Props {
   fileName: string;
   onClientsChanged?: (clients: Client[]) => void;
   onClose: () => void;
+  /** Switches to the Photo studio on the same post (the design is saved first). */
+  onPhotoStudio?: () => void;
   /** keepOpen: an auto-save while the designer keeps working. */
   onSave: (r: EditorResult, keepOpen: boolean) => void;
   /** Pictures a picture layer can show: the month's product photos and the brand's own assets. */
@@ -1254,6 +1256,19 @@ export default function TextStudio(p: Props) {
           <button type="button" className={`ts-btn ts-preview-toggle ${previewOn ? "on" : ""}`} onClick={() => setPreviewOn((s) => !s)} title="Export preview: the final artwork at the output size, drawn here (no server call)" aria-pressed={previewOn}>
             <Eye size={14} /> <span>Preview</span>
           </button>
+          {p.onPhotoStudio && (
+            <button
+              type="button"
+              className="ts-btn"
+              onClick={() => {
+                if (dirtyRef.current) flushSave(true);
+                p.onPhotoStudio!();
+              }}
+              title="The picture itself, in the Photo studio: the AI edit, free adjustments, the Photo lab, versions and checks"
+            >
+              <Aperture size={14} /> <span>Photo studio</span>
+            </button>
+          )}
           <PopoverPrimitive.Root>
             <PopoverPrimitive.Trigger asChild>
               <button type="button" className="ts-btn" title="Export this post"><Download size={14} /> Export <ChevronDown size={12} /></button>
