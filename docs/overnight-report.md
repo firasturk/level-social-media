@@ -52,7 +52,13 @@ Legend for every feature below: **Live** = runs against a real service in this b
 ### Drive (section 9, feature 5) · Not connected (mock listing on the preview)
 - Approved folders per client with roles (Product photos · Brand assets · References · Outputs), migration 0063; duplicates (same md5) and unavailable files (bin/404) flagged; thumbnails with name/kind; per-post reference pinning from Drive (editor → Idea → Reference from the client's Drive). Each import or pin snapshots the file id, version (modifiedTime) and md5, and copies the bytes: a later Drive change never alters what an older picture used (tested).
 
-### Promptfoo and Langfuse (sections 10–11) · see section 3 below for status
+### Promptfoo (section 10, feature 6) · Live, offline
+- `npm run eval` runs promptfoo (community, dev dependency) against our own prompt builders with the demo fixtures: 24 cases, no network. They cover the four creation methods, counts (posts vs designs vs pictures vs text tiles), append vs replace (3 + 2 = 5, first three unchanged; replace → 2), input conflicts (a hand style vs no people, now checked against `shared/conflicts.ts`), approved memory in prompts and pending memory out, reference ordering (Image 1 = product photo), hand-edited shot/headline surviving, feedback interpretation (layer / image / ambiguous against `shared/feedback.ts`), and five prompt snapshots (a words-only regression check, never visual proof). `npm run eval:paid` is opt-in and refuses to run without a key; `check` does not include evals. Docs: docs/eval.md.
+- Finding from the eval: the grid writer's instruction carries no approved-memory block (asserted and commented; worth fixing).
+
+### Langfuse (section 11, feature 7) · Not connected (adapter in place)
+- docs/tracing.md maps every traceability field to where it lives in D1 today. Verdict: month, post, run, idea revision, references, engine and cost are already answerable from D1 (tasks, post_takes, spend, plan_preflights); the gaps are history of earlier takes' prompt/review/error, transient events, a named prompt version and the planner's raw answer. Langfuse is not needed for correctness; it is useful for "what exactly was sent".
+- `server/trace.ts`: a configurable adapter (env or settings keys), redaction of secrets and e-mails, fire-and-forget with a 5 s timeout, never blocks generation, no-op without keys. Hooked at submit, stored, failed, review and plan written. D1 stays the authority.
 
 ### Pricing visibility (section 12) · Live
 - Admin → Settings → "Who sees prices": Everyone (default, unchanged presentation) or Admins only (amounts read "(cost shown to admins)"); every confirmation, limit and ledger check stays.
@@ -61,7 +67,9 @@ Legend for every feature below: **Live** = runs against a real service in this b
 
 | Area | How | Result |
 |---|---|---|
-| Unit and route tests | `npm run typecheck`, `npx eslint .`, `npx vitest run`, `npm run build` | 64 files, 400 tests green; all under the network guard (no vendor reached) |
+| Unit and route tests | `npm run typecheck`, `npx eslint .`, `npx vitest run`, `npm run build` | 66 files, 433 tests green; all under the network guard (no vendor reached) |
+| Offline prompt eval | `npm run eval` | 24/24 cases, no network |
+| Tracing adapter | tests/trace.test.ts | no-op without keys; request shape against a stubbed host; redaction; never rejects |
 | Drafts 3 + 2 = 5 | tests/plan-drafts.test.ts and the preview walk (desktop + phone) | pass; first three unchanged, plannedAt unchanged |
 | Conflicts | tests/conflicts.test.ts | pass (EN/AR constraints, style hand vs no people, exceptions, grid tile vs brand) |
 | Memory | tests/memory-items.test.ts | pass (pending never in prompts, accept changes nothing, revise history, scope) |
@@ -84,12 +92,14 @@ Not tested live tonight: Google Vision, Google Drive, the model interpreter for 
 - Approved lessons stay brand-wide; a lesson's originating post index is not stored.
 - Drafts cover Quick Campaign; "Write the ideas again" and grids keep their confirm + Versions behaviour (the grid confirm now states the full scope).
 - The classic journey still calls the direct `/campaign` route (unchanged behaviour).
+- The grid writer's instruction carries no approved-memory block (found by the eval; one builder change).
+- `traceIdle()` is not wired into `ctx.waitUntil`; a Worker may end before a trace send completes (D1 is the authority, nothing is lost for the product).
 - Prettier is not part of the gate; new files are formatted, older ones keep their style.
 
 ## 4. Preview and evidence
 - Preview: https://studio-preview.max-fashion-studio.workers.dev · worker `studio-preview` · migrations 0059–0063 applied to the preview D1 only.
 - Screenshots in the session scratchpad (`preview/ov-*.jpg`, `ov-phone-*.jpg`, `ts-*.jpg`): Start with the four ways, the draft panel (3 then 2), Direction with rules, Plan with the guide fold-out, Studio tabs, Text studio with Apply to all.
-- Branch: `overnight-scope` (pushed), 21 commits after `phase-1-workflow`.
+- Branch: `overnight-scope` (pushed), 25 commits after `phase-1-workflow`.
 
 ## 5. Connect tomorrow
 1. **Google Cloud Vision** (OCR): enable the Cloud Vision API on the project; use the saved Google key (project with Vision enabled, key not restricted away from it) or give the Vertex service account the "Cloud Vision API User" role; billing on (~$1.50 per 1,000 images after the free tier). Check `GET /api/studio/ocr/status` → connected.
