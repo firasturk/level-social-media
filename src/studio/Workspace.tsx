@@ -55,6 +55,7 @@ const BatchesView = lazyScreen(() => import("./BatchesView"));
 const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
 import type { PostEditorTools, Group as EditorGroup } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
+const DeliverDialog = lazyScreen(() => import("./DeliverDialog"));
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -139,6 +140,7 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
+  const [deliverOpen, setDeliverOpen] = useState(false);
   const [workflowV2, setWorkflowV2] = useState(false);
   /* The workflow is drawn light, as designed: the first time it is on, this browser goes light; the toggle then decides. */
   const [theme, toggleTheme] = useTheme(workflowV2);
@@ -1799,6 +1801,9 @@ export default function Workspace({
                       <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.made || exporting}>
                         Feed PDF
                       </button>
+                      <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.made}>
+                        Deliver to the client&apos;s Drive…
+                      </button>
                       <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>
                         Upload product photos
                       </button>
@@ -2118,6 +2123,21 @@ export default function Workspace({
       )}
 
       <Suspense fallback={null}>
+        {deliverOpen && batch && client && (
+          <DeliverDialog
+            open={deliverOpen}
+            onClose={() => setDeliverOpen(false)}
+            clientId={client.id}
+            batchId={batch.id}
+            month={batch.month ?? month}
+            plan={plan}
+            tasks={tasks}
+            approvals={config?.approvals}
+            overlay={overlaySpec}
+            logoSrc={logoSrc}
+            outputUrl={outputUrl}
+          />
+        )}
         <ConnectionDialog
           open={connection}
           engine={engine}
