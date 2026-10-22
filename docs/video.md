@@ -2,8 +2,10 @@
 
 A finished post becomes a short clip: the picture (or the composed artwork, words and logo drawn
 in) is the first frame, the motion idea is the prompt. Every clip is a *version* of the post, kept
-with it; one version can be selected for the client's approval link. Nothing is drawn over a clip
-after generation.
+with it; the first finished clip is the one the client sees on the approval link until the team
+picks another or shows the picture instead. Every clip is a **Reel 9:16** by default (Portrait 4:5,
+Square 1:1 and Landscape 16:9 on request; docs/video-studio.md "Frame"). Nothing is drawn over a
+clip after generation.
 
 ## What is live and what is mocked
 
@@ -21,12 +23,12 @@ after generation.
 
 Studio, under `/api/studio/posts/video` (`server/video.ts`, mounted from `server/studio.ts`):
 
-- `POST /api/studio/posts/video` — `{batch, index, model, prompt, duration?, aspect?, resolution?, audio?, source: "picture"|"artwork", artwork?: dataURL, confirm?}`. Admins only (`requireIntegrationAdmin(c, "higgsfield")` + `assertIntegrationEnabled`). The cost is settled first: the catalog price, else the admin's `video_price_<slug>` setting, else the provider's estimate; with none of them the route answers 409 `{needsEstimate: true, model}` until `confirm: true`. `claimSubmission` on `video:<batch>:<post>:<sha256 of model+prompt+settings+source+poster>` refuses the same ask within ten minutes. `recordIntegrationOp` gets the estimate; the request id goes to `updateIntegrationOp`. The submission carries an `Idempotency-Key` (the clip's id). A provider rejection is kept as a `failed` version with its message; nothing retries by itself.
+- `POST /api/studio/posts/video` — `{batch, index, model, prompt, duration?, aspect?, resolution?, audio?, source: "picture"|"artwork", artwork?: dataURL, frame?: "9:16"|"4:5"|"1:1"|"16:9", fill?: "crop"|"blur", words?: boolean, confirm?}` (the same `frame`, `fill`, `words` on `/api/studio/higgsfield/mcp/generate` and `/api/studio/video/magnific/generate`; an unknown frame or fill is 400). `frame` is the frame asked for; `fill` says the browser composed the picture to it (`source: "artwork"` then carries the composed picture); `words` says whether the words and logo are in it. Admins only (`requireIntegrationAdmin(c, "higgsfield")` + `assertIntegrationEnabled`). The cost is settled first: the catalog price, else the admin's `video_price_<slug>` setting, else the provider's estimate; with none of them the route answers 409 `{needsEstimate: true, model}` until `confirm: true`. `claimSubmission` on `video:<batch>:<post>:<sha256 of model+prompt+settings+source+poster>` refuses the same ask within ten minutes. `recordIntegrationOp` gets the estimate; the request id goes to `updateIntegrationOp`. The submission carries an `Idempotency-Key` (the clip's id). A provider rejection is kept as a `failed` version with its message; nothing retries by itself.
 - `POST /api/studio/posts/video/retry` — `{batch, id, confirm?}`: a failed clip submitted again as a new job and a new op.
-- `GET /api/studio/posts/video/list?batch=&index=` — the post's clips, newest first, with `engines`, `prices` and `admin`. In-flight clips (`queued`, `generating`) are asked about here (six per call at most): a finished one is downloaded into R2 and marked `done`, a failed one keeps the provider's message, one older than thirty minutes is given up. This is how a refreshed studio reconnects to a running job; the dialog and the cards poll it. The cron never submits or polls.
+- `GET /api/studio/posts/video/list?batch=&index=` — the post's clips, newest first, with `engines`, `prices` and `admin`; each item carries `frame`, `frameFill`, `words` beside `aspect`. In-flight clips (`queued`, `generating`) are asked about here (six per call at most): a finished one is downloaded into R2 and marked `done` — and marked for the client when the post has no client version yet (`autoSelectForClient`) — a failed one keeps the provider's message, one older than thirty minutes is given up. This is how a refreshed studio reconnects to a running job; the dialog and the cards poll it. The cron never submits or polls.
 - `GET /api/studio/posts/video/summary?batch=` — one line per post: the client's version, the newest finished clip, the newest clip of all (for the cards).
-- `POST /api/studio/posts/video/select` — `{batch, index, id|null}`: the version the client sees (`for_client`, at most one per post).
-- `POST /api/studio/posts/video/upload` — multipart `batch`, `index`, `file` (mp4, 60 MB at most), `note`. Admins only. Stored as a `done` version with `provider = 'upload'`, `source = 'upload'` through `storeVideoFile` (the checks shared with the video editor's export). The video editor also uses this route for the footage a person brings from their computer.
+- `POST /api/studio/posts/video/select` — `{batch, index, id|null}`: the version the client sees (`for_client`, at most one per post). The first finished clip of a post is marked by itself; this route changes the choice or clears it ("Show the picture instead"); a later clip never replaces a chosen one.
+- `POST /api/studio/posts/video/upload` — multipart `batch`, `index`, `file` (mp4, 60 MB at most), `note`. Admins only. Stored as a `done` version with `provider = 'upload'`, `source = 'upload'` through `storeVideoFile` (the checks shared with the video editor's export), the client's version when the post had none. The video editor also uses this route for the footage a person brings from their computer.
 - `/api/studio/posts/video/editor/*` — the video editor's projects and its export, which becomes a `done` version with `provider = 'editor'`, `source = 'editor'` (`server/video-editor.ts`, docs/video-editor.md). An exported version is selected for the client with the same `POST /select` as any other.
 - `GET|HEAD /api/studio/posts/video/file?batch=&id=` — the mp4 with Range.
 - `GET /api/studio/posts/video/poster?batch=&id=` — the still the clip started from.
@@ -34,14 +36,14 @@ Studio, under `/api/studio/posts/video` (`server/video.ts`, mounted from `server
 
 Client link (`server/share.ts`):
 
-- `GET /api/share/:token` — each post carries `video: {id, url, poster, duration, version}` when a `for_client` finished clip exists, and `version: {kind: "video"|"image", id, label}` for whatever is shown ("Video 2 (22 Oct)" or "Picture (22 Oct)"). Drafts are never listed.
+- `GET /api/share/:token` — each post carries `video: {id, url, poster, duration, version}` when a `for_client` finished clip exists (the first finished clip by itself, or the team's choice), and `version: {kind: "video"|"image", id, label}` for whatever is shown ("Video 2 (22 Oct)" or "Picture (22 Oct)"). Drafts are never listed. The page plays the clip on the post's card and shows its poster with a play mark on the feed cell.
 - `GET|HEAD /api/share/:token/video/:index` — the selected clip with Range, behind the same token as the pictures; the provider's URL never leaves the server.
 - `GET /api/share/:token/video/:index/poster`.
 - `POST /api/share/:token/review` — now takes `version: {kind, id, label?}` and stores it on the reviewer's answer (`config.approvals[index].answers[].version`). Earlier answers on earlier versions stay; the studio's Approval view shows "on Video 1 (22 Oct)" next to each answer, and the client page says "you answered on … this one is newer" when the version moved on.
 
 ## Storage
 
-Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `higgsfield-mcp` | `magnific` | `upload` | `editor`; the Video studio's preset runs and Higgsfield clip tools are `higgsfield-mcp` rows with a `model` of `preset:<id>` or `tool:<name>`, Magnific's clips and tools `magnific` rows, docs/video-studio.md), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`), `for_client`, `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
+Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `higgsfield-mcp` | `magnific` | `upload` | `editor`; the Video studio's preset runs and Higgsfield clip tools are `higgsfield-mcp` rows with a `model` of `preset:<id>` or `tool:<name>`, Magnific's clips and tools `magnific` rows, docs/video-studio.md), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, frame, frameFill, words, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`; `artwork` is any picture the browser composed: the words and logo drawn in, or the bare picture fitted to the frame — `settings.words` tells them apart), `for_client` (set by itself on the first finished clip of a post, changed under Versions), `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
 
 Keys: the mp4 at `<owner>/<batch>/video/<task>/<video id>.mp4`; an artwork first frame at `<owner>/<batch>/video/<task>/<uuid>.artwork.(jpg|png|webp)`. For a `picture` clip the poster is the task's own output key (no copy).
 
@@ -75,9 +77,9 @@ The client page never autoplays and never mutes by itself: the viewer taps play,
 
 ## Studio
 
-- Card: a "Video · 5s" badge over the poster when the post has a finished clip (the client's version when one is selected, else the newest finished one); tapping it opens the inline player (the browser's own seek, mute and fullscreen controls); "Making the video…" and "Video failed · …" come from the newest clip.
-- Dialog ("Video from this picture"): the motion idea, the engine, length / frame / resolution / sound as the model allows, "Include the words and logo in the video input" (the browser composes the artwork and sends it as the first frame), the cost line, "Make the video", "Try again" on a failed clip, the versions list with "Select for client review". It reconnects to a running clip when opened.
-- Editor → Versions: the picture (shown to the client when no clip is selected), each video version with its state, "Select for client review" / "Show the picture to the client".
+- Card: a "Video · 5s · Reel 9:16" badge over the poster when the post has a finished clip (the client's version when one is selected, else the newest finished one), with *the client sees this* when it is the client's; tapping it opens the inline player (the browser's own seek, mute and fullscreen controls); "Making the video…" and "Video failed · …" come from the newest clip.
+- Dialog ("Video from this picture"): the motion idea, the engine, length / resolution / sound as the model allows, the **Frame** control (Reel 9:16 by default; the picture is composed to the frame in the browser when the engine follows the picture), "Include the words and logo in the video input" (the browser composes the artwork and sends it as the first frame), the cost line, "Make the video", "Try again" on a failed clip, the versions list with "Select for client review" / "The client sees this". It reconnects to a running clip when opened.
+- Editor → Versions: the picture (shown to the client when no clip is selected), each video version with its frame and state, "Select for client review" / "The client sees this" / "Show the picture instead".
 - Approval view: each answer says which version it referred to.
 
 ## Audio

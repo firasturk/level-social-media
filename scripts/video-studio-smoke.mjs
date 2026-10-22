@@ -6,10 +6,13 @@
  * videos are served by this script). The month opens, the card's clapperboard opens the Video
  * studio, and the script checks that the studio mounts with its seven tools, that it opens on the
  * Presets panel for a post with no clip, that the gallery renders the category list and the cards
- * with `<video muted loop playsinline>` elements, that the search filters the cards, that "Use this
- * preset" opens Generate with the preset's words, that Versions and Edit mount, and that the 390 px
- * layout shows the bottom toolbar with no sideways scroll. Screenshots at 1440 and 390 land in
- * --out (default: ./smoke). No Worker, no D1, no wrangler and no provider are involved.
+ * with `<video muted loop playsinline>` elements (a card with a picture only carries the "Picture
+ * preview" tag), that the search filters the cards, that switching categories forgets the picked
+ * preset, that "Use this preset" opens Generate with the preset's words, that Generate shows the
+ * Frame control on Reel 9:16 by default (the fill appears for an engine that follows the picture;
+ * the choice is remembered per month), that Versions and Edit mount, and that the 390 px layout
+ * shows the bottom toolbar with no sideways scroll. Screenshots at 1440 and 390 land in --out
+ * (default: ./smoke). No Worker, no D1, no wrangler and no provider are involved.
  *
  * Usage:  npm run build && node scripts/video-studio-smoke.mjs [--out dir]
  */
@@ -107,7 +110,7 @@ const CATEGORIES = [
   { id: "recipes", label: "Recipes", hint: "Step-by-step commands." },
 ];
 /** Cards as server/video-presets.ts answers them; the reference videos point at this server. */
-const presetCard = (url, id, title, extra = {}) => ({ id, source: "marketing_studio", title, description: `${title}: a short description of what the preset does to the picture.`, command: `/${id.replace(/_/g, "-")}`, category: "product-shot", type: "product", video: `${url}/fixtures/${id}.mp4`, poster: `${url}/fixtures/${id}.png`, price: 20, needs: ["1 product picture"], runnable: true, engine: null, prompt: `A ${title.toLowerCase()} of the product, slow and warm`, ...extra });
+const presetCard = (url, id, title, extra = {}) => ({ id, source: "marketing_studio", title, description: `${title}: a short description of what the preset does to the picture.`, command: `/${id.replace(/_/g, "-")}`, category: "product-shot", type: "product", video: `${url}/fixtures/${id}.mp4`, poster: `${url}/fixtures/${id}.png`, price: 20, needs: ["1 product picture"], runnable: true, engine: null, prompt: `A ${title.toLowerCase()} of the product, slow and warm`, output: "video", ...extra });
 
 const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".json": "application/json", ".ico": "image/x-icon" };
 
@@ -128,7 +131,8 @@ async function startStatic() {
         res.end(PICTURE);
         return;
       }
-      const presets = [presetCard(base, "hero_shot", "Hero Shot"), presetCard(base, "glitch_pop", "Glitch Pop", { source: "viral", category: "viral", type: "effect", price: null, needs: ["2 pictures"] }), presetCard(base, "turntable", "Turntable"), presetCard(base, "launch_day", "Launch day", { source: "katana", category: null, runnable: false, command: "/katana/launch-day", price: null })];
+      // Four cards with a reference video, and one Motion Design preset that Higgsfield shows with a picture only (its result is a video).
+      const presets = [presetCard(base, "hero_shot", "Hero Shot"), presetCard(base, "glitch_pop", "Glitch Pop", { source: "viral", category: "viral", type: "effect", price: null, needs: ["2 pictures"] }), presetCard(base, "turntable", "Turntable"), presetCard(base, "launch_day", "Launch day", { source: "katana", category: null, runnable: false, command: "/katana/launch-day", price: null }), presetCard(base, "logo_spin", "Logo spin", { category: "motion", type: "motion", video: null, command: null })];
       const MOCK = {
         "/api/auth/me": { user: ADMIN, registrationOpen: false },
         "/api/studio/state": { user: ADMIN, batches: [BATCH], trash: [], spend: [], spendThreshold: 20, clients: [CLIENT], engine: { model: "nano-banana-pro", configured: false, source: "none", openai: "none", google: "none", fal: "none", review: false, vertex: null }, preview: true, workflowV2: true },
@@ -225,10 +229,15 @@ try {
   result.categories = await studio.locator(".vs-cats button").count();
   if (result.categories !== 10) errors.push(`The category list should show 10 categories, found ${result.categories}`);
   result.cards = await studio.locator(".vs-preset").count();
-  if (result.cards !== 4) errors.push(`The gallery should show 4 fixture cards, found ${result.cards}`);
+  if (result.cards !== 5) errors.push(`The gallery should show 5 fixture cards, found ${result.cards}`);
   // React sets `muted` as a property, not an attribute, so the three are read from the elements.
   result.videos = await studio.locator(".vs-preset video").evaluateAll((els) => els.filter((v) => v.muted && v.loop && v.playsInline && v.hasAttribute("playsinline")).length);
-  if (result.videos !== 4) errors.push(`Every card should carry a muted, looping, inline video, found ${result.videos}`);
+  if (result.videos !== 4) errors.push(`The four video cards should carry a muted, looping, inline video, found ${result.videos}`);
+  // The picture-only card shows its picture with the "Picture preview" tag, never a black "No reference video" box.
+  result.pictureTags = await studio.locator(".vs-preset .vs-preset-tag").allInnerTexts();
+  if (result.pictureTags.length !== 1 || !/Picture preview/.test(result.pictureTags[0])) errors.push(`One card should carry the "Picture preview" tag, found ${JSON.stringify(result.pictureTags)}`);
+  result.blankBoxes = await studio.locator(".vs-preset .vs-preset-blank").count();
+  if (result.blankBoxes !== 0) errors.push(`No card should show a blank box, found ${result.blankBoxes}`);
   result.commandChips = await studio.locator(".vs-preset .vs-chip.cmd").allInnerTexts();
   result.needs = await studio.locator(".vs-preset .vs-needs").first().innerText();
   // Hover plays the reference (muted).
@@ -236,12 +245,24 @@ try {
   await page.waitForTimeout(600);
   result.playsOnHover = await studio.locator(".vs-preset video").first().evaluate((v) => !v.paused || v.readyState > 0);
   await page.screenshot({ path: join(outDir, "video-studio-1440-presets.png") });
+  // The picture-only card, scrolled into view, with its "Picture preview" tag.
+  await studio.locator(".vs-preset").last().scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: join(outDir, "video-studio-1440-presets-picture.png") });
+  await studio.locator(".vs-preset").first().scrollIntoViewIfNeeded();
   // The search filters the cards.
   await studio.locator(".vs-search input").fill("glitch");
   await page.waitForTimeout(200);
   result.afterSearch = await studio.locator(".vs-preset").count();
   if (result.afterSearch !== 1) errors.push(`Searching "glitch" should leave 1 card, found ${result.afterSearch}`);
   await studio.locator(".vs-search input").fill("");
+  // A picked preset is forgotten when the category changes: the side panel goes back to its hint.
+  await studio.locator(".vs-preset").first().getByRole("button", { name: /Learn more/ }).click();
+  await studio.locator(".vs-detail").waitFor({ state: "visible", timeout: 10000 });
+  await studio.locator(".vs-cats button", { hasText: "Effects" }).click();
+  await page.waitForTimeout(300);
+  result.detailResetOnCategory = (await studio.locator(".vs-detail").count()) === 0;
+  if (!result.detailResetOnCategory) errors.push("Switching the category should close the picked preset's detail.");
   // An empty category says so.
   await studio.locator(".vs-cats button", { hasText: "Genjutsu" }).click();
   await studio.locator(".vs-note", { hasText: /Nothing in this category/ }).waitFor({ state: "visible", timeout: 10000 });
@@ -267,7 +288,32 @@ try {
   await studio.locator(".vs-engine", { hasText: "Seedance 2.5" }).waitFor({ state: "visible", timeout: 10000 });
   result.engineChips = await studio.locator(".vs-engine").count();
   result.getCost = (await studio.getByRole("button", { name: /Get the cost/ }).count()) === 1;
+  // The Frame control: Reel 9:16 by default; the fixture's Seedance takes 9:16 itself, so no fill is asked.
+  const frame = studio.locator(".vs-framectl");
+  await frame.waitFor({ state: "visible", timeout: 10000 });
+  result.frameDefault = await frame.getAttribute("data-frame");
+  if (result.frameDefault !== "9:16") errors.push(`The frame should open on Reel 9:16, found ${result.frameDefault}`);
+  result.frameChoices = await frame.locator('[role="radio"]').allInnerTexts();
+  if (result.frameChoices.length !== 4) errors.push(`The Frame control should offer 4 frames, found ${result.frameChoices.length}`);
+  result.frameNoteEngine = (await frame.locator(".vs-framectl-note").innerText()).trim();
+  if (!/Seedance 2\.5 takes the Reel 9:16 frame itself/.test(result.frameNoteEngine)) errors.push(`The frame note should say the engine takes the frame, got "${result.frameNoteEngine}"`);
+  result.fillHiddenWhenEngineTakesFrame = (await frame.locator(".vs-framectl-fill").count()) === 0;
+  // An engine that follows the picture: the fill appears and the note says the picture is composed here first.
+  await studio.locator(".vs-engine", { hasText: "Kling 3.0" }).click();
+  await frame.locator(".vs-framectl-fill select").waitFor({ state: "visible", timeout: 5000 });
+  result.frameNoteCompose = (await frame.locator(".vs-framectl-note").innerText()).trim();
+  if (!/follows the picture's frame, so the picture is made Reel 9:16 here/.test(result.frameNoteCompose)) errors.push(`The frame note should say the picture is composed here, got "${result.frameNoteCompose}"`);
+  result.fillOptions = await frame.locator(".vs-framectl-fill option").allInnerTexts();
+  await frame.locator(".vs-framectl-fill select").selectOption("blur");
+  // Another frame: Square 1:1, remembered for this month.
+  await frame.locator('[role="radio"]', { hasText: "Square" }).click();
+  result.frameAfterClick = await frame.getAttribute("data-frame");
+  if (result.frameAfterClick !== "1:1") errors.push(`Clicking Square should set the frame to 1:1, found ${result.frameAfterClick}`);
+  result.frameRemembered = await page.evaluate(() => localStorage.getItem("lsm-video-frame-b1"));
+  if (result.frameRemembered !== JSON.stringify({ frame: "1:1", fill: "blur" })) errors.push(`The frame choice should be remembered per month, found ${result.frameRemembered}`);
   await page.screenshot({ path: join(outDir, "video-studio-1440-generate.png") });
+  await frame.locator('[role="radio"]', { hasText: "Reel" }).click();
+  await studio.locator(".vs-engine", { hasText: "Seedance 2.5" }).click();
   // Versions, Enhance, Check and Edit mount.
   await rail.filter({ hasText: "Versions" }).click();
   await studio.locator(".vs-list li").first().waitFor({ state: "visible", timeout: 10000 });

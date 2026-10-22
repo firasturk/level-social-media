@@ -7,8 +7,11 @@ import { ApiError, post } from "@/api";
 import { DEFAULT_VIDEO_MODEL, durationChoices, VIDEO_MODELS, videoModel } from "@shared/video-models";
 import type { Post } from "@shared/posts";
 import type { AudioChoice } from "@shared/video-audio";
-import { audioLine, chooseAudio, costLabel, engineLabel, inFlight, listVideos, MCP_PROVIDER, mcpEstimate, mcpGenerate, mcpModels as fetchMcpModels, mcpStatus, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type HiggsfieldBilling, type HiggsfieldMcpStatus, type McpAsk, type McpVideoModel, type VideoItem, type VideoList } from "./videoApi";
+import { frameRoute, type FrameFill, type FrameId } from "@shared/video-frame";
+import { audioLine, chooseAudio, costLabel, engineLabel, frameLine, inFlight, inputLine, listVideos, MCP_PROVIDER, mcpEstimate, mcpGenerate, mcpModels as fetchMcpModels, mcpStatus, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type HiggsfieldBilling, type HiggsfieldMcpStatus, type McpAsk, type McpVideoModel, type VideoItem, type VideoList } from "./videoApi";
 import VideoAudio from "./VideoAudio";
+import FrameControl, { useFrameChoice } from "./FrameControl";
+import { composeFrame } from "@/video-editor/frame";
 
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
@@ -56,8 +59,10 @@ export default function VideoDialog({
   const [idea, setIdea] = useState("");
   const [model, setModel] = useState(DEFAULT_VIDEO_MODEL);
   const [duration, setDuration] = useState<number>(videoModel(DEFAULT_VIDEO_MODEL)!.duration.default);
-  const [aspect, setAspect] = useState<string>("");
   const [resolution, setResolution] = useState<string>("");
+  /** The frame (a Reel 9:16 by default) and the fill, remembered per month; the picture is composed to it when the engine follows the picture. */
+  const [frameChoice, setFrameChoice] = useFrameChoice(batchId);
+  const framedRef = useRef<{ key: string; dataUrl: string } | null>(null);
   /** The audio choice: engine sound or none for the next clip, a track, or a note for Instagram (shared/video-audio.ts). */
   const [audioChoice, setAudioChoice] = useState<AudioChoice>("none");
   const [audioId, setAudioId] = useState<string | null>(null);
@@ -83,7 +88,6 @@ export default function VideoDialog({
   const [moreEngines, setMoreEngines] = useState(false);
   const [mcpModel, setMcpModel] = useState("");
   const [mcpDuration, setMcpDuration] = useState<number | "">("");
-  const [mcpAspect, setMcpAspect] = useState("");
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState("");
   const [cost, setCost] = useState<null | { credits: number | null; balance: number | null }>(null);
@@ -99,7 +103,6 @@ export default function VideoDialog({
     if (!next) return;
     setModel(slug);
     setDuration(next.duration.options?.includes(duration) || (!next.duration.options && duration >= (next.duration.min ?? 1) && duration <= (next.duration.max ?? 60)) ? duration : next.duration.default);
-    setAspect(next.aspect?.includes(aspect) ? aspect : "");
     setResolution(next.resolution?.includes(resolution) ? resolution : next.resolution ? (next.resolution.includes("720p") ? "720p" : next.resolution[0]) : "");
     if (!next.audio && audioChoice === "provider") setAudioChoice("none");
   }
@@ -113,7 +116,6 @@ export default function VideoDialog({
     if (!next) return;
     setMcpModel(id);
     setMcpDuration(next.durations.length ? (typeof mcpDuration === "number" && next.durations.includes(mcpDuration) ? mcpDuration : next.durations.includes(5) ? 5 : next.durations[0]) : mcpDuration);
-    setMcpAspect(next.aspects.includes(mcpAspect) ? mcpAspect : "");
     if (audioChoice === "provider") setAudioChoice("none");
     resetCost();
   }
@@ -145,7 +147,6 @@ export default function VideoDialog({
       if (pick) {
         setMcpModel(pick.id);
         setMcpDuration(pick.durations.length ? (pick.durations.includes(5) ? 5 : pick.durations[0]) : "");
-        setMcpAspect("");
       }
     } catch (e) {
       setMcpError((e as Error).message);
@@ -185,18 +186,17 @@ export default function VideoDialog({
     setError("");
     setNeedsConfirm(null);
     try {
-      const artwork = withWords && composeArtwork ? await composeArtwork() : undefined;
+      const input = await framedInput(m.aspect);
       const r = await post<{ video: VideoItem }>("/api/studio/posts/video", {
         batch: batchId,
         index: p.index,
         prompt: idea.trim(),
         model,
         duration,
-        aspect: aspect || undefined,
+        aspect: frameRoute(frameChoice.frame, m.aspect).aspect,
         resolution: resolution || undefined,
         audio: audioChoice === "provider",
-        source: withWords ? "artwork" : "picture",
-        artwork,
+        ...input,
         confirm,
       });
       await afterSubmit(r.video);
@@ -220,18 +220,33 @@ export default function VideoDialog({
     toast.success("The video is being made; it takes a minute or two.");
     onChanged?.();
   }
+  /**
+   * The clip's first frame for an engine with these frame options: the picture or the artwork as it
+   * is when the engine takes the frame itself; composed to the frame here (crop to fit, or blur the
+   * edges) and sent as the artwork when the engine follows the picture. Composed once per cost step.
+   */
+  async function framedInput(aspects: readonly string[] | null | undefined): Promise<{ source: "picture" | "artwork"; artwork?: string; frame: FrameId; fill?: FrameFill; words: boolean }> {
+    const { frame, fill } = frameChoice;
+    const words = withWords && !!composeArtwork;
+    if (words && !artworkRef.current) artworkRef.current = await composeArtwork!();
+    const artwork = words ? (artworkRef.current ?? undefined) : undefined;
+    const route = frameRoute(frame, aspects);
+    if (!route.compose) return { source: words ? "artwork" : "picture", artwork, frame, words };
+    const key = `${frame}:${fill}:${words ? "words" : "bare"}`;
+    if (framedRef.current?.key !== key) framedRef.current = { key, dataUrl: await composeFrame(artwork ?? src, frame, fill) };
+    return { source: "artwork", artwork: framedRef.current.dataUrl, frame, fill, words };
+  }
   /** The ask the cost and the run share; the artwork composed once per cost step. */
   async function mcpAsk(): Promise<McpAsk> {
-    if (withWords && composeArtwork && !artworkRef.current) artworkRef.current = await composeArtwork();
+    const input = await framedInput(engine?.aspects ?? null);
     return {
       batch: batchId,
       index: p.index,
       model: mcpModel,
       prompt: idea.trim(),
       duration: typeof mcpDuration === "number" ? mcpDuration : undefined,
-      aspect: mcpAspect || undefined,
-      source: withWords ? "artwork" : "picture",
-      artwork: withWords ? (artworkRef.current ?? undefined) : undefined,
+      aspect: frameRoute(frameChoice.frame, engine?.aspects ?? null).aspect,
+      ...input,
     };
   }
   /** The cost in credits of exactly this clip; nothing is submitted. */
@@ -315,11 +330,8 @@ export default function VideoDialog({
           setDuration(last.duration);
           setMcpDuration(last.duration);
         }
-        if (last.aspect) {
-          setAspect(last.aspect);
-          setMcpAspect(last.aspect);
-        }
-        setWithWords(last.source === "artwork");
+        // The frame is remembered per month in the browser, not read back from the last clip.
+        setWithWords(last.words === true);
         if (last.audioChoice) {
           setAudioChoice(last.audioChoice);
           setAudioId(last.audioId);
@@ -485,25 +497,6 @@ export default function VideoDialog({
                       />
                     )}
                   </label>
-                  {engine && engine.aspects.length > 0 && (
-                    <label>
-                      <span>Frame</span>
-                      <select
-                        value={mcpAspect}
-                        onChange={(e) => {
-                          setMcpAspect(e.target.value);
-                          resetCost();
-                        }}
-                      >
-                        <option value="">As the picture</option>
-                        {engine.aspects.map((a) => (
-                          <option key={a} value={a}>
-                            {a}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
                 </div>
               </>
             ) : (
@@ -533,19 +526,6 @@ export default function VideoDialog({
                       ))}
                     </select>
                   </label>
-                  {m.aspect && (
-                    <label>
-                      <span>Frame</span>
-                      <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-                        <option value="">As the picture</option>
-                        {m.aspect.map((a) => (
-                          <option key={a} value={a}>
-                            {a}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
                   {m.resolution && (
                     <label>
                       <span>Resolution</span>
@@ -561,6 +541,17 @@ export default function VideoDialog({
                 </div>
               </>
             )}
+            <label className="field-label">Frame</label>
+            <FrameControl
+              variant="dialog"
+              frame={frameChoice.frame}
+              fill={frameChoice.fill}
+              engine={credits ? (engine ? { name: engine.name, aspects: engine.aspects } : null) : { name: m.name, aspects: m.aspect }}
+              onChange={(c) => {
+                setFrameChoice(c);
+                resetCost();
+              }}
+            />
             <label className="video-check video-words">
               <input
                 type="checkbox"
@@ -680,15 +671,16 @@ export default function VideoDialog({
                         <small>
                           {engineLabel(v, cloudName)}
                           {v.duration ? ` · ${v.duration}s` : ""}
-                          {v.source === "artwork" ? " · with words" : v.source === "picture" ? " · bare picture" : ""}
+                          {frameLine(v) ? ` · ${frameLine(v)}` : ""}
+                          {inputLine(v) ? ` · ${inputLine(v)}` : ""}
                           {costLabel(v) ? ` · ${costLabel(v)}` : ""}
                           {audioLine(v) ? ` · ${audioLine(v)}` : ""}
                         </small>
                       </button>
                       {v.status === "done" &&
                         (v.forClient ? (
-                          <button type="button" className="text-button on" onClick={() => void select(null)} title="Show the client the picture instead">
-                            <Check size={12} /> Client sees this
+                          <button type="button" className="text-button on" onClick={() => void select(null)} title="Show the picture instead: the review link shows the picture, no clip">
+                            <Check size={12} /> The client sees this
                           </button>
                         ) : (
                           <button type="button" className="text-button" onClick={() => void select(v.id)}>

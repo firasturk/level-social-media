@@ -195,7 +195,7 @@ function higgsfieldStub(opts: { waits?: Record<string, unknown>[]; analysisDoneA
 
 const postJson = (a: ReturnType<typeof app>, env: FakeEnv, path: string, body: unknown = {}) => a.request(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, env);
 const ops = (env: FakeEnv) => env.DB.prepare("SELECT provider, kind, status, estimate, reported, task_id, note FROM integration_ops ORDER BY created, rowid").all() as Promise<{ results: { provider: string; kind: string; status: string; estimate: number | null; reported: number | null; task_id: string | null; note: string }[] }>;
-type Listed = { id: string; status: string; url: string | null; requestId: string | null; provider: string; estimate: number | null; label: string | null; error: string | null; check: { tool: string; text: string } | null; analysis: { id: string; status: string; text: string } | null };
+type Listed = { id: string; status: string; url: string | null; requestId: string | null; provider: string; estimate: number | null; label: string | null; error: string | null; check: { tool: string; text: string } | null; analysis: { id: string; status: string; text: string } | null; forClient: boolean; frame: string | null; frameFill: string | null; words: boolean | null };
 const listVideos = async (env: FakeEnv) => ((await json(await app().request("/api/studio/posts/video/list?batch=b1&index=1", {}, env))) as { videos: Listed[] }).videos;
 
 let reached: Reached[];
@@ -256,7 +256,8 @@ describe("Magnific: status, engines, a clip from the picture", () => {
       { id: "lut-film", name: "Film 400" },
     ]);
 
-    const ask = { batch: "b1", index: 1, slug: "kling-v2-1-master", prompt: "The cup turns slowly", duration: 5, aspectRatio: "9:16" };
+    // The frame: Kling takes 9:16 itself (its aspect option), so the frame travels as `aspectRatio` and is kept on the version.
+    const ask = { batch: "b1", index: 1, slug: "kling-v2-1-master", prompt: "The cup turns slowly", duration: 5, aspectRatio: "9:16", frame: "9:16", words: false };
     const wrongLength = await postJson(app(), env, "/api/studio/video/magnific/generate", { ...ask, duration: 7 });
     expect(wrongLength.status).toBe(400);
     const first = await postJson(app(), env, "/api/studio/video/magnific/generate", ask);
@@ -271,7 +272,8 @@ describe("Magnific: status, engines, a clip from the picture", () => {
     expect(stub.rpc.filter((x) => x.name === "video_generate")).toHaveLength(0);
 
     const go = (await json(await postJson(app(), env, "/api/studio/video/magnific/generate", { ...ask, confirm: true }))) as { video: Listed };
-    expect(go.video).toMatchObject({ status: "queued", provider: MAGNIFIC_PROVIDER, requestId: "cr_gen_1", estimate: 30, label: "Magnific · Kling 2.1 Master" });
+    expect(go.video).toMatchObject({ status: "queued", provider: MAGNIFIC_PROVIDER, requestId: "cr_gen_1", estimate: 30, label: "Magnific · Kling 2.1 Master", frame: "9:16", frameFill: null, words: false });
+    expect(JSON.parse((await env.DB.prepare("SELECT settings FROM videos WHERE id = ?").bind(go.video.id).first<{ settings: string }>())!.settings)).toMatchObject({ frame: "9:16", words: false, aspect: "9:16" });
     const gen = stub.rpc.filter((x) => x.name === "video_generate");
     expect(gen).toHaveLength(1);
     expect(gen[0].args).toMatchObject({ slug: "kling-v2-1-master", duration: 5 });
@@ -282,7 +284,8 @@ describe("Magnific: status, engines, a clip from the picture", () => {
     expect(vids[0]).toMatchObject({ status: "generating" });
     expect(stub.rpc.filter((x) => x.name === "creations_wait").at(-1)?.args).toEqual({ identifiers: ["cr_gen_1"], timeoutSeconds: 1 });
     vids = await listVideos(env);
-    expect(vids[0]).toMatchObject({ status: "done", provider: MAGNIFIC_PROVIDER });
+    // Done, and the client's version at once: the seeded upload was never selected, so the post had none.
+    expect(vids[0]).toMatchObject({ status: "done", provider: MAGNIFIC_PROVIDER, forClient: true });
     expect((await (await app().request(vids[0].url!, {}, env)).arrayBuffer()).byteLength).toBe(sampleBytes().byteLength);
     const genOps = (await ops(env)).results.filter((o) => o.kind === "video.generate");
     expect(genOps).toHaveLength(1);

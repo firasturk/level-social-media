@@ -36,7 +36,7 @@ import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
-import { dataUrlBytes, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, storeFinishedClip, versionNumbers, videoItem, type VideoItem, type VideoRow, type VideoStatus } from "./video";
+import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, storeFinishedClip, versionNumbers, videoItem, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
 
 export const HIGGSFIELD_MCP_URL = "https://mcp.higgsfield.ai/mcp";
@@ -385,9 +385,10 @@ const askSchema = z.object({
   duration: z.number().int().min(1).max(60).optional(),
   aspect: z.string().max(10).optional(),
   source: z.enum(["picture", "artwork"]).default("picture"),
-  /** The composed post (words and logo drawn by the browser) as a data URL, when source is "artwork". */
+  /** The composed post (words and logo drawn by the browser, or the picture fitted to the frame) as a data URL, when source is "artwork". */
   artwork: z.string().max(17 * 1024 * 1024).optional(),
   useUnlim: z.boolean().optional(),
+  ...frameFields,
 });
 const generateSchema = askSchema.extend({ confirm: z.boolean().optional(), note: z.string().trim().max(200).optional() });
 export type McpAsk = z.infer<typeof askSchema>;
@@ -511,10 +512,10 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput):
     post: d.index,
     estimate: est.credits,
     status: "confirmed",
-    note: `${engine.name} · ${duration ?? "default"}s · ${d.source} · ${est.credits ?? "unknown"} credits (subscription, MCP)${d.useUnlim ? " · unlimited allowance" : ""}${before !== null ? ` · balance before ${before}` : ""}${d.note ? ` · ${d.note}` : ""}`,
+    note: `${engine.name} · ${duration ?? "default"}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${est.credits ?? "unknown"} credits (subscription, MCP)${d.useUnlim ? " · unlimited allowance" : ""}${before !== null ? ` · balance before ${before}` : ""}${d.note ? ` · ${d.note}` : ""}`,
   });
   const id = uuid();
-  const stored = { duration, aspect, estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", mcpModel: engine.id, engineName: engine.name, useUnlim: d.useUnlim ?? null, balanceBefore: before, plan: est.plan, note: d.note, outcomeUnknown: false };
+  const stored = { duration, aspect, ...frameSettings(d), estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", mcpModel: engine.id, engineName: engine.name, useUnlim: d.useUnlim ?? null, balanceBefore: before, plan: est.plan, note: d.note, outcomeUnknown: false };
   const ts = now();
   const insert = (status: VideoStatus, requestId: string | null, error: string | null, extra: Record<string, unknown> = {}) =>
     run(

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fakeEnv } from "./support/fakes";
 import { guardFetch, type Reached } from "./support/paid-guard";
 import { postConfig } from "../shared/config";
-import { PRESET_CATEGORIES } from "../shared/video-presets";
+import { dropReason, isVideoFromPictureRecipe, PRESET_CATEGORIES } from "../shared/video-presets";
 import type { User } from "../shared/types";
 import { StudioError } from "../server/errors";
 import { studioRoutes } from "../server/studio";
@@ -138,7 +138,19 @@ function higgsfieldStub(opts: StubOptions = {}) {
     }
     if (name === "get_preset_instructions") {
       if (args.preset) return text(b.id, { preset: args.preset, instructions: `How ${args.preset} works: upload the product picture, pick the mood, run.`, reference_video: "https://cdn.test/presets/hero-ref.mp4" });
-      return text(b.id, { recipes: [{ command: "/hero-shot", title: "Hero shot", description: "A product reveal in one command." }, { slash: "katana/launch-day", title: "Launch day", description: "A six-shot production." }] });
+      // Two recipes that make a video from a picture, and the kinds Firas saw that are not the Video studio's (dropped).
+      return text(b.id, {
+        recipes: [
+          { command: "/hero-shot", title: "Hero shot", description: "A product reveal clip from one picture, in one command." },
+          { slash: "katana/launch-day", title: "Launch day", description: "A six-shot video production from the product pictures." },
+          { command: "/cartoon-shaders", title: "Cartoon shaders", description: "Toon shaders for Blender scenes." },
+          { command: "/color-grading", title: "Color grading", description: "DaVinci Resolve colour grading of your footage." },
+          { command: "/create-website", title: "Create website", description: "Build and deploy a website for the brand." },
+          { command: "/build-ai-influencer", title: "Build AI influencer", description: "A character sheet and voice for an AI influencer." },
+          { command: "/exploded-view", title: "Exploded view", description: "An exploded view render of a product." },
+          { command: "/faceless", title: "Faceless", description: "A faceless video from your script and a voice." },
+        ],
+      });
     }
     if (name === "execute_preset") {
       expect(args).toMatchObject({ source: "marketing_studio", preset_id: "hero_shot" });
@@ -190,15 +202,63 @@ describe("normalising the answers", () => {
     expect(mediaOf({ name: "no media" })).toEqual({ video: null, poster: null });
   });
 
-  it("reads recipes from a list of commands or from lines of text", () => {
-    const fromList = parseRecipes({ content: [{ type: "text", text: JSON.stringify({ recipes: [{ command: "hero-shot", title: "Hero shot", description: "A reveal." }] }) }] });
+  it("reads recipes from a list of commands or from lines of text, keeping only the ones that make a video from a picture", () => {
+    const fromList = parseRecipes({ content: [{ type: "text", text: JSON.stringify({ recipes: [{ command: "hero-shot", title: "Hero shot", description: "A product reveal clip from the picture." }] }) }] });
     expect(fromList).toHaveLength(1);
-    expect(fromList[0]).toMatchObject({ id: "/hero-shot", command: "/hero-shot", source: "recipe", runnable: false, title: "Hero shot" });
-    const fromText = parseRecipes({ content: [{ type: "text", text: "Recipes:\n- /hero-shot — A product reveal\n- `/katana/launch-day`: Six shots with a story\nNothing else." }] });
+    expect(fromList[0]).toMatchObject({ id: "/hero-shot", command: "/hero-shot", source: "recipe", runnable: false, title: "Hero shot", output: "video" });
+    const fromText = parseRecipes({ content: [{ type: "text", text: "Recipes:\n- /hero-shot — A product reveal clip from one picture\n- `/katana/launch-day`: Six video shots with a story from the product pictures\n- /2d-character — A 2D character sheet\n- /3d-jutsu — New camera angles of a 3D scene\n- /ads-studio — Ad copy and layouts for a brand\n- /destruction-studio — Blender destruction simulations in video\nNothing else." }] });
     expect(fromText.map((c) => [c.command, c.description])).toEqual([
-      ["/hero-shot", "A product reveal"],
-      ["/katana/launch-day", "Six shots with a story"],
+      ["/hero-shot", "A product reveal clip from one picture"],
+      ["/katana/launch-day", "Six video shots with a story from the product pictures"],
     ]);
+    // Each dropped shape: no video words; another tool named; a video with no picture to start from; the provider's own "not runnable".
+    expect(isVideoFromPictureRecipe("/cartoon-shaders Cartoon shaders for Blender scenes")).toBe(false);
+    expect(isVideoFromPictureRecipe("/color-grading DaVinci colour grading of your footage")).toBe(false);
+    expect(isVideoFromPictureRecipe("/create-website Build a website with a video hero from your pictures")).toBe(false);
+    expect(isVideoFromPictureRecipe("/faceless A faceless video from your script and a voice")).toBe(false);
+    expect(isVideoFromPictureRecipe("/turntable A turntable clip", { runnable: false })).toBe(false);
+    // Kept: the words say video and a picture, or the inputs name an image.
+    expect(isVideoFromPictureRecipe("/turntable A slow turntable clip of the product picture")).toBe(true);
+    expect(isVideoFromPictureRecipe("/reveal A cinematic reveal video", { inputs: [{ name: "product_image", type: "image" }] })).toBe(true);
+    expect(isVideoFromPictureRecipe("/reveal A cinematic reveal video", { needs: ["1 product picture"] })).toBe(true);
+    // `all: true` (a detail lookup) keeps every recipe.
+    expect(parseRecipes({ content: [{ type: "text", text: JSON.stringify({ recipes: [{ command: "/create-website", title: "Create website", description: "Build a website." }] }) }] }, { all: true })).toHaveLength(1);
+  });
+
+  it("keeps videos only: drops the provider's category entries, cards with no preview and no description, picture presets, and cards with neither a video nor a video output", () => {
+    const answer = {
+      // The filter list of the presets page, which came back as four cards titled All, Motion, Product shot, Effects.
+      categories: [
+        { id: "all", name: "All" },
+        { id: "motion", name: "Motion" },
+        { id: "product-shot", name: "Product shot" },
+        { id: "effects", name: "Effects" },
+      ],
+      presets: [
+        HERO,
+        { name: "No id at all", description: "A preset with no id", preview_url: "https://cdn.test/presets/x.mp4" },
+        { id: "mystery", name: "Mystery" },
+        { id: "brushed_tin", name: "Brushed Tin", description: "A brushed metal look on the product.", thumbnail: "https://cdn.test/presets/tin.png", category: "effects" },
+        { id: "still_life", name: "Still life", description: "A still life picture of the product.", thumbnail: "https://cdn.test/presets/still.png", execution: { available: true, output_type: "image" } },
+        { id: "logo_spin", name: "Logo spin", description: "The logo spins in.", source: "marketing_studio", category: "motion", preview_image: "https://cdn.test/presets/spin.png", execution: { available: true, output_type: "video", input_schema: { type: "object", properties: { image: { type: "string", format: "media" } }, required: ["image"] } } },
+        { id: "rise", name: "Rise", description: "The product rises.", source: "marketing_studio", category: "product-shot", poster: "https://cdn.test/presets/rise.jpg", execution: { available: true, output: "video" } },
+      ],
+    };
+    const r = { content: [{ type: "text" as const, text: JSON.stringify(answer) }] };
+    const kept = parsePresets(r, "viral");
+    expect(kept.map((c) => c.id)).toEqual(["hero_shot", "logo_spin", "rise"]);
+    expect(kept[1]).toMatchObject({ video: null, poster: "https://cdn.test/presets/spin.png", output: "video", needs: ["1 product picture"] });
+    expect(kept[2]).toMatchObject({ video: null, poster: "https://cdn.test/presets/rise.jpg", output: "video" });
+    // Why each one went, in plain words.
+    expect(dropReason({ id: "all", title: "All", description: "", video: null, poster: null, output: null, source: "viral", category: null })).toBe("a category name, not a preset");
+    expect(dropReason({ id: "x", title: "Product-shot", description: "", video: null, poster: "https://x/p.png", output: null, source: "viral", category: null })).toBe("a category name, not a preset");
+    expect(dropReason({ id: "", title: "Nameless", description: "d", video: "https://x/v.mp4", poster: null, output: null, source: "viral", category: null })).toBe("no id");
+    expect(dropReason({ id: "mystery", title: "Mystery", description: "", video: null, poster: null, output: null, source: "viral", category: null })).toBe("no preview and no description");
+    expect(dropReason({ id: "tin", title: "Brushed Tin", description: "Metal", video: null, poster: "https://x/p.png", output: null, source: "viral", category: "effects" })).toBe("no reference video and no video output declared");
+    expect(dropReason({ id: "still", title: "Still life", description: "A picture", video: "https://x/v.mp4", poster: null, output: "image", source: "marketing_studio", category: null })).toBe("makes a picture, not a video");
+    expect(dropReason({ id: "spin", title: "Logo spin", description: "", video: null, poster: "https://x/p.png", output: null, source: "marketing_studio", category: "motion" })).toBeNull();
+    // A detail lookup keeps everything preset-shaped, so a preset can still be opened.
+    expect(parsePresets(r, "viral", { all: true }).map((c) => c.id)).toEqual(["all", "motion", "product-shot", "effects", "hero_shot", "mystery", "brushed_tin", "still_life", "logo_spin", "rise"]);
   });
 });
 
@@ -272,6 +332,7 @@ describe("browsing the gallery", () => {
     expect(effects.items.map((i) => i.id)).toEqual(["glitch"]);
     const recipes = (await json(await browse(env, "category=recipes"))) as { items: { id: string; source: string; runnable: boolean; description: string }[] };
     expect(stub.rpc.filter((x) => x.name === "get_preset_instructions").at(-1)?.args).toEqual({});
+    // Only the recipes that make a video from a picture: the Blender, DaVinci, website, influencer, render and script ones go.
     expect(recipes.items.map((i) => i.id)).toEqual(["/hero-shot", "/katana/launch-day"]);
     expect(recipes.items.every((i) => i.source === "recipe" && !i.runnable)).toBe(true);
     const genjutsu = (await json(await browse(env, "category=genjutsu"))) as { items: unknown[]; empty: string };

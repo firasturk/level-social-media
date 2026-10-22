@@ -18,6 +18,7 @@ import { submitVideoRequest } from "./video";
 import { higgsfieldBilling } from "./higgsfield-billing";
 import { HiggsfieldMcp, matchMcpModel, mcpModels, submitMcpVideo } from "./higgsfield-mcp";
 import { videoModel } from "@shared/video-models";
+import { DEFAULT_FRAME, frameLabel, frameRoute, isFrame } from "@shared/video-frame";
 import { PHOTO_LAB_OPS, proposePhotoLab, runPhotoLabJob } from "./photolab";
 import { confirmSpend } from "./integrations";
 import { PHOTO_LAB_PRICES, type PhotoLabOp } from "@shared/pricing";
@@ -62,7 +63,10 @@ export interface VideoRequest {
   model: string;
   prompt: string;
   duration: number;
+  /** The engine's aspect option, when the engine has one that fits the frame; "" otherwise. */
   aspect: string;
+  /** The frame asked for (shared/video-frame.ts); a Reel 9:16 when the card did not say. */
+  frame?: string;
   source: "picture" | "artwork";
   artwork?: string;
 }
@@ -140,6 +144,10 @@ const defaults: PromptboxTools = {
     // The box confirmed the clip (with the admin's estimate when the catalog has none), so an unknown cost is not asked about twice.
     const model = videoModel(v.model);
     if (!model) throw new StudioError("Unknown video engine.", 400);
+    // The frame: a Reel 9:16 unless the card said otherwise. An engine with that frame option takes it; one that follows the
+    // picture keeps the picture's own frame here (the box has no browser to compose the picture in; the studio's Generate panel does).
+    const frame = isFrame(v.frame) ? v.frame : DEFAULT_FRAME;
+    const framed = (took: boolean) => (took ? `, ${frameLabel(frame)}` : ` (it follows the picture's own frame; open the Video studio to make a ${frameLabel(frame)} from it)`);
     if ((await higgsfieldBilling(env)) === "credits") {
       // The subscription credits: the box names a Cloud catalog engine; the matching one on the subscription catalog runs it.
       const mcp = new HiggsfieldMcp(env);
@@ -147,18 +155,18 @@ const defaults: PromptboxTools = {
       const { models } = await mcpModels(env, mcp);
       const engine = matchMcpModel(models, v.model) ?? matchMcpModel(models, model.name);
       if (!engine) throw new StudioError(`${model.name} is not on the Higgsfield subscription catalog. Open the Video dialog on the post to pick one of its engines, or switch the billing to the Cloud API under Connection → Higgsfield.`, 409);
+      const route = frameRoute(frame, engine.aspects);
       try {
-        const item = await submitMcpVideo(env, user, { batch: v.batch, index: v.index, model: engine.id, prompt: v.prompt, duration: engine.durations.length && !engine.durations.includes(v.duration) ? undefined : v.duration, aspect: v.aspect && engine.aspects.includes(v.aspect) ? v.aspect : undefined, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
-        return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${engine.name} with the subscription credits${item.estimate !== null ? ` (about ${item.estimate} credits)` : ""}; it appears on the card and under Versions when done.` };
+        const item = await submitMcpVideo(env, user, { batch: v.batch, index: v.index, model: engine.id, prompt: v.prompt, duration: engine.durations.length && !engine.durations.includes(v.duration) ? undefined : v.duration, aspect: route.aspect, frame, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
+        return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${engine.name}${framed(!route.compose)} with the subscription credits${item.estimate !== null ? ` (about ${item.estimate} credits)` : ""}; it appears on the card and under Versions when done.` };
       } catch (e) {
         if (e instanceof StudioError && e.data?.unlimChoice) throw new StudioError(`${e.message} Open the Video dialog on post ${v.index} to choose.`, 409, false, e.data);
         throw e;
       }
     }
-    // An engine without a frame choice follows the picture's own frame; the card's default frame is not forced on it.
-    const aspect = model.aspect ? v.aspect : undefined;
-    const item = await submitVideoRequest(env, user, { batch: v.batch, index: v.index, model: v.model, prompt: v.prompt, duration: v.duration, aspect, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
-    return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${model.name}${model.aspect ? "" : " (it follows the picture's own frame)"}; it appears on the card and under Versions when done.` };
+    const route = frameRoute(frame, model.aspect);
+    const item = await submitVideoRequest(env, user, { batch: v.batch, index: v.index, model: v.model, prompt: v.prompt, duration: v.duration, aspect: route.aspect, frame, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
+    return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${model.name}${framed(!route.compose)}; it appears on the card and under Versions when done.` };
   },
   async videoList(env, _user, q) {
     const rows = await all<{ id: string; post: number; status: string }>(env.DB, "SELECT id, post, status FROM videos WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 12", q.batch, q.index);

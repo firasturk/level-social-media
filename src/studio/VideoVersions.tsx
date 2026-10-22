@@ -8,7 +8,7 @@ import { Check, Clapperboard, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { videoModel } from "@shared/video-models";
-import { audioLine, costLabel, engineLabel, inFlight, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
+import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
 
 export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo, onChanged }: { batchId: string; index: number; onOpenVideo?: () => void; /** Opens the Video editor on this version (trims, colour, music; the export becomes a new version). */ onEditVideo?: (id: string) => void; onChanged?: () => void }) {
   const [videos, setVideos] = useState<VideoItem[] | null>(null);
@@ -33,7 +33,7 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo
     try {
       const r = await selectForClient(batchId, index, id);
       setVideos(r.videos);
-      toast.success(id ? "This video goes to the client for review." : "The client sees the picture.");
+      toast.success(id ? "The client sees this video on the review link." : "The client sees the picture.");
       onChanged?.();
     } catch (e) {
       toast.error((e as Error).message);
@@ -52,13 +52,13 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo
         <li className={`made ${client ? "" : "current"}`}>
           <span className="take-blank" aria-hidden />
           <span className="take-text">
-            <b>The picture{client ? "" : " · shown to the client"}</b>
+            <b>The picture{client ? "" : " · the client sees this"}</b>
             <small>The post's current picture, words drawn by the page.</small>
           </span>
           {client && (
             <span className="take-actions">
               <button type="button" className="text-button" disabled={busy} onClick={() => void select(null)}>
-                Show the picture to the client
+                Show the picture instead
               </button>
             </span>
           )}
@@ -69,12 +69,13 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo
             <span className="take-text">
               <b>
                 {versionLabel(v)}
-                {v.forClient ? " · shown to the client" : ""}
+                {v.forClient ? " · the client sees this" : ""}
               </b>
               <small>
                 {engineLabel(v, (slug) => videoModel(slug)?.name)}
                 {v.duration ? ` · ${v.duration}s` : ""}
-                {v.source === "artwork" ? " · with words and logo" : v.source === "picture" ? " · bare picture" : ""}
+                {frameLine(v) ? ` · ${frameLine(v)}` : ""}
+                {inputLine(v) ? ` · ${inputLine(v)}` : ""}
                 {` · ${STATUS_TEXT[v.status]}`}
                 {costLabel(v) ? ` · ${costLabel(v)}` : ""}
                 {audioLine(v) ? ` · ${audioLine(v)}` : ""}
@@ -104,7 +105,7 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo
               {v.status === "done" &&
                 (v.forClient ? (
                   <span className="text-button on">
-                    <Check size={12} /> Client version
+                    <Check size={12} /> The client sees this
                   </span>
                 ) : (
                   <button type="button" className="text-button" disabled={busy} onClick={() => void select(v.id)}>

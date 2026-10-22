@@ -9,6 +9,7 @@ import { Check, ImageOff, Play, SlidersHorizontal } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { askInput } from "@/lib/confirm";
 import { COST_UNKNOWN, intentRunnable, type IntentAsset, type ToolIntent } from "@shared/promptbox";
+import { DEFAULT_FRAME, frameLabel } from "@shared/video-frame";
 
 export interface ResultAsset extends IntentAsset {
   type?: string;
@@ -41,7 +42,7 @@ function settingLines(i: ToolIntent): [string, string][] {
       ["Model", str("modelName") || str("model") || "(none)"],
       ["Engines", "the engine list follows the billing choice under Connection → Higgsfield (subscription credits or Cloud API)"],
       ["Duration", `${str("duration") || "5"} s`],
-      ["Frame", str("aspect") || "follows the picture"],
+      ["Frame", `${frameLabel(str("frame")) || frameLabel(DEFAULT_FRAME)}${str("aspect") ? "" : " · an engine with no frame choice keeps the picture's frame; the Video studio makes the picture that frame first"}`],
       ["Source", str("source") === "artwork" ? "the design with its words" : "the picture"],
     ];
   if (i.tool === "freepik.use") return [["Role", str("role") === "reference" ? "reference for the next take" : "layer in the design"], ["Placement", str("placement") || "where the design puts it"]];

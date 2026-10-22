@@ -85,7 +85,7 @@ promptboxRoutes.post("/execute", async (c) => {
     }
     if (intent.tool === "video.generate") {
       await updateIntegrationOp(c.env, opId, { status: "running" });
-      const r = await promptboxTools.videoGenerate(c.env, user, { batch: b.id, index: intent.target.post!, model: String(s.model), prompt: String(s.prompt || `Animate post ${intent.target.post} gently; the product stays exactly as pictured.`), duration: Number(s.duration) || 5, aspect: String(s.aspect ?? ""), source: s.source === "artwork" ? "artwork" : "picture" });
+      const r = await promptboxTools.videoGenerate(c.env, user, { batch: b.id, index: intent.target.post!, model: String(s.model), prompt: String(s.prompt || `Animate post ${intent.target.post} gently; the product stays exactly as pictured.`), duration: Number(s.duration) || 5, aspect: String(s.aspect ?? ""), frame: typeof s.frame === "string" ? s.frame : undefined, source: s.source === "artwork" ? "artwork" : "picture" });
       await updateIntegrationOp(c.env, opId, { status: "done", taskId: r.video?.id ?? null, note: r.note });
       return c.json({ ok: true, kind: "done", intent, opId, note: r.note, video: r.video });
     }

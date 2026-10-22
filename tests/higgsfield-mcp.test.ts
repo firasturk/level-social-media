@@ -204,7 +204,7 @@ const ops = () => (integrations.recordIntegrationOp as unknown as ReturnType<typ
 const updates = () => (integrations.updateIntegrationOp as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[2] as { status?: string; reported?: number | null; note?: string; taskId?: string | null });
 const ask = { batch: "b1", index: 1, model: "seedance_2_5", prompt: "The steam rises and the cup turns slowly", duration: 5, source: "picture" };
 const postJson = (a: ReturnType<typeof app>, env: FakeEnv, path: string, body: unknown = {}) => a.request(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, env);
-const list = async (env: FakeEnv) => ((await json(await app().request("/api/studio/posts/video/list?batch=b1&index=1", {}, env))) as { videos: { id: string; status: string; url: string | null; requestId: string | null; error: string | null; provider: string; estimate: number | null }[]; billing: string }).videos;
+const list = async (env: FakeEnv) => ((await json(await app().request("/api/studio/posts/video/list?batch=b1&index=1", {}, env))) as { videos: { id: string; status: string; url: string | null; requestId: string | null; error: string | null; provider: string; estimate: number | null; forClient: boolean }[]; billing: string }).videos;
 
 let reached: Reached[];
 beforeEach(() => {
@@ -472,18 +472,21 @@ describe("estimate and generate on the credits", () => {
     expect(await json(proposed)).toMatchObject({ needsConfirm: true, credits: 12, balance: 1500 });
     expect(stub.rpc.filter((x) => x.name === "generate_video_batch")).toHaveLength(0);
 
-    const r = await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true });
+    // The frame goes with the ask: this engine takes 9:16 itself (its aspect option), so the picture goes as it is and the frame is kept on the version.
+    const r = await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true, frame: "9:16", words: false });
     expect(r.status).toBe(200);
-    const d = (await json(r)) as { video: { id: string; status: string; requestId: string; provider: string; estimate: number; version: number; model: string } };
-    expect(d.video).toMatchObject({ status: "queued", requestId: "job-1", provider: MCP_PROVIDER, estimate: 12, version: 1, model: "seedance_2_5" });
+    const d = (await json(r)) as { video: { id: string; status: string; requestId: string; provider: string; estimate: number; version: number; model: string; frame: string; frameFill: string | null; words: boolean } };
+    expect(d.video).toMatchObject({ status: "queued", requestId: "job-1", provider: MCP_PROVIDER, estimate: 12, version: 1, model: "seedance_2_5", frame: "9:16", frameFill: null, words: false });
     const batch = stub.rpc.find((x) => x.name === "generate_video_batch")!.args as { requests: { index: number; params: Record<string, unknown> }[] };
     expect(batch.requests).toEqual([{ index: 0, params: { model: "seedance_2_5", prompt: ask.prompt, medias: [{ value: "med_1", role: "image" }], duration: 5, count: 1 } }]);
     const row = await env.DB.prepare("SELECT provider, model, request_id, settings, op_id FROM videos WHERE id = ?").bind(d.video.id).first<{ provider: string; model: string; request_id: string; settings: string; op_id: string }>();
     expect(row).toMatchObject({ provider: MCP_PROVIDER, model: "seedance_2_5", request_id: "job-1" });
-    expect(JSON.parse(row!.settings)).toMatchObject({ duration: 5, estimate: 12, credits: 12, unit: "credits", mcpModel: "seedance_2_5", estimateSource: "provider", balanceBefore: 1500, useUnlim: null });
+    expect(JSON.parse(row!.settings)).toMatchObject({ duration: 5, estimate: 12, credits: 12, unit: "credits", mcpModel: "seedance_2_5", estimateSource: "provider", balanceBefore: 1500, useUnlim: null, frame: "9:16", words: false });
+    expect(JSON.parse(row!.settings)).not.toHaveProperty("frameFill");
     const videoOp = ops().find((o) => o.kind === "video")!;
     expect(videoOp).toMatchObject({ provider: "higgsfield", status: "confirmed", estimate: 12 });
-    expect(videoOp.note).toMatch(/Seedance 2\.5 · 5s · picture · 12 credits \(subscription, MCP\) · balance before 1500/);
+    expect(videoOp.note).toMatch(/Seedance 2\.5 · 5s · picture · frame 9:16 · 12 credits \(subscription, MCP\) · balance before 1500/);
+    expect((await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true, frame: "3:4" })).status).toBe(400);
     expect(updates()).toContainEqual(expect.objectContaining({ taskId: "job-1", status: "running" }));
 
     // A refreshed studio lists the post: jobs_wait says running, then completed; the mp4 lands in R2 and the balance says what it cost.
@@ -492,7 +495,8 @@ describe("estimate and generate on the credits", () => {
     const wait = stub.rpc.find((x) => x.name === "jobs_wait")!.args as Record<string, unknown>;
     expect(wait).toEqual({ jobs: [{ index: 0, job_id: "job-1" }], timeout_seconds: 1 });
     const done = (await list(env))[0];
-    expect(done).toMatchObject({ status: "done", provider: MCP_PROVIDER, estimate: 12 });
+    // Finished and the first clip of the post: the client sees it without anyone selecting it.
+    expect(done).toMatchObject({ status: "done", provider: MCP_PROVIDER, estimate: 12, forClient: true });
     expect(done.url).toBe(`/api/studio/posts/video/file?batch=b1&id=${done.id}`);
     const stored = await env.DB.prepare("SELECT key, settings FROM videos WHERE id = ?").bind(done.id).first<{ key: string; settings: string }>();
     expect(stored!.key).toBe(`u1/b1/video/t1/${done.id}.mp4`);

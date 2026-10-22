@@ -2,6 +2,7 @@
 import { get, post, postForm } from "@/api";
 import type { VideoModel } from "@shared/video-models";
 import { audioChoiceLine, type AudioChoice } from "@shared/video-audio";
+import { frameLabel, type FrameFill, type FrameId } from "@shared/video-frame";
 
 export type VideoStatus = "queued" | "generating" | "done" | "failed";
 
@@ -36,6 +37,26 @@ export interface VideoItem {
   /** The last Check answer kept on this version (the Video studio). */
   check: { tool: string; at: number; text: string; credits: number | null } | null;
   analysis: { id: string; status: string; text: string; at: number } | null;
+  /** The frame asked for ("9:16"); null for older versions and uploads. */
+  frame: FrameId | null;
+  /** How the picture was fitted to the frame in the browser ("crop" | "blur"); null when the engine took the frame itself. */
+  frameFill: FrameFill | null;
+  /** True when the words and logo are in the first frame, false for the bare picture, null when not known. */
+  words: boolean | null;
+}
+
+/** "Reel 9:16", "Reel 9:16 · blurred edges", or "" when the version carries no frame. */
+export function frameLine(v: VideoItem): string {
+  const label = frameLabel(v.frame);
+  if (!label) return "";
+  return v.frameFill === "blur" ? `${label} · blurred edges` : v.frameFill === "crop" ? `${label} · cropped to fit` : label;
+}
+
+/** "with words and logo", "bare picture", or "" (an upload or a cut). */
+export function inputLine(v: VideoItem): string {
+  if (v.words === true) return "with words and logo";
+  if (v.words === false) return "bare picture";
+  return "";
 }
 
 /** The `provider` of a clip made or changed by Magnific. */
@@ -117,6 +138,10 @@ export interface McpAsk {
   source: "picture" | "artwork";
   artwork?: string;
   useUnlim?: boolean;
+  /** The frame asked for, how the picture was fitted to it (when the browser did), and whether the words are in it. */
+  frame?: FrameId;
+  fill?: FrameFill;
+  words?: boolean;
 }
 
 export const mcpStatus = (fresh = false) => get<HiggsfieldMcpStatus>(`/api/studio/higgsfield/mcp/status${fresh ? "?fresh=1" : ""}`);

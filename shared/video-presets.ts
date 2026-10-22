@@ -3,6 +3,12 @@
  * them, mapped to the MCP's `get_presets` sources) and the shape of one card, shared by the server
  * (server/video-presets.ts normalises the tool answers into it) and the studio (which only draws it).
  * No preset is invented here: a category with no answer says so.
+ *
+ * The gallery shows videos only (`keepCard`): a card needs a real id, a title and a reference video,
+ * or a preview picture plus a declared video output (Marketing Studio motion presets). The
+ * provider's category lists (entries titled "All", "Motion", "Product shot"…), entries with no
+ * preview and no description, and recipes that are not a video made from a picture (Blender, After
+ * Effects, DaVinci, websites…) are dropped before they reach the studio.
  */
 
 export type PresetCategoryId = "popular" | "paid-ads" | "motion" | "marketing" | "production" | "ugc" | "faceless" | "effects" | "genjutsu" | "recipes";
@@ -58,6 +64,8 @@ export interface PresetCard {
   engine: string | null;
   /** A prompt the preset carries or suggests, for "Use this preset". */
   prompt: string | null;
+  /** What the preset makes, when the answer says ("video", "image"); null when it does not. */
+  output: "video" | "image" | null;
 }
 
 export interface PresetDetail extends PresetCard {
@@ -75,3 +83,72 @@ export interface PresetDetail extends PresetCard {
 export const EXECUTABLE_SOURCES: readonly string[] = ["viral", "marketing_studio", "genjutsu"];
 
 export const NOTHING_IN_CATEGORY = "Nothing in this category on your plan yet.";
+
+/* ───────────── Videos only: the gallery's rules ───────────── */
+
+/** The names of the provider's filters and our own categories: an entry so titled is a category list, not a preset. */
+export const CATEGORY_NAMES: readonly string[] = [
+  ...PRESET_CATEGORIES.map((c) => c.label),
+  "All",
+  "Motion",
+  "Product shot",
+  "Product shots",
+  "Ads",
+  "Ad",
+  "Viral",
+  "Trending",
+  "New",
+  "Featured",
+  "Katana",
+  "Marketing Studio",
+  "Recipe",
+  "Categories",
+  "Category",
+].map((s) => s.toLowerCase());
+
+export function isCategoryName(title: string): boolean {
+  const t = title.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+  return CATEGORY_NAMES.includes(t);
+}
+
+/** What a preset or its execution block says it makes, from any of the usual fields. */
+export function outputKind(...values: unknown[]): "video" | "image" | null {
+  for (const v of values) {
+    if (typeof v !== "string" || !v.trim()) continue;
+    if (/video|clip|motion|animat|reel|footage/i.test(v)) return "video";
+    if (/\b(image|photo|picture|still|poster)s?\b/i.test(v)) return "image";
+  }
+  return null;
+}
+
+/** Why a card is kept out of the gallery, or null when it stays. Only video presets with a real preview are shown. */
+export function dropReason(c: Pick<PresetCard, "id" | "title" | "description" | "video" | "poster" | "output" | "source" | "category">): string | null {
+  if (!c.id || !String(c.id).trim() || c.id === "undefined" || c.id === "null") return "no id";
+  if (!c.title.trim()) return "no title";
+  if (isCategoryName(c.title)) return "a category name, not a preset";
+  if (c.output === "image") return "makes a picture, not a video";
+  if (c.video) return null;
+  if (!c.poster && !c.description) return "no preview and no description";
+  if (!c.poster) return "no reference video";
+  if (c.output === "video" || (c.source === "marketing_studio" && /motion/i.test(c.category ?? ""))) return null;
+  return "no reference video and no video output declared";
+}
+
+export const keepCard = (c: Parameters<typeof dropReason>[0]): boolean => dropReason(c) === null;
+
+const VIDEO_WORDS = /\b(videos?|clips?|reels?|motion|animat\w*|cinematic|footage|b-roll|camera moves?|turntable|loop)\b/i;
+const NOT_FROM_PICTURE = /\b(blender|after effects|davinci|resolve|premiere|final cut|websites?|web ?apps?|landing pages?|games?|3d (?:model|scene|mesh|jutsu)|glb|code|typescript|python|shaders?|influencer|character sheet|voices?|dubbing|audio|music|podcast|exploded view|color grading|colour grading)\b/i;
+const PICTURE_WORDS = /\b(pictures?|photos?|images?|product shots?|stills?|reference|artwork|poster)\b/i;
+
+/**
+ * A recipe stays only when it makes a video from a picture: its words say video (clip, reel,
+ * motion…), name a picture it takes (or its inputs do), and do not point at another tool (Blender,
+ * After Effects, DaVinci, websites, 3D, code…). `inputs` is whatever the recipe lists as what it
+ * takes; `runnable` is the provider's flag when the answer carries one.
+ */
+export function isVideoFromPictureRecipe(text: string, opts: { inputs?: unknown; runnable?: boolean | null; needs?: string[] } = {}): boolean {
+  if (opts.runnable === false) return false;
+  if (!VIDEO_WORDS.test(text) || NOT_FROM_PICTURE.test(text)) return false;
+  const inputsText = JSON.stringify(opts.inputs ?? "");
+  return PICTURE_WORDS.test(text) || /image|photo|picture|media/i.test(inputsText) || (opts.needs ?? []).some((n) => /picture/.test(n));
+}
