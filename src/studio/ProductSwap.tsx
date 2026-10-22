@@ -23,7 +23,8 @@ export function optionThumb(o: Pick<ProductOption, "source" | "id">, sourceUrl: 
 /** Puts the product on the post, then writes the post's shot again for it. */
 export async function putProduct(batchId: string, index: number, o: ProductOption): Promise<Post> {
   const r = await post<{ post: Post }>("/api/studio/posts/products/use", { batch: batchId, index, source: o.source, id: o.id, name: o.name });
-  await post("/api/studio/posts/shots", { batch: batchId, indexes: [index] });
+  // A month with no look to write shots from (no pins read, no grid) has no shots: the product still went on the post.
+  await post("/api/studio/posts/shots", { batch: batchId, indexes: [index] }).catch(() => undefined);
   return r.post;
 }
 

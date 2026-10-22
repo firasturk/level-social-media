@@ -195,6 +195,8 @@ export interface Post {
   captionFrom?: string;
   /** The designer wrote or edited the caption: a new image never rewrites it by itself. */
   captionHand?: boolean;
+  /** The team locked this post's product image: an automatic proposal leaves it as it is. */
+  productLock?: boolean;
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
