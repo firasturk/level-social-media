@@ -46,7 +46,7 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Footage</span>
-      {ctx.sources.length === 0 && <p className="ts-hint">No footage yet. {ctx.exporting.standalone ? "Add a clip from this computer." : "This post has no finished video version; add a clip from this computer or make one in the Video dialog."}</p>}
+      {ctx.sources.length === 0 && <p className="ts-hint">No footage yet. {ctx.exporting.standalone ? "Add a clip from this computer." : !ctx.exporting.canExport && ctx.exporting.capsMessage ? "This browser cannot read the post's clips, so they are not listed here." : "This post has no finished video version; add a clip from this computer or make one in the Video dialog."}</p>}
       <ul className="ve-sources">
         {ctx.sources.map((m) => (
           <li key={m.key}>
