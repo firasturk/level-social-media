@@ -102,9 +102,21 @@ shareRoutes.get("/:token", async (c) => {
       approval: config.approvals?.[String(p.index)] ?? null,
     };
   });
+  // The client's real Instagram account, from its analysed profile: the feed page shows that handle and its followers.
+  const instagram = await (async () => {
+    try {
+      const row = await first<{ sources: string | null; instagram: string }>(c.env.DB, "SELECT sources, instagram FROM client_profiles WHERE client = ?", client.id);
+      const src = row?.sources ? (JSON.parse(row.sources) as { instagram?: { username?: string; followers?: number } | null }) : null;
+      const username = (src?.instagram?.username || row?.instagram || "").trim().replace(/^@/, "");
+      return username ? { username, followers: src?.instagram?.followers ?? null } : null;
+    } catch {
+      return null;
+    }
+  })();
   return c.json({
     client: {
       name: client.name,
+      instagram,
       overlay: (() => {
         try {
           return client.overlay ? (JSON.parse(client.overlay) as unknown) : null;
