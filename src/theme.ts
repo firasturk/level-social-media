@@ -35,10 +35,27 @@ export function initTheme() {
   applyTheme(currentTheme(), false);
 }
 
-export function useTheme(): [Theme, () => void] {
+const RESET_KEY = "mfs-theme-light-once";
+
+/**
+ * `lightFirst`: the four-stage workflow is drawn light, as its boards are designed. The first time
+ * it is on in this browser the saved dark choice is set back to light, once; the toggle then works
+ * as before and whatever is chosen stays.
+ */
+export function useTheme(lightFirst = false): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() =>
     typeof document === "undefined" ? "light" : currentTheme(),
   );
+  useEffect(() => {
+    if (!lightFirst) return;
+    try {
+      if (localStorage.getItem(RESET_KEY) === "1") return;
+      localStorage.setItem(RESET_KEY, "1");
+    } catch {
+      return;
+    }
+    setTheme("light");
+  }, [lightFirst]);
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);

@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, Wand2 } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
 import LevelLogo from "@/components/LevelLogo";
@@ -109,6 +109,9 @@ export interface FlowProps {
   /** The theme's references (for the card pictures), the preview flag, and a fresh grid in the month. */
   themeRefs: { id: string }[];
   previewMode: boolean;
+  /** Day or night, switchable from the workflow's top bar too. */
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
   onNewGrid: () => Promise<void>;
   user: User;
   client: Client | null;
@@ -565,6 +568,21 @@ export default function Flow(p: FlowProps) {
 
   const lead = LEADS[way];
 
+  /** The pictures on the four cards: the client's saved pins, shuffled once a day on the server. */
+  type DailyPick = { id: string; title: string; updated: number; tiles: number };
+  const [daily, setDaily] = useState<{ brief: DailyPick[]; refs: DailyPick[]; style: DailyPick | null; grid: DailyPick | null } | null>(null);
+  const clientId = client?.id ?? "";
+  useEffect(() => {
+    if (!clientId) return;
+    let live = true;
+    get<{ brief: DailyPick[]; refs: DailyPick[]; style: DailyPick | null; grid: DailyPick | null }>(`/api/studio/styles/start-pictures?client=${encodeURIComponent(clientId)}`)
+      .then((r) => live && setDaily(r))
+      .catch(() => live && setDaily(null));
+    return () => {
+      live = false;
+    };
+  }, [clientId]);
+
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
       <header className="journey-top">
@@ -589,6 +607,9 @@ export default function Flow(p: FlowProps) {
         </span>
         {p.previewMode && <span className="flow-sample-pill">Sample data (fictional)</span>}
         {client && <BrandChip client={client} ambassadors={p.ambassadors} onOpen={p.onBrandKit} />}
+        <button type="button" className="flow-theme" onClick={p.onToggleTheme} title={p.theme === "dark" ? "Switch to light mode" : "Switch to dark mode"} aria-label={p.theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+          {p.theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+        </button>
         <span className="flow-avatar" title={p.user.name}>
           {(p.user.name || p.user.email || "?").trim().charAt(0).toUpperCase()}
         </span>
@@ -622,8 +643,8 @@ export default function Flow(p: FlowProps) {
                           <i className="bar" />
                           <i className="bar short" />
                           <span className="flow-art-row">
-                            {p.products.slice(0, 2).map((s) => (
-                              <img key={s.id} src={p.sourceUrl(s.id)} alt="" />
+                            {(daily?.brief.length ? daily.brief.map((s) => styleThumb(s)) : p.products.slice(0, 2).map((s) => p.sourceUrl(s.id))).map((src, i) => (
+                              <img key={i} src={src} alt="" />
                             ))}
                             <span className="flow-art-plus">+</span>
                           </span>
@@ -631,7 +652,9 @@ export default function Flow(p: FlowProps) {
                       )}
                       {w.key === "grid" &&
                         (shownGrid ? (
-                          <img className="flow-art-full" src={styleThumb(shownGrid)} alt="" />
+                          <img className="flow-art-full" src={styleThumb(shownGrid, true)} alt="" />
+                        ) : daily?.grid ? (
+                          <img className="flow-art-full" src={styleThumb(daily.grid, true)} alt="" />
                         ) : (
                           <span className="flow-art-grid">
                             {Array.from({ length: 9 }, (_, i) => {
@@ -646,14 +669,14 @@ export default function Flow(p: FlowProps) {
                         ))}
                       {w.key === "refs" && (
                         <span className="flow-art-refs">
-                          {(p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => `/api/studio/references/${r.id}/file`) : p.products.slice(0, 3).map((s) => p.sourceUrl(s.id))).map((src, i) => (
+                          {(daily?.refs.length ? daily.refs.map((s) => styleThumb(s)) : p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => `/api/studio/references/${r.id}/file`) : p.products.slice(0, 3).map((s) => p.sourceUrl(s.id))).map((src, i) => (
                             <img key={i} src={src} alt="" style={{ left: 14 + i * 70, top: [14, 8, 18][i], transform: `rotate(${[-4, 2, 5][i]}deg)` }} />
                           ))}
                         </span>
                       )}
                       {w.key === "style" && (
                         <span className="flow-art-style">
-                          {startStyle ? <img src={styleThumb(startStyle)} alt="" /> : p.products[0] ? <img src={p.sourceUrl(p.products[0].id)} alt="" /> : <span className="flow-art-tile" />}
+                          {startStyle ? <img src={styleThumb(startStyle)} alt="" /> : daily?.style ? <img src={styleThumb(daily.style)} alt="" /> : p.products[0] ? <img src={p.sourceUrl(p.products[0].id)} alt="" /> : <span className="flow-art-tile" />}
                           <span className="flow-art-label">{startStyle?.title ?? "A look from the gallery"}</span>
                         </span>
                       )}

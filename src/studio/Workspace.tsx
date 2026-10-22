@@ -139,7 +139,9 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
-  const [theme, toggleTheme] = useTheme();
+  const [workflowV2, setWorkflowV2] = useState(false);
+  /* The workflow is drawn light, as designed: the first time it is on, this browser goes light; the toggle then decides. */
+  const [theme, toggleTheme] = useTheme(workflowV2);
   const [stateReady, setStateReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
   const [clientId, setClientId] = useState<string>(() => remembered(CLIENT_KEY));
@@ -159,7 +161,6 @@ export default function Workspace({
   const { batch, sources, tasks, active, open, close, refresh, action, remove } = useBatch();
   const [journey, setJourney] = useState(() => (!journeyDone() || journeyOpen()) && !pageAt());
   /** The four-stage workflow (Start, Direction, Plan, Studio) instead of the journey: an admin flag. */
-  const [workflowV2, setWorkflowV2] = useState(false);
   /** Autopilot stops at the plan for a look (admin setting), and the spend threshold a run must stay under by itself. */
   const [autopilotReview, setAutopilotReview] = useState(false);
   const [spendThreshold, setSpendThreshold] = useState(20);
@@ -1511,6 +1512,7 @@ export default function Workspace({
         onConnection={() => setConnection(true)}
         theme={theme}
         onToggleTheme={toggleTheme}
+        themeLocked={workflowV2}
         onSignOut={() => void signOut()}
         clients={clients}
         client={clientId}
@@ -1963,6 +1965,8 @@ export default function Workspace({
           ambassadors={ambassadors}
           themeRefs={themeRefs}
           previewMode={previewMode}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           onNewGrid={async () => {
             await newGrid();
           }}

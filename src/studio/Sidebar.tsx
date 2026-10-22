@@ -38,6 +38,8 @@ export default function Sidebar({
   onConnection: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  /** The four-stage workflow keeps the studio light: the toggle is hidden. */
+  themeLocked?: boolean;
   onSignOut: () => void;
   clients: Client[];
   client: string;
