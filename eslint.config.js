@@ -22,4 +22,9 @@ export default tseslint.config(
     rules: { ...reactHooks.configs.recommended.rules },
   },
   { rules: { "@typescript-eslint/no-explicit-any": "error" } },
+  {
+    // The promptfoo runner and assertions are plain Node modules.
+    files: ["eval/**/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly" } },
+  },
 );

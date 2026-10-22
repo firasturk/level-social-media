@@ -22,6 +22,7 @@ import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
+import { traceEvent } from "./trace";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
@@ -1299,6 +1300,7 @@ postRoutes.post("/ideas", async (c) => {
     config.postCount = wanted;
     await refreshCountNote(c.env, b.id, config);
     await saveConfig(c.env, b, config);
+    void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${now()}`, name: "ideas-append", input: { count, notes: d.notes ?? config.notes ?? "", types: d.types ?? [] }, output: { added: added.length, total: config.plan.length, shape: planShape(config.plan) }, metadata: { client: config.client ?? null, revision: config.plannedAt ?? null } });
     return c.json({ ok: true, plan: config.plan, added: added.length });
   }
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
@@ -1310,6 +1312,7 @@ postRoutes.post("/ideas", async (c) => {
   if (d.notes !== undefined) config.notes = d.notes;
   await keepMonthVersion(c.env, b);
   await saveConfig(c.env, b, config);
+  void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${config.plannedAt}`, name: "ideas", input: { count, notes: d.notes ?? config.notes ?? "", types: d.types ?? [] }, output: { total: config.plan.length, shape: planShape(config.plan) }, metadata: { client: config.client ?? null, revision: config.plannedAt ?? null } });
   return c.json({ ok: true, plan: config.plan });
 });
 
@@ -3630,6 +3633,7 @@ postRoutes.post("/campaign", async (c) => {
   const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", monthColours.length ? `${planned.colours.length ? "Colours read from the brief" : "Colours read from the reference pictures"} and set as this month's colours: ${monthColours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
   config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined, colours: planned.colours.length ? planned.colours : undefined };
   await saveConfig(c.env, b, config);
+  void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${stamp}`, name: only ? "campaign-replace" : "campaign-append", input: { brief: text, references: images.length, existing: existing.length }, output: { added: added.length, total: config.plan.length, shape: planShape(config.plan), summary }, metadata: { client: config.client ?? null, revision: stamp } });
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).
   const fresh0 = await ownedPlan(c.env, user, b.id);

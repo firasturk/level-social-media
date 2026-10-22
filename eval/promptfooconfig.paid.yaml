@@ -1,0 +1,36 @@
+# OPT-IN, PAID. `npm run eval:paid` sends the studio's real planner instruction to a text model and
+# checks only what can be checked without a human: valid JSON in the planner's shape and the post
+# count the brief asked for. It needs OPENAI_API_KEY (or swap the provider below for a Google or
+# Anthropic one promptfoo supports). It is never part of `npm run check` or `npm run eval`.
+description: Level Social Media · the brief planner on a real text model (paid, opt-in)
+
+prompts:
+  - file://prompts/brief-plan.ts
+
+providers:
+  - id: openai:chat:gpt-4o-mini
+    config:
+      temperature: 0
+      response_format: { type: json_object }
+
+tests:
+  - description: "A brief for 2 single posts plans exactly 2 posts, each slide 1 of 1"
+    vars:
+      brief: "Plan 2 posts, each a single picture of one shake standing inside a Jordanian road sign under noon sun. Post 1: the pistachio shake, text on design 'ice cold pistachio'. Post 2: the mango shake, text on design 'mango o'clock'. No people in the pictures."
+      existing: 3
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const d = typeof output === "string" ? JSON.parse(output) : output;
+          return Array.isArray(d.posts) && d.posts.length === 2 && d.posts.every((p) => p.of === 1);
+  - description: "A 3-slide carousel brief plans 3 slides of one group"
+    vars:
+      brief: "One 3-slide carousel revealing the strawberry shake: slide 1 a teaser (a part of the cup), slide 2 the ingredients only (strawberries, cream), slide 3 the reveal. Text on slide 3: 'strawberry season'. No single posts."
+      existing: 0
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const d = typeof output === "string" ? JSON.parse(output) : output;
+          return Array.isArray(d.posts) && d.posts.length === 3 && d.posts.every((p) => p.group === "carousel" && p.of === 3);
