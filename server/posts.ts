@@ -1630,6 +1630,16 @@ postRoutes.put("/plan", async (c) => {
     z.object({ batch: z.string().min(1), plan: z.array(postSchema).max(MAX_POST_COUNT) }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  return c.json({ ok: true, ...(await savePlan(c.env, b, d.plan)) });
+});
+
+/**
+ * The one save path of an edited plan (the designer's card, a client feedback action): post numbers
+ * kept, hand-edited ideas and captions stamped, memory and count refreshed. Nothing here touches a
+ * picture or creates a task.
+ */
+export async function savePlan(env: Env, b: BatchRow, edited: Post[]): Promise<{ plan: Post[]; postCount: number | undefined }> {
+  const d = { plan: edited };
   const config = JSON.parse(b.config) as Config;
   const before = new Map((config.plan ?? []).map((p) => [p.index, p]));
   // A post keeps its number: the pictures, comments and versions are filed under it. Moving a post
@@ -1655,20 +1665,20 @@ postRoutes.put("/plan", async (c) => {
     if (!old || (old.caption === p.caption && old.hashtags === p.hashtags)) continue;
     p.captionHand = true;
     await run(
-      c.env.DB,
+      env.DB,
       "UPDATE tasks SET caption = ? WHERE batch = ? AND post = ?",
       JSON.stringify({ text: p.caption, hashtags: p.hashtags }),
       b.id,
       p.index,
     );
   }
-  config.plan = withMemory(config.plan, await earlierIdeas(c.env, config.client, config.month).catch(() => []));
+  config.plan = withMemory(config.plan, await earlierIdeas(env, config.client, config.month).catch(() => []));
   // Adding or removing posts by hand sets the month's count, so Regenerate ideas keeps that number.
   if (config.plan.length) config.postCount = config.plan.length;
-  await refreshCountNote(c.env, b.id, config);
-  await saveConfig(c.env, b, config);
-  return c.json({ ok: true, plan: config.plan, postCount: config.postCount });
-});
+  await refreshCountNote(env, b.id, config);
+  await saveConfig(env, b, config);
+  return { plan: config.plan, postCount: config.postCount };
+}
 
 /**
  * A grid picked for a month that already has its posts: the grid is read and every post takes a
@@ -1992,7 +2002,7 @@ const GENERATE_BODY = z.object({
       /** The client's id for this run: the same approval sent twice adds the allowance once. */
       run: z.string().max(80).optional(),
     });
-type GenerateBody = z.infer<typeof GENERATE_BODY>;
+export type GenerateBody = z.infer<typeof GENERATE_BODY>;
 
 /** What one post comes to when a run is prepared: made already, making, blocked, or ready (paid or drawn here). */
 export interface PreparedPost {
@@ -2544,7 +2554,17 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
 
 postRoutes.post("/generate", async (c) => {
   const d = await body(c, GENERATE_BODY);
-  const user = c.get("user");
+  const r = await generateRun(c.env, c.get("user"), d, (p) => c.executionCtx.waitUntil(p));
+  return c.json(r.body, r.status);
+});
+
+/**
+ * One Generate run: the plan prepared, the estimate held against the spend limit (a 409 that asks
+ * for the designer's approval when it is above it), the posts queued and the engine started. The
+ * route and a client feedback's picture edit share it, so a picture is never paid for another way.
+ */
+export async function generateRun(env: Env, user: User, d: GenerateBody, waitUntil: (p: Promise<unknown>) => void): Promise<{ status: 200 | 409; body: Record<string, unknown> }> {
+  const c = { env };
   const b = await ownedPlan(c.env, user, d.batch);
   const config = JSON.parse(b.config) as Config;
   const { statements, planned, paid, exactPlanned, skipped, missingProduct, draft } = await preparePlan(c.env, user, b, config, d);
@@ -2569,8 +2589,9 @@ postRoutes.post("/generate", async (c) => {
   const retakes = config.autoRetakes === false ? 0 : MAX_AUTO_TAKES;
   const budget = perRun * (1 + retakes);
   if (threshold > 0 && estimate.known && budget > threshold && !d.approve)
-    return c.json(
-      {
+    return {
+      status: 409,
+      body: {
         error: `${paid} image${paid === 1 ? "" : "s"} ≈ ${formatUsd(perRun)}${retakes ? `, at most ${formatUsd(budget)} with one automatic retake each` : ""}, above the $${threshold} limit. Press Generate on the month to approve this run.`,
         needsApproval: true,
         images: paid,
@@ -2580,8 +2601,7 @@ postRoutes.post("/generate", async (c) => {
         known: estimate.known,
         threshold,
       },
-      409,
-    );
+    };
   await approveSpend(c.env, b.id, budget, d.run);
   if (d.test) config.testPost = d.indexes![0];
   statements.push(
@@ -2595,14 +2615,14 @@ postRoutes.post("/generate", async (c) => {
       .bind(now(), b.id),
   );
   await c.env.DB.batch(statements);
-  c.executionCtx.waitUntil(
+  waitUntil(
     advanceBatch(c.env, b.id, {
-      background: (p) => c.executionCtx.waitUntil(p),
+      background: waitUntil,
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return c.json({ ok: true, planned, paid, skipped, missingProduct, draft: !!draft, approved: budget });
-});
+  return { status: 200, body: { ok: true, planned, paid, skipped, missingProduct, draft: !!draft, approved: budget } };
+}
 
 /**
  * The plan as a run would send it, without starting one: every post's outcome (ready, made,

@@ -6,6 +6,7 @@
  */
 import { previewNoImages, type Env } from "./env";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
+import { feedbackFromInstruction, interpretFeedback } from "@shared/feedback";
 
 export async function demoMode(env: Env): Promise<boolean> {
   if (!previewNoImages(env)) return false;
@@ -120,7 +121,12 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
   const s = (schema ?? {}) as Schema;
   const props = s.properties ?? {};
   let out: unknown;
-  if (props.posts && props.tiles) out = gridRead(instruction);
+  if (props.actions && (props.actions.items?.properties ?? {}).kind) {
+    // Client feedback: the same deterministic reading the rules give, so the preview answers consistently.
+    const fb = feedbackFromInstruction(instruction);
+    const actions = fb ? interpretFeedback(fb.text, fb.context) : [];
+    out = { actions: actions.map((a) => ({ ...a, change: `${DEMO}: ${a.change}` })) };
+  } else if (props.posts && props.tiles) out = gridRead(instruction);
   else if (props.posts && (props.posts.items?.properties ?? {}).group) out = briefPlan(instruction);
   else if (props.posts) out = { posts: ideas(instruction) };
   else if (props.shots && props.direction)
