@@ -11535,6 +11535,8 @@ button.shot-product:hover {
 .post-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+  /* Each card ends under its own buttons: a taller card in the row (a review note) no longer stretches its neighbours. */
+  align-items: start;
 }
 @media (max-width: 1500px) {
   .post-grid {
