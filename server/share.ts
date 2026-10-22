@@ -9,7 +9,7 @@ import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, now, run } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
-import type { Config } from "@shared/config";
+import { effectiveApproval, type Config, type ReviewAnswer } from "@shared/config";
 import { recordClientAnswer } from "./notify";
 
 export const shareRoutes = new Hono<{ Bindings: Env }>();
@@ -43,8 +43,15 @@ interface ClientMarks {
   updated: number;
 }
 
+/** The reviewer's own answer on a post, by the id their device sent; nothing of the other reviewers. */
+function ownAnswer(approval: { answers?: ReviewAnswer[] } | undefined, rid: string): ReviewAnswer | null {
+  if (!rid) return null;
+  return approval?.answers?.find((a) => a.rid === rid) ?? null;
+}
+
 shareRoutes.get("/:token", async (c) => {
   const { b, config } = await sharedBatch(c.env, c.req.param("token"));
+  const rid = (c.req.query("rid") ?? "").slice(0, 64);
   const client = await first<ClientMarks>(
     c.env.DB,
     "SELECT id, name, overlay, logo_key, badge_key, updated FROM clients WHERE id = ?",
@@ -100,7 +107,8 @@ shareRoutes.get("/:token", async (c) => {
       faces: facesOf(t?.qa),
       group: p.group ?? null,
       image: t ? t.updated : null,
-      approval: config.approvals?.[String(p.index)] ?? null,
+      // Each reviewer sees only what they answered themselves.
+      approval: ownAnswer(config.approvals?.[String(p.index)], rid),
     };
   });
   // The client's real Instagram account, from its analysed profile: the feed page shows that handle and its followers.
@@ -245,6 +253,7 @@ shareRoutes.post("/:token/review", async (c) => {
       status: z.enum(["approved", "changes"]),
       note: z.string().trim().max(1000).optional(),
       by: z.string().trim().max(80).optional(),
+      rid: z.string().trim().min(6).max(64).optional(),
     })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Invalid review.");
@@ -254,16 +263,14 @@ shareRoutes.post("/:token/review", async (c) => {
   // Re-read just before writing so two quick answers do not overwrite each other.
   const fresh = await first<{ config: string }>(c.env.DB, "SELECT config FROM batches WHERE id = ?", b.id);
   const cfg = JSON.parse(fresh?.config ?? b.config) as Config;
-  cfg.approvals = {
-    ...(cfg.approvals ?? {}),
-    [String(parsed.data.index)]: {
-      status: parsed.data.status,
-      note: parsed.data.note || undefined,
-      by: parsed.data.by || undefined,
-      at: now(),
-    },
-  };
+  // One answer per reviewer (the id their device keeps); a reviewer answering again replaces their own answer only.
+  const rid = parsed.data.rid ?? `anon-${crypto.randomUUID()}`;
+  const key = String(parsed.data.index);
+  const mine: ReviewAnswer = { rid, status: parsed.data.status, note: parsed.data.note || undefined, by: parsed.data.by || undefined, at: now() };
+  const answers = [...(cfg.approvals?.[key]?.answers ?? []).filter((a) => a.rid !== rid), mine];
+  cfg.approvals = { ...(cfg.approvals ?? {}), [key]: effectiveApproval(answers)! };
   await run(c.env.DB, "UPDATE batches SET config = ?, updated = ? WHERE id = ?", JSON.stringify(cfg), now(), b.id);
-  await recordClientAnswer(c.env, { id: b.id, client: config.client ?? b.client }, { index: parsed.data.index, ...cfg.approvals[String(parsed.data.index)] }).catch((e) => console.error("[notify]", e));
-  return c.json({ ok: true, approval: cfg.approvals[String(parsed.data.index)] });
+  await recordClientAnswer(c.env, { id: b.id, client: config.client ?? b.client }, { index: parsed.data.index, ...mine }).catch((e) => console.error("[notify]", e));
+  // The reviewer gets their own answer back, never the others'.
+  return c.json({ ok: true, approval: mine });
 });
