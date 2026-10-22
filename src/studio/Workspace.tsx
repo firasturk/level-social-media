@@ -1483,6 +1483,8 @@ export default function Workspace({
             products: sources.filter((s) => (s.kind ?? "product") === "product").map((s) => ({ id: s.id, name: displayName(s.name) })),
             cast: ambassadors.filter((a) => castIds.includes(a.id)).map((a) => a.name),
             perPicture: rateFor(shownSettings.model)?.[shownSettings.size] ?? 0,
+            brandLanguage: client?.language,
+            monthLanguage: config?.language,
             onSavePost: (patch) => savePlan(plan.map((p) => (p.index === index ? { ...p, ...patch } : p))),
             onEdit: (note) => fixPost(index, note),
             onAccept: t && flagsOf(t).length && !acceptedBy ? () => acceptPost(index) : undefined,
@@ -1960,6 +1962,7 @@ export default function Workspace({
                 <PlanView
                 toolbar={!useFlow || toolsOpen}
                 notes={monthNotes}
+                monthLanguage={config?.language}
                 wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
                 onRefresh={refresh}

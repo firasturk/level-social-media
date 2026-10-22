@@ -170,7 +170,9 @@ function layoutLayer(ctx: Ctx, layer: TextLayer, W: number, scale = 1): Layout {
       const f = fontOf(layer, seg.style, basePx);
       ctx.font = f.font;
       withSpacing(ctx, letter, f.px);
-      const piece = applyCase(text.slice(seg.from, seg.to), layer.transform);
+      // Bidi isolate marks (a price pasted from a caption) are ordering hints for DOM text: the
+      // renderer orders runs itself, and a canvas would measure them as width.
+      const piece = applyCase(text.slice(seg.from, seg.to), layer.transform).replace(/[\u2066-\u2069\u200e\u200f\u061c]/g, "");
       for (const part of piece.split(/(\s+)/)) {
         if (!part) continue;
         const space = /^\s+$/.test(part);

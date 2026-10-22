@@ -2,11 +2,13 @@
  * Dictation into a text field, in Arabic or English, with the browser's own speech recognition
  * (no provider, no cost, nothing leaves the browser but the audio the browser's engine itself
  * sends to its vendor). The words land in the field as editable text; nothing is ever submitted,
- * generated or approved by recording. Hidden where the browser has no recognition (Firefox).
+ * generated or approved by recording. Where the browser has no recognition (Firefox), a plain
+ * note says to type instead; the field itself always works. The state rules live in shared/voice.
  */
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square, X } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { appendDictation, idleVoice, VOICE_LANGS, voiceLangOf, voiceStatus, voiceStep, type VoiceEvent, type VoiceLangId, type VoiceSession } from "@shared/voice";
 
 type Recognition = {
   lang: string;
@@ -27,12 +29,9 @@ function recognitionClass(): (new () => Recognition) | null {
 
 export const voiceSupported = () => typeof window !== "undefined" && !!recognitionClass();
 
-const LANGS = [
-  { id: "ar", label: "عربي", code: "ar-JO" },
-  { id: "en", label: "EN", code: "en-US" },
-] as const;
-type LangId = (typeof LANGS)[number]["id"];
 const LANG_KEY = "lsm-voice-lang";
+
+export { appendDictation };
 
 export default function VoiceInput({
   onText,
@@ -40,43 +39,45 @@ export default function VoiceInput({
   compact,
   label = "Dictate",
 }: {
-  /** Final words, appended to the field by the caller (with a space before them when needed). */
+  /** Final words, appended to the field by the caller (appendDictation puts the space in). */
   onText: (text: string) => void;
   disabled?: boolean;
   /** Icon only. */
   compact?: boolean;
   label?: string;
 }) {
-  const [state, setState] = useState<"idle" | "recording" | "stopping" | "error">("idle");
-  const [interim, setInterim] = useState("");
-  const [error, setError] = useState("");
-  const [lang, setLang] = useState<LangId>(() => {
+  const [session, setSession] = useState<VoiceSession>(idleVoice);
+  // The engine's callbacks see the session as it is, not as it was when they were made.
+  const sessionRef = useRef<VoiceSession>(session);
+  const [lang, setLang] = useState<VoiceLangId>(() => {
     try {
-      const v = localStorage.getItem(LANG_KEY);
-      return v === "en" ? "en" : "ar";
+      return voiceLangOf(localStorage.getItem(LANG_KEY));
     } catch {
       return "ar";
     }
   });
   const rec = useRef<Recognition | null>(null);
-  const heard = useRef("");
-  const cancelled = useRef(false);
   const supported = voiceSupported();
 
+  const step = (e: VoiceEvent) => {
+    const r = voiceStep(sessionRef.current, e);
+    sessionRef.current = r.session;
+    setSession(r.session);
+    if (r.deliver) onText(r.deliver);
+  };
+
   useEffect(() => () => rec.current?.abort(), []);
-  if (!supported) return null;
+  if (!supported) {
+    return compact ? null : <small className="voice-fallback">Dictation is not available in this browser: type the words instead.</small>;
+  }
 
   function start() {
     const Cls = recognitionClass();
     if (!Cls) return;
     const r = new Cls();
-    r.lang = LANGS.find((l) => l.id === lang)!.code;
+    r.lang = VOICE_LANGS.find((l) => l.id === lang)!.code;
     r.continuous = true;
     r.interimResults = true;
-    heard.current = "";
-    cancelled.current = false;
-    setInterim("");
-    setError("");
     r.onresult = (e) => {
       let finals = "";
       let partial = "";
@@ -86,42 +87,31 @@ export default function VoiceInput({
         if (res.isFinal) finals += text;
         else partial += text;
       }
-      if (finals) heard.current = `${heard.current} ${finals}`.trim();
-      setInterim(partial.trim());
+      step({ type: "result", finals, partial });
     };
-    r.onerror = (e) => {
-      if (e.error === "aborted") return;
-      setError(e.error === "not-allowed" ? "The microphone is blocked for this site. Allow it in the browser's address bar." : e.error === "no-speech" ? "Nothing was heard." : `Dictation stopped (${e.error}).`);
-      setState("error");
-    };
+    r.onerror = (e) => step({ type: "error", error: e.error });
     r.onend = () => {
       rec.current = null;
       // Stop: what was heard goes into the field. Cancel: it is dropped.
-      if (!cancelled.current && heard.current) onText(heard.current);
-      heard.current = "";
-      setInterim("");
-      setState((s) => (s === "error" ? "error" : "idle"));
+      step({ type: "end" });
     };
     rec.current = r;
     try {
       r.start();
-      setState("recording");
+      step({ type: "start" });
     } catch {
-      setError("Dictation could not start.");
-      setState("error");
+      step({ type: "error", error: "could-not-start" });
     }
   }
   function stop() {
-    setState("stopping");
+    step({ type: "stop" });
     rec.current?.stop();
   }
   function cancel() {
-    cancelled.current = true;
+    step({ type: "cancel" });
     rec.current?.abort();
-    setInterim("");
-    setState("idle");
   }
-  function pickLang(id: LangId) {
+  function pickLang(id: VoiceLangId) {
     setLang(id);
     try {
       localStorage.setItem(LANG_KEY, id);
@@ -130,7 +120,8 @@ export default function VoiceInput({
     }
   }
 
-  const recording = state === "recording" || state === "stopping";
+  const recording = session.state === "recording" || session.state === "stopping";
+  const status = voiceStatus(session);
   return (
     <span className={`voice ${recording ? "on" : ""} ${compact ? "compact" : ""}`}>
       {!recording ? (
@@ -139,21 +130,21 @@ export default function VoiceInput({
             <Mic size={14} /> {!compact && label}
           </button>
           <span className="voice-langs" role="radiogroup" aria-label="Dictation language">
-            {LANGS.map((l) => (
-              <button key={l.id} type="button" role="radio" aria-checked={lang === l.id} className={lang === l.id ? "on" : ""} onClick={() => pickLang(l.id)} disabled={disabled}>
-                {l.label}
+            {VOICE_LANGS.map((l) => (
+              <button key={l.id} type="button" role="radio" aria-checked={lang === l.id} className={lang === l.id ? "on" : ""} onClick={() => pickLang(l.id)} disabled={disabled} title={`Dictate in ${l.label}`}>
+                {compact ? l.id.toUpperCase() : l.label}
               </button>
             ))}
           </span>
-          {state === "error" && error && <small className="voice-error">{error}</small>}
+          {session.state === "error" && status && <small className="voice-error">{status}</small>}
         </>
       ) : (
         <>
-          <span className="voice-live" aria-live="polite">
-            {state === "stopping" ? <Orb size={13} /> : <span className="voice-dot" aria-hidden />}
-            {state === "stopping" ? "Writing the words…" : interim || "Listening… speak, then press Stop"}
+          <span className="voice-live" aria-live="polite" dir="auto">
+            {session.state === "stopping" ? <Orb size={13} /> : <span className="voice-dot" aria-hidden />}
+            {status}
           </span>
-          <button type="button" className="voice-btn stop" onClick={stop} title="Stop: the words go into the field">
+          <button type="button" className="voice-btn stop" onClick={stop} title="Stop: the words go into the field, where you can edit them">
             <Square size={12} /> Stop
           </button>
           <button type="button" className="voice-btn cancel" onClick={cancel} title="Cancel: nothing is kept">

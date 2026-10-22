@@ -33,6 +33,7 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { olderIdea, planShape, postRevision } from "@shared/posts";
+import { resolveLanguage } from "@shared/language";
 import { monthIssues, sceneContext } from "@shared/issues";
 import { campaignSizeSchema, postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
@@ -1039,10 +1040,8 @@ function ideasContext(
     // Layout rules (logo placement, bands, marks) are the overlay's business, not the scene's.
     dos: photoRules(client.dos),
     donts: photoRules(client.donts),
-    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
-      | "ar"
-      | "en"
-      | "both",
+    // The brand kit's language, unless this month overrides it.
+    language: resolveLanguage(client.language, config.language),
     palette: paletteOf(client),
     style: recolour(client.style),
     themeTitle: theme?.title ?? "",
@@ -1466,10 +1465,7 @@ postRoutes.post("/grid-ideas", async (c) => {
     profile: await profileOf(c.env, client.id),
     dos: client.dos,
     donts: client.donts,
-    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as
-      | "ar"
-      | "en"
-      | "both",
+    language: resolveLanguage(client.language, config.language),
     palette: paletteOf(client),
     style: client.style,
     themeTitle: theme?.title ?? "",
@@ -1710,7 +1706,7 @@ async function applyGridToMonth(env: Env, b: BatchRow, config: Config): Promise<
     profile: await profileOf(env, client.id),
     dos: client.dos,
     donts: client.donts,
-    language: (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both",
+    language: resolveLanguage(client.language, config.language),
     palette: paletteOf(client),
     style: client.style,
     themeTitle: theme?.title ?? "",
@@ -2880,7 +2876,6 @@ postRoutes.post("/captions", async (c) => {
     if (!(d.force && d.indexes) && (p.captionHand || p.captionFrom === t.output)) return [];
     return [{ post: p, task: t, output: t.output }];
   });
-  const language = (["ar", "en", "both"].includes(client.language) ? client.language : "ar") as "ar" | "en" | "both";
   const profile = await profileOf(c.env, client.id);
   const written = new Map<number, { caption: string; hashtags: string; from: string }>();
   const failed: number[] = [];
@@ -2893,7 +2888,8 @@ postRoutes.post("/captions", async (c) => {
       clientName: client.name,
       tone: client.tone,
       audience: client.audience?.trim() || undefined,
-      language,
+      // The post's own language, else the month's, else the brand kit's.
+      language: resolveLanguage(client.language, config.language, p.language),
       dos: photoRules(client.dos),
       donts: photoRules(client.donts),
       post: p,

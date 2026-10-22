@@ -197,6 +197,8 @@ export interface Post {
   captionHand?: boolean;
   /** The team locked this post's product image: an automatic proposal leaves it as it is. */
   productLock?: boolean;
+  /** This post's content language, when it differs from the month's and the brand kit's (see shared/language). */
+  language?: "ar" | "en" | "both";
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */

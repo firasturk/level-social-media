@@ -177,3 +177,355 @@
   background: var(--ink-900, #1d1d1f);
   color: #fff;
 }
+
+/* ───────────── Toolbar: two rows, grouped by task, nothing overlapping ───────────── */
+/* Row 1: the file bar (close, title, save state · history, apply-all, preview, export, Done). */
+.ts .ts-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 52px;
+  min-height: 52px;
+}
+.ts .ts-top-left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.ts .ts-top-left .ts-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts .ts-top-right {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.ts-preview-toggle.on {
+  background: #1d1d1f;
+  color: #fff;
+}
+/* Row 2: the selected layer's tools. They wrap on a desktop and scroll sideways on a phone; they never overlap. */
+.ts .ts-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  justify-content: flex-start;
+  min-height: 44px;
+  padding: 6px 12px;
+  background: var(--ts-panel);
+  border-bottom: 1px solid var(--ts-line);
+  overflow: visible;
+}
+.ts-tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.035);
+}
+.ts-tool-group .ts-size,
+.ts-tool-group .ts-weight,
+.ts-tool-group .ts-font-trigger,
+.ts-tool-group .ts-dir {
+  border-color: transparent;
+}
+.ts-dir {
+  height: 30px;
+  border: 1px solid var(--ts-line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.ts-tools-hint {
+  font-size: 12px;
+  color: #6e6e73;
+  line-height: 1.4;
+}
+.ts-warn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ts-warn-chip:hover {
+  background: #ffe7c7;
+}
+/* The stage scrolls inside a wrapper; the trial bar and the view tools are pinned to the wrapper. */
+.ts-stage-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.ts-stage-wrap .ts-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* View tools float at the stage's foot, out of the editing tools' way. */
+.ts-view {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--ts-panel);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 3;
+}
+/* A layout previewed on the stage: a bar above the picture, the picture itself not editable until it is applied or dismissed. */
+.ts-trial {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px 6px 14px;
+  border-radius: 999px;
+  background: #1d1d1f;
+  color: #fff;
+  font-size: 12.5px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  z-index: 4;
+}
+.ts-trial > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-trial .ts-btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  flex: none;
+}
+.ts-trial .ts-btn.primary {
+  background: var(--ts-accent);
+}
+.ts-overlay.trial {
+  pointer-events: none;
+}
+
+/* ───────────── Layouts panel ───────────── */
+.ts-layout {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+  padding: 4px;
+  border-radius: 12px;
+}
+.ts-layout.on {
+  background: rgba(17, 41, 211, 0.08);
+  box-shadow: inset 0 0 0 1.5px var(--ts-accent);
+}
+.ts-layout-thumb {
+  width: 96px;
+  height: 120px;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #2b2d42;
+  border: 1px solid var(--ts-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ts-layout-thumb:hover {
+  box-shadow: 0 0 0 2px var(--ts-accent);
+}
+.ts-layout-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ts-layout-blank {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+}
+.ts-layout-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ts-layout-meta b {
+  font-weight: 600;
+}
+.ts-layout-meta small {
+  color: #6e6e73;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.ts-layout-meta .ts-preset-actions {
+  flex-wrap: wrap;
+}
+/* Four tabs in the left panel: the words stay readable at 260px. */
+.ts .ts-tabs button {
+  padding: 0 4px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+/* ───────────── Narrow screens (one panel, scrolling tools) ───────────── */
+@media (max-width: 860px) {
+  .ts .ts-tools {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+    padding-right: 24px;
+  }
+  .ts .ts-tools > * {
+    flex: none;
+  }
+  .ts .ts-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 8px 8px 0;
+  }
+  .ts .ts-tabs button {
+    flex: 0 0 auto;
+    padding: 0 10px;
+  }
+  .ts .ts-right {
+    max-height: 46vh;
+  }
+  .ts-view {
+    right: 8px;
+    bottom: 8px;
+  }
+  .ts-trial {
+    top: 8px;
+    flex-wrap: wrap;
+    border-radius: 14px;
+    justify-content: center;
+    width: calc(100% - 16px);
+  }
+  .ts-trial > span {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+}
+@media (max-width: 480px) {
+  .ts .ts-top {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .ts .ts-top-right {
+    gap: 4px;
+  }
+  /* Icon-only buttons on a phone (the titles still say what they do); Done keeps its word. */
+  .ts .ts-top-right .ts-btn:not(.primary) {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+    gap: 0;
+  }
+  .ts .ts-top-right .ts-btn:not(.primary) svg:last-child:not(:first-child) {
+    display: none;
+  }
+  .ts .ts-top-left .ts-title {
+    font-size: 12.5px;
+  }
+  .ts-layout {
+    grid-template-columns: 80px 1fr;
+  }
+  .ts-layout-thumb {
+    width: 80px;
+    height: 100px;
+  }
+}
+
+/* ───────────── The post editor: scope of an AI edit, area marking, what is a layer ───────────── */
+.edit-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--surface-2, #f5f5f7);
+  font-size: 12.5px;
+  color: var(--ink-700, #3a3a3c);
+  line-height: 1.45;
+}
+.edit-scope p {
+  margin: 0;
+}
+.edit-scope b {
+  font-weight: 600;
+  color: var(--ink-900, #1d1d1f);
+}
+.edit-scope-thumb {
+  width: 56px;
+  height: 70px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+}
+.mark-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 20px);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 11.5px;
+  text-align: center;
+  pointer-events: none;
+}
+.editor-flat {
+  margin: 10px 0 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2, #f5f5f7);
+  font-size: 12.5px;
+  color: var(--ink-700, #3a3a3c);
+  line-height: 1.45;
+}
+.editor-flat b {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+  color: var(--ink-900, #1d1d1f);
+}
+.editor-flat ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.editor-flat li + li {
+  margin-top: 4px;
+}
+.voice-fallback {
+  color: var(--ink-500, #6e6e73);
+  font-size: 12px;
+}

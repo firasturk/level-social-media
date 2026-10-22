@@ -140,6 +140,8 @@ export interface Config {
   testPost?: number;
   /** The month this one was continued from ("Continue with the same direction"). */
   continuedFrom?: string;
+  /** This month's content language, when it differs from the brand kit's; a post may override it again (see shared/language). */
+  language?: "ar" | "en" | "both";
   /**
    * Grid mode: the feed grid the month follows (a theme photo's refs.id, or "style:<id>" for a grid
    * from the style library), and its read.

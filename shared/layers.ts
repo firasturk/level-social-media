@@ -484,32 +484,51 @@ export const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\
 export const STRONG_LTR_RE = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/;
 const STRONG_LTR = STRONG_LTR_RE;
 
+/** A word with digits in it: a price, a year, a percentage ("19.99", "2026", "20%"). */
+export const NUMERIC_RE = /\d/;
+
 /**
  * Groups a line's words into runs that read the same way: a Latin phrase inside an Arabic line (or
  * an Arabic one inside a Latin line) keeps its own order while the line as a whole reads in its
- * direction. Neutral words (numbers, punctuation) follow the word before them.
+ * direction. Neutral words (punctuation) follow the word before them. A number follows the word
+ * before it too, except that a number followed by a Latin word joins that word, so a price keeps
+ * its order as one unit ("19.99 JOD") inside Arabic copy, where the bidi algorithm would put it.
  */
 export function directionRuns<T extends { text: string }>(tokens: T[], lineDir: "rtl" | "ltr"): { dir: "rtl" | "ltr"; tokens: T[] }[] {
   const out: { dir: "rtl" | "ltr"; tokens: T[] }[] = [];
+  const strongOf = (text: string): "rtl" | "ltr" | null => (ARABIC_RE.test(text) ? "rtl" : STRONG_LTR_RE.test(text) ? "ltr" : null);
+  /** The next word with letters, skipping spaces and punctuation; null at the end of the line or at another number. */
+  const nextStrong = (i: number): "rtl" | "ltr" | null => {
+    for (let k = i + 1; k < tokens.length; k++) {
+      const s = strongOf(tokens[k].text);
+      if (s) return s;
+      if (NUMERIC_RE.test(tokens[k].text)) return null;
+    }
+    return null;
+  };
   let cur = lineDir;
-  for (const t of tokens) {
-    const dir: "rtl" | "ltr" = ARABIC_RE.test(t.text) ? "rtl" : STRONG_LTR_RE.test(t.text) ? "ltr" : cur;
+  tokens.forEach((t, i) => {
+    const strong = strongOf(t.text);
+    const dir: "rtl" | "ltr" = strong ?? (NUMERIC_RE.test(t.text) && nextStrong(i) === "ltr" ? "ltr" : cur);
     const last = out[out.length - 1];
     if (last && last.dir === dir) last.tokens.push(t);
     else out.push({ dir, tokens: [t] });
     cur = dir;
-  }
+  });
   return out;
 }
 
-/** The direction a paragraph reads in: its first strong character decides, Arabic when nothing is strong. */
-export function paragraphDirection(text: string, wanted: Direction = "auto"): "rtl" | "ltr" {
+/**
+ * The direction a paragraph reads in: its first strong character decides; when nothing is strong
+ * (a price, a date on its own) `fallback` does, left to right unless the layer's language says otherwise.
+ */
+export function paragraphDirection(text: string, wanted: Direction = "auto", fallback: "rtl" | "ltr" = "ltr"): "rtl" | "ltr" {
   if (wanted !== "auto") return wanted;
   for (const ch of text) {
     if (ARABIC_RE.test(ch)) return "rtl";
     if (STRONG_LTR.test(ch)) return "ltr";
   }
-  return ARABIC_RE.test(text) ? "rtl" : "ltr";
+  return ARABIC_RE.test(text) ? "rtl" : fallback;
 }
 
 /** Upper, lower or title case; Arabic letters have no case and pass through. */

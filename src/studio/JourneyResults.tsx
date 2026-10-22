@@ -474,6 +474,7 @@ function CaptionCard({
             patch={post.ov}
             faces={job.faces}
             brand={brand}
+            postLanguage={post.language}
             batchId={batchId}
             index={post.index}
             fileName={`${fileBase}_post-${String(post.index).padStart(2, "0")}`}
