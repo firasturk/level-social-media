@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Circle, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon, LayoutTemplate, Lock, LockOpen, Minus, Plus, Sparkles, Square, Stamp, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Circle, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon, LayoutTemplate, Lock, LockOpen, Minus, Plus, Search, Sparkles, Square, Stamp, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { post } from "@/api";
@@ -35,8 +35,8 @@ function LayerIcon({ layer }: { layer: Layer }) {
   return <Square size={12} className="ts-layer-icon" />;
 }
 
-/** The Add menu: a text layer, the client's logo, a picture (product photo, brand asset, upload), a shape. */
-export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; assets: Asset[] }) {
+/** The Add menu: a text layer, the client's logo, a picture (product photo, brand asset, upload, a Freepik asset), a shape. */
+export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, onAddFreepik, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; /** Opens the Freepik assets picker (admins only for now; the picker says so to a member). */ onAddFreepik?: () => void; assets: Asset[] }) {
   const [open, setOpen] = useState(false);
   const [pictures, setPictures] = useState(false);
   const products = assets.filter((a) => a.kind === "product");
@@ -92,6 +92,11 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
                 <Upload size={12} /> Upload a graphic
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden disabled={!onUploadGraphic} onChange={(e) => { const f = e.target.files?.[0]; if (f && onUploadGraphic) pick(() => onUploadGraphic(f))(); e.target.value = ""; }} />
               </label>
+              {onAddFreepik && (
+                <button type="button" className="ts-link" onClick={pick(onAddFreepik)} title="A stock photo, vector or template from Freepik as an image layer. Admins only for now.">
+                  <Search size={12} /> Freepik asset
+                </button>
+              )}
               <button type="button" className="ts-link" onClick={() => setPictures(false)}>Back</button>
             </div>
           )}
@@ -115,6 +120,7 @@ export function LayersList({
   onAddImage,
   onAddShape,
   onUploadGraphic,
+  onAddFreepik,
   assets,
 }: {
   layers: Layer[];
@@ -132,6 +138,7 @@ export function LayersList({
   onAddImage: (src: string, name?: string) => void;
   onAddShape: (kind: ShapeKind) => void;
   onUploadGraphic?: (file: File) => void;
+  onAddFreepik?: () => void;
   assets: Asset[];
 }) {
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -143,7 +150,7 @@ export function LayersList({
     <div className="ts-layers">
       <div className="ts-panel-head">
         <span>Layers</span>
-        <AddLayerMenu onAdd={onAdd} onAddLogo={onAddLogo} onAddImage={onAddImage} onAddShape={onAddShape} onUploadGraphic={onUploadGraphic} assets={assets} />
+        <AddLayerMenu onAdd={onAdd} onAddLogo={onAddLogo} onAddImage={onAddImage} onAddShape={onAddShape} onUploadGraphic={onUploadGraphic} onAddFreepik={onAddFreepik} assets={assets} />
       </div>
       {!rows.length && <p className="ts-empty">No layers yet. Press T for text, or “Add” for a logo, a picture or a shape.</p>}
       <ul>

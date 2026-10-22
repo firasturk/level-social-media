@@ -161,6 +161,8 @@ export interface PostEditorTools {
   drivePicker?: ReactNode;
   /** The Photo lab (Freepik's real-photo tools on the picture or a Drive photo), a panel of its own. */
   photoLab?: ReactNode;
+  /** Freepik stock assets (search, licence, use as the post's reference), a panel of its own. */
+  freepik?: ReactNode;
   /** The client's feedback on this post, read into reviewable changes. */
   feedbackPanel?: ReactNode;
   onAnimate?: () => void;
@@ -890,6 +892,12 @@ export default function ReviewDialog({
               <details className="editor-photolab">
                 <summary>Photo lab (Freepik)</summary>
                 {editor.photoLab}
+              </details>
+            )}
+            {editor?.freepik && (
+              <details className="editor-freepik">
+                <summary>Freepik assets</summary>
+                {editor.freepik}
               </details>
             )}
             {task?.prompt && (

@@ -195,3 +195,7 @@ export const RESEND_KEY_SETTING = "resend_api_key";
 export const NOTIFY_FROM_SETTING = "notify_from";
 /** Freepik (Magnific) API key for the Photo lab, saved from Connection → Freepik. */
 export const FREEPIK_KEY_SETTING = "freepik_api_key";
+/** Bearer token for the Magnific MCP server (mcp.magnific.com), saved from Connection → Freepik; see docs/freepik.md. */
+export const FREEPIK_MCP_TOKEN_SETTING = "freepik_mcp_token";
+/** The Freepik API plan family, which decides whether a stock download is in the plan or billed in credits. */
+export const FREEPIK_PLAN_SETTING = "freepik_plan";

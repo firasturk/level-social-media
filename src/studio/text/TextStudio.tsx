@@ -15,6 +15,7 @@ import { drawBasePicture, renderDesignOnly, type LayerBox } from "@/lib/textLaye
 import { Orb } from "@/components/Orb";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
+import { FreepikDialog, type FreepikLayer } from "../FreepikPanel";
 import { Assistant, BrandAssets, LayersList, LayoutsList, PresetsList, type Asset } from "./Panels";
 import Properties, { type Align } from "./Properties";
 import { applyLayout, brandFonts, contrastOf, designFromLegacy, directionFor, hitLayer, languageWithSource, layoutsFor, patchWith, round3, sampleContent, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type ClientLanguage, type Guide, type LayoutPreset } from "./model";
@@ -408,6 +409,13 @@ export default function TextStudio(p: Props) {
     addAny(newLogoLayer({ x: round3(x), y: round3(spec.logo.position === "bottom-center" ? 1 - y - (w * W * 0.5) / H : y), w }));
   };
   const addImage = (src: string, name?: string) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H) }));
+  /** The Freepik picker, open with the id the new image layer will carry (the design use is recorded against it). */
+  const [freepik, setFreepik] = useState<{ layerId: string } | null>(null);
+  const addFreepik = (l: FreepikLayer) => {
+    addAny(newImageLayer(l.src, { ...(freepik ? { id: freepik.layerId } : {}), name: l.name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H) }));
+    setFreepik(null);
+    toast.success(l.flattened ? "Added as a layer: a flattened picture, not editable layers." : "Added as an editable image layer.");
+  };
   const addShape = (kind: ShapeKind) =>
     addAny(
       newShapeLayer(kind, {
@@ -1162,9 +1170,11 @@ export default function TextStudio(p: Props) {
           onAddImage={addImage}
           onAddShape={addShape}
           onUploadGraphic={p.onUploadGraphic ? uploadGraphic : undefined}
+          onAddFreepik={p.batchId ? () => setFreepik({ layerId: layerId() }) : undefined}
           assets={p.assets ?? []}
         />
       )}
+      <FreepikDialog open={!!freepik} onClose={() => setFreepik(null)} title="Freepik asset as a layer" description="A stock photo, vector or template from Freepik as an image layer over the post's picture. It changes nothing else." clientId={brand.id} batchId={p.batchId} post={p.index} mode="design" layerId={freepik?.layerId} onDesign={addFreepik} />
       {leftTab === "layouts" && design && (
         <LayoutsList layouts={layouts} language={lang} languageSource={langSource} thumb={layoutThumb} cacheKey={layoutKey} trialId={trial?.id ?? null} onPreview={previewLayout} onApply={applyLayoutHere} onApplyAll={p.onApplyLayoutToAll ? (l) => void applyLayoutEverywhere(l) : undefined} />
       )}
