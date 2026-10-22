@@ -68,7 +68,10 @@ keep their own existing rules; nothing here changes them.
 | `DELETE /api/studio/photolab/key` | admin, ledger (`key.remove`); allowed while off |
 | `POST /api/studio/photolab/jobs/:id/use` | admin, switch, ledger (`result.picture` / `result.product`, no spend) |
 | `POST /api/studio/posts/video/idea` | admin, switch, ledger (`video.idea`: a text-model call under the text key, nothing sent to Higgsfield, no confirmation) |
-| `POST /api/studio/posts/video` | admin, switch, propose / confirm, claim, no retry, ledger (`video.submit`) |
+| `POST /api/studio/posts/video` | admin, switch, propose / confirm, claim, no retry, ledger (`video.submit`); 409 while the billing choice is the subscription credits |
+| `POST /api/studio/higgsfield/mcp/signin/start`, `/signin/poll`, `/signout`, `/billing` | admin, switch (not for `/signout` and `/billing`), ledger (`mcp.signin`, `mcp.signout`, `mcp.billing`; estimate 0, nothing spent). docs/higgsfield-mcp.md |
+| `GET /api/studio/higgsfield/mcp/models`, `POST …/estimate` | admin, switch, ledger (`mcp.estimate`: the credits `get_cost` named, note "N credits"; nothing submitted) |
+| `POST /api/studio/higgsfield/mcp/generate` | admin, switch, the billing choice, `get_cost` estimate → `confirm: true` with the credits shown, claim (ten minutes), no retry (a timeout keeps the row and the claim), ledger (`video`, estimate and reported **in credits**, the note says so); an `unlim_choice` answer is a 409 for the admin, never answered by the server |
 | `POST /api/studio/posts/video/audio/upload`, `/choose` | admin, switch (`audio`), ledger (`audio.upload`, `audio.choose`, estimate 0; no provider) |
 | `POST /api/studio/posts/video/audio/generate` | admin, switch; always 503 "not connected" with a `refused` row (`audio.generate`) until a music provider is wired |
 | `POST /api/studio/posts/video/editor/projects`, `PUT …/projects/:id` | admin, switch (`editor`), ledger (`editor.save`, estimate 0: rendered in the browser, nothing sent out) |

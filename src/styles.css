@@ -19843,3 +19843,88 @@ a.publish-pill.published:hover {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 }
+
+/* ───────────── Higgsfield sign-in ───────────── */
+.hf-signin {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 12px;
+  margin-top: 8px;
+}
+.hf-signin .success-note.hf-signed {
+  align-items: flex-start;
+}
+.hf-signin .footer-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.hf-device {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.04);
+}
+.hf-code {
+  align-self: flex-start;
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  user-select: all;
+}
+.hf-billing {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .hf-billing {
+    grid-template-columns: 1fr;
+  }
+}
+.hf-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.1));
+  border-radius: 10px;
+  cursor: pointer;
+}
+.hf-choice.on {
+  border-color: var(--accent, #1d1d1f);
+  box-shadow: 0 0 0 1px var(--accent, #1d1d1f) inset;
+}
+.hf-choice input {
+  margin-top: 3px;
+}
+.hf-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hf-choice small {
+  opacity: 0.75;
+  line-height: 1.35;
+}
+.hf-cost {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hf-unlim .footer-actions {
+  margin-top: 6px;
+}
+.integration-billing {
+  display: block;
+  margin-top: 6px;
+  opacity: 0.85;
+  line-height: 1.4;
+}

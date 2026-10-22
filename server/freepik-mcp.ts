@@ -1,7 +1,7 @@
 /**
- * Magnific MCP adapter: a minimal MCP-over-HTTP client (JSON-RPC 2.0 over the streamable HTTP
- * transport: initialize, notifications/initialized, tools/list, tools/call) against
- * https://mcp.magnific.com, with the same governance as the API routes: admins only, every call
+ * Magnific MCP adapter: the shared MCP-over-HTTP client (server/mcp-client.ts: JSON-RPC 2.0 over
+ * the streamable HTTP transport, initialize, notifications/initialized, tools/list, tools/call)
+ * against https://mcp.magnific.com, with the same governance as the API routes: admins only, every call
  * recorded as an op, confirmation before a tool that makes something or costs credits, browsing
  * free. Results that are stock assets land in the same `assets` library as the API's downloads.
  *
@@ -18,146 +18,15 @@ import { StudioError, errorMessage } from "./errors";
 import { getSetting, setSetting, deleteSetting, FREEPIK_MCP_TOKEN_SETTING } from "./settings";
 import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { assetJson, costNotKnown, downloadEstimate, isFlattened, licenseOf, resolveFreepik, storeDownloaded, upsertStockItem, mimeOfName, type AssetJson, type AssetKind, type StockItem } from "./freepik";
+import { McpClient, resultText, type McpCallResult, type McpTool } from "./mcp-client";
 import type { User } from "@shared/types";
 
 export const MCP_URL = "https://mcp.magnific.com";
-export const MCP_PROTOCOL = "2025-06-18";
 
-/* ───────────── JSON-RPC over streamable HTTP ───────────── */
+/* ───────────── JSON-RPC over streamable HTTP: server/mcp-client.ts, shared with Higgsfield ───────────── */
 
-export interface McpTool {
-  name: string;
-  description?: string;
-  inputSchema?: Record<string, unknown>;
-}
-
-export interface McpContent {
-  type: string;
-  text?: string;
-  data?: string;
-  mimeType?: string;
-  [k: string]: unknown;
-}
-
-export interface McpCallResult {
-  content: McpContent[];
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-}
-
-interface RpcAnswer {
-  jsonrpc?: string;
-  id?: number | string | null;
-  result?: unknown;
-  error?: { code?: number; message?: string; data?: unknown };
-}
-
-/** The first JSON-RPC answer in a response body: plain JSON, or the `data:` lines of an event stream. */
-export function parseRpcBody(text: string, contentType: string): RpcAnswer | null {
-  const t = text.trim();
-  if (!t) return null;
-  if (/text\/event-stream/i.test(contentType) || t.startsWith("event:") || t.startsWith("data:")) {
-    for (const line of t.split(/\r?\n/)) {
-      if (!line.startsWith("data:")) continue;
-      try {
-        const parsed = JSON.parse(line.slice(5).trim()) as RpcAnswer;
-        if (parsed && (parsed.result !== undefined || parsed.error)) return parsed;
-      } catch {
-        /* a keep-alive or a partial line */
-      }
-    }
-    return null;
-  }
-  try {
-    return JSON.parse(t) as RpcAnswer;
-  } catch {
-    return null;
-  }
-}
-
-/** Magnific MCP over fetch; `fetchFn` is injected so a test never reaches the real host. */
-export class McpClient {
-  private session: string | null = null;
-  private nextId = 1;
-  private initialised = false;
-  /** Always a plain call: Workers refuse the global `fetch` invoked as a method of another object ("Illegal invocation"). */
-  private readonly fetchFn: typeof fetch;
-  constructor(
-    private readonly token: string,
-    fetchFn: typeof fetch = fetch,
-    private readonly url: string = MCP_URL,
-  ) {
-    this.fetchFn = (input, init) => fetchFn(input, init);
-  }
-
-  private headers(): Record<string, string> {
-    const h: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      Authorization: `Bearer ${this.token}`,
-      "MCP-Protocol-Version": MCP_PROTOCOL,
-    };
-    if (this.session) h["Mcp-Session-Id"] = this.session;
-    return h;
-  }
-
-  private async post(payload: Record<string, unknown>, expectAnswer: boolean): Promise<RpcAnswer | null> {
-    const r = await this.fetchFn(this.url, { method: "POST", headers: this.headers(), body: JSON.stringify(payload), signal: AbortSignal.timeout(90_000) });
-    const sid = r.headers.get("mcp-session-id");
-    if (sid) this.session = sid;
-    const text = await r.text();
-    if (r.status === 401 || r.status === 403) throw new StudioError(`Magnific MCP refused the token (${r.status}): sign in again and save a fresh token under Connection → Freepik.`, 401, true);
-    if (!r.ok && r.status !== 202) throw new StudioError(`Magnific MCP (${r.status}): ${text.slice(0, 200) || r.statusText}`, 502);
-    if (!expectAnswer) return null;
-    const answer = parseRpcBody(text, r.headers.get("content-type") || "");
-    if (!answer) throw new StudioError("Magnific MCP sent no answer.", 502);
-    if (answer.error) throw new StudioError(`Magnific MCP: ${answer.error.message ?? "error"}${answer.error.code != null ? ` (${answer.error.code})` : ""}`, 502);
-    return answer;
-  }
-
-  async rpc<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const answer = await this.post({ jsonrpc: "2.0", id: this.nextId++, method, params }, true);
-    return answer!.result as T;
-  }
-
-  async notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
-    await this.post({ jsonrpc: "2.0", method, params }, false);
-  }
-
-  async initialize(): Promise<{ protocolVersion?: string; serverInfo?: { name?: string; version?: string }; capabilities?: Record<string, unknown> }> {
-    const r = await this.rpc<{ protocolVersion?: string; serverInfo?: { name?: string; version?: string }; capabilities?: Record<string, unknown> }>("initialize", {
-      protocolVersion: MCP_PROTOCOL,
-      capabilities: {},
-      clientInfo: { name: "level-social-media", version: "1.0" },
-    });
-    await this.notify("notifications/initialized");
-    this.initialised = true;
-    return r;
-  }
-
-  private async ready(): Promise<void> {
-    if (!this.initialised) await this.initialize();
-  }
-
-  async listTools(): Promise<McpTool[]> {
-    await this.ready();
-    const tools: McpTool[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < 20; page++) {
-      const r = await this.rpc<{ tools?: McpTool[]; nextCursor?: string }>("tools/list", cursor ? { cursor } : {});
-      tools.push(...(r.tools ?? []));
-      if (!r.nextCursor) break;
-      cursor = r.nextCursor;
-    }
-    return tools;
-  }
-
-  async callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult> {
-    await this.ready();
-    const r = await this.rpc<McpCallResult>("tools/call", { name, arguments: args });
-    return { content: Array.isArray(r?.content) ? r.content : [], structuredContent: r?.structuredContent, isError: !!r?.isError };
-  }
-}
+export { McpClient, MCP_PROTOCOL, parseRpcBody, resultText } from "./mcp-client";
+export type { McpCallResult, McpContent, McpTool } from "./mcp-client";
 
 /* ───────────── What a tool costs ───────────── */
 
@@ -185,11 +54,6 @@ export const DEMO_TOOLS: (McpTool & { cost: ToolCost; demo: true })[] = [
 ];
 
 export const MCP_NOT_CONNECTED = "Not connected: the Magnific MCP needs a bearer token saved under Connection → Freepik (OAuth sign-in with the Magnific account; see docs/freepik.md). No tool runs until then.";
-
-/** The text of a tool result as one string, for the ledger and for parsing. */
-export function resultText(r: McpCallResult): string {
-  return r.content.filter((c) => c.type === "text" && typeof c.text === "string").map((c) => c.text as string).join("\n");
-}
 
 /** A credit figure in a simulate_cost answer ("12 credits", {"credits": 12}, {"cost": 12}). */
 export function creditsIn(r: McpCallResult): number | null {
@@ -345,7 +209,7 @@ async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
 
 async function client(env: Env): Promise<McpClient | null> {
   const token = await getSetting(env, FREEPIK_MCP_TOKEN_SETTING);
-  return token ? new McpClient(token, fetcher()) : null;
+  return token ? new McpClient(token, fetcher(), MCP_URL) : null;
 }
 
 /** The tools, with what each costs; the demo list when no token is saved. */
@@ -366,7 +230,7 @@ freepikMcpRoutes.post("/token", async (c) => {
     if (!parsed.success) throw new StudioError("Paste the bearer token first.");
     return parsed.data;
   })();
-  const probe = new McpClient(token, fetcher());
+  const probe = new McpClient(token, fetcher(), MCP_URL);
   const info = await probe.initialize();
   const tools = await probe.listTools();
   await setSetting(c.env, FREEPIK_MCP_TOKEN_SETTING, token);

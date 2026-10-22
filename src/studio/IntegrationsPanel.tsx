@@ -46,6 +46,17 @@ interface Answer {
 }
 
 const usd = (n: number | null) => (n == null ? "not known" : `$${n.toFixed(2)}`);
+/** A Higgsfield MCP row counts in credits (its note says so); every other row is in dollars. */
+const amount = (n: number | null, o: OpRow) => (n == null ? "not known" : /\bcredits\b/i.test(o.note) ? `${n} credits` : usd(n));
+
+/** The Higgsfield sign-in as /api/studio/higgsfield/mcp/status reports it, for the Higgsfield card. */
+interface HiggsfieldMcpLine {
+  signedIn: boolean;
+  email: string | null;
+  plan: string | null;
+  credits: number | null;
+  billing: "credits" | "cloud";
+}
 const when = (t: number) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export default function IntegrationsPanel() {
@@ -53,9 +64,14 @@ export default function IntegrationsPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
+  const [higgsfield, setHiggsfield] = useState<HiggsfieldMcpLine | null>(null);
+
   const load = useCallback(async () => {
     try {
       setData(await get<Answer>("/api/admin/integrations?limit=60"));
+      get<HiggsfieldMcpLine>("/api/studio/higgsfield/mcp/status")
+        .then(setHiggsfield)
+        .catch(() => setHiggsfield(null));
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -127,6 +143,12 @@ export default function IntegrationsPanel() {
                     <small>{p.scope}</small>
                   </span>
                 </label>
+                {p.provider === "higgsfield" && higgsfield && (
+                  <small className="integration-billing">
+                    Billing: {higgsfield.billing === "credits" ? "subscription credits (Higgsfield sign-in)" : "Cloud API key, pay per clip"}
+                    {higgsfield.signedIn ? ` · signed in${higgsfield.email ? ` as ${higgsfield.email}` : ""}${higgsfield.plan ? ` · ${higgsfield.plan}` : ""}${higgsfield.credits !== null ? ` · Credits: ${higgsfield.credits.toLocaleString("en-GB")}` : ""}` : " · not signed in"}. Change it under Connection → Higgsfield.
+                  </small>
+                )}
                 {(data.estimateKinds[p.provider] ?? []).map((k) => {
                   const key = `${p.provider}.${k.kind}`;
                   const current = p.estimates[k.kind];
@@ -190,8 +212,8 @@ export default function IntegrationsPanel() {
                   <span>{o.post != null ? `Post ${o.post}` : "—"}</span>
                   <span className="integrations-task">{o.task_id ?? "—"}</span>
                   <span>
-                    {usd(o.estimate)}
-                    {o.reported != null ? ` / ${usd(o.reported)}` : ""}
+                    {amount(o.estimate, o)}
+                    {o.reported != null ? ` / ${amount(o.reported, o)}` : ""}
                   </span>
                   <span>
                     <span className={`pill ${o.status === "done" ? "ready" : o.status === "failed" || o.status === "refused" ? "failed" : "queued"}`}>{o.status}</span>

@@ -2,7 +2,7 @@
 
 Stock photos, vectors, PSDs and templates from Freepik, brought into the studio as a post's
 **reference picture** or as an **image layer** of a design. One shared layer (`server/freepik.ts`)
-serves the API routes and the MCP adapter (`server/freepik-mcp.ts`), over one library
+serves the API routes and the MCP adapter (`server/freepik-mcp.ts`; the JSON-RPC client itself lives in `server/mcp-client.ts`, shared with the Higgsfield MCP adapter), over one library
 (`assets`, `asset_uses`, migration `0070_assets.sql`): a file is downloaded once and reused.
 
 A Freepik asset never changes the theme (Pinterest pins stay the theme references), never switches

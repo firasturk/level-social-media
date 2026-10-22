@@ -15,6 +15,8 @@ import { StudioError } from "./errors";
 import { all, first } from "./db";
 import { downloadAsset, resolveFreepik, useAsset } from "./freepik";
 import { submitVideoRequest } from "./video";
+import { higgsfieldBilling } from "./higgsfield-billing";
+import { HiggsfieldMcp, matchMcpModel, mcpModels, submitMcpVideo } from "./higgsfield-mcp";
 import { videoModel } from "@shared/video-models";
 import { PHOTO_LAB_OPS, proposePhotoLab, runPhotoLabJob } from "./photolab";
 import { confirmSpend } from "./integrations";
@@ -138,6 +140,21 @@ const defaults: PromptboxTools = {
     // The box confirmed the clip (with the admin's estimate when the catalog has none), so an unknown cost is not asked about twice.
     const model = videoModel(v.model);
     if (!model) throw new StudioError("Unknown video engine.", 400);
+    if ((await higgsfieldBilling(env)) === "credits") {
+      // The subscription credits: the box names a Cloud catalog engine; the matching one on the subscription catalog runs it.
+      const mcp = new HiggsfieldMcp(env);
+      await mcp.connect();
+      const { models } = await mcpModels(env, mcp);
+      const engine = matchMcpModel(models, v.model) ?? matchMcpModel(models, model.name);
+      if (!engine) throw new StudioError(`${model.name} is not on the Higgsfield subscription catalog. Open the Video dialog on the post to pick one of its engines, or switch the billing to the Cloud API under Connection → Higgsfield.`, 409);
+      try {
+        const item = await submitMcpVideo(env, user, { batch: v.batch, index: v.index, model: engine.id, prompt: v.prompt, duration: engine.durations.length && !engine.durations.includes(v.duration) ? undefined : v.duration, aspect: v.aspect && engine.aspects.includes(v.aspect) ? v.aspect : undefined, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
+        return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${engine.name} with the subscription credits${item.estimate !== null ? ` (about ${item.estimate} credits)` : ""}; it appears on the card and under Versions when done.` };
+      } catch (e) {
+        if (e instanceof StudioError && e.data?.unlimChoice) throw new StudioError(`${e.message} Open the Video dialog on post ${v.index} to choose.`, 409, false, e.data);
+        throw e;
+      }
+    }
     // An engine without a frame choice follows the picture's own frame; the card's default frame is not forced on it.
     const aspect = model.aspect ? v.aspect : undefined;
     const item = await submitVideoRequest(env, user, { batch: v.batch, index: v.index, model: v.model, prompt: v.prompt, duration: v.duration, aspect, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });

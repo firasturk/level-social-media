@@ -164,6 +164,24 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
+  // Back from the Higgsfield sign-in (`?higgsfield=connected|error`): say so, open Connection → Higgsfield, clean the address.
+  useEffect(() => {
+    const outcome = urlParam("higgsfield", /^(connected|error)$/);
+    if (!outcome) return;
+    const reason = urlParam("reason", /^[\s\S]{1,300}$/);
+    if (outcome === "connected") toast.success("Signed in to Higgsfield: videos can use the subscription credits. Check the billing choice under Connection → Higgsfield.");
+    else toast.error(`The Higgsfield sign-in did not finish: ${reason || "unknown reason"}`);
+    if (user.role === "admin") setConnection(true);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("higgsfield");
+      u.searchParams.delete("reason");
+      window.history.replaceState(null, "", u.toString());
+    } catch {
+      /* the address stays */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [workflowV2, setWorkflowV2] = useState(false);
   /* The workflow is drawn light, as designed: the first time it is on, this browser goes light; the toggle then decides. */
