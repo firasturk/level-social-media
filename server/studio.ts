@@ -1007,6 +1007,8 @@ studioRoutes.delete("/engine/key", async (c) => {
 });
 
 const newBatch = z.object({ name: z.string().max(100).optional(), config: configSchema });
+/** A month of the same client, month and name created again inside this window is the same month. */
+export const BATCH_TWIN_WINDOW_MS = 60_000;
 
 studioRoutes.post("/batch", async (c) => {
   const user = c.get("user");
@@ -1032,27 +1034,70 @@ studioRoutes.post("/batch", async (c) => {
     );
     if (!identity) throw new StudioError("Identity reference not found.");
   }
-  const id = uuid();
-  await run(
+  const name = (
+    parsed.data.name ||
+    (config.mode === "post" && config.month
+      ? `${client.name} · ${config.month}`
+      : `${client.name} · ${new Date().toLocaleDateString("en-GB")}`)
+  ).slice(0, 100);
+  // One month per click: the same month asked for again within a minute (a double click, a request
+  // sent twice, an effect that ran again) is the month just made, not a second empty one.
+  const month = config.mode === "post" && config.month ? config.month : null;
+  if (month) {
+    const twin = await first<{ id: string }>(
+      c.env.DB,
+      "SELECT id FROM batches WHERE owner = ? AND client = ? AND month = ? AND name = ? AND deleted IS NULL AND created >= ? ORDER BY created DESC LIMIT 1",
+      user.id,
+      client.id,
+      month,
+      name,
+      now() - BATCH_TWIN_WINDOW_MS,
+    );
+    if (twin) return c.json({ id: twin.id, existing: true });
+  }
+  // Requests that run at the same time never see each other above, so a month's id inside one
+  // window is fixed by what it is: the same request twice is one row, and the second gets the first's id.
+  const id = month ? await twinBatchId(`${user.id}|${client.id}|${month}|${name}|${Math.floor(now() / BATCH_TWIN_WINDOW_MS)}`) : uuid();
+  const inserted = await run(
     c.env.DB,
-    "INSERT INTO batches (id, owner, name, config, client, month, theme, state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)",
+    "INSERT OR IGNORE INTO batches (id, owner, name, config, client, month, theme, state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)",
     id,
     user.id,
-    (
-      parsed.data.name ||
-      (config.mode === "post" && config.month
-        ? `${client.name} · ${config.month}`
-        : `${client.name} · ${new Date().toLocaleDateString("en-GB")}`)
-    ).slice(0, 100),
+    name,
     JSON.stringify(config),
     client.id,
-    config.mode === "post" ? (config.month ?? null) : null,
+    month,
     config.theme ?? null,
     now(),
     now(),
   );
-  return c.json({ id });
+  if (inserted) return c.json({ id });
+  const taken = await first<{ deleted: number | null; created: number }>(c.env.DB, "SELECT deleted, created FROM batches WHERE id = ?", id);
+  if (taken && taken.deleted === null && taken.created >= now() - BATCH_TWIN_WINDOW_MS) return c.json({ id, existing: true });
+  // The twin of this minute was binned already (or is older than the window): this one is made afresh under its own id.
+  const fresh = uuid();
+  await run(
+    c.env.DB,
+    "INSERT INTO batches (id, owner, name, config, client, month, theme, state, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)",
+    fresh,
+    user.id,
+    name,
+    JSON.stringify(config),
+    client.id,
+    month,
+    config.theme ?? null,
+    now(),
+    now(),
+  );
+  return c.json({ id: fresh });
 });
+
+/** A UUID-shaped id fixed by the month's key (owner, client, month, name, minute): the same request twice is one row. */
+async function twinBatchId(key: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(key)));
+  const hex = [...digest.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 /**
  * Edit a saved batch's creative direction. The workflow (mode) is fixed because it defines the card

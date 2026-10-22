@@ -11,6 +11,16 @@ import {
 } from "./config";
 import { FORMATS, MAX_POST_COUNT, POST_TYPES, TILE_KINDS } from "./posts";
 import { TEXT_DESIGN_SCHEMA } from "./layers";
+import { MAX_SLIDES } from "./campaign-size";
+
+/** The campaign's shape (shared/campaign-size.ts); every field has a default there, so old months load unchanged. */
+export const campaignSizeSchema = z.object({
+  posts: z.number().int().min(1).max(MAX_POST_COUNT),
+  carousels: z.number().int().min(0).max(MAX_POST_COUNT),
+  separators: z.number().int().min(0).max(MAX_POST_COUNT),
+  slidesPerCarousel: z.number().int().min(2).max(MAX_SLIDES),
+  slidesPerSeparator: z.number().int().min(1).max(MAX_SLIDES),
+});
 
 export const postSchema = z.object({
   index: z.number().int().min(1).max(MAX_POST_COUNT),
@@ -122,6 +132,7 @@ export const configSchema = z.object({
     .regex(/^\d{4}-\d{2}$/)
     .optional(),
   postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+  campaignSize: campaignSizeSchema.optional(),
   format: z.enum(FORMATS).optional(),
   plan: z.array(postSchema).max(MAX_POST_COUNT).optional(),
   notes: z.string().max(2000).optional(),

@@ -8,10 +8,11 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
-import { askText } from "./posts";
+import { askText, parseJson, rememberGridRead } from "./posts";
 import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
 import { gridSummary, type GridRead } from "@shared/posts";
+import { GRID_READ_SCHEMA, gridReadInstruction, gridTiles } from "@shared/grid-preview";
 import {
   describeStyleInstruction,
   GRID_STYLE_SCHEMA,
@@ -550,7 +551,41 @@ styleRoutes.get("/:id/grid", async (c) => {
     read = null;
   }
   const sum = gridSummary(read);
-  return c.json({ ok: true, ...sum, tiles: sum.tiles || r.tiles });
+  // The tiles one by one, for the preview before the grid is applied (what each is, where its words sit).
+  const { tiles: tileList, rows, cols } = gridTiles(read);
+  return c.json({ ok: true, ...sum, tiles: sum.tiles || r.tiles, tileList, rows, cols });
+});
+
+/**
+ * A library grid read on its own (its world, tiles and fonts), so the preview can show what each
+ * tile is before a month is planned from it. One vision call, kept in grid_reads for everyone;
+ * a grid read already is not read again unless asked. Nothing is planned and no picture is made.
+ */
+styleRoutes.post("/:id/grid-read", async (c) => {
+  const r = await styleRow(c.env, c.req.param("id"));
+  if (!r || r.category !== "grid") throw new StudioError("That grid is not in the library.", 404);
+  const again = c.req.query("again") === "1";
+  const kept = again ? null : await first<{ read: string }>(c.env.DB, "SELECT read FROM grid_reads WHERE style = ?", r.id);
+  let read: GridRead | null = null;
+  if (kept) {
+    try {
+      read = JSON.parse(kept.read) as GridRead;
+    } catch {
+      read = null;
+    }
+  }
+  if (!read?.tiles?.length) {
+    const obj = r.image_key ? await c.env.BUCKET.get(r.image_key) : null;
+    if (!obj) throw new StudioError("The grid has no picture to read.", 404);
+    const text = await askText(c.env, gridReadInstruction(r.tiles), GRID_READ_SCHEMA, [{ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" }]);
+    const got = parseJson<Partial<GridRead>>(text);
+    read = { world: String(got.world ?? "").trim(), tiles: Array.isArray(got.tiles) ? (got.tiles as GridRead["tiles"]).filter((t) => t && typeof t === "object").slice(0, 30) : [], fonts: got.fonts };
+    if (!read.tiles.length) throw new StudioError("The grid could not be read tile by tile. Try again.", 502);
+    await rememberGridRead(c.env, r.id, read);
+  }
+  const sum = gridSummary(read);
+  const { tiles: tileList, rows, cols } = gridTiles(read);
+  return c.json({ ok: true, ...sum, tiles: sum.tiles || r.tiles, tileList, rows, cols, fresh: !kept });
 });
 
 styleRoutes.get("/:id/image", async (c) => {

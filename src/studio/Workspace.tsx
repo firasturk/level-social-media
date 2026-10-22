@@ -14,6 +14,8 @@ import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/o
 import { buildFeedPdf, type FeedPost } from "@/lib/feedPdf";
 import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
+import { campaignSizeOf, type CampaignSize } from "@shared/campaign-size";
+import { inFlight } from "@shared/inflight";
 import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext } from "@shared/issues";
 import { formatUsd, rateFor, setPricesHidden, testSize } from "@shared/pricing";
@@ -418,6 +420,19 @@ export default function Workspace({
   /** The same picture at card size: a smaller JPEG the server keeps, so the grid opens fast. */
   const outputThumb = (t: Task) => `${outputUrl(t)}&w=1080`;
 
+  /**
+   * One month created at a time: while a create request runs, every further call (a second click,
+   * an effect that ran again, two screens asking at once) gets the same promise and the same id.
+   */
+  const createMonth = useRef(
+    inFlight(async (cfg: Config, name?: string): Promise<string> => {
+      const { id } = await post<{ id: string }>("/api/studio/batch", name ? { config: cfg, name } : { config: cfg });
+      return id;
+    }),
+  ).current;
+  /** The campaign's shape set on the Start board before the month exists, carried into the new month. */
+  const draftSize = (draftSettings as { campaignSize?: CampaignSize }).campaignSize;
+
   /** The month's plan, created on first use. */
   async function ensurePlan(): Promise<string> {
     if (batch) return batch.id;
@@ -434,9 +449,10 @@ export default function Workspace({
       ratio: shownSettings.format,
       size: shownSettings.size,
       postCount: shownSettings.postCount,
+      campaignSize: draftSize ? { ...draftSize, posts: shownSettings.postCount } : undefined,
       ambassadors: castIds.length ? castIds : undefined,
     });
-    const { id } = await post<{ id: string }>("/api/studio/batch", { config: cfg });
+    const id = await createMonth(cfg);
     await loadState();
     await open(id);
     return id;
@@ -453,9 +469,10 @@ export default function Workspace({
       ratio: shownSettings.format,
       size: shownSettings.size,
       postCount: shownSettings.postCount,
+      campaignSize: draftSize ? { ...draftSize, posts: shownSettings.postCount } : undefined,
       ambassadors: castIds.length ? castIds : undefined,
     });
-    const { id } = await post<{ id: string }>("/api/studio/batch", { config: cfg, name: `${client.name} · ${month} · grid ${n}` });
+    const id = await createMonth(cfg, `${client.name} · ${month} · grid ${n}`);
     setGridPick((g) => ({ ...g, [`${client.id}|${month}`]: id }));
     await loadState();
     await open(id);
@@ -505,6 +522,8 @@ export default function Workspace({
       monthFonts?: { headline: string; body: string } | null;
       /** The month's standing rules for the words. */
       notes?: string;
+      /** The campaign's shape from the Start board. */
+      campaignSize?: CampaignSize;
     },
   ) {
     setDraftSettings((d) => ({ ...d, ...patch }));
@@ -720,8 +739,11 @@ export default function Workspace({
     }
   }
 
-  /** force: a month planned from a request is planned again over the grid (the workflow confirms this first). */
-  async function gridIdeas(refId: string, notes: string, force = false) {
+  /**
+   * force: a month planned from a request is planned again over the grid (the workflow confirms this first).
+   * count: the posts to plan (the grid's own tile count or the month's, as chosen on Start); else the month's setting.
+   */
+  async function gridIdeas(refId: string, notes: string, force = false, count?: number) {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return;
@@ -733,7 +755,7 @@ export default function Workspace({
         batch: id,
         ref: refId,
         notes: notes || undefined,
-        count: shownSettings.postCount,
+        count: count ?? shownSettings.postCount,
         force: force || undefined,
       });
       await refresh();
@@ -2024,7 +2046,10 @@ export default function Workspace({
             setKitOpen(true);
             setTimeout(() => document.querySelector(".brand-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
           }}
-          onGridIdeas={(ref, notes) => gridIdeas(ref, notes, true)}
+          onGridIdeas={(ref, notes, count) => gridIdeas(ref, notes, true, count)}
+          campaignSize={campaignSizeOf({ postCount: shownSettings.postCount, campaignSize: config?.campaignSize ?? draftSize })}
+          sizeSet={!!(config?.campaignSize ?? draftSize)}
+          onSize={(size, format) => updateSettings({ postCount: size.posts, format, campaignSize: size })}
           onStyles={(assign) => assignStyles(assign, false)}
           overlay={overlaySpec}
           logoSrc={logoSrc}

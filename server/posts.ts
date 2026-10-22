@@ -34,7 +34,7 @@ import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { olderIdea, planShape, postRevision } from "@shared/posts";
 import { monthIssues, sceneContext } from "@shared/issues";
-import { postSchema } from "@shared/config-schema";
+import { campaignSizeSchema, postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
@@ -1785,6 +1785,8 @@ postRoutes.put("/settings", async (c) => {
       model: z.string().max(120).optional(),
       size: z.enum(["1K", "2K", "4K"]).optional(),
       postCount: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
+      /** The campaign's shape from the Start board (carousels, separators, slides); postCount carries its post count. */
+      campaignSize: campaignSizeSchema.optional(),
       notes: z.string().max(2000).optional(),
       /** The fonts this month uses instead of the brand's (the grid's recommendation), or null for the brand's. */
       monthFonts: z.object({ headline: z.string().max(80), body: z.string().max(80) }).nullable().optional(),
@@ -1837,6 +1839,15 @@ postRoutes.put("/settings", async (c) => {
   if (d.postCount) {
     config.postCount = d.postCount;
     await refreshCountNote(c.env, b.id, config);
+  }
+  if (d.campaignSize) {
+    // The size's post count and postCount are one number: postCount wins when both are sent.
+    const posts = d.postCount ?? d.campaignSize.posts;
+    config.campaignSize = { ...d.campaignSize, posts };
+    if (!d.postCount && config.postCount !== posts) {
+      config.postCount = posts;
+      await refreshCountNote(c.env, b.id, config);
+    }
   }
   if (d.notes !== undefined) config.notes = d.notes;
   if (d.ambassadors) config.ambassadors = [...new Set(d.ambassadors)].slice(0, 3);

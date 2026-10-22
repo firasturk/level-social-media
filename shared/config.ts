@@ -1,5 +1,6 @@
 import type { MonthOccasions } from "./occasions";
 import type { Post, Format } from "./posts";
+import type { CampaignSize } from "./campaign-size";
 
 /** "post" is Level Social Media's month of posts; the numbered approaches are the fashion studio's. */
 export const MODES = ["post", "1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
@@ -104,6 +105,12 @@ export interface Config {
   month?: string;
   /** Posts planned for the month (default 12). */
   postCount?: number;
+  /**
+   * The campaign's shape, set on the Start board: how many of the posts are carousels or
+   * separators and how many slides each has. Absent on months saved before it existed (every
+   * post a single picture); `posts` follows postCount.
+   */
+  campaignSize?: CampaignSize;
   /** Post size; the engine ratio is derived from it. */
   format?: Format;
   /** The month's posts, written by "Generate ideas" and edited by the designer. */
