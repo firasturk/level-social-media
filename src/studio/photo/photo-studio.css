@@ -1,0 +1,760 @@
+/*
+ * Photo studio: the full-screen picture workspace. The base .ts-* rules (the sheet, the top bar,
+ * the icon and pill buttons, the right panel) live in styles.css; this file adds the rail, the
+ * stage, the crop frame, the marked area and the panels' own pieces.
+ */
+
+/* ───────────── Top bar ───────────── */
+.ps .ts-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  height: 52px;
+  min-height: 52px;
+}
+.ps .ts-top-left {
+  min-width: 0;
+}
+.ps .ts-top-left .ts-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps .ts-top-right {
+  gap: 6px;
+}
+.ps .ts-top-right .ts-btn.on {
+  background: #1d1d1f;
+  color: #fff;
+}
+.ps-tools {
+  justify-content: center;
+}
+.ps-state {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #3a3a3c;
+}
+.ps-state.review {
+  background: #fff4e5;
+  color: #8a4b00;
+}
+.ps-state.making {
+  background: #e8ecff;
+  color: #1129d3;
+}
+.ps-state.failed {
+  background: #fde8e6;
+  color: #a12d22;
+}
+
+/* ───────────── Body: rail · stage · panel ───────────── */
+.ps-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 340px;
+  min-height: 0;
+}
+.ps-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 6px;
+  background: var(--ts-panel);
+  backdrop-filter: blur(20px);
+  border-right: 1px solid var(--ts-line);
+  overflow-y: auto;
+}
+.ps-rail button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 60px;
+  border-radius: 12px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: #6e6e73;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.ps-rail button:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1d1d1f;
+}
+.ps-rail button.on {
+  background: #1d1d1f;
+  color: #fff;
+}
+.ps-rail-lock {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: #8a4b00;
+}
+.ps-rail button.on .ps-rail-lock {
+  color: #ffd6a0;
+}
+
+/* The stage: a dark neutral behind the picture, scrolling to pan when zoomed in */
+.ps-stage {
+  position: relative;
+  overflow: auto;
+  background: #3a3a3f;
+  min-width: 0;
+  min-height: 0;
+}
+.ps-stage-inner {
+  min-width: 100%;
+  min-height: 100%;
+  width: max-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+.ps-stage-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  pointer-events: none;
+}
+.ps-canvas-wrap {
+  position: relative;
+  flex: none;
+  background: #000;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  touch-action: none;
+}
+.ps-picture,
+.ps-adjust-canvas,
+.ps-before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ps-before {
+  position: absolute;
+  inset: 0;
+  background: #000;
+}
+/* The compare slider fills the frame; its own corner labels give way to ours. */
+.ps-canvas-wrap .compare {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: #000;
+}
+.ps-canvas-wrap .compare > img,
+.ps-canvas-wrap .compare-before img {
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+.ps-canvas-wrap .compare-handle span {
+  display: none;
+}
+.ps-compare-labels {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.ps-compare-labels span {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+
+/* The marked area of an AI edit */
+.ps-mark {
+  position: absolute;
+  inset: 0;
+}
+.ps-mark.on {
+  cursor: crosshair;
+}
+.ps-mark-box {
+  position: absolute;
+  border: 2px solid #fff;
+  outline: 1px solid rgba(0, 0, 0, 0.5);
+  background: rgba(17, 41, 211, 0.16);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+/* The crop frame */
+.ps-crop {
+  position: absolute;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.55);
+  cursor: move;
+  box-sizing: border-box;
+}
+.ps-crop-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, transparent calc(33.33% - 0.5px), rgba(255, 255, 255, 0.45) calc(33.33% - 0.5px), rgba(255, 255, 255, 0.45) calc(33.33% + 0.5px), transparent calc(33.33% + 0.5px), transparent calc(66.66% - 0.5px), rgba(255, 255, 255, 0.45) calc(66.66% - 0.5px), rgba(255, 255, 255, 0.45) calc(66.66% + 0.5px), transparent calc(66.66% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(33.33% - 0.5px), rgba(255, 255, 255, 0.45) calc(33.33% - 0.5px), rgba(255, 255, 255, 0.45) calc(33.33% + 0.5px), transparent calc(33.33% + 0.5px), transparent calc(66.66% - 0.5px), rgba(255, 255, 255, 0.45) calc(66.66% - 0.5px), rgba(255, 255, 255, 0.45) calc(66.66% + 0.5px), transparent calc(66.66% + 0.5px));
+}
+.ps-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.ps-handle.nw {
+  left: -8px;
+  top: -8px;
+  cursor: nwse-resize;
+}
+.ps-handle.ne {
+  right: -8px;
+  top: -8px;
+  cursor: nesw-resize;
+}
+.ps-handle.sw {
+  left: -8px;
+  bottom: -8px;
+  cursor: nesw-resize;
+}
+.ps-handle.se {
+  right: -8px;
+  bottom: -8px;
+  cursor: nwse-resize;
+}
+.ps-handle.n,
+.ps-handle.s {
+  left: calc(50% - 8px);
+  cursor: ns-resize;
+}
+.ps-handle.n {
+  top: -8px;
+}
+.ps-handle.s {
+  bottom: -8px;
+}
+.ps-handle.e,
+.ps-handle.w {
+  top: calc(50% - 8px);
+  cursor: ew-resize;
+}
+.ps-handle.w {
+  left: -8px;
+}
+.ps-handle.e {
+  right: -8px;
+}
+
+/* Floating pills on the stage */
+.ps-view {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+}
+.ps-hint-pill {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ───────────── The right panel ───────────── */
+.ps-side {
+  min-width: 0;
+}
+.ps-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ps-panel .ts-panel-head small {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ps-panel .ps-ok {
+  color: #1e6b3a;
+}
+.ps-panel .ts-group-title {
+  margin-top: 8px;
+}
+.ps-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ps-row.ps-wrap,
+.ps-mark-row {
+  flex-wrap: wrap;
+}
+.ps-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.ps-seg button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6e6e73;
+  white-space: nowrap;
+}
+.ps-seg button.on {
+  background: #fff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.ps-seg.small button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11.5px;
+}
+.ps-instruction,
+.ps-prompt textarea {
+  width: 100%;
+  border: 1px solid var(--ts-line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.ps-prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ps-cta {
+  width: 100%;
+  justify-content: center;
+  height: 36px;
+}
+.ps-cta:disabled {
+  opacity: 0.5;
+}
+.ps-chips {
+  margin: 0;
+}
+.ps-scope {
+  margin: 0;
+}
+.ps-progress {
+  margin: 0;
+}
+.ps-secondary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ts-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ps-take-line {
+  color: #6e6e73;
+}
+.ps-free {
+  color: #1e6b3a;
+}
+.ps-size {
+  margin-left: auto;
+  font-size: 11px;
+  color: #6e6e73;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sliders */
+.ps-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+}
+.ps-slider > span {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #3a3a3c;
+}
+.ps-slider em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: #8e8e93;
+}
+.ps-slider em.set {
+  color: #1129d3;
+  font-weight: 600;
+}
+.ps-slider input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: #1d1d1f;
+}
+.ps-adjust-actions {
+  margin-top: 6px;
+}
+.ps-apply {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ts-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Cards (the Photo lab's tools) */
+.ps-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ps-card {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--ts-line);
+  text-align: left;
+}
+.ps-card:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+}
+.ps-card.on {
+  border-color: var(--ts-accent);
+  box-shadow: 0 0 0 1px var(--ts-accent);
+}
+.ps-card span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ps-card b {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.ps-card small {
+  font-size: 11px;
+  color: #6e6e73;
+  line-height: 1.35;
+}
+.ps-card em {
+  font-style: normal;
+  font-size: 11px;
+  color: #6e6e73;
+  white-space: nowrap;
+}
+
+/* Thumbnails (Drive photos, earlier results) */
+.ps-thumbs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.ps-thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+}
+.ps-thumb img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e5e5ea;
+  display: block;
+}
+.ps-thumb span {
+  font-size: 10.5px;
+  color: #3a3a3c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-thumb.on img {
+  box-shadow: 0 0 0 2px var(--ts-accent);
+}
+.ps-thumb-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--ts-accent);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px;
+}
+.ps-source-chain {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.ps-source-chain img {
+  width: 56px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+}
+.ps-source-chain .ts-link {
+  grid-column: 2;
+  justify-self: start;
+}
+.ps-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ts-line);
+}
+.ps-locked {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.ps-locked b {
+  display: block;
+  font-weight: 600;
+}
+.ps-locked p {
+  margin: 2px 0 0;
+}
+.ps-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #3a3a3c;
+  margin: 6px 0;
+}
+
+/* Versions: the takes */
+.ps-takes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ps-takes li {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--ts-line);
+}
+.ps-takes li.current {
+  border-color: var(--ts-accent);
+}
+.ps-takes li.picked {
+  background: rgba(17, 41, 211, 0.06);
+}
+.ps-takes li.failed {
+  opacity: 0.7;
+}
+.ps-takes img,
+.ps-take-blank {
+  width: 64px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e5e5ea;
+  display: block;
+  grid-row: span 2;
+}
+.ps-take-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+}
+.ps-take-text b {
+  font-weight: 600;
+}
+.ps-take-text small {
+  color: #6e6e73;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.ps-take-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ps-compare-note {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.ps-review {
+  margin: 0;
+}
+.ps-review .ps-row {
+  margin-top: 8px;
+}
+
+/* ───────────── Narrow screens: one panel at a time, a bottom toolbar ───────────── */
+.ps-bottom {
+  display: none;
+}
+@media (max-width: 1180px) {
+  .ps-body {
+    grid-template-columns: 72px minmax(0, 1fr) 300px;
+  }
+}
+@media (max-width: 860px) {
+  .ps .ts-top {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .ps .ts-title small,
+  .ps .ts-save {
+    display: none;
+  }
+  .ps-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+  .ps-stage-inner {
+    padding: 8px;
+  }
+  .ps-side {
+    max-height: 46vh;
+    border-left: 0;
+    border-top: 1px solid var(--ts-line);
+  }
+  .ps-side.closed {
+    display: none;
+  }
+  .ps-bottom {
+    display: flex;
+    justify-content: space-around;
+    height: 58px;
+    padding: 4px 4px env(safe-area-inset-bottom, 0);
+    background: var(--ts-panel);
+    border-top: 1px solid var(--ts-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ps-bottom button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 56px;
+    border-radius: 10px;
+    font-size: 10.5px;
+    color: #6e6e73;
+  }
+  .ps-bottom button.on {
+    color: #1d1d1f;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+  .ps-view {
+    right: 8px;
+    bottom: 8px;
+  }
+  .ps-thumbs {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .ps .ts-top-right .ts-btn:not(.primary) {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .ps .ts-top-right .ts-btn:not(.primary) span {
+    display: none;
+  }
+  .ps .ts-top-left .ts-title {
+    font-size: 12.5px;
+  }
+  .ps-state {
+    display: none;
+  }
+  .ps-takes li {
+    grid-template-columns: 56px 1fr;
+  }
+  .ps-takes img,
+  .ps-take-blank {
+    width: 56px;
+    height: 70px;
+  }
+}
+
+/* The confirm a tool asks (an apply, a paid edit) sits above the studio's sheet. */
+body:has(.ps) .confirm-backdrop {
+  z-index: 960;
+}

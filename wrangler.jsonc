@@ -62,6 +62,7 @@
     "@shared/campaign-size": "./shared/campaign-size.ts",
     "@shared/video-project": "./shared/video-project.ts",
     "@shared/cube-lut": "./shared/cube-lut.ts",
+    "@shared/photo-adjust": "./shared/photo-adjust.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.
