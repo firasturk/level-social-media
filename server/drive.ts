@@ -301,7 +301,7 @@ async function photosIn(env: Env, root: string, fresh = false): Promise<FolderLi
 }
 
 /** A resized rendition of the photo (Drive's thumbnail service), or the file itself when it has none. */
-async function photoBytes(
+export async function photoBytes(
   env: Env,
   id: string,
   size: number,

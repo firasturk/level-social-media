@@ -43,6 +43,7 @@ import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBo
 import { NotifyBadge } from "./Notify";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
+import PhotoLabPanel, { PhotoLabDialog } from "./PhotoLabPanel";
 import FeedbackPanel from "./FeedbackPanel";
 import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
@@ -1487,6 +1488,7 @@ export default function Workspace({
             batchId: batch.id,
             onMonthChanged: refresh,
             drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
+            photoLab: config?.client ? <PhotoLabPanel clientId={config.client} batchId={batch.id} post={index} task={t?.output ? { id: t.id, imageUrl: outputUrl(t) } : null} onChanged={refresh} /> : undefined,
             feedbackPanel: (
               <FeedbackPanel
                 batchId={batch.id}
@@ -2133,6 +2135,7 @@ export default function Workspace({
         />
       )}
 
+      <PhotoLabDialog onChanged={refresh} />
       <Suspense fallback={null}>
         {deliverOpen && batch && client && (
           <DeliverDialog

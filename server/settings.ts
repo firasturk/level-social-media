@@ -193,3 +193,5 @@ export const NOTIFY_EMAIL_SETTING = "notify_email";
 export const RESEND_KEY_SETTING = "resend_api_key";
 /** The sender of client-answer e-mails ("Level Studio <studio@levelmena.com>"); its domain is verified in Resend. */
 export const NOTIFY_FROM_SETTING = "notify_from";
+/** Freepik (Magnific) API key for the Photo lab, saved from Connection → Freepik. */
+export const FREEPIK_KEY_SETTING = "freepik_api_key";

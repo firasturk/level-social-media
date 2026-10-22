@@ -1,0 +1,129 @@
+import { useEffect, useState } from "react";
+import { Check, KeyRound, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Orb } from "@/components/Orb";
+import { askConfirm } from "@/lib/confirm";
+import { del, get, post } from "@/api";
+import type { PhotoLabOp } from "@shared/pricing";
+
+/**
+ * Connection → Freepik: the key the Photo lab (remove or replace a background, relight, upscale)
+ * runs on. It is verified with one authenticated call that spends no credits (a stock search) and
+ * stored encrypted on the server. Without it the Photo lab runs as a labelled demo.
+ */
+
+export interface PhotoLabStatus {
+  connected: boolean;
+  provider: "freepik" | "demo";
+  reason: string;
+  prices: Record<PhotoLabOp, number>;
+  approximate: boolean;
+}
+
+export function useFreepikStatus(open: boolean): [PhotoLabStatus | null, () => void] {
+  const [status, setStatus] = useState<PhotoLabStatus | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    get<PhotoLabStatus>("/api/studio/photolab/status")
+      .then(setStatus)
+      .catch(() => setStatus(null));
+  }, [open, tick]);
+  return [status, () => setTick((t) => t + 1)];
+}
+
+export default function FreepikTab({
+  status,
+  onChanged,
+}: {
+  status: PhotoLabStatus | null;
+  onChanged: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await post<{ ok: boolean; message: string }>("/api/studio/photolab/key", { key });
+      setKey("");
+      setNote(r);
+      onChanged();
+      toast.success("Freepik key saved and verified.");
+    } catch (e) {
+      setNote({ ok: false, message: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!(await askConfirm("Remove the saved Freepik key? The Photo lab goes back to the demo until a new key is added."))) return;
+    try {
+      await del("/api/studio/photolab/key");
+      setNote(null);
+      onChanged();
+      toast.success("Freepik key removed.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  return (
+    <>
+      <div className="qa-heading" style={{ marginTop: 12 }}>
+        <KeyRound size={18} />
+        <strong>Freepik (Photo lab: Magnific tools)</strong>
+      </div>
+      {status?.connected ? (
+        <div className="success-note">
+          <Check size={19} />A Freepik key is saved on the server. The Photo lab (remove or replace a background,
+          relight, upscale) runs on it; each run shows its approximate cost before it is paid.
+        </div>
+      ) : (
+        <p className="quality-note">
+          <b>Not connected.</b> The Photo lab runs as a demo (nothing is sent anywhere, the result is the input). To
+          connect: sign in at{" "}
+          <a href="https://www.freepik.com/api" target="_blank" rel="noreferrer" className="text-link">
+            freepik.com/api
+          </a>
+          , open the API dashboard, create an API key, and paste it here. The key is checked with one call that costs
+          no credits (a stock search), then stored encrypted.
+        </p>
+      )}
+      {status && (
+        <p className="field-hint">
+          About {fmt(status.prices["remove-bg"])} to remove a background, {fmt(status.prices.background)} to replace
+          one, {fmt(status.prices.relight)} to relight, {fmt(status.prices.upscale)} to upscale (2x). Approximate:
+          Freepik bills credits per call.
+        </p>
+      )}
+      <div className="footer-actions">
+        <input
+          id="freepik-key"
+          type="password"
+          autoComplete="off"
+          placeholder="FPSX…"
+          aria-label="Freepik API key"
+          value={key}
+          onChange={(e) => setKey(e.target.value.trim())}
+        />
+        <button className="primary" onClick={() => void save()} disabled={saving || key.length < 16}>
+          {saving ? <Orb size={17} /> : <KeyRound size={17} />}
+          {status?.connected ? "Replace" : "Save"}
+        </button>
+        {status?.connected && (
+          <button className="secondary danger" onClick={() => void remove()} aria-label="Remove Freepik key">
+            <Trash2 size={17} />
+          </button>
+        )}
+      </div>
+      {note && <p className={note.ok ? "success-note" : "image-error"}>{note.message}</p>}
+    </>
+  );
+}
+
+function fmt(n: number | undefined): string {
+  return n == null ? "—" : `$${n.toFixed(2)}`;
+}

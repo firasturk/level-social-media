@@ -13,6 +13,7 @@ import {
 import { del, get, post } from "@/api";
 import MetaConnection, { useMetaStatus } from "./MetaConnection";
 import NotifyConnection, { useNotifyStatus } from "./Notify";
+import FreepikTab, { useFreepikStatus } from "./FreepikConnection";
 
 export interface EngineInfo {
   model: string;
@@ -48,6 +49,7 @@ export default function ConnectionDialog({
   const [savingVertex, setSavingVertex] = useState(false);
   const [meta, refreshMeta] = useMetaStatus(open);
   const [notifyStatus, refreshNotify] = useNotifyStatus(open);
+  const [freepik, refreshFreepik] = useFreepikStatus(open);
 
   async function saveVertex() {
     setSavingVertex(true);
@@ -84,12 +86,12 @@ export default function ConnectionDialog({
     }
   }
   const [falKey, setFalKey] = useState("");
-  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "meta" | "notify";
+  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "freepik" | "meta" | "notify";
   // Opens on the tab last used in this browser, else on the vendor of the current image model.
   const [vendor, setVendorState] = useState<Vendor>(() => {
     try {
       const saved = localStorage.getItem("connection-tab") as Vendor | null;
-      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "meta", "notify"].includes(saved))
+      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "freepik", "meta", "notify"].includes(saved))
         return saved;
     } catch {
       /* private mode */
@@ -283,6 +285,7 @@ export default function ConnectionDialog({
               ["vertex", "Google Cloud", !!engine.vertex],
               ["openai", "OpenAI", engine.openai !== "none"],
               ["fal", "fal.ai", engine.fal !== "none"],
+              ["freepik", "Freepik", !!freepik?.connected],
               ["meta", "Instagram", !!meta?.connected],
               ["notify", "Notifications", !!notifyStatus?.connected],
             ] as const
@@ -504,6 +507,7 @@ export default function ConnectionDialog({
             )}
           </>
         )}
+        {vendor === "freepik" && <FreepikTab status={freepik} onChanged={refreshFreepik} />}
         {vendor === "vertex" && (
           <>
             <div className="qa-heading" style={{ marginTop: 12 }}>

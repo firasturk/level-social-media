@@ -8,7 +8,9 @@ import {
   RefreshCw,
   Sparkles,
   Trash2,
+  Wand2,
 } from "lucide-react";
+import { openPhotoLab } from "./PhotoLabPanel";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import {
@@ -696,6 +698,20 @@ export default function DrivePicker({
                     {picking
                       ? "Looking at the photos…"
                       : `Pick the best ${count} for me${top ? ` in ${top}` : ""}`}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={picked.length !== 1 || !!adding}
+                    title="Remove or replace the background, relight or upscale the picked photo (Freepik)"
+                    onClick={() => {
+                      const p = byId.get(picked[0]);
+                      if (!p) return;
+                      openPhotoLab({ client: client.id, photoId: p.id, name: p.name, batch: batchId });
+                      onClose();
+                    }}
+                  >
+                    <Wand2 size={16} /> Open in Photo lab
                   </button>
                   <button
                     type="button"
