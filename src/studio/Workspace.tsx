@@ -40,6 +40,8 @@ import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import OcrPanel from "./OcrPanel";
+import { DriveReferencePicker } from "./DrivePicker";
 import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
@@ -1447,6 +1449,21 @@ export default function Workspace({
             acceptedBy: acceptedBy || undefined,
             takes: postTakes,
             onUseTake: (key) => restorePicture(index, key),
+            ocrPanel:
+              t?.output && config?.client ? (
+                <OcrPanel
+                  batchId={batch.id}
+                  post={index}
+                  task={t.id}
+                  imageUrl={outputUrl(t)}
+                  expected={{ headline: editorPost.headline, subline: editorPost.subline, price: editorPost.offer?.price }}
+                  composeArtwork={async () => {
+                    const canvas = await renderOverlay(outputUrl(t), overlaySpec, { headline: editorPost.headline, subline: editorPost.subline }, editorPost.overlay === false ? null : logoSrc, 1080, { patch: editorPost.ov, faces: facesOf(t.qa) });
+                    return new Promise<Blob>((ok, no) => canvas.toBlob((b) => (b ? ok(b) : no(new Error("The artwork could not be drawn."))), "image/png"));
+                  }}
+                />
+              ) : undefined,
+            drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
             onCheckWords: t?.output
               ? async (propose) => {
                   // The post as it will be published, words and logo drawn by the browser, is what the art director sees.

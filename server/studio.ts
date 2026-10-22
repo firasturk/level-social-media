@@ -75,6 +75,7 @@ import { profileRoutes } from "./profile";
 import { driveRoutes } from "./drive";
 import { autopilotRoutes } from "./autopilot";
 import { lessonRoutes } from "./lessons";
+import { ocrRoutes } from "./ocr-routes";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -87,6 +88,7 @@ studioRoutes.route("/profiles", profileRoutes);
 studioRoutes.route("/drive", driveRoutes);
 studioRoutes.route("/autopilot", autopilotRoutes);
 studioRoutes.route("/lessons", lessonRoutes);
+studioRoutes.route("/ocr", ocrRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

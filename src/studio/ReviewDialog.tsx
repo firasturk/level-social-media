@@ -143,6 +143,9 @@ export interface PostEditorTools {
   /** The picture from before the last regenerate. */
   onPrevious?: () => Promise<void>;
   onOpenText?: () => void;
+  /** The OCR check of the picture and the artwork (a panel of its own), and the Drive reference picker. */
+  ocrPanel?: ReactNode;
+  drivePicker?: ReactNode;
   onAnimate?: () => void;
   onVideo?: () => void;
   /** The month's earlier versions (the MonthVersions panel). */
@@ -347,6 +350,12 @@ export default function ReviewDialog({
         )}
         {editor && group === "idea" && (
           <div className="editor-group" role="tabpanel">
+            {editor.drivePicker && (
+              <details className="editor-drive">
+                <summary>Reference from the client's Drive</summary>
+                {editor.drivePicker}
+              </details>
+            )}
             <div className="editor-row">
               <label className="field-label">
                 Type
@@ -783,6 +792,12 @@ export default function ReviewDialog({
                 <span>Pose: {brief.pose}</span>
                 <span>Light: {brief.light}</span>
               </div>
+            )}
+            {editor?.ocrPanel && task?.output && (
+              <details className="editor-ocr">
+                <summary>Writing check (OCR)</summary>
+                {editor.ocrPanel}
+              </details>
             )}
             {task?.prompt && (
               <details className="prompt-details">
