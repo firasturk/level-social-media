@@ -1,0 +1,262 @@
+/* ───────────── Freepik assets: search, library, use as reference or design layer ───────────── */
+.fp-panel {
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.fp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.fp-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fp-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.fp-tabs button {
+  border: 1px solid var(--border, #d9d9d9);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.fp-tabs button.on {
+  background: var(--accent, #1129d3);
+  border-color: var(--accent, #1129d3);
+  color: #fff;
+}
+.fp-demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 170, 0, 0.14);
+  color: #8a5a00;
+  font-size: 12px;
+  font-weight: 600;
+}
+.fp-locked {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border, #d9d9d9);
+  border-radius: 10px;
+  opacity: 0.85;
+}
+.fp-locked strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fp-search {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) repeat(3, minmax(100px, 1fr)) auto;
+  gap: 6px;
+  align-items: center;
+}
+.fp-search input,
+.fp-search select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 8px;
+  background: var(--input-bg, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+@media (max-width: 720px) {
+  .fp-search {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.fp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+}
+.fp-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.fp-card:hover {
+  border-color: var(--border, #d9d9d9);
+}
+.fp-card.on {
+  border-color: var(--accent, #1129d3);
+}
+.fp-card img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.12);
+  display: block;
+}
+.fp-card .fp-title {
+  font-size: 12px;
+  line-height: 1.25;
+  padding: 0 4px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.fp-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  pointer-events: none;
+}
+.fp-badge.free {
+  background: rgba(16, 122, 72, 0.9);
+}
+.fp-badge.premium {
+  background: rgba(17, 41, 211, 0.9);
+}
+.fp-badge.credits {
+  background: rgba(180, 90, 0, 0.92);
+}
+.fp-badge.unknown {
+  background: rgba(120, 120, 120, 0.92);
+}
+.fp-stored {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+}
+.fp-format {
+  font-size: 11px;
+  opacity: 0.75;
+  padding: 0 4px 4px;
+}
+.fp-selected {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 10px;
+}
+.fp-selected img {
+  width: 120px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.12);
+}
+.fp-selected-text {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+}
+.fp-selected-text b {
+  font-size: 14px;
+}
+.fp-meta {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.fp-note {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.fp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.fp-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.fp-post {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.fp-post select {
+  padding: 4px 6px;
+  border: 1px solid var(--border, #d9d9d9);
+  border-radius: 8px;
+  background: var(--input-bg, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+.fp-empty {
+  padding: 14px;
+  text-align: center;
+  opacity: 0.7;
+}
+.fp-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 12px;
+}
+.fp-dialog {
+  max-width: min(960px, 96vw);
+}
+.editor-freepik {
+  margin: 8px 0;
+}
+.editor-freepik summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.fp-plan {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.fp-plan label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.fp-plan input {
+  margin-top: 3px;
+}

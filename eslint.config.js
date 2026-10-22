@@ -24,6 +24,11 @@ export default tseslint.config(
   },
   { rules: { "@typescript-eslint/no-explicit-any": "error" } },
   {
+    // The integrations governance stub names its unused arguments with an underscore until the real layer lands.
+    files: ["server/integrations.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }] },
+  },
+  {
     // The promptfoo runner and assertions are plain Node modules.
     files: ["eval/**/*.mjs"],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },

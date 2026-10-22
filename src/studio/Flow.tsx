@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, Wand2 } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
+import { FreepikDialog } from "./FreepikPanel";
 import LevelLogo from "@/components/LevelLogo";
 import { Orb } from "@/components/Orb";
 import { get, post, postForm } from "@/api";
@@ -233,6 +234,8 @@ export default function Flow(p: FlowProps) {
   const client = p.client;
   const theme = p.themes.find((t) => t.id === p.themeId) ?? null;
   const shape = planShape(p.plan);
+  /** The Freepik picker on the Direction board: a stock picture pinned to one post as its reference (never a theme reference). */
+  const [freepikOpen, setFreepikOpen] = useState(false);
   const perPicture = rateFor(p.model)?.[(p.size as "1K" | "2K" | "4K") ?? "2K"] ?? 0;
 
   /* ── Start: the brief, the grid, the references, the style ── */
@@ -1262,8 +1265,29 @@ export default function Flow(p: FlowProps) {
                                 {pinnedPosts.length ? "Manage" : "Pin on the plan"}
                               </button>
                             )}
+                            {p.plan.length > 0 && p.batchId && client && (
+                              <button type="button" className="text-button" onClick={() => setFreepikOpen(true)} title={p.user.role === "admin" ? "A stock picture from Freepik pinned to one post as its reference" : "Admins only for now"}>
+                                Add from Freepik
+                              </button>
+                            )}
                           </span>
                         </li>
+                        {client && p.batchId && (
+                          <FreepikDialog
+                            open={freepikOpen}
+                            onClose={() => setFreepikOpen(false)}
+                            title="Add from Freepik"
+                            description="A stock picture pinned to one post as its reference: the post's next picture takes it. The theme's pins and the products stay as they are."
+                            clientId={client.id}
+                            batchId={p.batchId}
+                            posts={p.plan.map((x) => ({ index: x.index, title: x.title }))}
+                            mode="reference"
+                            onReference={async () => {
+                              await p.refresh();
+                              setFreepikOpen(false);
+                            }}
+                          />
+                        )}
                         <li>
                           <span className="flow-input-art">
                             {p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => <img key={r.id} src={`/api/studio/references/${r.id}/file`} alt="" />) : <i className="flow-input-empty" />}

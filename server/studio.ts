@@ -80,6 +80,8 @@ import { ocrRoutes } from "./ocr-routes";
 import { feedbackRoutes } from "./feedback";
 import { notifyRoutes } from "./notify";
 import { photoLabRoutes } from "./photolab";
+import { freepikRoutes } from "./freepik";
+import { freepikMcpRoutes } from "./freepik-mcp";
 import { publishRoutes } from "./publish";
 
 type Variables = { user: User };
@@ -98,6 +100,9 @@ studioRoutes.route("/ocr", ocrRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
 studioRoutes.route("/notify", notifyRoutes);
 studioRoutes.route("/photolab", photoLabRoutes);
+// The MCP adapter first: /freepik/mcp/* is its own sub-app, the rest of /freepik is the stock library.
+studioRoutes.route("/freepik/mcp", freepikMcpRoutes);
+studioRoutes.route("/freepik", freepikRoutes);
 studioRoutes.route("/publish", publishRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];

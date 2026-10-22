@@ -49,6 +49,7 @@ import { NotifyBadge } from "./Notify";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
 import PhotoLabPanel, { PhotoLabDialog } from "./PhotoLabPanel";
+import FreepikPanel from "./FreepikPanel";
 import FeedbackPanel from "./FeedbackPanel";
 import { ScheduleApprovedDialog } from "./PublishDialog";
 import BrandChip from "./BrandChip";
@@ -1528,6 +1529,8 @@ export default function Workspace({
             onMonthChanged: refresh,
             drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
             photoLab: config?.client ? <PhotoLabPanel clientId={config.client} batchId={batch.id} post={index} task={t?.output ? { id: t.id, imageUrl: outputUrl(t) } : null} onChanged={refresh} /> : undefined,
+            // Stock assets as this post's reference; "Add to design" lives in the Text Studio's Add menu, where the layer is made.
+            freepik: config?.client ? <FreepikPanel clientId={config.client} batchId={batch.id} post={index} mode="reference" onReference={() => void refresh()} /> : undefined,
             feedbackPanel: (
               <FeedbackPanel
                 batchId={batch.id}
