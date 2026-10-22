@@ -119,6 +119,12 @@ export interface PostReference {
   note?: string;
   name?: string;
   at: number;
+  /**
+   * The Drive file the picture was pinned from, as it was at that moment: the copied bytes under
+   * `key` and this version are what the post used. A later change of the file in Drive does not
+   * reach this post; pinning again takes the new version.
+   */
+  drive?: { id: string; version: string; md5?: string; name: string };
 }
 
 export interface Post {
