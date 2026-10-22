@@ -4,7 +4,8 @@
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Ellipsis, Pencil, TriangleAlert, Wand2 } from "lucide-react";
+import { Check, Ellipsis, Pencil, TriangleAlert, Type, Wand2 } from "lucide-react";
+import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -30,6 +31,7 @@ export default function PostCardCompact({
   styleTitle,
   dayTitle,
   onEdit,
+  onTextStudio,
   onFixReview,
   onAccept,
   fixing,
@@ -49,6 +51,8 @@ export default function PostCardCompact({
   styleTitle?: string | null;
   dayTitle?: string;
   onEdit: (group?: EditorGroup) => void;
+  /** Opens the Text studio on this post's words and layers: the icon above the picture. No picture is made. */
+  onTextStudio?: () => void;
   onFixReview?: () => void;
   onAccept?: () => void;
   fixing: boolean;
@@ -101,6 +105,20 @@ export default function PostCardCompact({
                 {state.icon} {state.text}
               </span>
             )
+          )}
+          {onTextStudio && task?.output && !inFlight && (
+            <button
+              type="button"
+              className="pc-text-studio"
+              title="Text studio: the words and layers on this picture"
+              aria-label="Text studio"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTextStudio();
+              }}
+            >
+              <Type size={13} />
+            </button>
           )}
         </header>
         {media}

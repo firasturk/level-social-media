@@ -5196,6 +5196,34 @@ postRoutes.post("/occasion-photo", async (c) => {
   return c.json({ ok: true });
 });
 
+/**
+ * A graphic the designer uploads for a picture layer in the Text studio (a sticker, a badge, an
+ * illustration): kept with the month, served back by its id. Nothing is generated from it.
+ */
+postRoutes.post("/graphic", async (c) => {
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, c.req.query("batch"));
+  const form = await c.req.formData();
+  const f = form.get("file");
+  if (!(f instanceof File) || !/^image\/(jpeg|png|webp|svg\+xml)$/.test(f.type)) throw new StudioError("Use a PNG, JPG, WebP or SVG graphic.");
+  if (f.size > 8 * 1024 * 1024) throw new StudioError("The graphic is over 8 MB.");
+  const id = uuid();
+  const key = `${b.owner}/${b.id}/graphics/${id}`;
+  await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type }, customMetadata: { name: f.name.slice(0, 120) } });
+  return c.json({ ok: true, url: `/api/studio/posts/graphic?batch=${encodeURIComponent(b.id)}&id=${encodeURIComponent(id)}` });
+});
+
+postRoutes.get("/graphic", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const id = c.req.query("id") ?? "";
+  if (!/^[0-9a-f-]{8,40}$/i.test(id)) throw new StudioError("No such graphic.", 404);
+  const obj = await c.env.BUCKET.get(`${b.owner}/${b.id}/graphics/${id}`);
+  if (!obj) throw new StudioError("No such graphic.", 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" },
+  });
+});
+
 postRoutes.get("/occasion-photo", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
   const config = JSON.parse(b.config) as Config;

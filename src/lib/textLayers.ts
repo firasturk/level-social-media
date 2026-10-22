@@ -4,8 +4,8 @@
  * Arabic shaping, ligatures and diacritics are the browser's own text engine (fillText), never
  * glyph-by-glyph, except along a curve where each word keeps its shape.
  */
-import type { CanvasFx, Fill, RunStyle, TextDesign, TextLayer } from "@shared/layers";
-import { ARABIC_RE, applyCase, paragraphDirection, segmentsOf } from "@shared/layers";
+import type { CanvasFx, Fill, ImageLayer, LogoLayer, RunStyle, ShapeLayer, TextDesign, TextLayer } from "@shared/layers";
+import { ARABIC_RE, applyCase, directionRuns, isTextLayer, paragraphDirection, segmentsOf } from "@shared/layers";
 import { ensureFont, fontStack } from "./fonts";
 
 /** Where a layer's box landed, in canvas pixels, before rotation (cx, cy is the pivot). */
@@ -28,6 +28,61 @@ export interface DesignOptions {
   skip?: Set<string>;
   /** The picture alone, for blur effects behind the text. */
   base?: HTMLCanvasElement;
+  /** Where the client's logo file is served from, for logo layers (the same file the automatic layout draws). */
+  logoSrc?: string | null;
+}
+
+/** A picture that can be drawn and measured: an <img> or a canvas. */
+type Picture = HTMLImageElement | HTMLCanvasElement;
+
+const pictures = new Map<string, Promise<Picture | null>>();
+
+/** Loads (once) a picture a layer points at; null when it cannot be loaded, so the rest still draws. */
+export function loadLayerImage(src: string): Promise<Picture | null> {
+  let p = pictures.get(src);
+  if (!p) {
+    p = new Promise<Picture | null>((resolve) => {
+      if (typeof Image === "undefined") return resolve(null);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = src;
+    });
+    pictures.set(src, p);
+  }
+  return p;
+}
+
+const sizeOf = (img: Picture) => ({ w: ("naturalWidth" in img && img.naturalWidth) || img.width || 1, h: ("naturalHeight" in img && img.naturalHeight) || img.height || 1 });
+
+/**
+ * The photograph under the layers, cropped and shifted as the design asks: `crop` is the part of
+ * the file that fills the canvas (scaled to cover it), `offset` slides it. Only this drawing moves;
+ * the file's pixels are never changed, and without either the whole picture fills the canvas.
+ */
+export function drawBasePicture(ctx: CanvasRenderingContext2D, img: Picture, W: number, H: number, fx?: CanvasFx) {
+  const { w: nw, h: nh } = sizeOf(img);
+  const crop = fx?.crop;
+  const offset = fx?.offset;
+  if (!crop && !offset) {
+    ctx.drawImage(img, 0, 0, W, H);
+    return;
+  }
+  const sx = (crop?.x ?? 0) * nw;
+  const sy = (crop?.y ?? 0) * nh;
+  const sw = Math.max(1, (crop?.w ?? 1) * nw);
+  const sh = Math.max(1, (crop?.h ?? 1) * nh);
+  const k = Math.max(W / sw, H / sh);
+  const dw = sw * k;
+  const dh = sh * k;
+  const dx = (W - dw) / 2 + (offset?.x ?? 0) * W;
+  const dy = (H - dh) / 2 + (offset?.y ?? 0) * H;
+  ctx.save();
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, W, H);
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.restore();
 }
 
 interface Token {
@@ -84,7 +139,7 @@ function fontOf(layer: TextLayer, style: RunStyle, basePx: number) {
 export async function loadDesignFonts(design: TextDesign): Promise<void> {
   const jobs: Promise<void>[] = [];
   for (const l of design.layers) {
-    if (l.hidden) continue;
+    if (!isTextLayer(l) || l.hidden) continue;
     jobs.push(ensureFont(l.font, l.weight, !!l.italic, l.text));
     for (const r of l.runs ?? []) {
       const s = r.style;
@@ -298,15 +353,29 @@ function paintLines(ctx: Ctx, layer: TextLayer, lay: Layout, box: LayerBox, fill
     const slack = justify ? 0 : align === "center" ? free / 2 : align === "right" ? free : 0;
     ctx.direction = line.dir;
     const pieces: { t: Token; x: number }[] = [];
+    const span = (t: Token) => t.width + (t.space ? extra : 0);
+    // Words walk along the line in its direction; a run that reads the other way (Latin inside
+    // Arabic, Arabic inside Latin) keeps its own order inside the room it takes.
+    const runs = directionRuns(line.tokens, line.dir);
     if (line.dir === "ltr") {
       let x = left + slack + lineIndent;
       if (line.prefix) {
         pieces.push({ t: line.prefix, x });
         x += prefixW;
       }
-      for (const t of line.tokens) {
-        if (!t.space) pieces.push({ t, x });
-        x += t.width + (t.space ? extra : 0);
+      for (const run of runs) {
+        const rw = run.tokens.reduce((s, t) => s + span(t), 0);
+        let xx = run.dir === "ltr" ? x : x + rw;
+        for (const t of run.tokens) {
+          if (run.dir === "ltr") {
+            if (!t.space) pieces.push({ t, x: xx });
+            xx += span(t);
+          } else {
+            xx -= span(t);
+            if (!t.space) pieces.push({ t, x: xx });
+          }
+        }
+        x += rw;
       }
     } else {
       // Right-to-left: the line's right edge is the mirror of the left one, pieces walk leftwards.
@@ -316,9 +385,19 @@ function paintLines(ctx: Ctx, layer: TextLayer, lay: Layout, box: LayerBox, fill
         x -= prefixW;
         pieces.push({ t: line.prefix, x: x + line.prefixGap });
       }
-      for (const t of line.tokens) {
-        x -= t.width + (t.space ? extra : 0);
-        if (!t.space) pieces.push({ t, x });
+      for (const run of runs) {
+        const rw = run.tokens.reduce((s, t) => s + span(t), 0);
+        let xx = run.dir === "rtl" ? x : x - rw;
+        for (const t of run.tokens) {
+          if (run.dir === "rtl") {
+            xx -= span(t);
+            if (!t.space) pieces.push({ t, x: xx });
+          } else {
+            if (!t.space) pieces.push({ t, x: xx });
+            xx += span(t);
+          }
+        }
+        x -= rw;
       }
     }
     void contentW;
@@ -429,18 +508,138 @@ export function drawCanvasFx(ctx: Ctx, W: number, H: number, fx: CanvasFx | unde
   }
 }
 
-/** Lays out and paints every visible layer; returns where each landed. */
+/** Lays out and paints every visible layer (text, logo, picture, shape) in order; returns where each landed. */
 export async function drawDesign(ctx: Ctx, W: number, H: number, design: TextDesign, opts: DesignOptions = {}): Promise<LayerBox[]> {
   await loadDesignFonts(design);
   const boxes: LayerBox[] = [];
   for (const layer of design.layers) {
-    if (layer.hidden || !layer.text.trim()) continue;
-    const box = layoutBox(ctx, layer, W, H);
-    boxes.push(box.box);
-    if (opts.skip?.has(layer.id)) continue;
-    paintLayer(ctx, W, H, layer, box.lay, box.box, opts.base);
+    if (layer.hidden) continue;
+    if (isTextLayer(layer)) {
+      if (!layer.text.trim()) continue;
+      const box = layoutBox(ctx, layer, W, H);
+      boxes.push(box.box);
+      if (opts.skip?.has(layer.id)) continue;
+      paintLayer(ctx, W, H, layer, box.lay, box.box, opts.base);
+      continue;
+    }
+    if (layer.type === "logo") {
+      const img = opts.logoSrc ? await loadLayerImage(opts.logoSrc) : null;
+      const box = plainBox(layer, W, H, img ? sizeOf(img) : undefined);
+      boxes.push(box);
+      if (img && !opts.skip?.has(layer.id)) paintLogo(ctx, layer, box, img);
+      continue;
+    }
+    if (layer.type === "image") {
+      const box = plainBox(layer, W, H);
+      boxes.push(box);
+      if (opts.skip?.has(layer.id)) continue;
+      const img = await loadLayerImage(layer.src);
+      if (img) paintImage(ctx, W, layer, box, img);
+      continue;
+    }
+    const box = plainBox(layer, W, H);
+    boxes.push(box);
+    if (!opts.skip?.has(layer.id)) paintShape(ctx, W, layer, box);
   }
   return boxes;
+}
+
+/** The box of a logo, picture or shape layer at this canvas size (a logo's height follows its file). */
+export function plainBox(layer: LogoLayer | ImageLayer | ShapeLayer, W: number, H: number, natural?: { w: number; h: number }): LayerBox {
+  const x = layer.x * W;
+  const y = layer.y * H;
+  const w = layer.w * W;
+  const h = layer.type === "logo" ? (natural ? (w * natural.h) / natural.w : w * 0.5) : layer.h * H;
+  return { id: layer.id, x, y, w, h, cx: x + w / 2, cy: y + h / 2, rotate: layer.rotate ?? 0, px: 0, lines: 0 };
+}
+
+/** The ratio of a logo file's height to its width once it is loaded (for the editor's boxes). */
+export async function logoAspect(logoSrc: string | null | undefined): Promise<number | null> {
+  if (!logoSrc) return null;
+  const img = await loadLayerImage(logoSrc);
+  if (!img) return null;
+  const s = sizeOf(img);
+  return s.h / s.w;
+}
+
+function begin(ctx: Ctx, layer: LogoLayer | ImageLayer | ShapeLayer, box: LayerBox) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = layer.opacity ?? 1;
+  if (layer.blend && layer.blend !== "normal") ctx.globalCompositeOperation = layer.blend as GlobalCompositeOperation;
+  if (layer.rotate) {
+    ctx.translate(box.cx, box.cy);
+    ctx.rotate((layer.rotate * Math.PI) / 180);
+    ctx.translate(-box.cx, -box.cy);
+  }
+}
+
+/** The client's mark, as the file is, or recoloured in one colour for a light or a dark picture. */
+function paintLogo(ctx: Ctx, layer: LogoLayer, box: LayerBox, img: Picture) {
+  begin(ctx, layer, box);
+  const variant = layer.variant ?? "default";
+  if (variant === "default" || typeof document === "undefined") ctx.drawImage(img, box.x, box.y, box.w, box.h);
+  else {
+    const tint = document.createElement("canvas");
+    tint.width = Math.max(1, Math.round(box.w));
+    tint.height = Math.max(1, Math.round(box.h));
+    const t = tint.getContext("2d")!;
+    t.drawImage(img, 0, 0, tint.width, tint.height);
+    t.globalCompositeOperation = "source-in";
+    t.fillStyle = variant === "white" ? "#ffffff" : "#1f1a17";
+    t.fillRect(0, 0, tint.width, tint.height);
+    ctx.drawImage(tint, box.x, box.y, box.w, box.h);
+  }
+  ctx.restore();
+}
+
+/** A picture layer: the chosen part of the source, covering or fitting its box, with rounded corners when asked. */
+function paintImage(ctx: Ctx, W: number, layer: ImageLayer, box: LayerBox, img: Picture) {
+  const { w: nw, h: nh } = sizeOf(img);
+  const crop = layer.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.max(0, Math.min(nw - 1, crop.x * nw));
+  const sy = Math.max(0, Math.min(nh - 1, crop.y * nh));
+  const sw = Math.max(1, Math.min(nw - sx, crop.w * nw));
+  const sh = Math.max(1, Math.min(nh - sy, crop.h * nh));
+  const k = layer.fit === "contain" ? Math.min(box.w / sw, box.h / sh) : Math.max(box.w / sw, box.h / sh);
+  const dw = sw * k;
+  const dh = sh * k;
+  begin(ctx, layer, box);
+  roundRect(ctx, box.x, box.y, box.w, box.h, (layer.radius ?? 0) * W);
+  ctx.clip();
+  ctx.drawImage(img, sx, sy, sw, sh, box.x + (box.w - dw) / 2, box.y + (box.h - dh) / 2, dw, dh);
+  ctx.restore();
+}
+
+/** A flat shape: a rounded rectangle, an ellipse or a rule, filled and outlined. */
+function paintShape(ctx: Ctx, W: number, layer: ShapeLayer, box: LayerBox) {
+  begin(ctx, layer, box);
+  const fill = fillStyleOf(ctx, layer.fill, box);
+  const strokeW = (layer.stroke?.width ?? 0) * W;
+  if (layer.shape === "line") {
+    ctx.beginPath();
+    ctx.moveTo(box.x, box.cy);
+    ctx.lineTo(box.x + box.w, box.cy);
+    ctx.lineWidth = Math.max(1, box.h);
+    ctx.lineCap = layer.radius ? "round" : "butt";
+    ctx.strokeStyle = layer.stroke && strokeW > 0 ? rgba(layer.stroke.color, layer.stroke.alpha ?? 1) : fill;
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  if (layer.shape === "ellipse") {
+    ctx.beginPath();
+    ctx.ellipse(box.cx, box.cy, Math.max(0, box.w / 2), Math.max(0, box.h / 2), 0, 0, Math.PI * 2);
+    ctx.closePath();
+  } else roundRect(ctx, box.x, box.y, box.w, box.h, (layer.radius ?? 0) * W);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (layer.stroke && strokeW > 0) {
+    ctx.lineWidth = strokeW;
+    ctx.strokeStyle = rgba(layer.stroke.color, layer.stroke.alpha ?? 1);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** The layer's box and layout at this canvas size (shrinking the type to fit a fixed box when asked). */
@@ -517,13 +716,13 @@ function paintLayer(ctx: Ctx, W: number, H: number, layer: TextLayer, lay: Layou
   }
 }
 
-/** The design alone on a transparent canvas (a text-only PNG the client can lay over anything). */
-export async function renderDesignOnly(design: TextDesign, W: number, H: number): Promise<HTMLCanvasElement> {
+/** The design alone on a transparent canvas (a layers-only PNG the client can lay over anything). */
+export async function renderDesignOnly(design: TextDesign, W: number, H: number, opts: Pick<DesignOptions, "logoSrc"> = {}): Promise<HTMLCanvasElement> {
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  await drawDesign(ctx, W, H, { ...design, canvas: undefined });
+  await drawDesign(ctx, W, H, { ...design, canvas: undefined }, opts);
   return canvas;
 }
 

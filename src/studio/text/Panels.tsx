@@ -1,12 +1,104 @@
 import { useState } from "react";
-import { Copy, Eye, EyeOff, GripVertical, Lock, LockOpen, Plus, Sparkles, Trash2, TriangleAlert, Type } from "lucide-react";
+import { ChevronDown, ChevronUp, Circle, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon, Lock, LockOpen, Minus, Plus, Sparkles, Square, Stamp, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
+import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { post } from "@/api";
 import { ASSIST_ACTIONS, ASSIST_LABELS, type AssistAction, type AssistAnswer, type AssistSuggestion } from "@shared/text-assist";
-import type { TextLayer } from "@shared/layers";
+import { isTextLayer, type Layer, type ShapeKind, type TextLayer } from "@shared/layers";
 import { brandFonts, PRESETS, savedStyles, styleOf, type Brand, type SavedStyle } from "./model";
 
 /* ───────────── Layers ───────────── */
+
+/** A picture a picture layer can show, with where it comes from. */
+export interface Asset {
+  name: string;
+  src: string;
+  kind: "product" | "brand";
+}
+
+/** The row's name: the layer's own, else its words, else what it is. */
+export function layerLabel(l: Layer): string {
+  if (l.name) return l.name;
+  if (isTextLayer(l)) return l.text.split("\n")[0] || "Empty";
+  if (l.type === "logo") return "Logo";
+  if (l.type === "image") return "Picture";
+  return l.shape === "rect" ? "Rectangle" : l.shape === "ellipse" ? "Ellipse" : "Line";
+}
+
+function LayerIcon({ layer }: { layer: Layer }) {
+  if (isTextLayer(layer)) return <Type size={12} className="ts-layer-icon" />;
+  if (layer.type === "logo") return <Stamp size={12} className="ts-layer-icon" />;
+  if (layer.type === "image") return <ImageIcon size={12} className="ts-layer-icon" />;
+  if (layer.shape === "ellipse") return <Circle size={12} className="ts-layer-icon" />;
+  if (layer.shape === "line") return <Minus size={12} className="ts-layer-icon" />;
+  return <Square size={12} className="ts-layer-icon" />;
+}
+
+/** The Add menu: a text layer, the client's logo, a picture (product photo, brand asset, upload), a shape. */
+export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; assets: Asset[] }) {
+  const [open, setOpen] = useState(false);
+  const [pictures, setPictures] = useState(false);
+  const products = assets.filter((a) => a.kind === "product");
+  const brandAssets = assets.filter((a) => a.kind === "brand");
+  const pick = (fn: () => void) => () => {
+    fn();
+    setOpen(false);
+    setPictures(false);
+  };
+  return (
+    <PopoverPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setPictures(false); }}>
+      <PopoverPrimitive.Trigger asChild>
+        <button type="button" className="ts-mini" title="Add a layer: text, logo, picture or shape">
+          <Plus size={12} /> Add
+        </button>
+      </PopoverPrimitive.Trigger>
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content className="ts-pop ts-menu ts-add-menu" sideOffset={6} align="end" collisionPadding={12}>
+          {!pictures ? (
+            <>
+              <button type="button" onClick={pick(onAdd)}><Type size={13} /> Text <kbd>T</kbd></button>
+              <button type="button" onClick={onAddLogo ? pick(onAddLogo) : undefined} disabled={!onAddLogo} title={onAddLogo ? "The client's logo, as a layer you can move and resize" : "This client has no logo yet"}><Stamp size={13} /> Logo</button>
+              <button type="button" onClick={() => setPictures(true)}><ImageIcon size={13} /> Image…</button>
+              <hr />
+              <button type="button" onClick={pick(() => onAddShape("rect"))}><Square size={13} /> Rectangle</button>
+              <button type="button" onClick={pick(() => onAddShape("ellipse"))}><Circle size={13} /> Ellipse</button>
+              <button type="button" onClick={pick(() => onAddShape("line"))}><Minus size={13} /> Line</button>
+            </>
+          ) : (
+            <div className="ts-asset-pick">
+              <span className="ts-group-title">Product photos</span>
+              {!products.length && <p className="ts-empty">No product photos in this month.</p>}
+              <div className="ts-asset-grid">
+                {products.map((a) => (
+                  <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name))}>
+                    <img src={a.src} alt="" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+              {brandAssets.length > 0 && (
+                <>
+                  <span className="ts-group-title">Brand assets</span>
+                  <div className="ts-asset-grid">
+                    {brandAssets.map((a) => (
+                      <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name))}>
+                        <img src={a.src} alt="" loading="lazy" />
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <label className={`ts-font-upload ${onUploadGraphic ? "" : "off"}`} title={onUploadGraphic ? "A PNG, JPG, WebP or SVG graphic, kept with the month" : "Save the month first to upload a graphic"}>
+                <Upload size={12} /> Upload a graphic
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden disabled={!onUploadGraphic} onChange={(e) => { const f = e.target.files?.[0]; if (f && onUploadGraphic) pick(() => onUploadGraphic(f))(); e.target.value = ""; }} />
+              </label>
+              <button type="button" className="ts-link" onClick={() => setPictures(false)}>Back</button>
+            </div>
+          )}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
+  );
+}
 
 export function LayersList({
   layers,
@@ -18,18 +110,28 @@ export function LayersList({
   onDuplicate,
   onDelete,
   onAdd,
+  onAddLogo,
+  onAddImage,
+  onAddShape,
+  onUploadGraphic,
+  assets,
 }: {
-  layers: TextLayer[];
+  layers: Layer[];
   selected: string[];
   /** Layer ids whose words read badly over the picture. */
   warnings: Set<string>;
   onSelect: (id: string, add: boolean) => void;
-  onChange: (id: string, patch: Partial<TextLayer>) => void;
+  onChange: (id: string, patch: Partial<Layer>) => void;
   /** Moves the layer at `from` (top-first order) to `to`. */
   onReorder: (from: number, to: number) => void;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onAdd: () => void;
+  onAddLogo?: () => void;
+  onAddImage: (src: string, name?: string) => void;
+  onAddShape: (kind: ShapeKind) => void;
+  onUploadGraphic?: (file: File) => void;
+  assets: Asset[];
 }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -40,14 +142,13 @@ export function LayersList({
     <div className="ts-layers">
       <div className="ts-panel-head">
         <span>Layers</span>
-        <button type="button" className="ts-mini" onClick={onAdd} title="Add a text layer (T)">
-          <Plus size={12} /> Text
-        </button>
+        <AddLayerMenu onAdd={onAdd} onAddLogo={onAddLogo} onAddImage={onAddImage} onAddShape={onAddShape} onUploadGraphic={onUploadGraphic} assets={assets} />
       </div>
-      {!rows.length && <p className="ts-empty">No text yet. Press T or “Text” to add a layer.</p>}
+      {!rows.length && <p className="ts-empty">No layers yet. Press T for text, or “Add” for a logo, a picture or a shape.</p>}
       <ul>
         {rows.map((l, i) => {
           const on = selected.includes(l.id);
+          const text = isTextLayer(l) ? l : null;
           return (
             <li
               key={l.id}
@@ -76,13 +177,13 @@ export function LayersList({
               onDoubleClick={() => setRenaming(l.id)}
             >
               <GripVertical size={12} className="ts-grip" />
-              <Type size={12} className="ts-layer-icon" />
+              <LayerIcon layer={l} />
               {renaming === l.id ? (
                 <input
                   autoFocus
                   className="ts-layer-rename"
                   defaultValue={l.name ?? ""}
-                  placeholder={l.text.split("\n")[0]}
+                  placeholder={text ? text.text.split("\n")[0] : layerLabel(l)}
                   onBlur={(e) => {
                     onChange(l.id, { name: e.target.value.trim() || undefined });
                     setRenaming(null);
@@ -95,12 +196,19 @@ export function LayersList({
                 />
               ) : (
                 <span className="ts-layer-name" dir="auto" title="Double-click to rename">
-                  {l.name || l.text.split("\n")[0] || "Empty"}
+                  {layerLabel(l)}
                 </span>
               )}
+              {text?.role && <span className="ts-layer-role" title={text.role === "headline" ? "The post's headline" : "The post's second line"}>{text.role === "headline" ? "H" : "2"}</span>}
               {l.group && <span className="ts-layer-group" title="In a group">G</span>}
               {warnings.has(l.id) && <TriangleAlert size={12} className="ts-layer-warn" aria-label="Low contrast" />}
               <span className="ts-layer-actions" onClick={(e) => e.stopPropagation()}>
+                <button type="button" aria-label="Move up" title="Bring forward" disabled={i === 0} onClick={() => onReorder(i, i - 1)}>
+                  <ChevronUp size={12} />
+                </button>
+                <button type="button" aria-label="Move down" title="Send backward" disabled={i === rows.length - 1} onClick={() => onReorder(i, i + 1)}>
+                  <ChevronDown size={12} />
+                </button>
                 <button type="button" aria-label={l.hidden ? "Show" : "Hide"} onClick={() => onChange(l.id, { hidden: !l.hidden || undefined })}>
                   {l.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
                 </button>

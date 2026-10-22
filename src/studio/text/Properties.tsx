@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { AlignCenter, AlignHorizontalDistributeCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalDistributeCenter, ArrowDownToLine, ArrowLeftToLine, ArrowRightToLine, ArrowUpToLine, Bold, CaseSensitive, Italic, List, ListOrdered, Strikethrough, Superscript, Subscript, TriangleAlert, Underline } from "lucide-react";
-import type { CanvasFx, Fill, TextLayer } from "@shared/layers";
-import { BLEND_MODES } from "@shared/layers";
+import type { CanvasFx, Fill, ImageLayer, Layer, LogoLayer, ShapeLayer, TextLayer } from "@shared/layers";
+import { BLEND_MODES, isTextLayer } from "@shared/layers";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
 import { brandFonts, onPalette, type Brand } from "./model";
 
 export interface Selection {
-  layer: TextLayer | null;
+  layer: Layer | null;
   count: number;
   /** Contrast of the layer's colour over the picture (WCAG ratio). */
   contrast: number | null;
@@ -70,7 +70,7 @@ export default function Properties({
 }: {
   sel: Selection;
   /** Applies to every selected layer. */
-  onChange: (patch: Partial<TextLayer>) => void;
+  onChange: (patch: Partial<Layer>) => void;
   /** Bold / italic / underline / strike / script / colour on the selected words (or the whole layer). */
   onRich: (what: "bold" | "italic" | "underline" | "strike" | "super" | "sub" | "highlight", value?: string) => void;
   brand: Brand;
@@ -101,7 +101,19 @@ export default function Properties({
           <summary>Picture</summary>
           <CanvasSection fx={canvasFx} onChange={onCanvasFx} brand={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} />
         </details>
-        <p className="ts-hint">Select a layer to edit its type, colours and effects. Double-click a layer on the picture to type in it.</p>
+        <p className="ts-hint">Select a layer to edit its type, colours and effects. Double-click a text layer on the picture to type in it.</p>
+      </div>
+    );
+  }
+  if (!isTextLayer(l)) {
+    return (
+      <div className="ts-props">
+        {sel.count > 1 && <AlignRow count={sel.count} onAlign={onAlign} />}
+        <PlainProperties layer={l} onChange={onChange} swatches={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} W={W} />
+        <details>
+          <summary>Picture</summary>
+          <CanvasSection fx={canvasFx} onChange={onCanvasFx} brand={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} />
+        </details>
       </div>
     );
   }
@@ -112,21 +124,7 @@ export default function Properties({
   const multi = sel.count > 1;
   return (
     <div className="ts-props">
-      {multi && (
-        <div className="ts-align-row">
-          <span className="ts-group-title">Align {sel.count} layers</span>
-          <div className="ts-icons">
-            <button type="button" title="Align left edges" onClick={() => onAlign("left")}><ArrowLeftToLine size={14} /></button>
-            <button type="button" title="Align centres" onClick={() => onAlign("hcenter")}><AlignCenter size={14} /></button>
-            <button type="button" title="Align right edges" onClick={() => onAlign("right")}><ArrowRightToLine size={14} /></button>
-            <button type="button" title="Align top edges" onClick={() => onAlign("top")}><ArrowUpToLine size={14} /></button>
-            <button type="button" title="Align middles" onClick={() => onAlign("vcenter")}><AlignJustify size={14} /></button>
-            <button type="button" title="Align bottom edges" onClick={() => onAlign("bottom")}><ArrowDownToLine size={14} /></button>
-            <button type="button" title="Distribute horizontally" onClick={() => onAlign("hdist")}><AlignHorizontalDistributeCenter size={14} /></button>
-            <button type="button" title="Distribute vertically" onClick={() => onAlign("vdist")}><AlignVerticalDistributeCenter size={14} /></button>
-          </div>
-        </div>
-      )}
+      {multi && <AlignRow count={sel.count} onAlign={onAlign} />}
       {(lowContrast || offBrandFont || offPalette) && (
         <div className="ts-warnings">
           {lowContrast && (
@@ -394,6 +392,139 @@ function luminanceOf(hex: string): number {
   return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
 }
 
+function AlignRow({ count, onAlign }: { count: number; onAlign: (how: Align) => void }) {
+  return (
+    <div className="ts-align-row">
+      <span className="ts-group-title">Align {count} layers</span>
+      <div className="ts-icons">
+        <button type="button" title="Align left edges" onClick={() => onAlign("left")}><ArrowLeftToLine size={14} /></button>
+        <button type="button" title="Align centres" onClick={() => onAlign("hcenter")}><AlignCenter size={14} /></button>
+        <button type="button" title="Align right edges" onClick={() => onAlign("right")}><ArrowRightToLine size={14} /></button>
+        <button type="button" title="Align top edges" onClick={() => onAlign("top")}><ArrowUpToLine size={14} /></button>
+        <button type="button" title="Align middles" onClick={() => onAlign("vcenter")}><AlignJustify size={14} /></button>
+        <button type="button" title="Align bottom edges" onClick={() => onAlign("bottom")}><ArrowDownToLine size={14} /></button>
+        <button type="button" title="Distribute horizontally" onClick={() => onAlign("hdist")}><AlignHorizontalDistributeCenter size={14} /></button>
+        <button type="button" title="Distribute vertically" onClick={() => onAlign("vdist")}><AlignVerticalDistributeCenter size={14} /></button>
+      </div>
+    </div>
+  );
+}
+
+const pct = (f: number) => Math.round(f * 1000) / 10;
+
+/** The properties of a logo, a picture or a shape layer: its own section, then place and size. */
+function PlainProperties({ layer: l, onChange, swatches, saved, onSaveColour, pickFromCanvas, W }: { layer: LogoLayer | ImageLayer | ShapeLayer; onChange: (patch: Partial<Layer>) => void; swatches: { name: string; hex: string }[]; saved: string[]; onSaveColour: (hex: string) => void; pickFromCanvas: () => Promise<string | null>; W: number }) {
+  const px = (f: number) => Math.round(f * W);
+  const fromPx = (n: number) => n / W;
+  const image = l.type === "image" ? l : null;
+  const shape = l.type === "shape" ? l : null;
+  const logo = l.type === "logo" ? l : null;
+  const crop = image?.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+  const setCrop = (patch: Partial<typeof crop>) => {
+    const c = { ...crop, ...patch };
+    c.x = Math.max(0, Math.min(1 - 0.01, c.x));
+    c.y = Math.max(0, Math.min(1 - 0.01, c.y));
+    c.w = Math.max(0.01, Math.min(1 - c.x, c.w));
+    c.h = Math.max(0.01, Math.min(1 - c.y, c.h));
+    const whole = c.x === 0 && c.y === 0 && c.w === 1 && c.h === 1;
+    onChange({ crop: whole ? undefined : c } as Partial<ImageLayer>);
+  };
+  return (
+    <>
+      {logo && (
+        <details open>
+          <summary>Logo</summary>
+          <p className="ts-hint">The client's logo file, placed by hand. It takes the place of the layout's own logo on this post.</p>
+          <div className="ts-seg">
+            {(["default", "white", "dark"] as const).map((v) => (
+              <button key={v} type="button" className={(logo.variant ?? "default") === v ? "on" : ""} onClick={() => onChange({ variant: v === "default" ? undefined : v } as Partial<LogoLayer>)} title={v === "default" ? "The file's own colours" : v === "white" ? "The mark in white, for dark pictures" : "The mark in near-black, for light pictures"}>
+                {v === "default" ? "As is" : v === "white" ? "White" : "Dark"}
+              </button>
+            ))}
+          </div>
+          <Slider label="Opacity" value={Math.round((logo.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ opacity: v === 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
+        </details>
+      )}
+      {image && (
+        <details open>
+          <summary>Picture layer</summary>
+          <div className="ts-seg">
+            <button type="button" className={(image.fit ?? "cover") === "cover" ? "on" : ""} onClick={() => onChange({ fit: undefined } as Partial<ImageLayer>)} title="The picture fills the box; the sides are trimmed">Fill the box</button>
+            <button type="button" className={image.fit === "contain" ? "on" : ""} onClick={() => onChange({ fit: "contain" } as Partial<ImageLayer>)} title="The whole picture fits inside the box">Fit inside</button>
+          </div>
+          <span className="ts-group-title">Crop (of the source picture)</span>
+          <div className="ts-row four">
+            <Num label="Left" value={pct(crop.x)} onChange={(n) => setCrop({ x: n / 100 })} min={0} max={99} step={0.5} unit="%" />
+            <Num label="Top" value={pct(crop.y)} onChange={(n) => setCrop({ y: n / 100 })} min={0} max={99} step={0.5} unit="%" />
+            <Num label="Width" value={pct(crop.w)} onChange={(n) => setCrop({ w: n / 100 })} min={1} max={100} step={0.5} unit="%" />
+            <Num label="Height" value={pct(crop.h)} onChange={(n) => setCrop({ h: n / 100 })} min={1} max={100} step={0.5} unit="%" />
+          </div>
+          <div className="ts-row">
+            <button type="button" className="ts-mini" onClick={() => onChange({ crop: undefined } as Partial<ImageLayer>)} disabled={!image.crop}>Whole picture</button>
+            <button type="button" className="ts-mini" onClick={() => setCrop({ x: 0.125, y: 0.125, w: 0.75, h: 0.75 })}>Centre 75%</button>
+          </div>
+          <Slider label="Corner radius" value={px(image.radius ?? 0)} min={0} max={Math.round(W / 4)} onChange={(v) => onChange({ radius: v ? fromPx(v) : undefined } as Partial<ImageLayer>)} format={(n) => `${n}px`} />
+          <Slider label="Opacity" value={Math.round((image.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ opacity: v === 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
+        </details>
+      )}
+      {shape && (
+        <details open>
+          <summary>Shape</summary>
+          <div className="ts-seg">
+            {(["rect", "ellipse", "line"] as const).map((k) => (
+              <button key={k} type="button" className={shape.shape === k ? "on" : ""} onClick={() => onChange({ shape: k } as Partial<ShapeLayer>)}>
+                {k === "rect" ? "Rectangle" : k === "ellipse" ? "Ellipse" : "Line"}
+              </button>
+            ))}
+          </div>
+          <ColorField label="Fill" value={shape.fill} onChange={(fill: Fill) => onChange({ fill })} brand={swatches} saved={saved} onSaveColour={onSaveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
+          <Toggle on={!!shape.stroke} label="Outline" onChange={(on) => onChange({ stroke: on ? { color: "#ffffff", width: 0.004 } : undefined } as Partial<ShapeLayer>)}>
+            {shape.stroke && (
+              <>
+                <ColorField label="Outline colour" value={{ type: "solid", color: shape.stroke.color }} onChange={(f) => f.type === "solid" && onChange({ stroke: { ...shape.stroke!, color: f.color } } as Partial<ShapeLayer>)} brand={swatches} saved={saved} onSaveColour={onSaveColour} />
+                <Slider label="Width" value={px(shape.stroke.width)} min={1} max={Math.round(W / 20)} onChange={(v) => onChange({ stroke: { ...shape.stroke!, width: fromPx(v) } } as Partial<ShapeLayer>)} format={(n) => `${n}px`} />
+                <Slider label="Outline opacity" value={Math.round((shape.stroke.alpha ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ stroke: { ...shape.stroke!, alpha: v / 100 } } as Partial<ShapeLayer>)} format={(n) => `${n}%`} />
+              </>
+            )}
+          </Toggle>
+          {shape.shape !== "ellipse" && <Slider label={shape.shape === "line" ? "Round ends" : "Corner radius"} value={shape.shape === "line" ? (shape.radius ? 1 : 0) : px(shape.radius ?? 0)} min={0} max={shape.shape === "line" ? 1 : Math.round(W / 4)} onChange={(v) => onChange({ radius: v ? (shape.shape === "line" ? 0.001 : fromPx(v)) : undefined } as Partial<ShapeLayer>)} format={(n) => (shape.shape === "line" ? (n ? "round" : "square") : `${n}px`)} />}
+          <Slider label="Opacity" value={Math.round((shape.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ opacity: v === 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
+          <label className="ts-num">
+            <span>Blend</span>
+            <select value={shape.blend ?? "normal"} onChange={(e) => onChange({ blend: e.target.value === "normal" ? undefined : e.target.value })}>
+              {BLEND_MODES.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
+        </details>
+      )}
+      <details open>
+        <summary>Position and size</summary>
+        <div className="ts-row four">
+          <Num label="X" value={px(l.x)} onChange={(n) => onChange({ x: fromPx(n) })} unit="px" />
+          <Num label="Y" value={pct(l.y)} onChange={(n) => onChange({ y: n / 100 })} unit="%" title="Of the height" />
+          <Num label="W" value={px(l.w)} onChange={(n) => onChange({ w: Math.max(0.01, fromPx(n)) })} unit="px" />
+          {logo ? <Num label="H" value={0} onChange={() => undefined} unit="auto" title="A logo's height follows its file" /> : <Num label="H" value={pct((l as ImageLayer | ShapeLayer).h)} onChange={(n) => onChange({ h: Math.max(0.001, n / 100) } as Partial<ImageLayer | ShapeLayer>)} unit="%" title="Of the height" />}
+        </div>
+        <div className="ts-row">
+          <Num label="Rotate" value={Math.round(l.rotate ?? 0)} onChange={(n) => onChange({ rotate: n || undefined })} min={-360} max={360} unit="°" />
+          <label className="ts-toggle inline">
+            <input type="checkbox" checked={!!l.locked} onChange={(e) => onChange({ locked: e.target.checked || undefined })} />
+            <span>Locked</span>
+          </label>
+          <label className="ts-toggle inline">
+            <input type="checkbox" checked={!!l.hidden} onChange={(e) => onChange({ hidden: e.target.checked || undefined })} />
+            <span>Hidden</span>
+          </label>
+        </div>
+      </details>
+    </>
+  );
+}
+
 function CanvasSection({ fx, onChange, brand, saved, onSaveColour, pickFromCanvas }: { fx: CanvasFx | undefined; onChange: (fx: CanvasFx | undefined) => void; brand: { name: string; hex: string }[]; saved: string[]; onSaveColour: (hex: string) => void; pickFromCanvas: () => Promise<string | null> }) {
   const set = (patch: Partial<CanvasFx>) => {
     const next = { ...(fx ?? {}), ...patch };
@@ -434,6 +565,34 @@ function CanvasSection({ fx, onChange, brand, saved, onSaveColour, pickFromCanva
       </Toggle>
       <Toggle on={!!fx?.blur} label="Blur the picture" onChange={(on) => set({ blur: on ? 8 : undefined })}>
         {!!fx?.blur && <Slider label="Blur" value={fx.blur} min={1} max={40} onChange={(v) => set({ blur: v })} format={(n) => `${n}px`} />}
+      </Toggle>
+      <Toggle on={!!fx?.crop || !!fx?.offset} label="Crop and position the photograph" onChange={(on) => set(on ? { crop: { x: 0.05, y: 0.05, w: 0.9, h: 0.9 } } : { crop: undefined, offset: undefined })}>
+        {(fx?.crop || fx?.offset) && (
+          <>
+            <p className="ts-hint">The part of the photograph that fills the post, and a shift under the layers. Its file stays as it is.</p>
+            {(() => {
+              const c = fx?.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+              const setCrop = (patch: Partial<typeof c>) => {
+                const n = { ...c, ...patch };
+                n.w = Math.max(0.05, Math.min(1, n.w));
+                n.h = Math.max(0.05, Math.min(1, n.h));
+                n.x = Math.max(0, Math.min(1 - n.w, n.x));
+                n.y = Math.max(0, Math.min(1 - n.h, n.y));
+                set({ crop: n.x === 0 && n.y === 0 && n.w === 1 && n.h === 1 ? undefined : n });
+              };
+              return (
+                <>
+                  <Slider label="Zoom in" value={Math.round((1 - Math.min(c.w, c.h)) * 100)} min={0} max={80} onChange={(v) => { const k = 1 - v / 100; setCrop({ w: k, h: k, x: Math.min(1 - k, c.x + (c.w - k) / 2), y: Math.min(1 - k, c.y + (c.h - k) / 2) }); }} format={(n) => `${n}%`} />
+                  <Slider label="Crop from the left" value={pct(c.x)} min={0} max={95} step={0.5} onChange={(v) => setCrop({ x: v / 100 })} format={(n) => `${n}%`} />
+                  <Slider label="Crop from the top" value={pct(c.y)} min={0} max={95} step={0.5} onChange={(v) => setCrop({ y: v / 100 })} format={(n) => `${n}%`} />
+                </>
+              );
+            })()}
+            <Slider label="Shift sideways" value={Math.round((fx?.offset?.x ?? 0) * 100)} min={-50} max={50} onChange={(v) => set({ offset: v || fx?.offset?.y ? { x: v / 100, y: fx?.offset?.y ?? 0 } : undefined })} format={(n) => `${n}%`} />
+            <Slider label="Shift up and down" value={Math.round((fx?.offset?.y ?? 0) * 100)} min={-50} max={50} onChange={(v) => set({ offset: v || fx?.offset?.x ? { x: fx?.offset?.x ?? 0, y: v / 100 } : undefined })} format={(n) => `${n}%`} />
+            <button type="button" className="ts-mini" onClick={() => set({ crop: undefined, offset: undefined })}>Whole photograph, centred</button>
+          </>
+        )}
       </Toggle>
     </div>
   );

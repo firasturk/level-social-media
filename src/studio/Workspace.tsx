@@ -151,6 +151,8 @@ export default function Workspace({
   const [exporting, setExporting] = useState(false);
   const [acting, setActing] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
+  /** The review dialog asks for the Text studio on a post: the plan view opens it. */
+  const [wordsRequest, setWordsRequest] = useState<{ index: number; at: number } | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
@@ -1874,6 +1876,7 @@ export default function Workspace({
                 <PlanView
                 toolbar={!useFlow || toolsOpen}
                 notes={monthNotes}
+                wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
                 onRefresh={refresh}
                 outputThumb={outputThumb}
@@ -2137,6 +2140,15 @@ export default function Workspace({
           onNext={
             selectedIndex >= 0 && selectedIndex < reviewable.length - 1
               ? () => setSelected(reviewable[selectedIndex + 1])
+              : undefined
+          }
+          onTextStudio={
+            selected?.post && selected.output
+              ? () => {
+                  const i = selected.post!;
+                  setSelected(null);
+                  setWordsRequest({ index: i, at: Date.now() });
+                }
               : undefined
           }
         />

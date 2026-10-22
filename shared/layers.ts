@@ -110,19 +110,135 @@ export interface TextLayer {
   group?: string;
 }
 
-/** Readability helpers over the picture, before any text: the picture itself is never changed. */
+/** A rectangle in fractions (of the canvas, or of a source picture for a crop). */
+export interface FracRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The client's logo as a layer: the same file the automatic layout draws, placed by hand. Its height
+ * follows the file's own proportions. A `white` or `dark` variant recolours the mark in one colour
+ * (for a mark that must read on a light or a dark picture); `default` keeps the file's colours.
+ */
+export interface LogoLayer {
+  id: string;
+  type: "logo";
+  name?: string;
+  variant?: "default" | "white" | "dark";
+  x: number;
+  y: number;
+  /** Width as a fraction of the canvas width. */
+  w: number;
+  rotate?: number;
+  opacity?: number;
+  blend?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  group?: string;
+}
+
+/** A picture layer: a product photo, a brand asset or an uploaded graphic, cropped and fitted in its box. */
+export interface ImageLayer {
+  id: string;
+  type: "image";
+  name?: string;
+  /** A studio URL (a product photo, a place photo, an uploaded graphic); never the pixels themselves. */
+  src: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotate?: number;
+  opacity?: number;
+  /** The part of the source that is shown, as fractions of the source; the whole picture when unset. */
+  crop?: FracRect;
+  /** cover: fills the box, trimming the sides; contain: the whole crop fits inside the box. */
+  fit?: "cover" | "contain";
+  /** Corner radius as a fraction of the canvas width. */
+  radius?: number;
+  blend?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  group?: string;
+}
+
+export type ShapeKind = "rect" | "ellipse" | "line";
+
+/** A flat shape: a band behind words, a circle sticker, a rule. */
+export interface ShapeLayer {
+  id: string;
+  type: "shape";
+  name?: string;
+  shape: ShapeKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotate?: number;
+  opacity?: number;
+  fill: Fill;
+  /** Width as a fraction of the canvas width. A line is its stroke only. */
+  stroke?: { color: string; width: number; alpha?: number };
+  /** Corner radius of a rect, as a fraction of the canvas width. */
+  radius?: number;
+  blend?: string;
+  locked?: boolean;
+  hidden?: boolean;
+  group?: string;
+}
+
+export type Layer = TextLayer | LogoLayer | ImageLayer | ShapeLayer;
+export type LayerType = Layer["type"];
+
+export const isTextLayer = (l: Layer): l is TextLayer => l.type === "text";
+export const isLogoLayer = (l: Layer): l is LogoLayer => l.type === "logo";
+export const isImageLayer = (l: Layer): l is ImageLayer => l.type === "image";
+export const isShapeLayer = (l: Layer): l is ShapeLayer => l.type === "shape";
+
+/** The text layers of a design, in drawing order. */
+export function textLayersOf(design: TextDesign): TextLayer[] {
+  return design.layers.filter(isTextLayer);
+}
+
+/** Readability helpers over the picture, before any text: the picture's pixels are never changed. */
 export interface CanvasFx {
   overlay?: { color: string; alpha: number };
   /** A fade from one edge: angle 180 = dark at the bottom. */
   gradient?: { color: string; angle: number; from: number; to: number };
   /** Blur of the picture in pixels at 1080 width. */
   blur?: number;
+  /** The part of the photograph that fills the canvas, as fractions of the photograph; all of it when unset. */
+  crop?: FracRect;
+  /** A shift of the (cropped) photograph under the layers, as fractions of the canvas width and height. */
+  offset?: { x: number; y: number };
 }
 
 export interface TextDesign {
   version: 1;
-  layers: TextLayer[];
+  layers: Layer[];
   canvas?: CanvasFx;
+}
+
+/**
+ * Reads a stored design of any earlier shape into the current one. Version 1 is still the current
+ * version: the new layer types are additions, so a design with only text layers comes back as it
+ * was. A layer stored before `type` existed is a text layer.
+ */
+export function upgradeDesign(raw: unknown): TextDesign | null {
+  if (!raw || typeof raw !== "object") return null;
+  const d = raw as Partial<TextDesign> & { layers?: unknown };
+  if (!Array.isArray(d.layers)) return null;
+  const layers: Layer[] = [];
+  for (const l of d.layers as Partial<Layer>[]) {
+    if (!l || typeof l !== "object") continue;
+    const type = (l as { type?: string }).type;
+    if (type === "logo" || type === "image" || type === "shape") layers.push(l as Layer);
+    else if (type === "text" || (type === undefined && typeof (l as TextLayer).text === "string")) layers.push({ ...(l as TextLayer), type: "text" });
+  }
+  return { version: 1, layers, canvas: d.canvas };
 }
 
 export const BLEND_MODES = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "difference", "soft-light", "hard-light"] as const;
@@ -216,22 +332,175 @@ export const TEXT_LAYER_SCHEMA = z.object({
   group: z.string().max(40).optional(),
 });
 
+const common = {
+  id: z.string().min(1).max(40),
+  name: z.string().max(60).optional(),
+  x: z.number().min(-2).max(3),
+  y: z.number().min(-2).max(3),
+  rotate: z.number().min(-360).max(360).optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  blend: z.enum(BLEND_MODES).optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  group: z.string().max(40).optional(),
+};
+
+export const LOGO_LAYER_SCHEMA = z.object({
+  ...common,
+  type: z.literal("logo"),
+  variant: z.enum(["default", "white", "dark"]).optional(),
+  w: z.number().min(0.02).max(3),
+});
+
+export const IMAGE_LAYER_SCHEMA = z.object({
+  ...common,
+  type: z.literal("image"),
+  src: z.string().min(1).max(600),
+  w: z.number().min(0.01).max(3),
+  h: z.number().min(0.01).max(3),
+  crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.01).max(1), h: z.number().min(0.01).max(1) }).optional(),
+  fit: z.enum(["cover", "contain"]).optional(),
+  radius: z.number().min(0).max(1).optional(),
+});
+
+export const SHAPE_LAYER_SCHEMA = z.object({
+  ...common,
+  type: z.literal("shape"),
+  shape: z.enum(["rect", "ellipse", "line"]),
+  w: z.number().min(0).max(3),
+  h: z.number().min(0).max(3),
+  fill,
+  stroke: z.object({ color: hex, width: z.number().min(0).max(0.5), alpha: z.number().min(0).max(1).optional() }).optional(),
+  radius: z.number().min(0).max(1).optional(),
+});
+
+export const LAYER_SCHEMA = z.discriminatedUnion("type", [TEXT_LAYER_SCHEMA, LOGO_LAYER_SCHEMA, IMAGE_LAYER_SCHEMA, SHAPE_LAYER_SCHEMA]);
+
 export const TEXT_DESIGN_SCHEMA = z.object({
   version: z.literal(1),
-  layers: z.array(TEXT_LAYER_SCHEMA).max(40),
+  layers: z.array(LAYER_SCHEMA).max(40),
   canvas: z
     .object({
       overlay: z.object({ color: hex, alpha: z.number().min(0).max(1) }).optional(),
       gradient: z.object({ color: hex, angle: z.number().min(0).max(360), from: z.number().min(0).max(1), to: z.number().min(0).max(1) }).optional(),
       blur: z.number().min(0).max(60).optional(),
+      crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.05).max(1), h: z.number().min(0.05).max(1) }).optional(),
+      offset: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1) }).optional(),
     })
     .optional(),
 });
 
+export const DEFAULT_SHAPE: Omit<ShapeLayer, "id"> = { type: "shape", shape: "rect", x: 0.1, y: 0.4, w: 0.8, h: 0.12, fill: { type: "solid", color: "#1129d3" }, radius: 0.01 };
+
+export function newLogoLayer(over: Partial<LogoLayer> = {}): LogoLayer {
+  return { type: "logo", id: layerId(), x: 0.4, y: 0.04, w: 0.2, name: "Logo", ...over };
+}
+export function newImageLayer(src: string, over: Partial<ImageLayer> = {}): ImageLayer {
+  return { type: "image", id: layerId(), src, x: 0.25, y: 0.3, w: 0.5, h: 0.4, fit: "cover", ...over };
+}
+export function newShapeLayer(shape: ShapeKind, over: Partial<ShapeLayer> = {}): ShapeLayer {
+  const base: ShapeLayer = { ...DEFAULT_SHAPE, id: layerId(), shape };
+  if (shape === "line") return { ...base, h: 0.004, fill: { type: "solid", color: "#ffffff" }, radius: undefined, ...over };
+  if (shape === "ellipse") return { ...base, w: 0.3, h: 0.24, x: 0.35, radius: undefined, ...over };
+  return { ...base, ...over };
+}
+
+/** The look of a shape without its place: fill, stroke, corners. */
+export function shapeStyleOf(l: ShapeLayer): Partial<ShapeLayer> {
+  const { fill, stroke, radius, opacity, blend } = l;
+  return { fill, stroke, radius, opacity, blend };
+}
+
+/** The look of a text layer without its words and place, for saved styles, presets and the month. */
+export function styleOf(l: TextLayer): Partial<TextLayer> {
+  const { font, weight, italic, size, lineHeight, letterSpacing, wordSpacing, paragraphSpacing, padding, align, transform, fill, opacity, stroke, shadow, innerShadow, glow, blur, background, curve, skew, blend } = l;
+  return { font, weight, italic, size, lineHeight, letterSpacing, wordSpacing, paragraphSpacing, padding, align, transform, fill, opacity, stroke, shadow, innerShadow, glow, blur, background, curve, skew, blend };
+}
+
+/* ───────────── One look for the whole month ───────────── */
+
+/** What "apply to all posts" carries across: the look of a roled text layer, or the logo's place and size. */
+export type ApplyRole = "headline" | "subline" | "logo";
+
+/** The place, size and finish of a logo layer, without its identity. */
+export function logoPlacementOf(l: LogoLayer): Partial<LogoLayer> {
+  const { x, y, w, rotate, opacity, variant, blend } = l;
+  return { x, y, w, rotate, opacity, variant, blend };
+}
+
+/** The look to carry to the other posts from the selected layer, by its role; null when it has none. */
+export function styleToApply(layer: Layer): { style: Partial<Layer>; role: ApplyRole } | null {
+  if (isLogoLayer(layer)) return { style: logoPlacementOf(layer), role: "logo" };
+  if (isTextLayer(layer) && layer.role) return { style: styleOf(layer), role: layer.role };
+  return null;
+}
+
+/**
+ * The look applied to one design: the same-role text layers take the style (their words, place and
+ * box stay); for the logo, the design's logo layers move and resize, or one is added when the
+ * design has none. Returns the same design when nothing changed.
+ */
+export function applyStyleToDesign(design: TextDesign, style: Partial<Layer>, role: ApplyRole): TextDesign {
+  if (role === "logo") {
+    const place = style as Partial<LogoLayer>;
+    const has = design.layers.some(isLogoLayer);
+    const layers = has ? design.layers.map((l) => (isLogoLayer(l) ? { ...l, ...place, id: l.id, type: "logo" as const } : l)) : [...design.layers, newLogoLayer(place)];
+    return { ...design, layers };
+  }
+  // Only the look travels: never the words, the runs, the place, the box or the role.
+  const look = { ...(style as Partial<TextLayer>) };
+  for (const k of ["id", "type", "text", "runs", "x", "y", "w", "h", "role", "name", "hidden", "locked", "group", "autoSize", "fit"] as const) delete (look as Record<string, unknown>)[k];
+  let changed = false;
+  const layers = design.layers.map((l) => {
+    if (!isTextLayer(l) || l.role !== role) return l;
+    changed = true;
+    return { ...l, ...look, text: l.text, runs: l.runs } as TextLayer;
+  });
+  return changed ? { ...design, layers } : design;
+}
+
+/**
+ * The look applied across a month: every post but `current` gets it; a post without a design first
+ * gets one made from its words (`designFor`, null when there is nothing to make one from). Returns
+ * the new plan and how many posts changed. Only `ov.design` is touched: never a picture.
+ */
+export function applyStyleToPosts<P extends { index: number; ov?: { design?: TextDesign } }>(plan: P[], current: number, style: Partial<Layer>, role: ApplyRole, designFor: (post: P) => TextDesign | null): { plan: P[]; changed: number } {
+  let changed = 0;
+  const next = plan.map((p) => {
+    if (p.index === current) return p;
+    const base = p.ov?.design ?? designFor(p);
+    if (!base) return p;
+    const d = applyStyleToDesign(base, style, role);
+    if (d === base && p.ov?.design) return p;
+    changed++;
+    return { ...p, ov: { ...(p.ov ?? {}), design: d } };
+  });
+  return { plan: next, changed };
+}
+
 /* ───────────── Pure helpers the renderer and the editor share ───────────── */
 
 export const ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-const STRONG_LTR = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/;
+export const STRONG_LTR_RE = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/;
+const STRONG_LTR = STRONG_LTR_RE;
+
+/**
+ * Groups a line's words into runs that read the same way: a Latin phrase inside an Arabic line (or
+ * an Arabic one inside a Latin line) keeps its own order while the line as a whole reads in its
+ * direction. Neutral words (numbers, punctuation) follow the word before them.
+ */
+export function directionRuns<T extends { text: string }>(tokens: T[], lineDir: "rtl" | "ltr"): { dir: "rtl" | "ltr"; tokens: T[] }[] {
+  const out: { dir: "rtl" | "ltr"; tokens: T[] }[] = [];
+  let cur = lineDir;
+  for (const t of tokens) {
+    const dir: "rtl" | "ltr" = ARABIC_RE.test(t.text) ? "rtl" : STRONG_LTR_RE.test(t.text) ? "ltr" : cur;
+    const last = out[out.length - 1];
+    if (last && last.dir === dir) last.tokens.push(t);
+    else out.push({ dir, tokens: [t] });
+    cur = dir;
+  }
+  return out;
+}
 
 /** The direction a paragraph reads in: its first strong character decides, Arabic when nothing is strong. */
 export function paragraphDirection(text: string, wanted: Direction = "auto"): "rtl" | "ltr" {
@@ -356,23 +625,24 @@ export function fillColor(f: Fill): string {
 }
 
 /** Finds and replaces across every layer's text (a plain, case-insensitive match). */
-export function replaceInLayers(layers: TextLayer[], find: string, replace: string): { layers: TextLayer[]; count: number } {
+export function replaceInLayers<L extends Layer>(layers: L[], find: string, replace: string): { layers: L[]; count: number } {
   if (!find) return { layers, count: 0 };
   let count = 0;
   const esc = find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(esc, "gi");
   const out = layers.map((l) => {
+    if (!isTextLayer(l)) return l;
     const hits = l.text.match(re)?.length ?? 0;
     if (!hits) return l;
     count += hits;
-    return editText(l, l.text.replace(re, replace));
+    return editText(l, l.text.replace(re, replace)) as L;
   });
   return { layers: out, count };
 }
 
 /** The headline and second line the plan keeps: the roled layers' words, else the first two layers'. */
 export function wordsOf(design: TextDesign): { headline: string; subline: string } {
-  const visible = design.layers.filter((l) => !l.hidden && l.text.trim());
+  const visible = design.layers.filter(isTextLayer).filter((l) => !l.hidden && l.text.trim());
   const head = visible.find((l) => l.role === "headline") ?? visible[0];
   const sub = visible.find((l) => l.role === "subline" && l !== head) ?? visible.find((l) => l !== head && !l.role);
   const one = (t: string | undefined) => (t ?? "").replace(/\s*\n\s*/g, " ").trim();
