@@ -113,13 +113,13 @@ app.onError((e, c) => {
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    // Page visits on the long workers.dev address move to the short one, so everyone signs in
-    // and bookmarks a single address. API calls are served where they arrive.
+    // Page visits on the long workers.dev and pages.dev addresses move to the studio's own domain, so
+    // everyone signs in and bookmarks a single address. API calls are served where they arrive.
     const canonical = env.CANONICAL_ORIGIN;
     if (canonical && (request.method === "GET" || request.method === "HEAD")) {
       const url = new URL(request.url);
-      if (url.hostname.endsWith(".workers.dev") && !url.pathname.startsWith("/api/"))
-        return Response.redirect(`${canonical}${url.pathname}${url.search}`, 301);
+      const elsewhere = (url.hostname.endsWith(".workers.dev") || url.hostname.endsWith(".pages.dev")) && `${url.protocol}//${url.host}` !== canonical;
+      if (elsewhere && !url.pathname.startsWith("/api/")) return Response.redirect(`${canonical}${url.pathname}${url.search}`, 301);
     }
     return app.fetch(request, env, ctx);
   },
