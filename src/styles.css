@@ -1099,7 +1099,11 @@ h2 {
   text-decoration: underline;
 }
 .connection-dialog {
-  max-width: 470px !important;
+  max-width: 640px !important;
+  width: calc(100% - 32px);
+  max-height: 92vh;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
 }
 .connection-dialog [data-slot="dialog-title"] {
