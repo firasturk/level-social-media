@@ -45,6 +45,7 @@ import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
 import PhotoLabPanel, { PhotoLabDialog } from "./PhotoLabPanel";
 import FeedbackPanel from "./FeedbackPanel";
+import { ScheduleApprovedDialog } from "./PublishDialog";
 import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
@@ -384,6 +385,8 @@ export default function Workspace({
   /** The Studio board's tab and whether the old month toolbar is unfolded under More. */
   const [studioTab, setStudioTab] = useState<StudioTab>("posts");
   const [toolsOpen, setToolsOpen] = useState(false);
+  /** The "Schedule the approved posts" dialog (Instagram publishing) is open. */
+  const [scheduleApproved, setScheduleApproved] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -1817,6 +1820,9 @@ export default function Workspace({
                       <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.made}>
                         Deliver to the client&apos;s Drive…
                       </button>
+                      <button type="button" onClick={() => setScheduleApproved(true)} disabled={!counts.made}>
+                        Schedule the approved posts…
+                      </button>
                       <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>
                         Upload product photos
                       </button>
@@ -1845,6 +1851,21 @@ export default function Workspace({
                 </StudioBoard>
               );
             })()}
+            {scheduleApproved && batch && (
+              <ScheduleApprovedDialog
+                open
+                batchId={batch.id}
+                clientId={client.id}
+                plan={plan}
+                tasks={tasks}
+                approvals={config?.approvals ?? {}}
+                overlay={overlaySpec}
+                logoSrc={logoSrc}
+                outputUrl={outputUrl}
+                onClose={() => setScheduleApproved(false)}
+                onChanged={refresh}
+              />
+            )}
             <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>
               {kitShown ? (
               <div className="kit-column">

@@ -14,6 +14,7 @@ import { readDrivePhotos } from "./drive";
 import { auditRoutes, dailyAudit } from "./audit";
 import { shareRoutes } from "./share";
 import { sendDueNotifications } from "./notify";
+import { publishDue } from "./publish";
 
 type Variables = { user: User };
 
@@ -137,6 +138,8 @@ export default {
     ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
     // The client's answers on the approval page reach the team as one e-mail per month.
     ctx.waitUntil(sendDueNotifications(env).catch((e) => console.error("[notify]", errorMessage(e))));
+    // Posts scheduled for Instagram go out when their time comes (a few per pass, each claimed first).
+    ctx.waitUntil(publishDue(env).catch((e) => console.error("[publish]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     // Synchronous images run in the background of the cron pass (six at once, refilled as they
     // finish) instead of one after another.

@@ -37,6 +37,9 @@ import { Orb } from "@/components/Orb";
 import TextStudio, { type EditorResult } from "./text/TextStudio";
 import AnimateDialog from "./AnimateDialog";
 import VideoDialog from "./VideoDialog";
+import PublishDialog, { PublishPill } from "./PublishDialog";
+import { usePublications } from "./publish";
+import { publicationFor } from "@shared/publish";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
@@ -236,6 +239,9 @@ export default function PlanView({
   }, [wordsRequest]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
+  // Publishing to Instagram: which post's dialog is open, and the month's publications for the pills.
+  const [publishFor, setPublishFor] = useState<number | null>(null);
+  const { list: publications, refresh: refreshPublications } = usePublications(batchId);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
@@ -723,6 +729,7 @@ export default function PlanView({
                         { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false },
                         { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false },
                         { label: "Video from this picture", onClick: () => setVideoFor(p.index) },
+                        { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId },
                       ]
                     : []),
                   ...(onRestorePicture && !inFlight && prevOf(t)
@@ -778,6 +785,7 @@ export default function PlanView({
                           )}
                           {p.product && !product && p.type !== "offer" && <small className="pc-meta warn">No photo of {p.product} this month: Generate brings it from the gallery, or pick another product in Edit.</small>}
                           {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
+                          <PublishPill publication={publicationFor(publications, plan, p.index)} />
                           {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
                             <small className="pc-meta" dir="auto">
                               “{approvals[String(p.index)].note}”{approvals[String(p.index)].by ? ` · ${approvals[String(p.index)].by}` : ""}
@@ -1566,6 +1574,22 @@ export default function PlanView({
         if (!p || !t?.output || !batchId) return null;
         return <VideoDialog open batchId={batchId} post={p} src={outputUrl(t)} fileBase={fileBase} onClose={() => setVideoFor(null)} />;
       })()}
+      {publishFor !== null && batchId && (
+        <PublishDialog
+          open
+          batchId={batchId}
+          clientId={client.id}
+          index={publishFor}
+          plan={plan}
+          tasks={tasks}
+          overlay={overlay}
+          logoSrc={logoSrc}
+          outputUrl={outputUrl}
+          publications={publications}
+          onClose={() => setPublishFor(null)}
+          onChanged={refreshPublications}
+        />
+      )}
       {(() => {
         const p = animating !== null ? draft.find((x) => x.index === animating) : null;
         const t = p ? taskOf(p.index) : null;

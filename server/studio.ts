@@ -80,6 +80,7 @@ import { ocrRoutes } from "./ocr-routes";
 import { feedbackRoutes } from "./feedback";
 import { notifyRoutes } from "./notify";
 import { photoLabRoutes } from "./photolab";
+import { publishRoutes } from "./publish";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -97,6 +98,7 @@ studioRoutes.route("/ocr", ocrRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
 studioRoutes.route("/notify", notifyRoutes);
 studioRoutes.route("/photolab", photoLabRoutes);
+studioRoutes.route("/publish", publishRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

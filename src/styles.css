@@ -17720,6 +17720,53 @@ label.cta input {
   margin-top: 2px;
 }
 .deliver-progress ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 32vh;
+  overflow: auto;
+}
+.deliver-step {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.deliver-step:last-child {
+  border-bottom: 0;
+}
+.deliver-step-post {
+  color: var(--ink-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deliver-step-done .deliver-step-post {
+  color: var(--ink-500);
+}
+.deliver-step-failed .deliver-step-post {
+  color: var(--danger);
+}
+.deliver-folder-link {
+  margin-top: 4px;
+}
+.deliver-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.deliver-actions .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* ───────────── Notifications: the badge on the board, the subscription switch, the Connection tab ───────────── */
 .notify-badge {
   display: inline-flex;
@@ -17776,48 +17823,6 @@ label.cta input {
   margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 32vh;
-  overflow: auto;
-}
-.deliver-step {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--line);
-}
-.deliver-step:last-child {
-  border-bottom: 0;
-}
-.deliver-step-post {
-  color: var(--ink-900);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.deliver-step-done .deliver-step-post {
-  color: var(--ink-500);
-}
-.deliver-step-failed .deliver-step-post {
-  color: var(--danger);
-}
-.deliver-folder-link {
-  margin-top: 4px;
-}
-.deliver-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.deliver-actions .primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
   flex-wrap: wrap;
   gap: 14px;
   font-size: 12px;
@@ -17835,6 +17840,7 @@ label.cta input {
   flex-wrap: wrap;
   margin-top: 4px;
 }
+
 /* ───────────── Photo lab: Freepik's real-photo tools in the editor and on a Drive photo ───────────── */
 .editor-photolab {
   margin: 8px 0;
@@ -18036,4 +18042,169 @@ label.cta input {
   .photolab-ops {
     grid-template-columns: 1fr;
   }
+}
+
+/* ───────────── Publishing to Instagram (.publish-) ───────────── */
+.publish-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-700);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.publish-pill.queued,
+.publish-pill.publishing {
+  background: var(--info-soft);
+  color: var(--ink-900);
+}
+.publish-pill.published {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.publish-pill.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+a.publish-pill.published:hover {
+  text-decoration: underline;
+}
+.publish-dialog .publish-body {
+  align-items: flex-start;
+}
+.publish-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-start;
+  min-width: 0;
+}
+.publish-preview img {
+  width: 100%;
+  max-width: 360px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+}
+.publish-preview img + img {
+  max-width: 172px;
+}
+.publish-drawing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-500);
+  padding: 24px 0;
+}
+.publish-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.publish-controls input[type="datetime-local"] {
+  width: 100%;
+}
+.publish-caption {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow: auto;
+}
+.publish-not-connected {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--warning-soft);
+  color: var(--ink-900);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.publish-not-connected svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.publish-state {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.publish-state.failed {
+  background: transparent;
+  padding: 0;
+}
+.publish-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow: auto;
+}
+.publish-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.publish-list li span:not(.publish-pill) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-700);
+}
+.publish-list li.failed {
+  background: var(--danger-soft);
+}
+.publish-list li svg {
+  flex: none;
+}
+.publish-readiness {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink-700);
+}
+.publish-readiness svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.publish-readiness.ready {
+  color: var(--success);
+}
+.publish-readiness.ready svg {
+  color: var(--success);
 }
