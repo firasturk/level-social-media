@@ -16,6 +16,9 @@ import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext } from "@shared/issues";
+import { monthCounts } from "@shared/counts";
+import { confirmScope } from "@shared/scope";
+import { SAVE_IDLE, saveReducer, type SaveStatus as SaveState } from "@shared/save-status";
 import { formatUsd, rateFor, setPricesHidden, testSize } from "@shared/pricing";
 import type {
   Ambassador,
@@ -35,7 +38,7 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView, { displayName } from "./PlanView";
 import Journey from "./Journey";
-import Flow from "./Flow";
+import Flow, { forgetFlowWay } from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
@@ -801,14 +804,25 @@ export default function Workspace({
     }
   }
 
+  /** The plan's autosave, as every board shows it: saving, saved, or failed with the edit kept for a retry. */
+  const [saveStatus, setSaveStatus] = useState<SaveState>(SAVE_IDLE);
+  const lastSave = useRef<Post[] | null>(null);
   async function savePlan(next: Post[]) {
     if (!batch) return;
+    lastSave.current = next;
+    setSaveStatus((s) => saveReducer(s, { type: "start", at: Date.now() }));
     try {
       await put("/api/studio/posts/plan", { batch: batch.id, plan: next });
       await refresh();
+      setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
     } catch (e) {
-      toast.error((e as Error).message);
+      setSaveStatus((s) => saveReducer(s, { type: "fail", at: Date.now(), error: (e as Error).message }));
+      toast.error(`Save failed: ${(e as Error).message}`, { action: { label: "Retry", onClick: () => void retrySave() } });
     }
+  }
+  /** Sends the last edit again after a failed save. */
+  async function retrySave() {
+    if (lastSave.current) await savePlan(lastSave.current);
   }
 
   async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean, run = crypto.randomUUID()): Promise<void> {
@@ -818,10 +832,8 @@ export default function Workspace({
       return;
     }
     if (regenerate && !indexes && askFirst) {
-      const ok = await askConfirm(
-        `Generate all ${plan.length} posts again? The current images are replaced.`,
-        { ok: "Regenerate all", danger: false },
-      );
+      const scope = confirmScope({ target: { kind: "month", month, designs: plan.length }, effect: "new-version", cost: plan.length * (rateFor(shownSettings.model)?.[shownSettings.size] ?? 0) });
+      const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Keep the current pictures" });
       if (!ok) return;
     }
     askNotifications();
@@ -1770,22 +1782,16 @@ export default function Workspace({
               />
             )}
             {useFlow && (() => {
-              const inFlight = (t: Task) => ["queued", "processing", "finalizing"].includes(t.status);
-              const groups = new Set(plan.filter((x) => x.group).map((x) => x.group!.id));
-              const counts = { posts: plan.filter((x) => !x.group).length + groups.size, designs: plan.length, made: 0, making: 0, look: 0, older: 0, failed: 0, planned: 0 };
-              for (const x of plan) {
-                const t = tasks.find((y) => y.post === x.index && (y.output || inFlight(y))) ?? tasks.find((y) => y.post === x.index) ?? null;
-                if (!t) counts.planned += 1;
-                else if (inFlight(t)) counts.making += 1;
-                else if (!t.output) counts.failed += 1;
-                else if (olderIdea(t, x, config)) counts.older += 1;
-                else if (flagsOf(t).length) counts.look += 1;
-                else counts.made += 1;
-              }
-              const makeCount = counts.planned + counts.failed + counts.older;
+              // One arithmetic for every board: the Plan, the Start screen and the dialogs count the same way.
+              const counts = monthCounts(plan, tasks, config, (t) => flagsOf(t as Task).length);
+              // Pictures still to make: never made, failed, or made for an older idea; text tiles are free.
+              const makeCount = counts.remaining;
               const perPicture = rateFor(shownSettings.model)?.[shownSettings.size] ?? 0;
+              const monthLoading = !!planOf(clientId, month) && !batch;
               const changes = Object.values(config?.approvals ?? {}).filter((a) => a.status === "changes").length;
               const toPlan = () => {
+                // The month's own plan and cost: a one-post way in remembered by the workflow is not what this button means.
+                forgetFlowWay(batch?.id);
                 setFlowStage(2);
                 setClassic(false);
                 setJourney(true);
@@ -1806,6 +1812,9 @@ export default function Workspace({
                   onClientChanges={() => void doClientChanges()}
                   clientChangesBusy={busy === "client"}
                   badge={batch ? <NotifyBadge batch={batch.id} stamp={Object.values(config?.approvals ?? {}).reduce((m, a) => Math.max(m, a.at), 0)} onOpen={() => setStudioTab("approval")} /> : null}
+                  loading={monthLoading}
+                  saveStatus={saveStatus}
+                  onRetrySave={() => void retrySave()}
                   more={
                     <>
                       <button type="button" onClick={() => setToolsOpen((o) => !o)}>
@@ -1969,6 +1978,9 @@ export default function Workspace({
                 cast={ambassadors.filter((a) => castIds.includes(a.id))}
                 onPostCount={(n) => void updateSettings({ postCount: n })}
                 onSavePlan={(p) => savePlan(p)}
+                saveStatus={saveStatus}
+                onRetrySave={() => void retrySave()}
+                perPicture={rateFor(shownSettings.model)?.[shownSettings.size] ?? 0}
                 onAccept={acceptPost}
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
@@ -2065,6 +2077,9 @@ export default function Workspace({
           onGrid={pickGrid}
           onGenerateIdeas={(force, notes, append) => generateIdeas(notes ?? config?.notes ?? "", force, append)}
           onSavePlan={(next) => savePlan(next)}
+          saveStatus={saveStatus}
+          onRetrySave={() => void retrySave()}
+          loadingMonth={!!planOf(clientId, month) && !batch}
           onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, false, retakes)}
           onTest={testOnePost}
           engineReady={engineConnected}

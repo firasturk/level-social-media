@@ -4,7 +4,7 @@
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Ellipsis, Pencil, TriangleAlert, Type, Wand2 } from "lucide-react";
+import { Check, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
@@ -38,6 +38,7 @@ export default function PostCardCompact({
   accepting,
   disabled,
   menu,
+  primary,
   extra,
 }: {
   post: Post;
@@ -60,6 +61,11 @@ export default function PostCardCompact({
   disabled: boolean;
   /** The secondary actions, in the overflow menu. */
   menu: MenuItem[];
+  /**
+   * The card's one primary action when it is not the editor: making the post's first picture, or
+   * making it again after a failure or for a newer idea. Its title says the scope and the cost.
+   */
+  primary?: { label: string; title: string; onClick: () => void; disabled?: boolean; busy?: boolean };
   /** Anything the card still shows under its title (an unsaved-changes row, a client's note). */
   extra?: ReactNode;
 }) {
@@ -129,8 +135,8 @@ export default function PostCardCompact({
             {post.title || POST_TYPE_INFO[post.type]?.label}
           </b>
           {approval && (
-            <span className={`pc-approval ${approval.status}`} title={[approval.by, approval.note].filter(Boolean).join(": ")}>
-              {approval.status === "approved" ? (approval.by ? `Approved by ${approval.by}` : "Client approved") : approval.by ? `${approval.by} asks a change` : "Client asks a change"}
+            <span className={`pc-approval ${approval.status}`} title={`The client's answer on the approval page${approval.by ? `, by ${approval.by}` : ""}${approval.note ? `: ${approval.note}` : ""}. Separate from the team's own acceptance of the picture.`}>
+              {approval.status === "approved" ? (approval.by ? `Client approved · ${approval.by}` : "Client approved") : approval.by ? `Client asks a change · ${approval.by}` : "Client asks a change"}
               {(approval.answers?.length ?? 0) > 1 ? ` · ${approval.answers!.length} answers` : ""}
             </span>
           )}
@@ -163,12 +169,25 @@ export default function PostCardCompact({
         )}
         {extra}
         <div className="pc-actions">
-          <button type="button" className="cta primary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "The picture: retake, fix, compare" : "The idea and the shot"}>
-            <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
-          </button>
-          <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture">
-            Words &amp; layout
-          </button>
+          {primary ? (
+            <>
+              <button type="button" className="cta primary small" onClick={primary.onClick} disabled={inFlight || primary.disabled || primary.busy} title={primary.title}>
+                {primary.busy ? <Orb size={13} /> : <Sparkles size={14} />} {primary.label}
+              </button>
+              <button type="button" className="cta secondary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "Open the editor on the picture: retake, fix, compare" : "Open the editor on the idea and the shot; no picture is made"}>
+                <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="cta primary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "Open the editor on the picture: retake, fix, compare" : "Open the editor on the idea and the shot; no picture is made"}>
+                <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+              </button>
+              <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture; no picture is made">
+                Words &amp; layout
+              </button>
+            </>
+          )}
           <div className="card-menu" ref={box}>
             <button type="button" className="cta secondary small icon" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
               <Ellipsis size={16} />
