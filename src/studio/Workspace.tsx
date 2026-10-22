@@ -47,6 +47,7 @@ import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
 import { NotifyBadge } from "./Notify";
+import IdeasChat from "./IdeasChat";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
 import PhotoLabPanel, { PhotoLabDialog } from "./PhotoLabPanel";
@@ -394,6 +395,8 @@ export default function Workspace({
   const [toolsOpen, setToolsOpen] = useState(false);
   /** The "Schedule the approved posts" dialog (Instagram publishing) is open. */
   const [scheduleApproved, setScheduleApproved] = useState(false);
+  /** The Prompt Box under the Studio board: the planner chat with its tool cards, outside the Plan. */
+  const [promptOpen, setPromptOpen] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -1844,6 +1847,8 @@ export default function Workspace({
                   loading={monthLoading}
                   saveStatus={saveStatus}
                   onRetrySave={() => void retrySave()}
+                  onPrompt={() => setPromptOpen((o) => !o)}
+                  promptOpen={promptOpen}
                   more={
                     <>
                       <button type="button" onClick={() => setToolsOpen((o) => !o)}>
@@ -1885,7 +1890,20 @@ export default function Workspace({
                     </>
                   }
                 >
-                  {null}
+                  {promptOpen ? (
+                    <IdeasChat
+                      title="Prompt box"
+                      batchId={batch?.id ?? null}
+                      config={config}
+                      busy={running}
+                      engineReady={engineConnected}
+                      refresh={refresh}
+                      onNotes={(notes) => void updateSettings({ notes })}
+                      onMake={(indexes) => generatePosts(indexes, true, false)}
+                      admin={user.role === "admin"}
+                      openPost={openPostIndex}
+                    />
+                  ) : null}
                 </StudioBoard>
               );
             })()}

@@ -5,7 +5,7 @@
  * lists over the same plan. Everything the old toolbar did is one click away under More.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Download, Ellipsis, Link2, MessageSquareReply } from "lucide-react";
+import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText } from "lucide-react";
 import { formatUsd } from "@shared/pricing";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -35,6 +35,8 @@ export default function StudioBoard({
   changes,
   onClientChanges,
   clientChangesBusy,
+  onPrompt,
+  promptOpen,
   more,
   badge,
   loading,
@@ -57,6 +59,9 @@ export default function StudioBoard({
   changes: number;
   onClientChanges: () => void;
   clientChangesBusy: boolean;
+  /** The Prompt Box (the planner chat and its tool cards), opened from the board so it works outside the Plan. */
+  onPrompt?: () => void;
+  promptOpen?: boolean;
   /** The More menu's items (the old toolbar's tools). */
   more: ReactNode;
   /** "Client answered · n new", beside the counts. */
@@ -121,6 +126,11 @@ export default function StudioBoard({
               Open the plan
             </button>
           )}
+          {onPrompt ? (
+            <button type="button" className={`cta secondary ${promptOpen ? "on" : ""}`} aria-pressed={!!promptOpen} onClick={onPrompt} title="Tell the planner what to change, or ask a tool (Freepik, a video) and confirm it on a card">
+              <MessageSquareText size={14} /> Prompt
+            </button>
+          ) : null}
           <div className="card-menu studio-more" ref={box}>
             <button type="button" className="studio-more-button" aria-label="More" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
               <Ellipsis size={16} />

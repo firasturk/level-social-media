@@ -28,6 +28,8 @@ import { blockingConflicts, detectConflicts, guideFor, type Conflict, type Guide
 import { traceEvent } from "./trace";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
+import { hintsTool, INTENT_SCHEMA, intentInstruction, intentSummary, resolveIntent, validateIntent, videoCatalog, type PromptContext } from "@shared/promptbox";
+import { recordIntegrationOp, type IntegrationProvider } from "./integrations";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
@@ -5384,11 +5386,55 @@ postRoutes.get("/occasion-photo", async (c) => {
  * posts added or removed), keeps the thread on the month and answers in the designer's language.
  */
 postRoutes.post("/chat", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), message: z.string().trim().min(1).max(3000) }));
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      message: z.string().trim().min(1).max(3000),
+      /** The Prompt Box's context: the post open in the editor and the asset shown last, so "this post" and "this asset" mean something. */
+      context: z
+        .object({
+          post: z.number().int().positive().nullable().optional(),
+          slide: z.number().int().positive().nullable().optional(),
+          asset: z.object({ id: z.string().min(1).max(120), source: z.string().min(1).max(40), url: z.string().max(2000).optional(), title: z.string().max(300).optional() }).nullable().optional(),
+        })
+        .optional(),
+    }),
+  );
   const user = c.get("user");
   const b = await ownedPlan(c.env, user, d.batch);
   const config = JSON.parse(b.config) as Config;
   const plan = config.plan ?? [];
+  // The Prompt Box: a sentence that asks a tool to act becomes a card to confirm; it is never run from here.
+  const pctx: PromptContext = {
+    batch: b.id,
+    posts: plan.map((p) => ({ index: p.index, title: p.title, group: p.group ? { kind: p.group.kind, slide: p.group.slide, of: p.group.of } : null })),
+    openPost: d.context?.post ?? null,
+    openSlide: d.context?.slide ?? null,
+    lastAsset: d.context?.asset ?? null,
+    videoModels: videoCatalog(),
+  };
+  let intent = resolveIntent(d.message, pctx);
+  if (intent.tool === "none" && hintsTool(d.message)) {
+    // The deterministic reading found no tool but the words sound like one: a text model may propose
+    // an intent, which only counts once the same rules accept it. The demo fixture answers deterministically.
+    try {
+      const proposed = validateIntent(parseJson<unknown>(await askText(c.env, intentInstruction(d.message, pctx), INTENT_SCHEMA)), pctx);
+      if (proposed) intent = proposed;
+    } catch (e) {
+      console.log(`[promptbox] no proposal: ${errorMessage(e).slice(0, 160)}`);
+    }
+  }
+  if (intent.tool !== "none") {
+    const canRun = user.role === "admin";
+    const summary = intentSummary(intent, pctx.posts);
+    const reply = canRun ? `${summary} Confirm it on the card.` : `${summary} Admins only for now: ${intent.provider} is restricted until wider access is approved.`;
+    const t0 = now();
+    const cfg = { ...config, chat: [...(config.chat ?? []), { role: "user" as const, text: d.message.slice(0, 3000), at: t0 }, { role: "studio" as const, text: reply, at: t0 + 1 }].slice(-40) };
+    await saveConfig(c.env, b, cfg);
+    await recordIntegrationOp(c.env, { provider: intent.provider as IntegrationProvider, kind: intent.tool, user: user.id, batch: b.id, post: intent.target.post, estimate: intent.estimate, status: "proposed", note: summary }).catch((e) => console.error("[promptbox] record", errorMessage(e)));
+    return c.json({ ok: true, kind: "intent", intent, canRun, reply, changed: [], removed: 0, make: [] });
+  }
   const client = await clientRow(c.env, config.client);
   const sources = await all<SourceRow>(
     c.env.DB,
@@ -5492,7 +5538,7 @@ postRoutes.post("/chat", async (c) => {
   cfg.chat = [...(cfg.chat ?? []), { role: "user" as const, text: d.message.slice(0, 3000), at: t }, { role: "studio" as const, text: answer.reply || "Done.", at: t + 1 }].slice(-40);
   await refreshCountNote(c.env, b.id, cfg);
   await saveConfig(c.env, fresh, cfg);
-  return c.json({ ok: true, reply: answer.reply || "Done.", changed: [...changed], removed: removed.length, make, notes: notesChanged ? answer.notes : undefined, plan: cfg.plan });
+  return c.json({ ok: true, kind: "ideas", reply: answer.reply || "Done.", changed: [...changed], removed: removed.length, make, notes: notesChanged ? answer.notes : undefined, plan: cfg.plan });
 });
 
 /** The thread is cleared; the posts stay as they are. */

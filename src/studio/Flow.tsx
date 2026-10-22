@@ -1567,6 +1567,7 @@ export default function Flow(p: FlowProps) {
                   batchId={p.batchId}
                   config={p.config}
                   busy={rewriting}
+                  admin={p.user.role === "admin"}
                   engineReady={p.engineReady}
                   refresh={async () => {
                     await p.refresh();

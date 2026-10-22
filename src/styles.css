@@ -13885,6 +13885,179 @@ select {
   max-height: 120px;
   resize: vertical;
 }
+.ideas-chat-context {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.studio-board .ideas-chat {
+  margin: 12px 0 4px;
+}
+.studio-board .ideas-thread {
+  max-height: 420px;
+}
+
+/* ── The Prompt Box's intent card ── */
+.intent-card {
+  align-self: stretch;
+  max-width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.intent-card.done {
+  border-color: var(--lime-soft);
+}
+.intent-card.failed {
+  border-color: var(--warning-soft);
+}
+.intent-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.intent-head strong {
+  font-size: 14px;
+}
+.intent-provider {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.intent-rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+.intent-rows dt {
+  color: var(--text-muted);
+  font-size: 12px;
+  padding-top: 2px;
+}
+.intent-rows dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.intent-rows dd select {
+  font-size: 12.5px;
+  padding: 2px 6px;
+}
+.intent-rows dd.intent-blocked {
+  color: var(--warning-text);
+  font-weight: 600;
+}
+.intent-setting small {
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+.intent-asset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.intent-asset small {
+  color: var(--text-muted);
+}
+.intent-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-2);
+  flex: none;
+}
+.intent-thumb.empty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.intent-question {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.intent-note,
+.intent-done,
+.intent-error {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.intent-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.intent-error {
+  color: var(--warning-text);
+}
+.intent-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.intent-actions .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.intent-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+}
+.intent-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.intent-result-pick {
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+.intent-result-pick .intent-thumb {
+  width: 100%;
+  height: 96px;
+}
+.intent-result.picked .intent-result-pick {
+  border-color: var(--blue);
+}
+.intent-result-title {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.intent-result-title small {
+  color: var(--text-muted);
+}
+.intent-result-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
 
 /* ── Brand kit: photography presets; campaign memory; enhance ── */
 .photo-presets {

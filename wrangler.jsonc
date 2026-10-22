@@ -38,6 +38,7 @@
     "@shared/occasions": "./shared/occasions.ts",
     "@shared/qa": "./shared/qa.ts",
     "@shared/video-models": "./shared/video-models.ts",
+    "@shared/promptbox": "./shared/promptbox.ts",
     "@shared/brandMemory": "./shared/brandMemory.ts",
     "@shared/cast": "./shared/cast.ts",
     "@shared/styles": "./shared/styles.ts",
