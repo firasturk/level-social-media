@@ -22,7 +22,11 @@ import type { Config } from "@shared/config";
 import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { draftLabel, type PlanDraft } from "@shared/draft";
-import { CONFLICT_LABELS, type Conflict, type GuideLayer } from "@shared/conflicts";
+import { CONFLICT_LABELS, precedenceLine, type Conflict, type GuideLayer } from "@shared/conflicts";
+import { monthCounts, picturesLine, shapeLine } from "@shared/counts";
+import { confirmScope, effectLine, scopeNote } from "@shared/scope";
+import type { SaveStatus as SaveState } from "@shared/save-status";
+import SaveStatus from "./SaveStatus";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
 import GridPreview, { kindsLine, type GridInfo } from "./GridPreview";
@@ -178,9 +182,23 @@ export interface FlowProps {
   onTest: (index: number) => Promise<void>;
   engineReady: boolean;
   onDone: (focus?: number) => void;
+  /** The plan's autosave (edits on this screen save when a field is left), with a retry when it failed. */
+  saveStatus?: SaveState;
+  onRetrySave?: () => void;
+  /** The month is still opening: its counts are not known yet, not zero. */
+  loadingMonth?: boolean;
 }
 
 const STAGES = ["Start", "Direction", "Plan", "Studio"];
+
+/** The Studio's "Make N remaining" opens the month's own plan: a remembered one-post way in is forgotten first. */
+export function forgetFlowWay(batchId: string | null | undefined) {
+  try {
+    sessionStorage.removeItem(`lsm-flow-way:${batchId ?? "new"}`);
+  } catch {
+    /* private mode */
+  }
+}
 
 /** A short stable fingerprint of a text (what the month's shots were written from; the Journey uses the same). */
 function hash(text: string): string {
@@ -201,7 +219,17 @@ function Cta({ kind = "primary", icon, children, ...rest }: { kind?: "primary" |
 
 export default function Flow(p: FlowProps) {
   const [stage, setStage] = useState<Stage>(() => p.initialStage ?? (p.plan.length ? 2 : p.config?.campaign || p.config?.gridRef ? 1 : 0));
-  const [way, setWay] = useState<Way>(() => (p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "brief"));
+  /** The way in and the style's post survive a trip to the Studio and back (this tab only), so the Plan keeps its scope. */
+  const wayKey = `lsm-flow-way:${p.batchId ?? "new"}`;
+  const remembered = useMemo(() => {
+    try {
+      const raw = sessionStorage.getItem(wayKey);
+      return raw ? (JSON.parse(raw) as { way?: Way; styleTarget?: number | "next" | null }) : null;
+    } catch {
+      return null;
+    }
+  }, [wayKey]);
+  const [way, setWay] = useState<Way>(() => remembered?.way ?? (p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "brief"));
   const client = p.client;
   const theme = p.themes.find((t) => t.id === p.themeId) ?? null;
   const shape = planShape(p.plan);
@@ -246,7 +274,20 @@ export default function Flow(p: FlowProps) {
   const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
   /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
   /** No post is chosen for a style by itself: with posts in the month the team picks one; without, the first post of the plan written next. */
-  const [styleTarget, setStyleTarget] = useState<number | "next" | null>(() => (p.plan.length ? null : "next"));
+  const [styleTarget, setStyleTarget] = useState<number | "next" | null>(() => (remembered?.styleTarget !== undefined && p.plan.length ? remembered.styleTarget : p.plan.length ? null : "next"));
+  // The month's posts can arrive after this screen opened: "the first post of the plan written next" then no longer applies, the team picks one.
+  useEffect(() => {
+    if (p.plan.length && styleTarget === "next") setStyleTarget(null);
+    if (!p.plan.length && styleTarget !== "next") setStyleTarget("next");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.plan.length > 0]);
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(wayKey, JSON.stringify({ way, styleTarget }));
+    } catch {
+      /* private mode */
+    }
+  }, [wayKey, way, styleTarget]);
   const [moving, setMoving] = useState(false);
   const [newGridBusy, setNewGridBusy] = useState(false);
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== savedBrief;
@@ -556,21 +597,28 @@ export default function Flow(p: FlowProps) {
         products: p.products.map((s) => displayName(s.name)),
         cast: p.cast.map((a) => ({ name: a.name, gender: a.gender, image: a.image, description: a.description, modest: a.modest })),
         scene: sceneContext({ config: p.config, theme, products: p.products, client }),
+        // Only a month that leads with theme references needs pins on the theme: on the other ways in, the theme is optional and raises nothing.
+        themeOptional: way !== "refs",
       }),
-    [p.config, client, theme, p.products, p.cast],
+    [p.config, client, theme, p.products, p.cast, way],
   );
+  /** The month in numbers, counted the same way as the Studio and the Start screen. */
+  const counts = useMemo(() => monthCounts(p.plan, p.tasks, p.config), [p.plan, p.tasks, p.config]);
+  /** The one post of the "One post from a style" way, when it is in the month: its scope, never the month's. */
+  const onePost = way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) ? styleTarget : null;
   const outcomeOf = (index: number) => preview?.posts.find((x) => x.index === index);
   const ready = preview?.posts.filter((x) => x.status === "ready") ?? [];
   const readyPictures = ready.filter((x) => x.paid).length;
   const readyTiles = ready.filter((x) => !x.paid).length;
   const made = preview?.posts.filter((x) => x.status === "made").length ?? 0;
-  const blockedList = preview?.blocked ?? [];
+  // On the one-post way in, only that post's blockers and notes are shown; the month's other posts are not this operation.
+  const blockedList = (preview?.blocked ?? []).filter((b) => onePost === null || b.index === onePost);
   const estimate = preview?.estimate;
   const total = estimate ? estimate.total : readyPictures * perPicture;
   const maximum = retakes ? total * (1 + (estimate?.retakes ?? 1)) : total;
   // A blocked post is listed once, from the preview; the same finding from the issues list is left out.
   const blockedIdx = new Set(blockedList.map((b) => b.index));
-  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)].filter((x) => !(x.post && blockedIdx.has(x.post)));
+  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)].filter((x) => !(x.post && blockedIdx.has(x.post))).filter((x) => onePost === null || !x.post || x.post === onePost);
   const taskOf = (index: number) => p.tasks.find((t) => t.post === index) ?? null;
 
   /* ── Direction: colours ── */
@@ -639,6 +687,7 @@ export default function Flow(p: FlowProps) {
             </button>
           ))}
         </nav>
+        {p.saveStatus && <SaveStatus status={p.saveStatus} onRetry={p.onRetrySave} className="flow-save" />}
         <span className="journey-where flow-where">
           <select value={client?.id ?? ""} onChange={(e) => p.onClient(e.target.value)} aria-label="Client" title="The client you are working on">
             {!client && <option value="">Pick a client</option>}
@@ -1014,7 +1063,7 @@ export default function Flow(p: FlowProps) {
                           {styleTarget === null
                             ? "Pick the one post this style goes on; nothing is chosen for you."
                             : styleTarget === "next"
-                            ? "No posts yet: the plan is written first, and the style goes on its first post."
+                            ? "No posts in this month yet: the plan is written first, and the style goes on its first post."
                             : taskOf(styleTarget as number)?.output
                               ? "This post has a picture: the style rewrites its idea and shot; making another version is a separate step you confirm."
                               : "The style rewrites this post's idea and shot; its picture is made from the Plan stage."}
@@ -1055,16 +1104,25 @@ export default function Flow(p: FlowProps) {
                     </button>
                   </small>
                 </section>
-                <CampaignSizeCard
-                  plan={p.plan}
-                  made={p.tasks.filter((t) => t.post && t.output).map((t) => t.post!)}
-                  size={p.campaignSize}
-                  format={p.format}
-                  onSave={p.onSize}
-                  onAddPosts={p.onAddPosts}
-                  onOpenPlan={() => setStage(2)}
-                  gridPosts={way === "grid" && shownGrid ? gridInfo[shownGrid.id]?.tiles || shownGrid.tiles || null : null}
-                />
+                {p.loadingMonth ? (
+                  <section className="journey-box flow-box">
+                    <span className="flow-eyebrow">Campaign size</span>
+                    <p className="flow-muted" aria-busy="true">
+                      Counting the month…
+                    </p>
+                  </section>
+                ) : (
+                  <CampaignSizeCard
+                    plan={p.plan}
+                    made={p.tasks.filter((t) => t.post && t.output).map((t) => t.post!)}
+                    size={p.campaignSize}
+                    format={p.format}
+                    onSave={p.onSize}
+                    onAddPosts={p.onAddPosts}
+                    onOpenPlan={() => setStage(2)}
+                    gridPosts={way === "grid" && shownGrid ? gridInfo[shownGrid.id]?.tiles || shownGrid.tiles || null : null}
+                  />
+                )}
                 <section className="journey-box flow-box">
                   <span className="flow-eyebrow">Shortcuts</span>
                   {p.previousMonth && (
@@ -1443,7 +1501,7 @@ export default function Flow(p: FlowProps) {
                   className="text-button"
                   disabled={rewriting}
                   onClick={async () => {
-                    const ok = await askConfirm(`Write the month's ${p.plan.length} ideas again? The current posts, their words and pictures are kept under Versions; pictures already made are not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
+                    const ok = await askConfirm(`Write the ideas of the whole month again (${p.plan.length} design${p.plan.length === 1 ? "" : "s"})? ${effectLine("plan", { kind: "month", month: p.month, designs: p.plan.length })} The current posts, their words and pictures are kept under Versions; ${counts.existing ? `the ${counts.existing} picture${counts.existing === 1 ? "" : "s"} already made ${counts.existing === 1 ? "is" : "are"} marked as made for an older idea and ` : "pictures already made are "}not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
                     if (!ok) return;
                     setRewriting(true);
                     try {
@@ -1492,7 +1550,9 @@ export default function Flow(p: FlowProps) {
                   }}
                   onNotes={p.onNotes}
                   onMake={async (indexes) => {
-                    const ok = await askConfirm(`The changes are saved. Make post${indexes.length > 1 ? "s" : ""} ${indexes.join(", ")} now, about ${formatUsd((estimate?.perImage ?? perPicture) * indexes.length)}?`, { ok: `Make ${indexes.length} · about ${formatUsd((estimate?.perImage ?? perPicture) * indexes.length)}`, cancel: "Keep the changes, make them later", danger: false });
+                    const versions = indexes.filter((i) => !!taskOf(i)?.output).length;
+                    const scope = confirmScope({ target: { kind: "selection", indexes }, effect: versions === indexes.length ? "new-version" : "first-image", cost: (estimate?.perImage ?? perPicture) * indexes.length, untouched: p.plan.length > indexes.length ? `the month's other ${p.plan.length - indexes.length} post${p.plan.length - indexes.length === 1 ? "" : "s"}` : undefined });
+                    const ok = await askConfirm(`The changes are saved. ${scope.message}${versions && versions < indexes.length ? ` ${versions} of them already ${versions === 1 ? "has" : "have"} a picture: that one stays under Versions.` : ""}`, { ok: scope.ok, cancel: "Keep the changes, make them later", danger: false });
                     if (ok) await p.onMakePosts(indexes);
                     else toast.message("The posts are changed; the Plan's button makes the pictures when you want them.");
                   }}
@@ -1516,6 +1576,10 @@ export default function Flow(p: FlowProps) {
                   </div>
                   <small>
                     {(() => {
+                      const named = [...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? []), ...(x.offer?.products ?? [])]).filter((n): n is string => !!n))];
+                      return named.length ? `${named.slice(0, 4).join(", ")}${named.length > 4 ? ` +${named.length - 4} more` : ""} · ` : "";
+                    })()}
+                    {(() => {
                       const shown = p.plan.filter((x) => x.type !== "greeting" && x.type !== "offer" && !["text", "texture", "place"].includes(x.tileSpec?.kind ?? ""));
                       const without = shown.filter((x) => !productOf(x, p.products)).length;
                       return `${p.products.length} product photo${p.products.length === 1 ? "" : "s"} · ${shown.length - without} of ${shown.length} post${shown.length === 1 ? "" : "s"} have theirs${without ? ` · ${without} without` : ""}`;
@@ -1524,48 +1588,67 @@ export default function Flow(p: FlowProps) {
                   </small>
                 </div>
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Direction</span>
+                  <span className="flow-eyebrow">Visual direction</span>
                   <p>
-                    <b>{WAYS.find((w) => w.key === way)?.title} leads</b> · {pinned} pinned · {p.config?.gridRef ? "grid" : "no grid"} · colours {p.config?.palette?.length ? "this month only" : "from the theme"}
+                    <b>{WAYS.find((w) => w.key === way)?.title} leads</b> · {monthGrid ? `grid “${monthGrid.title}”` : "no grid"} · {theme ? `theme “${theme.title}”${theme.references ? "" : " (no pins, optional)"}` : "no theme"} · colours {p.config?.palette?.length ? `this month only, ${paletteFrom}` : theme?.palette?.length ? "from the theme" : "the brand's"}
                   </p>
                   <button type="button" className="text-button" onClick={() => setStage(1)}>
                     Change
                   </button>
                 </div>
-                {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
-                  <div className="flow-sum-cell scope">
-                    <span className="flow-eyebrow">This operation</span>
-                    <p>
-                      <b>One post from a style · post {styleTarget}</b>
-                    </p>
-                    <small>
-                      {taskOf(styleTarget as number)?.output ? "Another version of its picture" : "Its picture"} · about {formatUsd(estimate?.perImage ?? perPicture)}. The whole-month figures beside are a separate summary.
-                    </small>
-                  </div>
-                )}
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Output</span>
+                  <span className="flow-eyebrow">Reference pictures</span>
                   {(() => {
-                    const groups = new Map<string, number>();
-                    for (const x of p.plan) if (x.group) groups.set(x.group.id, (groups.get(x.group.id) ?? 0) + 1);
-                    const posts = p.plan.filter((x) => !x.group).length + groups.size;
-                    const tiles = p.plan.filter((x) => x.tileSpec?.kind === "text" && !x.product).length;
-                    const carousels = [...groups.values()];
-                    const shapeOf = carousels.length ? (carousels.length === 1 ? `, one a ${carousels[0]}-slide carousel` : `, ${carousels.length} carousels (${carousels.join(", ")} slides)`) : "";
+                    const styled = p.plan.filter((x) => x.style);
+                    const pinnedPosts = p.plan.filter((x) => x.reference?.key).map((x) => x.index);
+                    const items: { n: string; what: string }[] = [];
+                    if (pinnedPosts.length) items.push({ n: `${pinnedPosts.length} pinned to post${pinnedPosts.length === 1 ? "" : "s"} ${pinnedPosts.slice(0, 5).join(", ")}${pinnedPosts.length > 5 ? "…" : ""}`, what: "recreated on that post; wins over the style, the grid and the theme there" });
+                    if (campaignRefs) items.push({ n: `${campaignRefs} attached to the brief`, what: "recreated on the posts they were attached to" });
+                    if (styled.length) items.push({ n: `${styled.length} style${styled.length === 1 ? "" : "s"} on post${styled.length === 1 ? "" : "s"} ${styled.map((x) => x.index).slice(0, 5).join(", ")}${styled.length > 5 ? "…" : ""}`, what: "the idea and shot of that post" });
+                    if (monthGrid) items.push({ n: `Grid “${monthGrid.title}”`, what: "the composition of every post" });
+                    if (theme?.references) items.push({ n: `${theme.references} theme reference${theme.references === 1 ? "" : "s"}`, what: "the light and palette only, never their objects" });
                     return (
-                      <>
-                        <p>
-                          <b>{posts} post{posts === 1 ? "" : "s"}</b>
-                          {shapeOf} = <b>{p.plan.length} design{p.plan.length === 1 ? "" : "s"}</b>
-                        </p>
-                        <small>
-                          {p.plan.length - tiles} picture{p.plan.length - tiles === 1 ? "" : "s"} to make{tiles ? ` · ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here, free` : ""} · {p.format}
-                          {preview && (made || blockedList.length) ? ` · ${made} made already${blockedList.length ? ` · ${blockedList.length} blocked` : ""}` : ""}
-                        </small>
-                      </>
+                      <ul className="flow-refs-list">
+                        {items.map((it) => (
+                          <li key={it.n}>
+                            <b>{it.n}</b> · {it.what}
+                          </li>
+                        ))}
+                        {!items.length && <li>None: the pictures follow the brief and the product photos.</li>}
+                      </ul>
                     );
                   })()}
                 </div>
+                {onePost !== null ? (
+                  <div className="flow-sum-cell scope">
+                    <span className="flow-eyebrow">This operation · one post</span>
+                    <p>
+                      <b>Post {onePost} “{p.plan.find((x) => x.index === onePost)?.title}”</b>
+                    </p>
+                    <small>
+                      {taskOf(onePost)?.output ? effectLine("new-version", { kind: "post", index: onePost }) : effectLine("first-image", { kind: "post", index: onePost })} About {formatUsd(estimate?.perImage ?? perPicture)}. {scopeNote({ kind: "post", index: onePost }, p.plan.length)}
+                    </small>
+                  </div>
+                ) : (
+                  <div className="flow-sum-cell">
+                    <span className="flow-eyebrow">Output</span>
+                    {p.loadingMonth ? (
+                      <p className="flow-muted" aria-busy="true">
+                        Counting the month…
+                      </p>
+                    ) : (
+                      <>
+                        <p>
+                          <b>{shapeLine(counts)}</b>
+                        </p>
+                        <small>
+                          {picturesLine(counts)} · {p.format}
+                          {blockedList.length ? ` · ${blockedList.length} blocked` : ""}
+                        </small>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className={`flow-sum-cell attention ${attention.length || blockedList.length ? "on" : ""}`}>
                   <span className="flow-eyebrow">Needs your attention · {attention.length + blockedList.length}</span>
                   <ul>
@@ -1602,6 +1685,34 @@ export default function Flow(p: FlowProps) {
                 <span className="flow-eyebrow">Product images</span>
                 <ProductChoice variant="bar" batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} onChanged={loadPreview} />
               </section>
+              <p className="flow-muted flow-precedence-line">{precedenceLine(way, { grid: !!monthGrid, theme: !!theme?.references, pinned, styled: p.plan.filter((x) => x.style).length })}</p>
+              {counts.older > 0 && onePost === null && (
+                <section className="flow-older" role="note">
+                  <div className="flow-older-text">
+                    <b>
+                      {counts.older} picture{counts.older === 1 ? "" : "s"} belong{counts.older === 1 ? "s" : ""} to an older idea · post{counts.olderPosts.length === 1 ? "" : "s"} {counts.olderPosts.join(", ")}
+                    </b>
+                    <span>
+                      The idea, product or direction of {counts.older === 1 ? "this post" : "these posts"} changed after the picture{counts.older === 1 ? " was" : "s were"} made. {counts.older === 1 ? "It stays" : "They stay"} under Versions; the month's other {p.plan.length - counts.older} post{p.plan.length - counts.older === 1 ? " is" : "s are"} untouched. Only {counts.older === 1 ? "this one is" : "these are"} made again, when you ask.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary btn-pill"
+                    disabled={!p.engineReady}
+                    onClick={async () => {
+                      const cost = (estimate?.perImage ?? perPicture) * counts.olderPosts.length;
+                      const scope = confirmScope({ target: { kind: "selection", indexes: counts.olderPosts }, effect: "new-version", cost, untouched: `the month's other ${p.plan.length - counts.older} post${p.plan.length - counts.older === 1 ? "" : "s"}` });
+                      const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Keep the pictures as they are" });
+                      if (!ok) return;
+                      await p.onMakePosts(counts.olderPosts);
+                      p.onDone(counts.olderPosts[0]);
+                    }}
+                  >
+                    Make {counts.older === 1 ? "it" : `those ${counts.older}`} again · about {formatUsd((estimate?.perImage ?? perPicture) * counts.olderPosts.length)}
+                  </button>
+                </section>
+              )}
               <section className="journey-box flow-posts">
                 <div className="flow-posts-head">
                   <span>#</span>
@@ -1620,13 +1731,21 @@ export default function Flow(p: FlowProps) {
                       const kind = x.tileSpec?.kind === "text" && !x.product ? "Text tile · drawn here, free" : x.group ? `${x.group.kind === "carousel" ? "Carousel" : "Series"} · slide ${x.group.slide} of ${x.group.of}` : "Picture";
                       const state = o?.status === "blocked" ? { cls: "warn", text: "Blocked" } : t && olderIdea(t, x, p.config) ? { cls: "idea", text: "Older idea" } : o?.status === "made" ? { cls: "ok", text: "Made" } : o?.status === "making" ? { cls: "making", text: "Making" } : o?.status === "ready" ? { cls: "ready", text: o.paid ? "Ready to make" : "Drawn here" } : { cls: "", text: "" };
                       const isOpen = open === x.index;
+                      const older = !!t && olderIdea(t, x, p.config);
                       return (
-                        <li key={x.index} className={isOpen ? "open" : ""}>
+                        <li key={x.index} className={`${isOpen ? "open" : ""} ${onePost === x.index ? "scoped" : ""}`}>
                           <span className="flow-post-n">{String(x.index).padStart(2, "0")}</span>
                           <span className="flow-post-thumb">{t?.output ? <img src={p.outputThumb(t)} alt="" /> : <span className="flow-post-blank" />}</span>
                           <span className="flow-post-main">
                             <b>{x.title}</b>
-                            <span className="flow-muted">{(x.scene?.trim() || x.brief).slice(0, 160)}</span>
+                            <span className="flow-muted flow-scene" title={x.scene?.trim() ? "The shot written for this post: what the engine is told to show" : "No shot written yet: the picture is made from the idea alone"}>
+                              {x.scene?.trim() ? `Shot · ${x.scene.trim().slice(0, 160)}` : `Idea · ${x.brief.slice(0, 160)}`}
+                            </span>
+                            {older && (
+                              <span className="flow-post-flag idea">
+                                Made for an older idea: the idea, product or direction changed after this picture was made. It stays under Versions; make it again when you want, the other posts are untouched.
+                              </span>
+                            )}
                             {o?.status === "blocked" && (
                               <span className="flow-post-flag">
                                 {o.why}
@@ -1790,74 +1909,99 @@ export default function Flow(p: FlowProps) {
                   <TestGrid batchId={p.batchId} plan={p.plan} overlay={p.overlay} logoSrc={p.logoSrc} reference={monthGrid ? styleThumb(monthGrid, true) : null} blocked={blocking(issues).length > 0} onShowIssues={() => toast.error(blocking(issues)[0]?.text ?? "Fix the month's blockers first.")} />
                 </section>
               )}
-              <footer className="flow-confirm">
-                <div className="flow-confirm-text">
-                  <b>
-                    {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget)
-                      ? `1 picture · post ${styleTarget}${taskOf(styleTarget)?.output ? ", another version of its picture" : ""} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)}`
-                      : preview && !readyPictures && !readyTiles && made > 0
-                        ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
-                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
-                  </b>
-                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
-                    <span className="flow-muted">Only post {styleTarget} changes. Its current picture stays under Versions; the month's other posts are untouched. The whole-month figures above are a separate summary.</span>
-                  )}
-                  <span className="flow-muted">
-                    Estimate {formatUsd(total)}
-                    {retakes ? `, at most ${formatUsd(maximum)} if each picture is retaken once by itself after the review` : ", no automatic retakes"}. List prices, an estimate.
-                    {blockedList.length ? ` ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} wait: making them later is a new approval, never this one.` : ""}
-                    {preview && preview.spend.approved > 0 ? ` Approved so far this month: ${formatUsd(preview.spend.approved)}, ${formatUsd(preview.spend.reserved)} used.` : ""}
-                  </span>
-                  <label className="check-row">
-                    <input type="checkbox" checked={retakes} onChange={(e) => setRetakes(e.target.checked)} />
-                    <span>If the review finds a problem, retake the picture once by itself (up to {formatUsd(total)} more, approved now).</span>
-                  </label>
-                </div>
-                <div className="flow-confirm-actions">
-                  <button type="button" className="secondary btn-pill" onClick={() => p.onDone()}>
-                    Save the plan, make nothing
-                  </button>
-                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
+              {onePost !== null ? (
+                /* One post from a style: the footer is that post's scope alone, never the month's summary. */
+                <footer className="flow-confirm one-post">
+                  <div className="flow-confirm-text">
+                    <b>
+                      1 picture · post {onePost} “{p.plan.find((x) => x.index === onePost)?.title}” · {p.modelName ?? estimate?.model ?? p.model} · {estimate?.size ?? p.size} · about {formatUsd(estimate?.perImage ?? perPicture)}
+                    </b>
+                    <span className="flow-muted">
+                      {taskOf(onePost)?.output ? effectLine("new-version", { kind: "post", index: onePost }) : effectLine("first-image", { kind: "post", index: onePost })} {scopeNote({ kind: "post", index: onePost }, p.plan.length)} List price, an estimate.
+                      {outcomeOf(onePost)?.status === "blocked" ? ` Blocked: ${outcomeOf(onePost)?.why}` : ""}
+                    </span>
+                    <small className="flow-muted">
+                      The month's other pictures are not part of this.{" "}
+                      <button type="button" className="text-button" onClick={() => setWay(p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "refs")} title="Shows the month's own plan and cost instead; the style stays saved on its post">
+                        Show the whole month's plan instead
+                      </button>
+                    </small>
+                  </div>
+                  <div className="flow-confirm-actions">
+                    <button type="button" className="secondary btn-pill" onClick={() => p.onDone()} title="The style stays saved on the post; no picture is made">
+                      Save the plan, make nothing
+                    </button>
                     <button
                       type="button"
                       className="primary btn-pill"
-                      disabled={!p.engineReady || outcomeOf(styleTarget as number)?.status === "blocked"}
-                      title="Only this post's picture; the other posts are untouched"
+                      disabled={!p.engineReady || outcomeOf(onePost)?.status === "blocked"}
+                      title={scopeNote({ kind: "post", index: onePost }, p.plan.length)}
                       onClick={async () => {
-                        const i = styleTarget as number;
+                        const i = onePost;
                         const again = !!taskOf(i)?.output;
-                        const ok = await askConfirm(`${again ? "Make another version of" : "Make"} post ${i}'s picture: about ${formatUsd(estimate?.perImage ?? perPicture)} (list price, an estimate). Nothing else is made.`, { ok: `Make post ${i} · about ${formatUsd(estimate?.perImage ?? perPicture)}`, danger: false, cancel: "Not now" });
+                        const scope = confirmScope({ target: { kind: "post", index: i, title: p.plan.find((x) => x.index === i)?.title }, effect: again ? "new-version" : "first-image", cost: estimate?.perImage ?? perPicture, untouched: p.plan.length > 1 ? `the month's other ${p.plan.length - 1} post${p.plan.length === 2 ? "" : "s"}` : undefined });
+                        const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Not now" });
                         if (!ok) return;
                         await p.onGenerateOne(i);
                         p.onDone(i);
                       }}
                     >
-                      <BadgeCheck size={14} /> Make post {styleTarget} · about {formatUsd(estimate?.perImage ?? perPicture)}
+                      <BadgeCheck size={14} /> Make post {onePost} · about {formatUsd(estimate?.perImage ?? perPicture)}
                     </button>
-                  )}
-                  {ready.find((x) => x.paid) && (
-                    <button type="button" className="secondary btn-pill" disabled={!p.engineReady} onClick={() => void p.onTest(ready.find((x) => x.paid)!.index)}>
-                      Make one test picture · about {formatUsd(estimate?.perImage ?? perPicture)}
+                  </div>
+                </footer>
+              ) : (
+                <footer className="flow-confirm">
+                  <div className="flow-confirm-text">
+                    <b>
+                      {preview && !readyPictures && !readyTiles && made > 0
+                        ? `Every picture is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
+                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
+                    </b>
+                    <span className="flow-muted">
+                      {readyPictures ? `${readyPictures === counts.pictures ? `The whole month: ${counts.pictures} picture${counts.pictures === 1 ? "" : "s"}` : `${readyPictures} of the month's ${counts.pictures} picture${counts.pictures === 1 ? "" : "s"}`}${counts.existing ? `; the ${counts.existing} made already ${counts.older ? `stay, and the ${counts.older} made for an older idea get another version (the current ones stay under Versions)` : "are untouched"}` : ""}. ` : ""}
+                      Estimate {formatUsd(total)}
+                      {retakes ? `, at most ${formatUsd(maximum)} if each picture is retaken once by itself after the review` : ", no automatic retakes"}. List prices, an estimate.
+                      {blockedList.length ? ` ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} wait: making them later is a new approval, never this one.` : ""}
+                      {preview && preview.spend.approved > 0 ? ` Approved so far this month: ${formatUsd(preview.spend.approved)}, ${formatUsd(preview.spend.reserved)} used.` : ""}
+                    </span>
+                    <label className="check-row">
+                      <input type="checkbox" checked={retakes} onChange={(e) => setRetakes(e.target.checked)} />
+                      <span>If the review finds a problem, retake the picture once by itself (up to {formatUsd(total)} more, approved now).</span>
+                    </label>
+                  </div>
+                  <div className="flow-confirm-actions">
+                    <button type="button" className="secondary btn-pill" onClick={() => p.onDone()} title="Every edit is saved already; no picture is made">
+                      Save the plan, make nothing
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`${way === "style" && styleTarget !== "next" ? "secondary" : "primary"} btn-pill`}
-                    disabled={!p.engineReady || !readyPictures && !readyTiles}
-                    onClick={async () => {
-                      const ok = await askConfirm(
-                        `Make ${readyPictures} picture${readyPictures === 1 ? "" : "s"}${readyTiles ? ` and draw ${readyTiles} text tile${readyTiles === 1 ? "" : "s"}` : ""}: about ${formatUsd(total)}${retakes ? `, at most ${formatUsd(maximum)} with the automatic retakes` : ""} (list prices, an estimate). Blocked posts are left out.`,
-                        { ok: `Make ${readyPictures} · about ${formatUsd(total)}`, danger: false, cancel: "Not now" },
-                      );
-                      if (!ok) return;
-                      await p.onGenerate(retakes);
-                      p.onDone();
-                    }}
-                  >
-                    <BadgeCheck size={14} /> Make all {readyPictures} picture{readyPictures === 1 ? "" : "s"} · about {formatUsd(total)}
-                  </button>
-                </div>
-              </footer>
+                    {ready.find((x) => x.paid) && (
+                      <button type="button" className="secondary btn-pill" disabled={!p.engineReady} title={`One picture, post ${ready.find((x) => x.paid)!.index} only, to see the look before the rest; the other posts are untouched`} onClick={() => void p.onTest(ready.find((x) => x.paid)!.index)}>
+                        Make one test picture · about {formatUsd(estimate?.perImage ?? perPicture)}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="primary btn-pill"
+                      disabled={!p.engineReady || !readyPictures && !readyTiles}
+                      title={readyPictures === counts.pictures ? `The whole month: ${counts.pictures} picture${counts.pictures === 1 ? "" : "s"}` : `${readyPictures} of the month's ${counts.pictures} pictures; the pictures already made stay`}
+                      onClick={async () => {
+                        const idx = ready.filter((x) => x.paid).map((x) => x.index);
+                        const versions = idx.filter((i) => !!taskOf(i)?.output).length;
+                        const who = readyPictures === counts.pictures ? `the whole month (${counts.pictures} picture${counts.pictures === 1 ? "" : "s"})` : idx.length <= 8 ? `post${idx.length === 1 ? "" : "s"} ${idx.join(", ")}` : `${idx.length} of the month's ${counts.pictures} posts`;
+                        const ok = await askConfirm(
+                          `Make ${readyPictures} picture${readyPictures === 1 ? "" : "s"} for ${who}${readyTiles ? ` and draw ${readyTiles} text tile${readyTiles === 1 ? "" : "s"} free` : ""}? ${versions ? `${versions} of them ${versions === 1 ? "is" : "are"} another version of a picture that exists (the current one${versions === 1 ? " stays" : "s stay"} under Versions); the rest are first pictures.` : "First pictures: nothing that exists is replaced."}${counts.existing && readyPictures !== counts.pictures ? ` The ${counts.existing - versions} picture${counts.existing - versions === 1 ? "" : "s"} already made ${counts.existing - versions === 1 ? "is" : "are"} untouched.` : ""} About ${formatUsd(total)}${retakes ? `, at most ${formatUsd(maximum)} with the automatic retakes` : ""} (list prices, an estimate). Blocked posts are left out.`,
+                          { ok: `Make ${readyPictures} · about ${formatUsd(total)}`, danger: false, cancel: "Not now" },
+                        );
+                        if (!ok) return;
+                        await p.onGenerate(retakes);
+                        p.onDone();
+                      }}
+                    >
+                      <BadgeCheck size={14} /> Make {readyPictures === counts.pictures ? "all" : ""} {readyPictures} picture{readyPictures === 1 ? "" : "s"} · about {formatUsd(total)}
+                    </button>
+                  </div>
+                </footer>
+              )}
               {!p.engineReady && (
                 <p className="flow-muted">
                   <TriangleAlert size={13} /> No image engine is connected: the plan can be written and edited, but no picture can be made here.

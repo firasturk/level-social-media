@@ -11,30 +11,15 @@ import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { NotifySubscribe } from "./Notify";
+import { countsLine, type MonthCounts } from "@shared/counts";
+import type { SaveStatus as SaveState } from "@shared/save-status";
+import SaveStatus from "./SaveStatus";
 
 export type StudioTab = "posts" | "words" | "approval" | "versions";
 
-export interface StudioCounts {
-  posts: number;
-  designs: number;
-  made: number;
-  making: number;
-  look: number;
-  older: number;
-  failed: number;
-  planned: number;
-}
-
-export function countsLine(c: StudioCounts): string {
-  const parts = [`${c.posts} post${c.posts === 1 ? "" : "s"}`, `${c.designs} design${c.designs === 1 ? "" : "s"}`];
-  if (c.made) parts.push(`${c.made} made`);
-  if (c.making) parts.push(`${c.making} making`);
-  if (c.look) parts.push(`${c.look} need${c.look === 1 ? "s" : ""} a look`);
-  if (c.older) parts.push(`${c.older} older idea${c.older === 1 ? "" : "s"}`);
-  if (c.failed) parts.push(`${c.failed} failed`);
-  if (c.planned) parts.push(`${c.planned} planned`);
-  return parts.join(" · ");
-}
+/** The month in numbers, from the shared count helper (the Plan and the Start screen use the same). */
+export type StudioCounts = MonthCounts;
+export { countsLine };
 
 export default function StudioBoard({
   tab,
@@ -52,6 +37,9 @@ export default function StudioBoard({
   clientChangesBusy,
   more,
   badge,
+  loading,
+  saveStatus,
+  onRetrySave,
   children,
 }: {
   tab: StudioTab;
@@ -73,6 +61,11 @@ export default function StudioBoard({
   more: ReactNode;
   /** "Client answered · n new", beside the counts. */
   badge?: ReactNode;
+  /** The month is still opening: the counts are not zeros, they are not known yet. */
+  loading?: boolean;
+  /** The plan's autosave, with a retry when it failed. */
+  saveStatus?: SaveState;
+  onRetrySave?: () => void;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -102,7 +95,10 @@ export default function StudioBoard({
             </button>
           ))}
         </div>
-        <span className="studio-counts">{countsLine(counts)}</span>
+        <span className="studio-counts" aria-busy={loading || undefined}>
+          {loading ? "Counting the month…" : countsLine(counts)}
+          {saveStatus && <SaveStatus status={saveStatus} onRetry={onRetrySave} className="inline" />}
+        </span>
         {badge}
         <div className="studio-actions">
           {changes > 0 && (
@@ -117,8 +113,8 @@ export default function StudioBoard({
             <Link2 size={14} /> Client link
           </button>
           {makeCount > 0 ? (
-            <button type="button" className="cta primary" onClick={onMake} title="Opens the Plan, where the cost is shown and confirmed">
-              Make {makeCount} planned · about {formatUsd(makeCost)}
+            <button type="button" className="cta primary" onClick={onMake} disabled={loading} title={`The ${makeCount} picture${makeCount === 1 ? "" : "s"} still to make this month (never made, failed, or made for an older idea). Opens the Plan, where the cost is shown and confirmed; pictures already made stay.`}>
+              Make {makeCount} remaining · about {formatUsd(makeCost)}
             </button>
           ) : (
             <button type="button" className="cta primary" onClick={onMake} title="Opens the Plan">
@@ -146,7 +142,7 @@ export default function StudioBoard({
 export function WordsView({ plan, tasks, outputThumb, onSavePlan }: { plan: Post[]; tasks: Task[]; outputThumb: (t: Task) => string; onSavePlan: (next: Post[]) => Promise<void> }) {
   const taskOf = (i: number) => tasks.find((t) => t.post === i && t.output) ?? null;
   const save = (index: number, patch: Partial<Post>) => void onSavePlan(plan.map((y) => (y.index === index ? { ...y, ...patch } : y)));
-  if (!plan.length) return <p className="flow-muted studio-empty">No posts yet. Write the plan first.</p>;
+  if (!plan.length) return <p className="flow-muted studio-empty">No posts in this month yet. Write the plan first; each post's words are edited here afterwards.</p>;
   return (
     <ul className="words-list">
       {[...plan]

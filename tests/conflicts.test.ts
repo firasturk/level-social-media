@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockingConflicts, constraintsOf, detectConflicts, guideFor, presentIn } from "../shared/conflicts";
+import { blockingConflicts, constraintsOf, detectConflicts, guideFor, precedenceLine, presentIn } from "../shared/conflicts";
 
 describe("input conflicts", () => {
   const brief = { text: "Plan 6 posts of the drinks in the street, no people in any picture, no text in the pictures." };
@@ -35,5 +35,12 @@ describe("input conflicts", () => {
     expect(layers[1].items.map((i) => i.from)).toContain("brief");
     expect(layers[2].items[0].from).toBe("style");
     expect(layers[4].items[0].text).toContain("drawn here on the picture");
+  });
+  it("input precedence is one plain sentence, said for the way the month was started", () => {
+    expect(precedenceLine("brief")).toBe("On one post the product photo wins, then a picture pinned to the post; the brief keeps the words and colours, and brand rules apply on top of all of them.");
+    expect(precedenceLine("brief", { grid: true, theme: true })).toBe("On one post the product photo wins, then a picture pinned to the post, then the grid tile, then the theme references; the brief keeps the words and colours, and brand rules apply on top of all of them.");
+    expect(precedenceLine("style")).toBe("On one post the product photo wins, then a picture pinned to the post, then the post's style; the style writes that post's idea and shot, and brand rules apply on top of all of them.");
+    expect(precedenceLine("grid")).toContain("then the grid tile; the brief supplies the words");
+    expect(precedenceLine("refs")).toContain("then the theme references; the references set only the light and palette");
   });
 });

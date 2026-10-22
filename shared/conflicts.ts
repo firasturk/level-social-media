@@ -75,6 +75,22 @@ const PRESENCE: { kind: ConflictKind; re: RegExp }[] = [
   { kind: "props", re: /\b(props|decorations|confetti|ribbons|petals|pedestal|cubes|beads)\b/i },
 ];
 
+export type LeadInput = "brief" | "grid" | "refs" | "style";
+
+/**
+ * Input precedence on one post, in one plain sentence: what wins when the inputs meet, said for
+ * the way the month was started. The order never changes; the sentence names what the month has.
+ */
+export function precedenceLine(lead: LeadInput, has: { grid?: boolean; theme?: boolean; pinned?: number; styled?: number } = {}): string {
+  const steps = ["the product photo", "a picture pinned to the post"];
+  if (lead === "style" || has.styled) steps.push("the post's style");
+  if (lead === "grid" || has.grid) steps.push("the grid tile");
+  if (lead === "refs" || has.theme) steps.push("the theme references");
+  const chain = steps.length === 2 ? `${steps[0]} wins, then ${steps[1]}` : `${steps[0]} wins, then ${steps.slice(1, -1).join(", then ")}, then ${steps[steps.length - 1]}`;
+  const words = lead === "brief" ? "the brief keeps the words and colours" : lead === "grid" ? "the brief supplies the words" : lead === "refs" ? "the references set only the light and palette" : "the style writes that post's idea and shot";
+  return `On one post ${chain}; ${words}, and brand rules apply on top of all of them.`;
+}
+
 /** The constraints a text states (what it asks to leave out). */
 export function constraintsOf(text: string | null | undefined): ConflictKind[] {
   if (!text) return [];

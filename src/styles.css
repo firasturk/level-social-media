@@ -16025,7 +16025,7 @@ select {
 }
 .flow-summary {
   display: grid;
-  grid-template-columns: 1.3fr 1fr 1fr 1fr 1.1fr;
+  grid-template-columns: 1.2fr 1fr 1fr 1.1fr 1fr 1.1fr;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--surface);
@@ -18720,5 +18720,96 @@ a.publish-pill.published:hover {
   .prodc-list li .prodc-controls {
     grid-column: 2;
     justify-content: flex-start;
+  }
+}
+/* ── Plan scope, counts and save status (the Plan board, the Studio board and the cards) ── */
+.save-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink-400);
+  white-space: nowrap;
+}
+.save-status.saving {
+  color: var(--ink-500);
+}
+.save-status.saved {
+  color: #1f7a4d;
+}
+.save-status.failed {
+  color: #a13a00;
+}
+.save-status .text-button {
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.save-status.inline {
+  margin-left: 10px;
+}
+.flow-save {
+  margin-left: 4px;
+}
+.flow-sum-cell .flow-refs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.flow-precedence-line {
+  margin: -6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.flow-older {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--blue-pale);
+  background: var(--blue-soft);
+  font-size: 13px;
+  flex: none;
+}
+.flow-older-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 260px;
+}
+.flow-older-text span {
+  font-size: 12px;
+  color: var(--ink-500);
+  line-height: 1.5;
+}
+.flow-post-flag.idea {
+  background: var(--blue-soft);
+  color: var(--ink-600, var(--ink-500));
+}
+.flow-posts li.scoped {
+  background: var(--blue-soft);
+  box-shadow: inset 3px 0 0 var(--blue-pale);
+}
+.flow-scene {
+  display: block;
+}
+.flow-confirm.one-post .flow-confirm-text small {
+  font-size: 12px;
+}
+.flow-confirm-note {
+  font-size: 12px;
+}
+@media (max-width: 1000px) {
+  .flow-older {
+    padding: 12px 14px;
   }
 }

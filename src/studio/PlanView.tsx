@@ -60,6 +60,11 @@ import {
   type PostType,
   type Format, olderIdea, type RevisionConfig } from "@shared/posts";
 import { STATUS_LABEL } from "./constants";
+import type { SaveStatus as SaveState } from "@shared/save-status";
+import SaveStatus from "./SaveStatus";
+import { confirmScope, scopeNote } from "@shared/scope";
+import { formatUsd } from "@shared/pricing";
+import { askConfirm } from "@/lib/confirm";
 
 /** The month of a client: its products, the plan of posts and their images. */
 export default function PlanView({
@@ -110,6 +115,9 @@ export default function PlanView({
   toolbar = true,
   onEdit,
   onDeletePlan,
+  saveStatus,
+  onRetrySave,
+  perPicture = 0,
   paused,
   onResume,
   themeChanged,
@@ -218,6 +226,11 @@ export default function PlanView({
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
+  /** The plan's autosave, shown above the cards, with a retry when it failed. */
+  saveStatus?: SaveState;
+  onRetrySave?: () => void;
+  /** The list price of one picture, for the card's make button (0 when not known). */
+  perPicture?: number;
 }) {
   const products = sources.filter((s) => (s.kind ?? "product") === "product");
   const occasions = occasionsOf(month);
@@ -674,7 +687,8 @@ export default function PlanView({
         <>
           <div className={`posts-head ${toolbar ? "" : "quiet"}`} id="month-posts">
             <strong>Posts</strong>
-            <span>{toolbar ? "Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture." : "Every card: the picture, the title and date, one status, one line of caption and the next useful action. A cost appears only on the button that makes a picture."}</span>
+            {toolbar ? <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span> : <span>Edits save when you click out of a field.</span>}
+            {saveStatus && <SaveStatus status={saveStatus} onRetry={onRetrySave} />}
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
@@ -704,17 +718,45 @@ export default function PlanView({
                       ? (() => {
                           const accepted = acceptedBy(t);
                           if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
-                          if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
+                          // The team's own acceptance of the picture; the client's approval is a separate chip under the title.
+                          if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by the team · ${accepted}` };
                           return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
                         })()
                       : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                 const saved = plan.find((x) => x.index === p.index);
                 const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
+                const stale = !!t?.output && !inFlight && olderIdea(t, p, revision);
+                const target = p.group ? { kind: "slide" as const, index: p.index, slide: p.group.slide, of: p.group.of, title: p.title } : { kind: "post" as const, index: p.index, title: p.title };
+                const cannotMake = inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer));
+                /** The card's primary action when the picture is not there yet, failed, or belongs to an older idea: make it, with its scope and cost said first. */
+                const primary = !t?.output || t.status === "failed" || stale
+                  ? {
+                      label: `${stale ? "Make it again" : t?.status === "failed" ? "Try again" : "Make the picture"}${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
+                      title: `${stale ? "The idea, product or direction changed after this picture was made: another version is made for the new idea; this one stays under Versions." : t?.status === "failed" ? "Makes this post's picture again after the failure." : "Makes this post's first picture."} ${scopeNote(target, plan.length)}`,
+                      disabled: cannotMake,
+                      onClick: async () => {
+                        const scope = confirmScope({ target, effect: stale ? "new-version" : "first-image", cost: perPicture || undefined, untouched: plan.length > 1 ? `the month's other ${plan.length - 1} post${plan.length === 2 ? "" : "s"}` : undefined });
+                        const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Not now" });
+                        if (!ok) return;
+                        if (stale) regenerate(t, p.index);
+                        else void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"));
+                      },
+                    }
+                  : undefined;
                 const menu = [
-                  t?.output
-                    ? { label: "Make another version", onClick: () => regenerate(t, p.index), disabled: inFlight || running || (p.type === "offer" && !offerReady(p.offer)), title: "A clearly different take on the same idea; this picture stays under Versions" }
-                    : { label: "Make the picture", onClick: () => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed")), disabled: inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer)) },
-                  { label: "Write a new idea", onClick: () => onNewIdea(p.index), disabled: inFlight || running || busy === "reidea" },
+                  ...(t?.output && !primary
+                    ? [{
+                        label: "Make another version",
+                        onClick: async () => {
+                          const scope = confirmScope({ target, effect: "new-version", cost: perPicture || undefined, untouched: plan.length > 1 ? `the month's other ${plan.length - 1} post${plan.length === 2 ? "" : "s"}` : undefined });
+                          const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Keep this picture" });
+                          if (ok) regenerate(t, p.index);
+                        },
+                        disabled: inFlight || running || (p.type === "offer" && !offerReady(p.offer)),
+                        title: `A clearly different take on the same idea; this picture stays under Versions. ${scopeNote(target, plan.length)}`,
+                      }]
+                    : []),
+                  { label: "Write a new idea", onClick: () => onNewIdea(p.index), disabled: inFlight || running || busy === "reidea", title: "Changes the plan: a fresh idea for this post, then its picture is made again. Only this post changes." },
                   ...(p.type !== "greeting"
                     ? p.style
                       ? [
@@ -725,11 +767,11 @@ export default function PlanView({
                     : []),
                   ...(t?.output && !inFlight && onFix
                     ? [
-                        { label: "Enhance (higher quality)", onClick: () => { setFixing(p.index); void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null)); }, disabled: fixing !== null || running || !!busy },
-                        { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false },
-                        { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false },
-                        { label: "Video from this picture", onClick: () => setVideoFor(p.index) },
-                        { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId },
+                        { label: "Enhance (higher quality)", onClick: () => { setFixing(p.index); void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null)); }, disabled: fixing !== null || running || !!busy, title: `Edits this post's existing picture at a higher quality; the picture before stays under Versions. ${scopeNote(target, plan.length)}` },
+                        { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false, title: "The words and layers on this picture; no picture is made" },
+                        { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false, title: "A video of this post's words moving over its picture; the picture itself does not change" },
+                        { label: "Video from this picture", onClick: () => setVideoFor(p.index), title: "A new video made from this post's picture; the picture stays as it is" },
+                        { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" },
                       ]
                     : []),
                   ...(onRestorePicture && !inFlight && prevOf(t)
@@ -757,6 +799,7 @@ export default function PlanView({
                       accepting={accepting === p.index}
                       disabled={running || !!busy}
                       menu={menu}
+                      primary={primary}
                       media={
                         <>
                           {img && showOverlay && p.overlay !== false ? (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocking, monthIssues, sceneContext } from "../shared/issues";
+import { blocking, monthIssues, sceneContext, themeOptional } from "../shared/issues";
 import type { Post } from "../shared/posts";
 
 const post = (p: Partial<Post> = {}): Post => ({ index: 1, type: "product", title: "t", brief: "b", caption: "", hashtags: "", ...p });
@@ -48,5 +48,26 @@ describe("what stands before Generate", () => {
     const drinks = sceneContext({ config, theme, products: [{ note: "a mango smoothie in a cup", category: "drink" }], client: null });
     expect(drinks.sellsDrinks).toBe(true);
     expect(monthIssues({ config, client, theme, products: ["Mango"], cast: [], scene: drinks }).filter((x) => x.code === "post-post")).toEqual([]);
+  });
+
+  it("a theme without pins is an issue only on a month the theme leads; a brief, a grid or styled posts make it optional", () => {
+    const empty = { ...theme, references: 0, shots: [] as string[] };
+    const base = { client, theme: empty, products: ["Mango"], cast: [] as never[] };
+    const plan = [post({ product: "Mango" })];
+    // The theme leads: pins are asked for.
+    const leads = monthIssues({ ...base, config: { plan, postCount: 1, month: "2026-10", theme: "t" } });
+    expect(leads.find((x) => x.code === "pins")).toBeTruthy();
+    expect(themeOptional({ plan, campaign: undefined, gridRef: undefined })).toBe(false);
+    // A brief leads: the theme is optional, no issue and no warning either.
+    const brief = monthIssues({ ...base, config: { plan, postCount: 1, month: "2026-10", theme: "t", campaign: { text: "Three posts of the drinks.", at: 1 } as never } });
+    expect(brief.filter((x) => /pins/.test(x.code))).toEqual([]);
+    // A grid leads.
+    expect(monthIssues({ ...base, config: { plan, postCount: 1, month: "2026-10", gridRef: "style:g" } }).filter((x) => /pins/.test(x.code))).toEqual([]);
+    // One post from a style: every post has a style.
+    expect(themeOptional({ plan: [post({ product: "Mango", style: "s1" })] })).toBe(true);
+    expect(monthIssues({ ...base, config: { plan: [post({ product: "Mango", style: "s1" })], postCount: 1, month: "2026-10" } }).filter((x) => x.code === "pins")).toEqual([]);
+    // The screen can say so itself (the route it is on), whatever the month's data says.
+    expect(monthIssues({ ...base, config: { plan, postCount: 1, month: "2026-10" }, themeOptional: true }).filter((x) => x.code === "pins")).toEqual([]);
+    expect(monthIssues({ ...base, config: { plan, postCount: 1, month: "2026-10", gridRef: "style:g" }, themeOptional: false }).filter((x) => x.code === "pins")).toHaveLength(1);
   });
 });
