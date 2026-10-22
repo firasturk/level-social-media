@@ -98,7 +98,7 @@ describe("browsing the gallery", () => {
     expect(r).toMatchObject({ signedIn: true, admin: false, cached: false });
     expect(r.items.map((i) => i.id)).toEqual(["soul_film", "soul_editorial"]);
     expect(r.items[0].image).toBe("https://cdn.test/soul/film.jpg");
-    expect(stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args)).toEqual([{ source: "soul", limit: 60 }]);
+    expect(stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args)).toEqual([{ source: "soul", limit: 50 }]);
     const raw = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(photoCacheKey("styles", "")).first<{ value: string }>();
     expect(raw?.value).toBeTruthy();
     expect(raw!.value).not.toContain("Film grain");
@@ -111,9 +111,9 @@ describe("browsing the gallery", () => {
     expect(stub.rpc.filter((x) => x.name === "get_presets")).toHaveLength(2);
     const shots = (await json(await browse(env, "category=product-shots"))) as { items: { id: string; runnable: boolean }[] };
     expect(shots.items.map((i) => i.id)).toEqual(["hero_shot"]);
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "marketing_studio", category: "product-shot", limit: 60 });
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "marketing_studio", category: "product-shot", limit: 50 });
     await browse(env, "category=product-shots&q=hero");
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "marketing_studio", category: "product-shot", query: "hero", limit: 60 });
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "marketing_studio", category: "product-shot", query: "hero", limit: 50 });
     const recipes = (await json(await browse(env, "category=recipes"))) as { items: { id: string; source: string }[] };
     expect(stub.rpc.filter((x) => x.name === "get_preset_instructions").at(-1)?.args).toEqual({});
     expect(recipes.items.map((i) => i.id)).toEqual(["/hero-shot", "/reel-cover"]);

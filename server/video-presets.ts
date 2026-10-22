@@ -452,7 +452,8 @@ videoPresetRoutes.get("/", async (c) => {
   await mcp.connect();
   const { items, nextCursor } = await fetchCategory(mcp, category, q, cursor);
   const at = Date.now();
-  if (!cursor) await writeCache(c.env, key, { at, items, nextCursor });
+  // An empty answer is not kept for a day: the next visit asks again.
+  if (!cursor && items.length) await writeCache(c.env, key, { at, items, nextCursor });
   await recordIntegrationOp(c.env, { provider: "higgsfield", kind: "preset.browse", user: user.id, estimate: 0, reported: 0, status: "done", note: `${category}${q ? ` · "${q}"` : ""} · ${items.length} preset${items.length === 1 ? "" : "s"} (browsing, nothing spent)` });
   return c.json({ ...base, items, nextCursor, cachedAt: at, cached: false, reason: "" });
 });

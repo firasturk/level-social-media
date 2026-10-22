@@ -260,6 +260,12 @@ async function writeCache(env: Env, key: string, value: CachedCategory): Promise
   await setSetting(env, key, JSON.stringify(value));
 }
 
+/** The words of a refused tool call, for the error the person sees. */
+function errorTextOf(r: McpCallResult): string {
+  const t = r.content.map((c) => (typeof (c as { text?: unknown }).text === "string" ? (c as { text: string }).text : "")).join(" ").trim();
+  return t.slice(0, 200) || "no details";
+}
+
 /* ───────────── Asking the providers ───────────── */
 
 export async function fetchHiggsfieldCategory(mcp: HiggsfieldMcp, category: Exclude<PhotoPresetCategoryId, "magnific-looks">, q: string): Promise<PhotoPresetCard[]> {
@@ -268,11 +274,21 @@ export async function fetchHiggsfieldCategory(mcp: HiggsfieldMcp, category: Excl
     const items = parsePhotoRecipes(r);
     return q ? items.filter((c) => matchesPhoto(c, q)) : items;
   }
-  const args: Record<string, unknown> = category === "styles" ? { source: "soul", limit: 60 } : { source: "marketing_studio", category: "product-shot", limit: 60 };
+  // The gallery takes at most 50 per page (the server refuses more); two pages give the first hundred.
+  const args: Record<string, unknown> = category === "styles" ? { source: "soul", limit: 50 } : { source: "marketing_studio", category: "product-shot", limit: 50 };
   if (q) args.query = q;
   const r = await mcp.call("get_presets", args);
-  if (r.isError) return [];
-  const items = category === "styles" ? parseSoulStyles(r) : parseProductShots(r);
+  if (r.isError) throw new StudioError(`Higgsfield refused the preset list: ${errorTextOf(r)}`, 502);
+  let items = category === "styles" ? parseSoulStyles(r) : parseProductShots(r);
+  const next = (jsonOf(r) as { next_cursor?: unknown } | null)?.next_cursor;
+  if (!q && (typeof next === "number" || typeof next === "string") && items.length >= 50) {
+    const r2 = await mcp.call("get_presets", { ...args, cursor: next });
+    if (!r2.isError) {
+      const more = category === "styles" ? parseSoulStyles(r2) : parseProductShots(r2);
+      const seen = new Set(items.map((x) => x.id));
+      items = items.concat(more.filter((x) => !seen.has(x.id)));
+    }
+  }
   return q ? items.filter((c) => matchesPhoto(c, q)) : items;
 }
 
@@ -319,7 +335,8 @@ photoPresetRoutes.get("/", async (c) => {
     items = await fetchMagnificLooks(mcp, q);
   }
   const at = Date.now();
-  await writeCache(c.env, key, { at, items });
+  // An empty answer is not kept for a day: the next visit asks again (a refusal or a changed answer shape would otherwise stick).
+  if (items.length) await writeCache(c.env, key, { at, items });
   await recordIntegrationOp(c.env, { provider, kind: "preset.browse", user: user.id, estimate: 0, reported: 0, status: "done", note: `photo · ${category}${q ? ` · "${q}"` : ""} · ${items.length} ${items.length === 1 ? "entry" : "entries"} (browsing, nothing spent)` });
   return c.json({ ...base, items, cachedAt: at, cached: false, reason: "" });
 });
