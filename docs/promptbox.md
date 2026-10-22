@@ -86,20 +86,24 @@ Settings (model, duration, aspect; query, type, orientation; role, placement), C
 for admins), the open question when there is one, then **Run** and **Change target** (a post
 picker). Search results render under their card with "Use as reference" and "Add to design".
 
-## What is wired here, and what is wired at merge
+## What is wired
 
 `server/promptbox-tools.ts` is the only file that touches a provider; the routes call
-`promptboxTools` and tests swap tools with `setPromptboxTools`. In this build:
+`promptboxTools` and tests swap tools with `setPromptboxTools`. On `int-round`:
 
-- `freepikSearch` and `freepikUse` answer from a fixture (six deterministic results per query,
-  "DEMO FIXTURE" in their titles). At merge they call the functions behind
-  `GET /api/studio/freepik/search` and `POST /api/studio/freepik/use` (int/freepik).
-- `videoGenerate` makes this build's own image-to-video call (the one the Video dialog makes), which
-  ignores aspect and source. At merge it calls the function behind `POST /api/studio/posts/video`
-  (int/video), which takes `{batch, index, model, prompt, duration, aspect, source, artwork?}`.
-- `videoCatalog()` in `shared/promptbox.ts` reads `VIDEO_MODELS` from `shared/qa.ts`; a `credits`
-  field there (or `shared/video-models.ts`, when it lands) gives the estimate. Until then every
-  clip is "Cost not known yet" and an admin sets the cost on the card.
-- `photolabRun` refuses (503) until Photo Lab is wired.
-- `server/integrations.ts` is the governance stub (int/governance owns it): the gate, the enabled
-  check and the op records are no-ops that return success.
+- `freepikSearch` searches through the same provider as the Freepik panel (`resolveFreepik` in
+  `server/freepik.ts`: the demo catalogue without a key, the stock API with one). The box's route
+  records the search in the ledger (estimate 0); the adapter records nothing twice.
+- `freepikUse` downloads the asset into the one library (`downloadAsset`, confirmed, reused when
+  already stored; refused with "cost not known" on a plan that bills per download) and then
+  `useAsset` sets it as the post's reference or as a design layer.
+- `videoGenerate` calls `submitVideoRequest` in `server/video.ts`, the same submission as the Video
+  dialog (governed, claimed, idempotency key, no retry). An engine without a frame choice (Kling,
+  Seedance) follows the picture's frame: the card shows "Frame: follows the picture".
+- `videoCatalog()` reads the catalog in `shared/video-models.ts` (through `shared/qa.ts`); no engine
+  has a published price, so a clip is "Cost not known yet" until an admin sets the cost on the card
+  or under Admin → Integrations ("estimated cost per video clip") or Connection → Higgsfield (per engine).
+- `photolabRun` maps the sentence's operation to one of the four Photo lab operations, proposes and
+  confirms the run through `proposePhotoLab` / `runPhotoLabJob` in `server/photolab.ts` (the demo
+  provider without a key), and reports the job's state.
+- `server/integrations.ts` is the real governance layer (admins only, switches, ledger, claims).

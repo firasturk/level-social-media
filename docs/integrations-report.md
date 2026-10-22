@@ -1,0 +1,66 @@
+# Integrations round · branch `int-round`
+
+Preview: https://studio-preview.max-fashion-studio.workers.dev (worker `studio-preview`, version ddab15ad; pictures and video generation blocked at the server; demo fixtures answer every text call; migrations 0068–0070 applied on the preview D1 only). Nothing was merged into `main`, nothing was deployed to production, no paid call was made, no client was sent anything, no campaign data was deleted.
+
+Built as four branches on top of `ux-round` and merged here: `int/governance`, `int/video`, `int/freepik`, `int/promptbox`. Gate chain on the merge: typecheck, eslint, 635 tests (66 new), build. Each piece has its own doc: docs/integrations.md (the rules), docs/video.md, docs/freepik.md, docs/promptbox.md.
+
+Wave 2 (the Audio option and the Video editor) is on `int/audio` and `int/editor`; its report is appended when merged.
+
+## 1. Implemented
+
+**Governance, one layer for every provider** (`server/integrations.ts`, migration 0068)
+- Admins only for now on every integration write: Freepik search/download/use, the Photo lab, the Freepik key and MCP token, Higgsfield video submit/retry/upload/select, the motion idea, the Prompt Box execute. Members get 403 "Admins only for now: …"; the entry points stay visible to them with that note and no provider controls.
+- Viewing stays open to members: a post's videos, the stored clip (with Range), the poster, Photo lab jobs and their pictures, the Freepik library files, the status routes.
+- A switch per provider under Admin → Integrations (Freepik, Higgsfield, Video editor placeholder), effective at once: off → 503 "… is switched off by an admin. Nothing was sent or charged." A key can still be removed while off.
+- A ledger (`integration_ops`): who, when, provider, kind, month, post, provider task id, estimate and reported cost, status (proposed · confirmed · running · done · failed · refused), note. Key saves, removals, switches and estimate changes are rows too. Admin → Integrations lists the recent rows.
+- Confirm before spend: a paid run is proposed with its estimate and executed only with `{opId, confirm: true}`; an operation whose cost is not known is refused ("cost not known: blocked until clarified") unless an admin enters the estimate. One submission per claim; no automatic retry, no fallback to another provider.
+
+**Higgsfield video, playback in the Studio and on the client link** (`server/video.ts`, `server/range.ts`, `server/mp4.ts`, migration 0069)
+- Catalog of ten image-to-video engines read from the Higgsfield docs (Seedance 2.5, Kling 3.0 Std/Pro/Turbo, Kling 2.6 Pro, Kling 2.5 Turbo, Hailuo 2.3, LTX-2.5 Fast, Wan 2.6, Wan 2.7) with each one's lengths, frames, resolutions, prompt limits and sound. No engine has a published price: the clip's cost comes from an admin's figure (per engine under Connection → Higgsfield, or one figure under Admin → Integrations) or the provider's own estimate call; with none, the run is refused until confirmed at an unknown cost.
+- Every clip is a version of the post: made from the picture or from the composed artwork (words and logo in the first frame), status queued → generating → done/failed, the mp4 copied into our storage when done, a failed clip keeps the provider's message, a clip older than half an hour is given up; nothing resubmits by itself. A refreshed studio reconnects to a running job.
+- Playback: the file is served with `Accept-Ranges`, 206 partial answers, HEAD, 416, `video/mp4`, private cache. The Studio card shows a "Video · 5s" badge over the picture and an inline player on tap; the Video dialog lists the versions with "Select for client review"; the editor's Versions group lists the picture and each clip.
+- Client link: the client sees only the version marked for them, served through the share token with Range (never the provider's URL), inline (`playsInline`, controls, no autoplay, not muted), the feed cell carries a play mark, "Version currently shown: Video 1 (22 Oct)". Each answer records the version it was given on; the Studio's approval tab shows "· on Video 1 (22 Oct)".
+- Sample clips: an admin can upload an mp4 (H.264 required; a warning when the audio is not AAC or the `moov` atom is not at the front) as a done version, for playback checks before any paid call.
+
+**Freepik, one asset library through the API and the MCP** (`server/freepik.ts`, `server/freepik-mcp.ts`, migration 0070)
+- Stock search with type / orientation / colour filters, licence badge per result ("Free with attribution", "Premium · in your plan", "Credits: N", "Premium · cost not known"), "Flattened picture" vs "Editable vector" label, Use as reference · Add to design · Download to library; a Library tab per client; attribution reminder.
+- Entry points: the post editor's Image group ("Freepik assets", next to the Photo lab), the Text Studio's Layers → Add → "Freepik asset", the Direction board's pictures row ("Add from Freepik"); Connection → Freepik gains the plan picker and the Magnific MCP token field.
+- The plan rule from the docs: searching is free; on Premium / Premium+ / Pro, API downloads do not consume credits (100 a day); on Business / Enterprise each download bills credits at a rate the studio cannot read → blocked as "cost not known" until the plan is set. A file already in the library is reused, never downloaded twice.
+- MCP adapter (JSON-RPC over streamable HTTP against mcp.magnific.com): tools listed and classified free / download / credits; a free tool runs at once, a download follows the plan rule, a generative tool asks `simulate_cost` first and needs a confirmation; results that are stock items land in the same library rows. Without a token: "Not connected" plus a labelled demo tool list. The token is pasted by an admin (OAuth device flow documented); the studio does not run the sign-in itself.
+
+**Prompt Box with tool intents** (`shared/promptbox.ts`, `server/promptbox.ts`, `server/promptbox-tools.ts`)
+- A "Prompt" button on the Studio board opens the planner chat under the board. A sentence becomes a card: Target (month · post · slide) · Selected asset · Operation and provider · Settings · Credit estimate · Run · Change target. Ambiguity → exactly one question, never a guess; Arabic numerals understood.
+- Tools: Search Freepik (free, runs at once, results with "Use as reference" / "Add to design"), Use the asset shown last, Animate a post through Higgsfield (engine, length, frame where the engine offers one, picture or design), Photo lab edit (upscale, remove background, relight, replace background). The estimate is always from the catalog or the admin, never from the card; an unknown cost blocks the run until an admin sets it on the card.
+- Execute is admin-only server-side, needs `confirm: true` (428 without), refuses an open question (409), records every card in the ledger. The adapter calls the same functions as the dialogs (Freepik library, video submission, Photo lab propose → confirm → run).
+
+## 2. Tested with mocks (no network; the paid guard fails any test that reaches a provider)
+
+- 13 governance tests: member 403 on every write, admin propose → confirm → done with the ledger rows, switch off → 503 and viewing untouched, key removal while off, claims and their ttl, `noRetry` single call, video with unknown cost refused then run once an estimate is set, cross-route confirmation refused, members list videos / files / Photo lab jobs.
+- 14 video tests: catalog checks, member 403, submit records op / estimate / request id / claim / idempotency key / body, duplicate ask 409, unknown price 409 then confirm, artwork source, provider rejection kept as a failed version and retried as a new op, list reconnects a running job and stores the mp4, 30-minute give-up, file 200 / 206 byte-exact / HEAD / 416, upload stores the sample and refuses non-mp4, share exposes only the client's version with Range, bad token 404, review stores the version per answer.
+- 17 Freepik tests: demo status and the member view, every search filter, member 403 on all writes, download proposed → confirmed → stored once → reused, use as reference (raster thumbnail, SVG kept, ZIP refused 415), use as design layer, connected search mapping and the two-step download, blocked on an unknown or Business plan, MCP initialize / session / paged tools over JSON and SSE, token verification, free call → library rows, simulate_cost → confirm, unknown cost blocked, bad token message.
+- 22 Prompt Box tests: the example sentences, the one question, member 403 even on a free search, execute without confirm 428, unknown cost 409 with no video row, open question refused, search records an op and generates nothing, use through the adapter, video through the adapter with the admin's estimate and a forged card estimate still blocked, a failed run marks the op failed.
+
+## 3. Verified live on the preview (22 October, no credentials, no cost)
+
+- Admin vs member with a temporary member account on the preview D1 (removed afterwards): the three status routes answer "Admins only for now" to the member; the member is refused (403) on video submit, motion idea, Freepik search and download, Photo lab run, MCP tools, upload, select, Prompt Box execute, and the admin routes; the admin passes.
+- Video: the sample mp4 uploaded as a version; the Studio file route answers 200 `video/mp4` with `Accept-Ranges: bytes`, 206 `bytes 0-99/3084`, HEAD with the length, 416 `bytes */3084`; the poster answers; the summary feeds the card badge "Video · 1s" and the inline player opens with controls and `playsInline`; the Video dialog shows the ten engines with each one's lengths and the line "Cost not known yet: Higgsfield is asked for an estimate when the clip is made"; the editor's Versions group lists "The picture" and "Video 1 (22 Oct) · shown to the client" with Open / Client version / Make another video.
+- Client link: the share answer carries the client's version with its token-scoped url and poster and "Version currently shown: Video 1 (22 Oct)"; the share video route answers 206 with Range, HEAD with the length, the poster 200; a bad token 404; an answer posted with the version is stored with it (then removed). On a 390 px iPhone viewport the player fits the column with no horizontal overflow. Headless Chromium has no H.264 decoder, so the frames themselves were not decoded here: check on a real iPhone and in Chrome.
+- A video with an unknown cost is refused before any provider call (the preview also blocks generation itself).
+- Freepik demo: search answers labelled demo cards; download proposes (409 with the estimate and op id) then stores on confirm and reuses on the second call; use as reference sets the post's reference; the library lists it; a member can view the asset file; MCP without a token answers "Not connected" with six labelled demo tools.
+- Prompt Box in the browser: "Find a coffee background from Freepik for post 2" → a card targeting post 2 with "Run · free" → results "3 results; nothing was downloaded or made"; "Animate post 1 with Kling, 5 seconds" → a card with Kling 3.0 · 5 s · Frame follows the picture · "Cost not known yet · blocked until clarified · Set the cost"; execute without confirm 428.
+- Switch: Freepik off → search 503 with the message; on → 200. Admin → Integrations shows the three switches, the one-figure estimate box and the recent operations with who / when / provider / kind / estimate / status.
+- Zero page errors on every walk.
+
+Not verified live, by design (no key, no cost): a Higgsfield submission and its estimate call, a Freepik API search or download, an MCP session, a Photo lab run. All of these run against mocks only.
+
+## 4. Blocked or left to decide
+
+- Prices: no video engine has a published price; the first clip needs an admin figure (Admin → Integrations or Connection → Higgsfield), or a confirmation at an unknown cost. Freepik Business / Enterprise per-download credits are not readable; set the plan under Connection → Freepik.
+- Member access to the integrations stays off until you approve it (one switch per provider is the admin gate; opening to members is a code change, documented in docs/integrations.md).
+- The Magnific MCP sign-in is a pasted bearer token (device flow documented in docs/freepik.md); tokens are not refreshed by the studio.
+- A probe during the Freepik work registered a public OAuth client named `level-studio-probe` on auth.magnific.com (dynamic registration is open there). It has no secret and can do nothing alone; it can be ignored or removed through Magnific support.
+- The video card's "Set the cost" on the Prompt Box and the two price boxes (per engine, one figure) are three places for the same number; they resolve in the order documented in docs/video.md.
+
+## Release
+
+Not to be released without approval. When approved: `git merge int-round` into `main`, apply migrations 0068–0070 on the production D1 (`npx wrangler d1 migrations apply DB --remote --config wrangler.deploy.json`), `node scripts/embed-assets.mjs && npx wrangler deploy --config wrangler.deploy.json`. The migrations are additive; rollback is a redeploy of the previous version.

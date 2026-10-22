@@ -12,9 +12,9 @@ after generation.
 | Model catalog (`shared/video-models.ts`) | Built from the Higgsfield docs (below); every price is `null` because the docs give none |
 | Submission, status polling, download into R2 | Written against the documented API; exercised only against a fetch stub in `tests/video.test.ts`. No paid call was made |
 | Provider estimate (`POST /estimate/<slug>`) | Called before each submission; mocked in tests. Not verified live |
-| Governance (`server/integrations.ts`) | The verbatim stub: `requireIntegrationAdmin` (403 for members) is real; `assertIntegrationEnabled`, `recordIntegrationOp`, `updateIntegrationOp` and `claimSubmission` are no-ops until the governance branch replaces the file. The tests mock them to observe the calls |
+| Governance (`server/integrations.ts`) | The real layer on `int-round`: admins only, the Higgsfield switch, ledger rows (`kind: video`), claims in D1. The estimate order is: catalog price → per-engine price (Connection → Higgsfield) → the admin's one figure under Admin → Integrations → the provider's `/estimate` call; none known → 409 `needsEstimate` until confirmed. `tests/video.test.ts` mocks the layer to observe the calls; `tests/integrations.test.ts` runs the real one |
 | Range/HEAD serving, upload, share route, review versions | Real code, tested with the checked-in sample mp4 |
-| Studio and client UI | Built; typechecked and linted, not opened in a browser here |
+| Studio and client UI | Built; walked on the preview with an uploaded sample clip (card badge, inline player, dialog, Versions group, client page on desktop and a 390 px phone viewport). Headless Chromium has no H.264 decoder, so decoding itself was not observed; the Range/HEAD/416 answers were |
 
 ## Routes
 
