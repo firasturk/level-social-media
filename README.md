@@ -61,7 +61,7 @@ Create the first account from the sign-in screen with the invite code from `.dev
 
 Cloudflare resources (account "Firas@levelmena.com's Account"):
 
-- Address: https://levelstudio.pages.dev (Pages project `levelstudio`, see `pages-proxy/`, forwarding to the Worker `studio`; studio.max-fashion-studio.workers.dev and the old `level-social-media` Worker redirect there)
+- Address: https://studio.levelmena.com (a custom domain of the Pages project `levelstudio`, see `pages-proxy/`, forwarding to the Worker `studio`; levelstudio.pages.dev, studio.max-fashion-studio.workers.dev and the old `level-social-media` Worker redirect there)
 - D1 `level-social-media`, R2 bucket `level-social-media` (ids in `wrangler.jsonc`)
 
 ```sh

@@ -71,7 +71,7 @@
     "HIGGSFIELD_MODEL": "nano-banana-pro",
     "HIGGSFIELD_BASE_URL": "https://api.higgsfield.ai",
     "MAX_CONCURRENT_GENERATIONS": "6",
-    "PUBLIC_BASE_URL": "https://levelstudio.pages.dev",
-    "CANONICAL_ORIGIN": "https://levelstudio.pages.dev",
+    "PUBLIC_BASE_URL": "https://studio.levelmena.com",
+    "CANONICAL_ORIGIN": "https://studio.levelmena.com",
   },
 }
