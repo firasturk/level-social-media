@@ -6,7 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ApiError, post } from "@/api";
 import { DEFAULT_VIDEO_MODEL, durationChoices, VIDEO_MODELS, videoModel } from "@shared/video-models";
 import type { Post } from "@shared/posts";
-import { inFlight, listVideos, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type VideoItem, type VideoList } from "./videoApi";
+import type { AudioChoice } from "@shared/video-audio";
+import { audioLine, chooseAudio, inFlight, listVideos, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type VideoItem, type VideoList } from "./videoApi";
+import VideoAudio from "./VideoAudio";
 
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
@@ -43,7 +45,9 @@ export default function VideoDialog({
   const [duration, setDuration] = useState<number>(videoModel(DEFAULT_VIDEO_MODEL)!.duration.default);
   const [aspect, setAspect] = useState<string>("");
   const [resolution, setResolution] = useState<string>("");
-  const [sound, setSound] = useState(false);
+  /** The audio choice: engine sound or none for the next clip, a track, or a note for Instagram (shared/video-audio.ts). */
+  const [audioChoice, setAudioChoice] = useState<AudioChoice>("none");
+  const [audioId, setAudioId] = useState<string | null>(null);
   const [withWords, setWithWords] = useState(false);
   const [writing, setWriting] = useState(false);
   const [making, setMaking] = useState(false);
@@ -65,6 +69,21 @@ export default function VideoDialog({
     setDuration(next.duration.options?.includes(duration) || (!next.duration.options && duration >= (next.duration.min ?? 1) && duration <= (next.duration.max ?? 60)) ? duration : next.duration.default);
     setAspect(next.aspect?.includes(aspect) ? aspect : "");
     setResolution(next.resolution?.includes(resolution) ? resolution : next.resolution ? (next.resolution.includes("720p") ? "720p" : next.resolution[0]) : "");
+    if (!next.audio && audioChoice === "provider") setAudioChoice("none");
+  }
+  /** The choice is written on the shown version at once (admins); otherwise it waits for the next clip. */
+  async function pickAudio(choice: AudioChoice, id: string | null) {
+    setAudioChoice(choice);
+    setAudioId(id);
+    const v = shown ? videos.find((x) => x.id === shown) : videos[0];
+    if (!v || inFlight(v) || !admin) return;
+    try {
+      const r = await chooseAudio(batchId, p.index, v.id, choice, id ?? undefined);
+      setVideos(r.videos);
+      onChanged?.();
+    } catch (e) {
+      setError((e as Error).message);
+    }
   }
 
   async function load(): Promise<VideoList | null> {
@@ -106,13 +125,19 @@ export default function VideoDialog({
         duration,
         aspect: aspect || undefined,
         resolution: resolution || undefined,
-        audio: sound,
+        audio: audioChoice === "provider",
         source: withWords ? "artwork" : "picture",
         artwork,
         confirm,
       });
       setVideos((v) => [r.video, ...v]);
       setShown(r.video.id);
+      if (audioChoice === "upload" || audioChoice === "instagram") {
+        // A track or the Instagram note belongs to the version, not to the engine: written as soon as the row exists.
+        await chooseAudio(batchId, p.index, r.video.id, audioChoice, audioId ?? undefined)
+          .then((x) => setVideos(x.videos))
+          .catch((e: Error) => setError(e.message));
+      }
       toast.success("The video is being made; it takes a minute or two.");
       onChanged?.();
     } catch (e) {
@@ -164,6 +189,10 @@ export default function VideoDialog({
         if (last.aspect) setAspect(last.aspect);
         if (last.resolution) setResolution(last.resolution);
         setWithWords(last.source === "artwork");
+        if (last.audioChoice) {
+          setAudioChoice(last.audioChoice);
+          setAudioId(last.audioId);
+        }
       } else void writeIdea();
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,6 +208,14 @@ export default function VideoDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, pending]);
   const latest = (shown ? videos.find((v) => v.id === shown) : null) ?? videos[0];
+  // Showing another version brings up its audio choice.
+  useEffect(() => {
+    if (latest?.audioChoice) {
+      setAudioChoice(latest.audioChoice);
+      setAudioId(latest.audioId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latest?.id]);
   const clientVersion = videos.find((v) => v.forClient) ?? null;
   const ideaTooLong = m.promptMax !== null && idea.length > m.promptMax;
   const canMake = !making && !writing && !pending && admin && (!m.promptRequired || idea.trim().length >= 5) && !ideaTooLong;
@@ -274,12 +311,6 @@ export default function VideoDialog({
                   </select>
                 </label>
               )}
-              {m.audio && (
-                <label className="video-check">
-                  <input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} />
-                  <span>Let the engine add sound</span>
-                </label>
-              )}
             </div>
             <label className="video-check video-words">
               <input type="checkbox" checked={withWords} disabled={!composeArtwork} onChange={(e) => setWithWords(e.target.checked)} />
@@ -288,6 +319,7 @@ export default function VideoDialog({
                 <small>The clip is made from the post as it will be published, words and logo drawn in. Nothing is overlaid after generation: the words move with the picture and cannot be changed later. Off, the clip is made from the bare picture.</small>
               </span>
             </label>
+            <VideoAudio batchId={batchId} index={p.index} engineSound={m.audio !== null} engineName={m.name} admin={admin} version={latest && !inFlight(latest) ? latest : null} choice={audioChoice} audioId={audioId} onChange={(c, id) => void pickAudio(c, id)} />
             <small className="field-hint">
               {price !== null ? (
                 <>About {usd(price)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.</>
@@ -341,6 +373,7 @@ export default function VideoDialog({
                           {v.duration ? ` · ${v.duration}s` : ""}
                           {v.source === "artwork" ? " · with words" : v.source === "picture" ? " · bare picture" : ""}
                           {v.estimate !== null && v.estimate > 0 ? ` · ${usd(v.estimate)}` : ""}
+                          {audioLine(v) ? ` · ${audioLine(v)}` : ""}
                         </small>
                       </button>
                       {v.status === "done" &&

@@ -12,7 +12,7 @@ import { get, post } from "@/api";
  * The rules live in docs/integrations.md.
  */
 
-type Provider = "freepik" | "higgsfield" | "editor";
+type Provider = "freepik" | "higgsfield" | "editor" | "audio";
 
 interface ProviderState {
   provider: Provider;

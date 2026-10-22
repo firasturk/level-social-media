@@ -78,6 +78,46 @@ The client page never autoplays and never mutes by itself: the viewer taps play,
 - Editor → Versions: the picture (shown to the client when no clip is selected), each video version with its state, "Select for client review" / "Show the picture to the client".
 - Approval view: each answer says which version it referred to.
 
+## Audio
+
+What each audio source can and cannot do is researched in [docs/audio-capabilities.md](audio-capabilities.md)
+(Instagram's music library, Higgsfield, Magnific, the browser, the Worker). The short of it: the
+Instagram music library can only be added in the Instagram app; Higgsfield's engines make their
+own sound or none; generated music needs a Magnific key (none is connected); a licensed track can
+be uploaded and kept with the version, and the browser-side Video editor mixes it in — the server
+never changes the mp4.
+
+The dialog's "Audio" block offers: **Engine sound** (only when the model's `audio` field says it
+makes sound; `settings.audio: true`), **No sound** (`settings.audio: false`), **Upload a track**
+(mp3, m4a, aac or wav, 25 MB at most, with a name and a licence line), **Generated music**
+(disabled with the not-connected reason) and **Add music on Instagram when publishing** (a note).
+Members see the block read-only ("Admins only for now"). The versions list and the dialog's
+history show the choice per version: "Engine sound", "No sound", "Track: name", "Music added on
+Instagram". The client link is unchanged: it plays the stored file as it is.
+
+Routes under `/api/studio/posts/video/audio` (`server/video-audio.ts`, provider `audio` in
+`server/integrations.ts` with its own switch under Admin → Integrations):
+
+- `POST /upload` — multipart `batch`, `post`, `file`, `name`, `license`, `duration` (ms, as the
+  browser read it). Admins; 415 for a format other than mp3/m4a/aac/wav, 413 over 25 MB. Stored
+  at `<owner>/<batch>/audio/<post>/<id>.<ext>`; a WAV's length is read from its header, an m4a's
+  from `mvhd`. Ledger row `audio.upload` at estimate 0.
+- `GET /list?batch=&post=` — the post's tracks with `access` and `generated: {connected: false,
+  reason}`. Every signed-in user.
+- `GET|HEAD /file?batch=&id=` — the track with Range (`serveObject`). Every signed-in user.
+- `POST /choose {batch, index, videoId, choice, audioId?}` — writes `audio_choice` / `audio_id`
+  (migration `0071_video_audio.sql`) on the version; `upload` and `generated` need a track of the
+  same kind. Admins. Ledger row `audio.choose` at estimate 0. Nothing is sent anywhere.
+- `POST /generate` — **not built**: answers 503 "Generated music is not connected: add a
+  Freepik/Magnific key or a Higgsfield key under Connection…" and writes a `refused` ledger row
+  (`audio.generate`), so the panel shows who asked.
+
+`GET /list` on the videos carries `audioChoice`, `audioId`, `audioName` per version; a version
+with no choice shows what its generation settings imply (engine sound on or off).
+
+Tests: `tests/video-audio.test.ts` (member 403, switch off 503, upload and list, Range/HEAD/416,
+choose and the ledger, generate 503 with a refused row, 415 and 413), under the paid guard.
+
 ## Limitations
 
 - No overlays after generation: a clip made from the bare picture has no words; a clip made from the artwork has the words baked into every frame and cannot be edited later.
@@ -85,3 +125,5 @@ The client page never autoplays and never mutes by itself: the viewer taps play,
 - The estimate is per request and may differ from the provider's final charge; `reported` is left to the governance branch (the op is updated to `done`/`failed` without an amount).
 - The catalog is a snapshot of the docs; models, limits and availability change on the provider's side, and the account may not have every model enabled.
 - No transcoding on the Worker: what the provider sends is what is stored and served.
+- An uploaded track is not mixed into the clip here: the mp4 stays as it is until the browser-side
+  Video editor writes a new version with the track in it.

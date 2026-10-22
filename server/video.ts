@@ -30,6 +30,7 @@ import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrati
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
+import type { AudioChoice } from "@shared/video-audio";
 
 type Variables = { user: User };
 export const videoRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -57,6 +58,9 @@ export interface VideoRow {
   source: VideoSource;
   for_client: number;
   op_id: string | null;
+  /** The version's audio choice (shared/video-audio.ts), null when none was made. */
+  audio_choice: AudioChoice | null;
+  audio_id: string | null;
 }
 
 /** The settings stored with a clip: what was asked, plus what the submission learned. */
@@ -111,11 +115,23 @@ export interface VideoItem {
   /** The clip's number among the post's clips, oldest first ("Video 2"). */
   version: number;
   warnings: string[];
+  /** The audio choice made for this version, else what the generation settings imply (engine sound on/off), else null. */
+  audioChoice: AudioChoice | null;
+  audioId: string | null;
+  /** The uploaded or generated track's name, when the choice points at one and the caller looked it up. */
+  audioName: string | null;
 }
 
-export function videoItem(v: VideoRow, version: number): VideoItem {
+/** The names of a post's tracks by id, for the versions list ("Track: Summer loop"). */
+export async function audioNamesFor(env: Env, batch: string, post: number): Promise<Map<string, string>> {
+  const rows = await all<{ id: string; name: string | null }>(env.DB, "SELECT id, name FROM video_audio WHERE batch = ? AND post = ?", batch, post);
+  return new Map(rows.map((r) => [r.id, r.name ?? ""]));
+}
+
+export function videoItem(v: VideoRow, version: number, audioNames?: Map<string, string>): VideoItem {
   const s = parseSettings(v);
   const q = `batch=${encodeURIComponent(v.batch)}&id=${encodeURIComponent(v.id)}`;
+  const audioChoice: AudioChoice | null = v.audio_choice ?? (s.audio === true ? "provider" : s.audio === false ? "none" : null);
   return {
     id: v.id,
     post: v.post,
@@ -137,6 +153,9 @@ export function videoItem(v: VideoRow, version: number): VideoItem {
     poster: v.poster_key ? `/api/studio/posts/video/poster?${q}` : null,
     version,
     warnings: s.warnings ?? [],
+    audioChoice,
+    audioId: v.audio_id ?? null,
+    audioName: v.audio_id ? (audioNames?.get(v.audio_id) ?? null) : null,
   };
 }
 
@@ -441,7 +460,8 @@ videoRoutes.get("/list", async (c) => {
     prices[m.slug] = typeof m.price === "number" ? m.price : Number.isFinite(s) && s > 0 ? s : null;
   }
   const user = c.get("user");
-  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield") });
+  const names = await audioNamesFor(c.env, b.id, index);
+  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield") });
 });
 
 /** One line per post of the month: the version the client sees, and the newest clip (its progress or failure). */
@@ -474,7 +494,8 @@ videoRoutes.post("/select", async (c) => {
   if (d.id) await run(c.env.DB, "UPDATE videos SET for_client = 1, updated = ? WHERE id = ?", now(), d.id);
   const rows = await postRows(c.env, b.id, d.index);
   const numbers = versionNumbers(rows);
-  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0)) });
+  const names = await audioNamesFor(c.env, b.id, d.index);
+  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)) });
 });
 
 /**

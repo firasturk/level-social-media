@@ -2,7 +2,9 @@
 
 Every outside provider the studio pays per call behind an admin switch goes through one set of
 rules, implemented once in `server/integrations.ts`. Today that is Freepik (the Photo lab and its
-key), Higgsfield video (the clip made from a post's picture) and a placeholder for the video editor.
+key), Higgsfield video (the clip made from a post's picture), a placeholder for the video editor,
+and `audio` (tracks uploaded for a post's videos and each version's audio choice; no provider is
+paid yet, see docs/video.md "Audio").
 The picture engines, the text keys and the spend ledger of image generation (`server/spend.ts`)
 keep their own existing rules; nothing here changes them.
 
@@ -67,6 +69,8 @@ keep their own existing rules; nothing here changes them.
 | `POST /api/studio/photolab/jobs/:id/use` | admin, switch, ledger (`result.picture` / `result.product`, no spend) |
 | `POST /api/studio/posts/video/idea` | admin, switch, ledger (`video.idea`: a text-model call under the text key, nothing sent to Higgsfield, no confirmation) |
 | `POST /api/studio/posts/video` | admin, switch, propose / confirm, claim, no retry, ledger (`video.submit`) |
+| `POST /api/studio/posts/video/audio/upload`, `/choose` | admin, switch (`audio`), ledger (`audio.upload`, `audio.choose`, estimate 0; no provider) |
+| `POST /api/studio/posts/video/audio/generate` | admin, switch; always 503 "not connected" with a `refused` row (`audio.generate`) until a music provider is wired |
 | `GET /api/admin/integrations` | admin: the switches, estimates and recent rows |
 | `POST /api/admin/integrations/switch` | admin: `{provider, enabled}` |
 | `POST /api/admin/integrations/estimate` | admin: `{provider, kind, usd \| null}` |
