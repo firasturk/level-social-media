@@ -7,6 +7,7 @@
 import { previewNoImages, type Env } from "./env";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { feedbackFromInstruction, interpretFeedback } from "../shared/feedback";
+import { intentRequestFrom, resolveIntent } from "../shared/promptbox";
 
 export async function demoMode(env: Env): Promise<boolean> {
   if (!previewNoImages(env)) return false;
@@ -126,6 +127,11 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
     const fb = feedbackFromInstruction(instruction);
     const actions = fb ? interpretFeedback(fb.text, fb.context) : [];
     out = { actions: actions.map((a) => ({ ...a, change: `${DEMO}: ${a.change}` })) };
+  } else if (props.tool && props.q && props.model) {
+    // The Prompt Box: the fixture answers with the deterministic resolver's own reading of the sentence.
+    const req = intentRequestFrom(instruction);
+    const i = req ? resolveIntent(req.message, req.ctx) : null;
+    out = i ? { tool: i.tool, post: i.target.post ?? 0, slide: i.target.slide ?? 0, q: String(i.settings.q ?? ""), assetType: String(i.settings.type ?? ""), orientation: String(i.settings.orientation ?? ""), role: String(i.settings.role ?? ""), model: String(i.settings.model ?? ""), duration: Number(i.settings.duration ?? 0), aspect: String(i.settings.aspect ?? ""), operation: String(i.settings.operation ?? ""), question: i.questions[0] ?? "" } : { tool: "none", post: 0, slide: 0, q: "", assetType: "", orientation: "", role: "", model: "", duration: 0, aspect: "", operation: "", question: "" };
   } else if (props.posts && props.tiles) out = gridRead(instruction);
   else if (props.posts && (props.posts.items?.properties ?? {}).group) out = briefPlan(instruction);
   else if (props.posts) out = { posts: ideas(instruction) };

@@ -68,6 +68,7 @@ import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
+import { promptboxRoutes } from "./promptbox";
 import { styleRoutes } from "./styles";
 import { ambassadorRoutes } from "./ambassadors";
 import { metaRoutes } from "./meta";
@@ -90,6 +91,7 @@ studioRoutes.route("/drive", driveRoutes);
 studioRoutes.route("/autopilot", autopilotRoutes);
 studioRoutes.route("/lessons", lessonRoutes);
 studioRoutes.route("/ocr", ocrRoutes);
+studioRoutes.route("/promptbox", promptboxRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];

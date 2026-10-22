@@ -40,6 +40,7 @@ import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import IdeasChat from "./IdeasChat";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
 import FeedbackPanel from "./FeedbackPanel";
@@ -371,6 +372,8 @@ export default function Workspace({
   /** The Studio board's tab and whether the old month toolbar is unfolded under More. */
   const [studioTab, setStudioTab] = useState<StudioTab>("posts");
   const [toolsOpen, setToolsOpen] = useState(false);
+  /** The Prompt Box under the Studio board: the planner chat with its tool cards, outside the Plan. */
+  const [promptOpen, setPromptOpen] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -1788,6 +1791,8 @@ export default function Workspace({
                   changes={changes}
                   onClientChanges={() => void doClientChanges()}
                   clientChangesBusy={busy === "client"}
+                  onPrompt={() => setPromptOpen((o) => !o)}
+                  promptOpen={promptOpen}
                   more={
                     <>
                       <button type="button" onClick={() => setToolsOpen((o) => !o)}>
@@ -1823,7 +1828,20 @@ export default function Workspace({
                     </>
                   }
                 >
-                  {null}
+                  {promptOpen ? (
+                    <IdeasChat
+                      title="Prompt box"
+                      batchId={batch?.id ?? null}
+                      config={config}
+                      busy={running}
+                      engineReady={engineConnected}
+                      refresh={refresh}
+                      onNotes={(notes) => void updateSettings({ notes })}
+                      onMake={(indexes) => generatePosts(indexes, true, false)}
+                      admin={user.role === "admin"}
+                      openPost={openPostIndex}
+                    />
+                  ) : null}
                 </StudioBoard>
               );
             })()}

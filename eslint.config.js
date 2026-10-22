@@ -24,6 +24,11 @@ export default tseslint.config(
   },
   { rules: { "@typescript-eslint/no-explicit-any": "error" } },
   {
+    // The integrations stub (governance) keeps its parameters named for the merge; the underscore says they are unused on purpose.
+    files: ["server/integrations.ts"],
+    rules: { "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }] },
+  },
+  {
     // The promptfoo runner and assertions are plain Node modules.
     files: ["eval/**/*.mjs"],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
