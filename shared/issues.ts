@@ -86,7 +86,8 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
   // Theme: pins are asked for only when the theme leads the month; a brief, a grid or styled posts make it optional.
   const optional = i.themeOptional ?? themeOptional(config);
   if (theme && !theme.references && !optional) out.push({ code: "pins", text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
-  else if (theme && theme.references && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed))
+  // An unread theme matters only when the theme leads the month: on a brief, grid or styled route it is optional and raises nothing.
+  else if (theme && theme.references && !optional && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed))
     out.push({ code: "pins-unread", warn: true, text: "The pins were not read since the last change: the month would follow the old theme.", how: "Analyse the pins." });
   if (theme && !theme.palette.length && !config.palette?.length) out.push({ code: "palette", warn: true, text: "No colours for this month.", how: "Add the colours, or let the pins or the grid suggest them." });
   // Ideas and posts
