@@ -144,7 +144,8 @@ describe("the export", () => {
     const r = await render(ADMIN, env, id);
     expect(r.status).toBe(200);
     const d = await json(r);
-    expect(d.video).toMatchObject({ provider: "editor", source: "editor", status: "done", post: 1, version: 2, forClient: false, prompt: "Export 1" });
+    // The post had no client version (the seeded upload was never selected): the export becomes it by itself.
+    expect(d.video).toMatchObject({ provider: "editor", source: "editor", status: "done", post: 1, version: 2, forClient: true, prompt: "Export 1" });
     expect(d.info).toMatchObject({ isMp4: true, video: "h264", audio: "aac", faststart: true });
     const videoId = (d.video as { id: string }).id;
     expect(d.project).toMatchObject({ id, renderedVideo: videoId });
@@ -154,10 +155,10 @@ describe("the export", () => {
     const rows = (await ops(env)).results;
     expect(rows.find((o) => o.kind === "editor.render")).toMatchObject({ provider: "editor", status: "done", task_id: videoId, estimate: 0 });
     expect(v!.op_id).toBe((await env.DB.prepare("SELECT id FROM integration_ops WHERE kind = 'editor.render'").first<{ id: string }>())!.id);
-    // The new version is listed with the post's others and is not the client's until chosen.
+    // The new version is listed with the post's others; being the first finished clip the post shows the client, it is the client's version.
     const list = await json(await app(MEMBER).request("/api/studio/posts/video/list?batch=b1&index=1", {}, env));
     expect((list.videos as { id: string; provider: string; forClient: boolean }[]).map((x) => [x.provider, x.forClient])).toEqual([
-      ["editor", false],
+      ["editor", true],
       ["upload", false],
     ]);
     // The stored file serves with Range like any version.

@@ -5,17 +5,34 @@
  * credits; the Cloud catalog when it is the key), "Include the words and logo"; plus a Magnific
  * section: its video engines, the cost simulated, confirmed, then made with the picture as the
  * first keyframe. A preset's "Use this preset" lands here prefilled. Members see it read-only.
+ *
+ * The Frame control (Reel 9:16 by default, Portrait 4:5, Square 1:1, Landscape 16:9): an engine
+ * with that frame option is handed it; an engine that follows the picture gets the picture composed
+ * to the frame here first (crop to fit, or blur the edges) and sent as the artwork. The last choice
+ * is remembered per month.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Clapperboard, Coins, Lightbulb, RefreshCw, Sparkles, TriangleAlert, X } from "lucide-react";
+import { Clapperboard, Coins, Lightbulb, RefreshCw, Smartphone, Sparkles, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import VoiceInput, { appendDictation } from "@/components/VoiceInput";
 import { ApiError, post as post_ } from "@/api";
 import { DEFAULT_VIDEO_MODEL, durationChoices, VIDEO_MODELS, videoModel } from "@shared/video-models";
+import { frameRoute, type FrameFill, type FrameId } from "@shared/video-frame";
 import { listVideos, MCP_PROVIDER, mcpEstimate, mcpGenerate, mcpModels as fetchMcpModels, mcpStatus, type HiggsfieldBilling, type HiggsfieldMcpStatus, type McpAsk, type McpVideoModel, type VideoItem } from "@/studio/videoApi";
+import FrameControl, { useFrameChoice } from "@/studio/FrameControl";
+import { composeFrame } from "../../frame";
 import { magnificGenerate, magnificModels, magnificStatus, type ConfirmAsk, type MagnificStatus, type MagnificVideoModel } from "../../studioApi";
 import type { StudioShared } from "./types";
+
+/** What goes out as the clip's first frame: the picture or the artwork, composed to the frame when the engine does not take it. */
+interface FramedInput {
+  source: "picture" | "artwork";
+  artwork?: string;
+  frame: FrameId;
+  fill?: FrameFill;
+  words: boolean;
+}
 
 const ENGINES_SHOWN = 6;
 type Provider = "higgsfield" | "magnific";
@@ -29,6 +46,9 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
   const [provider, setProvider] = useState<Provider>("higgsfield");
   const [withWords, setWithWords] = useState(false);
   const artworkRef = useRef<string | null>(null);
+  /** The picture composed to the frame, kept for the cost step and the run that follows (keyed by frame, fill and words). */
+  const framedRef = useRef<{ key: string; dataUrl: string } | null>(null);
+  const [frameChoice, setFrameChoice] = useFrameChoice(post?.batch);
   const [making, setMaking] = useState(false);
   const [error, setError] = useState("");
   const [fromPreset, setFromPreset] = useState<{ title: string; command: string | null } | null>(null);
@@ -42,7 +62,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
   const [moreEngines, setMoreEngines] = useState(false);
   const [engineId, setEngineId] = useState("");
   const [mcpDuration, setMcpDuration] = useState<number | "">("");
-  const [mcpAspect, setMcpAspect] = useState("");
   const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpError, setMcpError] = useState("");
   const [cost, setCost] = useState<null | { credits: number | null; balance: number | null }>(null);
@@ -50,7 +69,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
   const [unlim, setUnlim] = useState<unknown>(null);
   const [cloudModel, setCloudModel] = useState(DEFAULT_VIDEO_MODEL);
   const [cloudDuration, setCloudDuration] = useState<number>(videoModel(DEFAULT_VIDEO_MODEL)!.duration.default);
-  const [cloudAspect, setCloudAspect] = useState("");
   const [cloudResolution, setCloudResolution] = useState("");
   const [needsConfirm, setNeedsConfirm] = useState(false);
   const engine = engines.find((x) => x.id === engineId) ?? null;
@@ -63,7 +81,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
   const [mgMore, setMgMore] = useState(false);
   const [mgSlug, setMgSlug] = useState("");
   const [mgDuration, setMgDuration] = useState<number>(5);
-  const [mgAspect, setMgAspect] = useState("");
   const [mgSfx, setMgSfx] = useState(false);
   const [mgLoading, setMgLoading] = useState(false);
   const [mgError, setMgError] = useState("");
@@ -88,10 +105,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
         setEngines(r.models);
         setEngineId((cur) => {
           const pick = (wanted && (r.models.find((x) => x.id === wanted) ?? matchEngine(r.models, wanted))) || r.models.find((x) => x.id === cur) || r.models[0];
-          if (pick && pick.id !== cur) {
-            setMcpDuration(pick.durations.length ? (pick.durations.includes(5) ? 5 : pick.durations[0]) : "");
-            setMcpAspect("");
-          }
+          if (pick && pick.id !== cur) setMcpDuration(pick.durations.length ? (pick.durations.includes(5) ? 5 : pick.durations[0]) : "");
           return pick?.id ?? cur;
         });
       } catch (e) {
@@ -158,11 +172,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
             setCloudDuration(last.duration);
             setMcpDuration(last.duration);
           }
-          if (last.aspect) {
-            setCloudAspect(last.aspect);
-            setMcpAspect(last.aspect);
-          }
-          setWithWords(last.source === "artwork");
+          // The frame is remembered per month in the browser, not read back from the last clip.
+          setWithWords(last.words === true);
         } else if (!last && !s.prefill) void writeIdea();
       } catch (e) {
         if (alive) setError((e as Error).message);
@@ -195,6 +206,23 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     if (!artworkRef.current) artworkRef.current = await s.composeArtwork();
     return artworkRef.current;
   }
+  /**
+   * The clip's first frame for an engine with these frame options: the picture or the artwork as it
+   * is when the engine takes the frame itself; composed to the frame here (crop to fit, or blur the
+   * edges) and sent as the artwork when the engine follows the picture.
+   */
+  async function framedInput(aspects: readonly string[] | null | undefined): Promise<FramedInput> {
+    const { frame, fill } = frameChoice;
+    const words = withWords && !!s.composeArtwork;
+    const artwork = await artworkOrNull();
+    const route = frameRoute(frame, aspects);
+    if (!route.compose) return { source: words ? "artwork" : "picture", artwork, frame, words };
+    const src = artwork ?? s.pictureUrl;
+    if (!src) throw new Error("This post has no picture yet: a clip starts from the picture.");
+    const key = `${frame}:${fill}:${words ? "words" : "bare"}`;
+    if (framedRef.current?.key !== key) framedRef.current = { key, dataUrl: await composeFrame(src, frame, fill) };
+    return { source: "artwork", artwork: framedRef.current.dataUrl, frame, fill, words };
+  }
   async function afterSubmit(video: VideoItem, words: string) {
     await s.reloadVideos();
     s.setShownId(video.id);
@@ -202,7 +230,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     toast.success(words);
   }
   async function mcpAsk(): Promise<McpAsk> {
-    return { batch: post!.batch, index: post!.index, model: engineId, prompt: idea.trim(), duration: typeof mcpDuration === "number" ? mcpDuration : undefined, aspect: mcpAspect || undefined, source: withWords ? "artwork" : "picture", artwork: await artworkOrNull() };
+    const input = await framedInput(engine?.aspects ?? null);
+    return { batch: post!.batch, index: post!.index, model: engineId, prompt: idea.trim(), duration: typeof mcpDuration === "number" ? mcpDuration : undefined, aspect: frameRoute(frameChoice.frame, engine?.aspects ?? null).aspect, ...input };
   }
   async function getCost(useUnlim?: boolean) {
     setCosting(true);
@@ -241,7 +270,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     setError("");
     setNeedsConfirm(false);
     try {
-      const r = await post_<{ video: VideoItem }>("/api/studio/posts/video", { batch: post.batch, index: post.index, prompt: idea.trim(), model: cloudModel, duration: cloudDuration, aspect: cloudAspect || undefined, resolution: cloudResolution || undefined, source: withWords ? "artwork" : "picture", artwork: await artworkOrNull(), confirm });
+      const input = await framedInput(cm.aspect);
+      const r = await post_<{ video: VideoItem }>("/api/studio/posts/video", { batch: post.batch, index: post.index, prompt: idea.trim(), model: cloudModel, duration: cloudDuration, aspect: frameRoute(frameChoice.frame, cm.aspect).aspect, resolution: cloudResolution || undefined, ...input, confirm });
       await afterSubmit(r.video, "The video is being made; it takes a minute or two.");
     } catch (e) {
       const err = e as ApiError;
@@ -256,7 +286,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     setMaking(true);
     setError("");
     try {
-      const r = await magnificGenerate({ batch: post.batch, index: post.index, slug: mgEngine.slug, prompt: idea.trim(), duration: mgDuration, aspectRatio: mgAspect || undefined, source: withWords ? "artwork" : "picture", artwork: await artworkOrNull(), withSoundEffects: mgSfx || undefined, confirm });
+      const input = await framedInput(mgEngine.aspectRatios);
+      const r = await magnificGenerate({ batch: post.batch, index: post.index, slug: mgEngine.slug, prompt: idea.trim(), duration: mgDuration, aspectRatio: frameRoute(frameChoice.frame, mgEngine.aspectRatios).aspect, ...input, withSoundEffects: mgSfx || undefined, confirm });
       setMgCost(null);
       await afterSubmit(r.video, "Magnific is making the video; it takes a minute or two.");
     } catch (e) {
@@ -333,7 +364,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           ) : engines.length ? (
             <div className="vs-engines">
               {(moreEngines ? engines : engines.slice(0, ENGINES_SHOWN)).map((x) => (
-                <button key={x.id} type="button" className={`vs-engine ${engineId === x.id ? "on" : ""}`} disabled={readOnly} title={x.description || x.id} onClick={() => { setEngineId(x.id); setMcpDuration(x.durations.length ? (typeof mcpDuration === "number" && x.durations.includes(mcpDuration) ? mcpDuration : x.durations.includes(5) ? 5 : x.durations[0]) : mcpDuration); setMcpAspect(x.aspects.includes(mcpAspect) ? mcpAspect : ""); resetCost(); }}>
+                <button key={x.id} type="button" className={`vs-engine ${engineId === x.id ? "on" : ""}`} disabled={readOnly} title={x.description || x.id} onClick={() => { setEngineId(x.id); setMcpDuration(x.durations.length ? (typeof mcpDuration === "number" && x.durations.includes(mcpDuration) ? mcpDuration : x.durations.includes(5) ? 5 : x.durations[0]) : mcpDuration); resetCost(); }}>
                   {x.name}
                 </button>
               ))}
@@ -362,19 +393,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
                 <input type="number" min={1} max={60} placeholder="engine default" value={mcpDuration} disabled={readOnly} onChange={(e) => { setMcpDuration(e.target.value === "" ? "" : Number(e.target.value)); resetCost(); }} />
               )}
             </label>
-            {engine && engine.aspects.length > 0 && (
-              <label>
-                <span>Frame</span>
-                <select value={mcpAspect} disabled={readOnly} onChange={(e) => { setMcpAspect(e.target.value); resetCost(); }}>
-                  <option value="">As the picture</option>
-                  {engine.aspects.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
           </div>
         </>
       )}
@@ -383,7 +401,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           <span className="ts-group-title">Engine · Cloud API</span>
           <div className="vs-engines">
             {VIDEO_MODELS.map((x) => (
-              <button key={x.slug} type="button" className={`vs-engine ${cloudModel === x.slug ? "on" : ""}`} disabled={readOnly} title={`${x.family} · ${x.note}`} onClick={() => { setCloudModel(x.slug); setCloudDuration(x.duration.options?.includes(cloudDuration) || (!x.duration.options && cloudDuration >= (x.duration.min ?? 1) && cloudDuration <= (x.duration.max ?? 60)) ? cloudDuration : x.duration.default); setCloudAspect(x.aspect?.includes(cloudAspect) ? cloudAspect : ""); setCloudResolution(x.resolution?.includes(cloudResolution) ? cloudResolution : x.resolution ? (x.resolution.includes("720p") ? "720p" : x.resolution[0]) : ""); }}>
+              <button key={x.slug} type="button" className={`vs-engine ${cloudModel === x.slug ? "on" : ""}`} disabled={readOnly} title={`${x.family} · ${x.note}`} onClick={() => { setCloudModel(x.slug); setCloudDuration(x.duration.options?.includes(cloudDuration) || (!x.duration.options && cloudDuration >= (x.duration.min ?? 1) && cloudDuration <= (x.duration.max ?? 60)) ? cloudDuration : x.duration.default); setCloudResolution(x.resolution?.includes(cloudResolution) ? cloudResolution : x.resolution ? (x.resolution.includes("720p") ? "720p" : x.resolution[0]) : ""); }}>
                 {x.name}
               </button>
             ))}
@@ -405,19 +423,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
                 ))}
               </select>
             </label>
-            {cm.aspect && (
-              <label>
-                <span>Frame</span>
-                <select value={cloudAspect} disabled={readOnly} onChange={(e) => setCloudAspect(e.target.value)}>
-                  <option value="">As the picture</option>
-                  {cm.aspect.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             {cm.resolution && (
               <label>
                 <span>Resolution</span>
@@ -454,7 +459,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           {mgReady && mgModels.length > 0 && (
             <div className="vs-engines">
               {(mgMore ? mgModels : mgModels.slice(0, ENGINES_SHOWN)).map((m) => (
-                <button key={m.slug} type="button" className={`vs-engine ${mgSlug === m.slug ? "on" : ""}`} title={m.recommendation || m.description || m.slug} onClick={() => { setMgSlug(m.slug); setMgDuration(m.durations.length ? (m.durations.includes(mgDuration) ? mgDuration : m.durations.includes(5) ? 5 : m.durations[0]) : mgDuration); setMgAspect(m.aspectRatios.includes(mgAspect) ? mgAspect : ""); resetCost(); }}>
+                <button key={m.slug} type="button" className={`vs-engine ${mgSlug === m.slug ? "on" : ""}`} title={m.recommendation || m.description || m.slug} onClick={() => { setMgSlug(m.slug); setMgDuration(m.durations.length ? (m.durations.includes(mgDuration) ? mgDuration : m.durations.includes(5) ? 5 : m.durations[0]) : mgDuration); resetCost(); }}>
                   {m.name}
                   {m.recommended ? " ★" : ""}
                 </button>
@@ -484,19 +489,6 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
                   <input type="number" min={1} max={60} value={mgDuration} onChange={(e) => { setMgDuration(Number(e.target.value) || 5); resetCost(); }} />
                 )}
               </label>
-              {mgEngine && mgEngine.aspectRatios.length > 0 && (
-                <label>
-                  <span>Frame</span>
-                  <select value={mgAspect} onChange={(e) => { setMgAspect(e.target.value); resetCost(); }}>
-                    <option value="">As the picture</option>
-                    {mgEngine.aspectRatios.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
               <label className="vs-check">
                 <input type="checkbox" checked={mgSfx} onChange={(e) => { setMgSfx(e.target.checked); resetCost(); }} /> With sound effects
               </label>
@@ -504,6 +496,21 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           )}
         </>
       )}
+
+      <span className="ts-group-title">
+        <Smartphone size={12} /> Frame
+      </span>
+      <FrameControl
+        variant="studio"
+        frame={frameChoice.frame}
+        fill={frameChoice.fill}
+        disabled={readOnly}
+        engine={provider === "magnific" ? (mgEngine ? { name: mgEngine.name, aspects: mgEngine.aspectRatios } : null) : credits ? (engine ? { name: engine.name, aspects: engine.aspects } : null) : { name: cm.name, aspects: cm.aspect }}
+        onChange={(c) => {
+          setFrameChoice(c);
+          resetCost();
+        }}
+      />
 
       <label className="vs-check vs-words">
         <input type="checkbox" checked={withWords} disabled={!s.composeArtwork || readOnly} onChange={(e) => { setWithWords(e.target.checked); artworkRef.current = null; resetCost(); }} />

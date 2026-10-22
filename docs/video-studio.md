@@ -68,7 +68,27 @@ Hero Shot". Members see **Admins only for now** in its place.
 Nothing is invented: a category Higgsfield answers nothing for says *Nothing in this category on
 your plan yet*; a search with no match offers *Search Higgsfield for it* (the provider's own
 `query`). Recipes and Katana productions are shown for reference and cannot be run from here (the
-panel says so and offers *Use this preset* instead).
+panel says so and offers *Use this preset* instead). Switching the category closes the picked
+preset's detail, so the side panel never shows a preset from another category.
+
+**Videos only** (`keepCard` / `dropReason` in `shared/video-presets.ts`, applied by `parsePresets`
+and `parseRecipes` in `server/video-presets.ts`; a detail lookup passes `all: true` and keeps
+everything so a preset can still be opened). A card stays when it has a real id, a title and a
+reference **video**, or a preview picture plus a declared video output (`execution.output_type`,
+`output`, `produces`, `media_type`… saying video, or a Marketing Studio preset in the `motion`
+category). Dropped, with the reason named in the tests: an entry with no id; an entry whose title
+is a known category name (*All*, *Motion*, *Product shot*, *Effects*, *Ads*, *Viral*… — the
+presets page's filter list came back as four such "presets" under UGC); an entry with no preview
+and no description; a preset whose declared output is a picture (those belong to the Photo studio);
+a picture-only card with no video output declared. A kept card without a video shows its picture
+with a **Picture preview** tag, never a black "No reference video" box. Recipes stay only when they
+make a video from a picture (`isVideoFromPictureRecipe`): their words say video / clip / reel /
+motion, name a picture they take (or their `inputs` do, or the provider's own `runnable` flag is
+not false), and do not point at another tool — Blender, After Effects, DaVinci, websites, games,
+3D, code, shaders, influencers, voices and the like are not the Video studio's (so *2d character*,
+*3d jutsu*, *ads studio*, *build ai influencer*, *cartoon shaders*, *color grading*, *content
+factory*, *destruction studio*, *exploded view*, *faceless* go). Every card carries `output`
+(`"video"`, `"image"` or null) for the studio to read.
 
 **Sources behind the categories** (`server/video-presets.ts`, `CATEGORY_ASKS`):
 
@@ -103,6 +123,26 @@ frame from the engine's lists, *With sound effects*, **Get the cost** (`simulate
 A clip whose cost Magnific cannot simulate is not made (the Freepik MCP rule). The running clip
 shows on the stage with its state; the versions are read again every few seconds until it lands.
 
+**Frame** (`shared/video-frame.ts`, `src/studio/FrameControl.tsx`, `src/video-editor/frame.ts`):
+every generated video is a **Reel 9:16** unless the person picks **Portrait 4:5**, **Square 1:1**
+or **Landscape 16:9**; the last choice is remembered per month in the browser
+(`lsm-video-frame-<batch>`). How the frame reaches the engine (`frameRoute`): an engine whose
+frame options include it is handed the frame (Higgsfield MCP `aspect_ratio`, Magnific
+`aspectRatio`, Cloud `aspect_ratio` where `shared/video-models.ts` lists one); an engine that
+follows the picture's frame gets the picture **composed to that frame in the browser first**
+(`composeFrame`: the post's picture, or the artwork with its words and logo, on a canvas of that
+frame — **Crop to fit** covers the frame centred, **Blur the edges** keeps the whole picture over
+a blurred, darkened copy of itself) and sent as `source: "artwork"` with the composed JPEG data
+URL. The control says which of the two happens for the chosen engine. The submit bodies take
+`frame` (one of the four), `fill` (`crop` | `blur`, only when the browser composed) and `words`
+(the words and logo drawn in or not); the version stores them in `settings.frame`,
+`settings.frameFill`, `settings.words` and lists them as `frame`, `frameFill`, `words` ("Reel 9:16
+· cropped to fit · bare picture" under Versions, "Video · 5s · Reel 9:16" on the card's badge). The
+Video dialog has the same control. The Prompt Box's video card defaults to **Frame: Reel 9:16**
+and hands the frame to an engine that takes it; with no browser to compose in, an engine that
+follows the picture keeps the picture's frame there and the note says to open the Video studio.
+Enhance results inherit the frame of the version they start from (a Higgsfield Reframe sets it).
+
 ### Edit
 
 The editor as it was (docs/video-editor.md): its five tabs (Clips, Auto edit, Music, Colour,
@@ -136,12 +176,22 @@ version by an admin; members read it. An uploaded track is mixed in by the Edit 
 ### Versions
 
 Every clip of the post, newest first: the poster, who made it ("Higgsfield (credits) · Preset ·
-Hero Shot", "Magnific · Kling 2.1 Master", "Video studio cut", "Uploaded"), length, source, cost
-(or *free*), the audio choice, the state, the idea, and the client's answers on that version from
-the approval link ("Client: approved · Mona · 22 Oct"). **Show** puts a version on the stage;
-**Compare** puts a second one beside it; **Select for client review** / **Client version**;
-**Edit** opens it on the timeline; a download. The picture is a version too: with no clip
-selected, it is what the client sees.
+Hero Shot", "Magnific · Kling 2.1 Master", "Video studio cut", "Uploaded"), length, frame ("Reel
+9:16 · cropped to fit"), source (words and logo, or the bare picture), cost (or *free*), the audio
+choice, the state, the idea, and the client's answers on that version from the approval link
+("Client: approved · Mona · 22 Oct"). **Show** puts a version on the stage; **Compare** puts a
+second one beside it; **Select for client review** / **The client sees this** with **Show the
+picture instead**; **Edit** opens it on the timeline; a download. The picture is a version too:
+with no clip selected, it is what the client sees.
+
+**The client's version is set by itself.** When a clip finishes — any provider: the settlers
+(`storeFinishedClip`), an upload, the editor's export, an Enhance result (`storeVideoFile`) — and
+the post has no `for_client` row yet, that clip is marked for the client
+(`autoSelectForClient` in `server/video.ts`: one `UPDATE … WHERE NOT EXISTS (… for_client = 1)`,
+so two clips landing together cannot both win). A later clip never replaces a chosen one; the team
+changes or clears the choice under Versions (`POST /select`). The share page plays the client's
+version as before (`server/share.ts` `clientVideos`, `src/share/SharePage.tsx`), on the feed cell
+too; the card's badge says *the client sees this*.
 
 ### Check
 
@@ -272,8 +322,23 @@ understands.
 
 ## Verified
 
-- `tests/video-presets.test.ts` (10 tests): the normalisation of presets, needs, previews and
-  recipes; Not signed in with no call; a member browsing the combined feed, the encrypted cache
+- `tests/video-frame.test.ts` (9 tests): the four frames and their labels, the frame sizes, the
+  cover and contain placement maths (a 4:5 picture into a Reel, a landscape picture, a picture
+  already in the frame), the frame a picture has, how a frame reaches an engine (aspect option or
+  composed) and the words for it, the remembered choice. `tests/video.test.ts`: the frame on the
+  Cloud path (composed artwork with `fill`, handed as `aspect_ratio` to Kling 2.6 Pro, an unknown
+  frame or fill refused, older versions with no frame); the first finished clip shown to the client
+  by itself (an upload, a provider's clip collected on list), a later clip not replacing it, "Show
+  the picture instead" and the next clip taking the place; `tests/higgsfield-mcp.test.ts` and
+  `tests/video-studio.test.ts`: the frame stored on the MCP and Magnific versions, the finished
+  clip as the client's; `tests/video-editor.test.ts`: the export as the client's version when the
+  post had none (its expectation changed from `forClient: false`).
+- `tests/video-presets.test.ts` (11 tests): the normalisation of presets, needs, previews and
+  recipes; the videos-only rules (the category list as four cards, no id, no preview and no
+  description, a picture preset, a picture-only card with no video output, each with its reason;
+  a picture preview with a video output kept; `all: true` for the detail); recipes kept only when
+  they make a video from a picture (Blender, DaVinci, website, influencer, render, script ones
+  dropped); Not signed in with no call; a member browsing the combined feed, the encrypted cache
   row, the day's cache from the isolate and from the row, `?refresh=1`, the next page by cursor,
   the free ledger rows; every category's asks (two for Marketing, Katana for Production, the
   recipes list, the empty answer, the search as `query` except for Katana); the detail for a member
@@ -297,10 +362,14 @@ understands.
 - Browser (`scripts/video-studio-smoke.mjs`, headless Chromium against the built app and a boot
   mock with fixture presets whose reference videos the script serves): the month opens, the card's
   clapperboard opens the studio on Presets (no clip yet), the rail shows seven tools, the category
-  list ten categories, four cards each with a muted looping inline `<video>`, the command chips and
-  *Needs*; the search leaves one card; an empty category says so; Learn more opens the detail with
-  the video large, the run button and the instructions; Use this preset opens Generate with the
-  preset's words, the "From the preset" note, the engine chips and Get the cost; Versions, Enhance
+  list ten categories, five cards: four with a muted looping inline `<video>` and one picture-only
+  card with the *Picture preview* tag and no blank box, the command chips and *Needs*; the search
+  leaves one card; switching the category closes the picked preset's detail; an empty category says
+  so; Learn more opens the detail with the video large, the run button and the instructions; Use
+  this preset opens Generate with the preset's words, the "From the preset" note, the engine chips
+  and Get the cost; the Frame control opens on Reel 9:16 with four frames, says the fixture's
+  Seedance takes the frame itself (no fill asked), shows the fill and "made Reel 9:16 here" for an
+  engine with no frame option, and remembers Square 1:1 · blur in `lsm-video-frame-b1`; Versions, Enhance
   (five cards), Check (a tool greyed as not available) and Edit (five tabs) mount; at 390 px the
   rail gives way to a bottom toolbar of seven tools with no sideways scroll. No page errors, no
   request outside the test server. Screenshots at 1440 (Presets, the detail, Generate, Edit) and

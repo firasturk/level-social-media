@@ -29,6 +29,7 @@ import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, medi
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findString, firstUrl, jsonOf, resultText, type McpCallResult } from "./mcp-client";
 import { finishedVersion, insertVideoRow, parseSettings, patchVideoSettings, sha256, storeFinishedClip, versionItem, type VideoItem, type VideoRow } from "./video";
+import { isFrame } from "@shared/video-frame";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -136,7 +137,7 @@ export async function runClipTool(env: Env, user: User, d: HiggsfieldToolInput):
   });
   const id = uuid();
   const from = parseSettings(v);
-  const settings = { enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: extra }, label: `${meta.label} (Higgsfield) of an earlier version`, estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", duration: from.duration, aspect: typeof extra.aspect_ratio === "string" ? extra.aspect_ratio : from.aspect, balanceBefore: bal.credits, plan: bal.plan, outcomeUnknown: false };
+  const settings = { enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: extra }, label: `${meta.label} (Higgsfield) of an earlier version`, estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", duration: from.duration, aspect: typeof extra.aspect_ratio === "string" ? extra.aspect_ratio : from.aspect, frame: typeof extra.aspect_ratio === "string" && isFrame(extra.aspect_ratio) ? extra.aspect_ratio : from.frame, frameFill: typeof extra.aspect_ratio === "string" ? null : from.frameFill, words: from.words, balanceBefore: bal.credits, plan: bal.plan, outcomeUnknown: false };
   const row = { id, batch: b.id, post: v.post, task: v.task, owner: user.id, model: `tool:${d.tool}`, prompt: v.prompt, provider: MCP_PROVIDER, posterKey: v.poster_key, source: v.source, opId };
   let r: McpCallResult;
   try {

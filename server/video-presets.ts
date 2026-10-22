@@ -31,7 +31,7 @@ import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, medi
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findNumber, findString, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
 import { insertVideoRow, sha256, versionItem, type VideoItem } from "./video";
-import { EXECUTABLE_SOURCES, isPresetCategory, NOTHING_IN_CATEGORY, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
+import { EXECUTABLE_SOURCES, isPresetCategory, isVideoFromPictureRecipe, keepCard, NOTHING_IN_CATEGORY, outputKind, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -208,13 +208,16 @@ function cardOf(o: Record<string, unknown>, fallbackSource: string): PresetCard 
   const price = findNumber({ price: o.price, credits: o.credits, cost: o.cost, price_credits: o.price_credits, credits_cost: o.credits_cost, cost_credits: o.cost_credits, estimated_credits: o.estimated_credits }, ["price", "credits", "cost", "price_credits", "credits_cost", "cost_credits", "estimated_credits"]);
   const engine = [o.model, o.engine, o.model_id, o.default_model].find((v) => typeof v === "string" && v.trim()) as string | undefined;
   const prompt = [o.prompt, o.default_prompt, o.prompt_template, o.example_prompt, o.suggested_prompt].find((v) => typeof v === "string" && v.trim()) as string | undefined;
+  const category = typeof o.category === "string" ? o.category : Array.isArray(o.categories) && typeof o.categories[0] === "string" ? o.categories[0] : null;
+  // What the preset makes: the execution block's word first, then the preset's own output fields, then a "motion" category.
+  const output = outputKind(exec?.output_type, exec?.output, exec?.outputs, exec?.result_type, exec?.produces, exec?.media_type, o.output_type, o.output, o.result_type, o.output_kind, o.produces, o.media_type, o.kind) ?? (/motion/i.test(category ?? "") ? "video" : null);
   return {
     id,
     source,
     title: String(o.name ?? o.title).trim().slice(0, 120),
     description: String(o.description ?? o.summary ?? o.subtitle ?? "").trim().slice(0, 600),
     command: commandOf(o),
-    category: typeof o.category === "string" ? o.category : Array.isArray(o.categories) && typeof o.categories[0] === "string" ? o.categories[0] : null,
+    category,
     type: typeof o.type === "string" ? o.type : null,
     video,
     poster,
@@ -223,11 +226,17 @@ function cardOf(o: Record<string, unknown>, fallbackSource: string): PresetCard 
     runnable: EXECUTABLE_SOURCES.includes(source) && exec?.available !== false,
     engine: engine?.slice(0, 80) ?? null,
     prompt: prompt?.slice(0, 2000) ?? null,
+    output,
   };
 }
 
-/** The presets a `get_presets` answer lists, whatever it calls the list; the shape is read defensively. */
-export function parsePresets(r: McpCallResult, fallbackSource: string): PresetCard[] {
+/**
+ * The presets a `get_presets` answer lists, whatever it calls the list; the shape is read
+ * defensively. The gallery keeps videos only (`keepCard`, shared/video-presets.ts): category
+ * entries, cards with no preview and image presets are dropped. `all: true` (a detail lookup)
+ * keeps every preset-shaped object.
+ */
+export function parsePresets(r: McpCallResult, fallbackSource: string, opts: { all?: boolean } = {}): PresetCard[] {
   const j = jsonOf(r);
   const out: PresetCard[] = [];
   const seen = new Set<string>();
@@ -236,6 +245,7 @@ export function parsePresets(r: McpCallResult, fallbackSource: string): PresetCa
     if (!looksLikePreset(o)) continue;
     const card = cardOf(o, fallbackSource);
     if (seen.has(card.id)) continue;
+    if (!opts.all && !keepCard(card)) continue;
     seen.add(card.id);
     out.push(card);
   }
@@ -251,17 +261,23 @@ export function nextCursorOf(r: McpCallResult): string | null {
 /**
  * The recipes and commands `get_preset_instructions` lists with no preset: objects with a command
  * and a title, or lines such as "/hero-shot — a product hero shot". Recipes are read-only cards.
+ * Only recipes that make a video from a picture are kept (`isVideoFromPictureRecipe`): the
+ * Blender, After Effects, DaVinci, website and 3D recipes are not the Video studio's. `all: true`
+ * (a detail lookup) keeps every recipe.
  */
-export function parseRecipes(r: McpCallResult): PresetCard[] {
+export function parseRecipes(r: McpCallResult, opts: { all?: boolean } = {}): PresetCard[] {
   const j = jsonOf(r);
   const out: PresetCard[] = [];
   const seen = new Set<string>();
   const push = (command: string, title: string, description: string, o: Record<string, unknown> = {}) => {
     const c = command.startsWith("/") ? command : `/${command}`;
     if (seen.has(c)) return;
-    seen.add(c);
     const { video, poster } = mediaOf(o);
-    out.push({ id: c, source: "recipe", title: title.slice(0, 120) || c, description: description.slice(0, 600), command: c, category: typeof o.category === "string" ? o.category : "recipe", type: typeof o.type === "string" ? o.type : "recipe", video, poster, price: null, needs: needsOf(o.input_schema ?? o.inputs ?? null), runnable: false, engine: null, prompt: typeof o.prompt === "string" ? o.prompt.slice(0, 2000) : null });
+    const needs = needsOf(o.input_schema ?? o.inputs ?? null);
+    const flag = [o.runnable, o.executable, o.available].find((v) => typeof v === "boolean") as boolean | undefined;
+    if (!opts.all && !isVideoFromPictureRecipe(`${c} ${title} ${description} ${String(o.category ?? "")} ${String(o.type ?? "")}`, { inputs: o.inputs ?? o.input_schema ?? o.input_types ?? o.requires ?? o.accepts ?? o.media, runnable: flag ?? null, needs })) return;
+    seen.add(c);
+    out.push({ id: c, source: "recipe", title: title.slice(0, 120) || c, description: description.slice(0, 600), command: c, category: typeof o.category === "string" ? o.category : "recipe", type: typeof o.type === "string" ? o.type : "recipe", video, poster, price: null, needs, runnable: false, engine: null, prompt: typeof o.prompt === "string" ? o.prompt.slice(0, 2000) : null, output: "video" });
   };
   for (const o of [...objectsWith(j, "command"), ...objectsWith(j, "slash"), ...objectsWith(j, "slash_command"), ...objectsWith(j, "recipe")]) {
     const c = commandOf(o);
@@ -376,7 +392,7 @@ export async function fetchDetail(mcp: HiggsfieldMcp, id: string, source: string
     if (initialInputs) args.initial_inputs = initialInputs;
     const r = await mcp.call("get_presets", args);
     if (r.isError) throw new StudioError(`Higgsfield could not open this preset: ${resultText(r).slice(0, 200)}`, 502);
-    const cards = parsePresets(r, source ?? "viral");
+    const cards = parsePresets(r, source ?? "viral", { all: true });
     card = cards.find((c) => c.id === id) ?? cards[0] ?? null;
     exec = executionOf(r);
     price = card?.price ?? findNumber(jsonOf(r), ["price", "credits", "cost", "price_credits", "credits_cost"]);
@@ -389,8 +405,8 @@ export async function fetchDetail(mcp: HiggsfieldMcp, id: string, source: string
       if (!ri.isError) {
         instructions = resultText(ri).slice(0, 8000);
         if (!card) {
-          const recipe = parseRecipes(ri).find((c) => c.command === command);
-          card = recipe ?? { id, source: "recipe", title: command.slice(1).replace(/[/-]+/g, " "), description: "", command, category: "recipe", type: "recipe", video: null, poster: null, price: null, needs: [], runnable: false, engine: null, prompt: null };
+          const recipe = parseRecipes(ri, { all: true }).find((c) => c.command === command);
+          card = recipe ?? { id, source: "recipe", title: command.slice(1).replace(/[/-]+/g, " "), description: "", command, category: "recipe", type: "recipe", video: null, poster: null, price: null, needs: [], runnable: false, engine: null, prompt: null, output: null };
         }
         if (!card.video || !card.poster) {
           const media = mediaOf((jsonOf(ri) as Record<string, unknown> | null) ?? {});

@@ -29,6 +29,7 @@ import { readMp4 } from "./mp4";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { CREDITS_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
+import { isFill, isFrame, type FrameFill, type FrameId } from "@shared/video-frame";
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
 import type { AudioChoice } from "@shared/video-audio";
@@ -81,6 +82,29 @@ interface StoredSettings extends Partial<VideoSettings> {
   check?: { tool: string; at: number; text: string; credits: number | null } | null;
   /** A Higgsfield video analysis started on this version, polled by the Check panel. */
   analysis?: { id: string; status: string; text: string; at: number } | null;
+  /** The frame asked for ("9:16"), handed to the engine as its aspect or composed into the picture first (shared/video-frame.ts). */
+  frame?: FrameId | null;
+  /** How the picture was made to fit the frame in the browser, when it was ("crop" or "blur"); absent when the engine took the frame itself. */
+  frameFill?: FrameFill | null;
+  /** True when the words and logo were drawn into the first frame; false for the bare picture (composed to a frame or not). */
+  words?: boolean | null;
+}
+
+/** The frame fields a submit body may carry: `frame` (one of the four), `fill` (crop | blur), `words` (the words drawn in). */
+export const frameFields = {
+  frame: z.string().max(10).refine((s) => isFrame(s), "Unknown frame: use 9:16, 4:5, 1:1 or 16:9.").optional(),
+  fill: z.string().max(10).refine((s) => isFill(s), "Unknown fill: use crop or blur.").optional(),
+  words: z.boolean().optional(),
+};
+
+/** What of a body's frame fields goes into the version's settings. */
+export function frameSettings(d: { frame?: string; fill?: string; words?: boolean; source?: string }): Pick<StoredSettings, "frame" | "frameFill" | "words"> {
+  const out: Pick<StoredSettings, "frame" | "frameFill" | "words"> = {};
+  if (isFrame(d.frame)) out.frame = d.frame;
+  if (isFill(d.fill)) out.frameFill = d.fill;
+  if (typeof d.words === "boolean") out.words = d.words;
+  else if (d.source === "artwork" && !isFill(d.fill)) out.words = true; // the artwork as before the frame control: the words drawn in
+  return out;
 }
 
 const MAX_UPLOAD = 60 * 1024 * 1024;
@@ -131,6 +155,12 @@ export interface VideoItem {
   label: string | null;
   check: { tool: string; at: number; text: string; credits: number | null } | null;
   analysis: { id: string; status: string; text: string; at: number } | null;
+  /** The frame asked for ("9:16"), null for versions made before the frame control or uploaded. */
+  frame: FrameId | null;
+  /** "crop" or "blur" when the picture was composed to the frame in the browser; null when the engine took the frame or none was asked. */
+  frameFill: FrameFill | null;
+  /** True when the words and logo are in the clip's first frame; false for the bare picture; null when not known (older versions, uploads). */
+  words: boolean | null;
 }
 
 /** The names of a post's tracks by id, for the versions list ("Track: Summer loop"). */
@@ -170,6 +200,9 @@ export function videoItem(v: VideoRow, version: number, audioNames?: Map<string,
     label: typeof s.label === "string" ? s.label : null,
     check: s.check ?? null,
     analysis: s.analysis ?? null,
+    frame: isFrame(s.frame) ? s.frame : null,
+    frameFill: isFill(s.frameFill) ? s.frameFill : null,
+    words: typeof s.words === "boolean" ? s.words : v.source === "artwork" && !isFill(s.frameFill) ? true : v.source === "picture" ? false : null,
   };
 }
 
@@ -230,6 +263,20 @@ export async function finishedVersion(env: Env, batch: string, id: string): Prom
   if (!v) throw new StudioError("Video not found.", 404);
   if (v.status !== "done" || !v.key) throw new StudioError("Only a finished clip can be worked on.", 409);
   return v;
+}
+
+/**
+ * A finished clip becomes the client's version when the post has none yet (the share page shows
+ * the clip without anyone selecting it); a post whose client version was already chosen keeps it.
+ * The team can still change or clear it under Versions ("Select for client review" / "Show the
+ * picture instead"). Returns true when this clip was marked.
+ */
+export async function autoSelectForClient(env: Env, v: { id: string; batch: string; post: number; status: VideoStatus; key: string | null; for_client?: number }): Promise<boolean> {
+  if (v.status !== "done" || !v.key) return false;
+  const r = await env.DB.prepare("UPDATE videos SET for_client = 1, updated = ? WHERE id = ? AND status = 'done' AND key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM videos WHERE batch = ? AND post = ? AND for_client = 1)").bind(now(), v.id, v.batch, v.post).run();
+  const marked = (r.meta?.changes ?? 0) > 0;
+  if (marked) v.for_client = 1;
+  return marked;
 }
 
 /** The version's item with its number among the post's clips, after a change. */
@@ -310,6 +357,8 @@ interface ClipAsk {
   /** The person confirmed a clip whose cost is not known. */
   confirm: boolean;
   note?: string;
+  /** The frame asked for, how the picture was fitted to it, and whether the words are in it (shared/video-frame.ts). */
+  frame?: Pick<StoredSettings, "frame" | "frameFill" | "words">;
 }
 
 /**
@@ -337,6 +386,7 @@ async function submitClip(env: Env, user: User, b: { id: string; owner: string }
   const estimateUsd = estimate.usd;
   const stored: StoredSettings = {
     ...ask.settings,
+    ...(ask.frame ?? {}),
     estimate: estimateUsd,
     credits: estimate.credits,
     estimateSource: estimate.source ?? "confirmed",
@@ -350,7 +400,7 @@ async function submitClip(env: Env, user: User, b: { id: string; owner: string }
     post: index,
     estimate: estimateUsd,
     status: "confirmed",
-    note: `${ask.model.name} · ${ask.settings.duration}s · ${ask.source}${estimate.source ? ` · estimate from ${estimate.source}` : " · cost unknown, confirmed"}`,
+    note: `${ask.model.name} · ${ask.settings.duration}s · ${ask.source}${ask.frame?.frame ? ` · frame ${ask.frame.frame}${ask.frame.frameFill ? ` (${ask.frame.frameFill})` : ""}` : ""}${estimate.source ? ` · estimate from ${estimate.source}` : " · cost unknown, confirmed"}`,
   });
   const t = now();
   const insert = (status: VideoStatus, requestId: string | null, error: string | null) =>
@@ -422,6 +472,8 @@ export async function storeFinishedClip(env: Env, b: { id: string; owner: string
   v.status = "done";
   v.key = key;
   v.settings = JSON.stringify(s);
+  // The first finished clip of a post is what the client sees, until the team chooses otherwise.
+  await autoSelectForClient(env, v);
 }
 
 /**
@@ -487,10 +539,11 @@ const submitSchema = z.object({
   resolution: z.string().max(10).optional(),
   audio: z.boolean().optional(),
   source: z.enum(["picture", "artwork"]).default("picture"),
-  /** The composed post (words and logo drawn by the browser) as a data URL, when source is "artwork". */
+  /** The composed post (words and logo drawn by the browser, or the picture fitted to the frame) as a data URL, when source is "artwork". */
   artwork: z.string().max(17 * 1024 * 1024).optional(),
   confirm: z.boolean().optional(),
   note: z.string().trim().max(200).optional(),
+  ...frameFields,
 });
 
 export type SubmitInput = z.infer<typeof submitSchema>;
@@ -515,7 +568,7 @@ export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): 
     posterKey = `${b.owner}/${b.id}/video/${t.id}/${uuid()}.artwork.${art.mime === "image/png" ? "png" : art.mime === "image/webp" ? "webp" : "jpg"}`;
     await env.BUCKET.put(posterKey, art.bytes, { httpMetadata: { contentType: art.mime } });
   }
-  const row = await submitClip(env, user, b, t, d.index, { model, prompt: d.prompt.trim(), settings: checked.settings, source: d.source, posterKey, confirm: !!d.confirm, note: d.note });
+  const row = await submitClip(env, user, b, t, d.index, { model, prompt: d.prompt.trim(), settings: checked.settings, source: d.source, posterKey, confirm: !!d.confirm, note: d.note, frame: frameSettings(d) });
   const rows = await postRows(env, b.id, d.index);
   const numbers = versionNumbers(rows);
   return videoItem(row, numbers.get(row.id) ?? rows.length);
@@ -554,7 +607,7 @@ videoRoutes.post("/retry", async (c) => {
   if (!checked.ok) throw new StudioError(checked.reason);
   const posterKey = v.poster_key ?? t.output;
   if (!posterKey) throw new StudioError("That post has no picture any more.", 409);
-  const row = await submitClip(c.env, user, b, t, v.post, { model, prompt: v.prompt, settings: checked.settings, source: v.source, posterKey, confirm: !!d.confirm, note: `try again of ${v.id}` });
+  const row = await submitClip(c.env, user, b, t, v.post, { model, prompt: v.prompt, settings: checked.settings, source: v.source, posterKey, confirm: !!d.confirm, note: `try again of ${v.id}`, frame: { frame: s.frame, frameFill: s.frameFill, words: s.words } });
   const rows = await postRows(c.env, b.id, v.post);
   return c.json({ ok: true, video: videoItem(row, versionNumbers(rows).get(row.id) ?? rows.length) });
 });
@@ -672,6 +725,8 @@ export async function storeVideoFile(env: Env, user: User, b: { id: string; owne
     ask.source,
     ask.opId ?? null,
   );
+  // A stored file is a finished clip: the client's version when the post has none yet.
+  await autoSelectForClient(env, { id, batch: b.id, post: index, status: "done", key });
   const rows = await postRows(env, b.id, index);
   const row = rows.find((r) => r.id === id)!;
   return { video: videoItem(row, versionNumbers(rows).get(id) ?? 0), info };

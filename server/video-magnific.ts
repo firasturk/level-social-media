@@ -35,7 +35,7 @@ import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordInt
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
 import { posterFor } from "./higgsfield-mcp";
 import { findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
-import { finishedVersion, GIVE_UP_MS, insertVideoRow, parseSettings, patchVideoSettings, registerPendingSettler, sha256, storeFinishedClip, versionItem, type VideoItem, type VideoRow } from "./video";
+import { finishedVersion, frameFields, frameSettings, GIVE_UP_MS, insertVideoRow, parseSettings, patchVideoSettings, registerPendingSettler, sha256, storeFinishedClip, versionItem, type VideoItem, type VideoRow } from "./video";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -244,6 +244,7 @@ const generateSchema = z.object({
   withSoundEffects: z.boolean().optional(),
   confirm: z.boolean().optional(),
   note: z.string().trim().max(200).optional(),
+  ...frameFields,
 });
 export type MagnificGenerateInput = z.infer<typeof generateSchema>;
 
@@ -273,9 +274,9 @@ export async function generateMagnificVideo(env: Env, user: User, d: MagnificGen
   if (!d.confirm) throw new StudioError(`Confirm the clip: about ${estimate} credits from the Magnific balance.`, 409, false, { needsConfirm: true, estimate, credits: estimate });
   const fingerprint = await sha256([MAGNIFIC_PROVIDER, d.slug, d.prompt.trim(), d.duration, d.aspectRatio ?? "", d.resolution ?? "", d.source, posterKey].join("\n"));
   if (!(await claimSubmission(env, `video:${b.id}:${d.index}:${fingerprint}`, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
-  const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${engine.name} · ${d.duration}s · ${d.source} · ${estimate} credits (Magnific)${d.note ? ` · ${d.note}` : ""}` });
+  const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${engine.name} · ${d.duration}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${estimate} credits (Magnific)${d.note ? ` · ${d.note}` : ""}` });
   const id = uuid();
-  const settings = { slug: d.slug, engineName: engine.name, duration: d.duration, aspect: d.aspectRatio, resolution: d.resolution, estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
+  const settings = { slug: d.slug, engineName: engine.name, duration: d.duration, aspect: d.aspectRatio, resolution: d.resolution, ...frameSettings(d), estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
   const row = { id, batch: b.id, post: d.index, task: t.id, owner: user.id, model: `magnific:${d.slug}`, prompt: d.prompt.trim(), provider: MAGNIFIC_PROVIDER, posterKey, source: d.source, opId };
   let r: McpCallResult;
   try {
@@ -388,7 +389,7 @@ export async function enhanceMagnificVideo(env: Env, user: User, d: MagnificEnha
   const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${meta.label} (${d.tool}) of version ${v.id.slice(0, 8)} · ${estimate} credits (Magnific) · ${JSON.stringify(d.arguments).slice(0, 200)}` });
   const id = uuid();
   const from = parseSettings(v);
-  const settings = { enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: d.arguments }, label: `${meta.label} (Magnific) of an earlier version`, estimate, credits: estimate, estimateSource: "provider", unit: "credits", duration: from.duration, aspect: from.aspect, identifiers: [] as string[] };
+  const settings = { enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: d.arguments }, label: `${meta.label} (Magnific) of an earlier version`, estimate, credits: estimate, estimateSource: "provider", unit: "credits", duration: from.duration, aspect: from.aspect, frame: from.frame, frameFill: from.frameFill, words: from.words, identifiers: [] as string[] };
   const row = { id, batch: b.id, post: v.post, task: v.task, owner: user.id, model: `magnific:${d.tool}`, prompt: v.prompt, provider: MAGNIFIC_PROVIDER, posterKey: v.poster_key, source: v.source, opId };
   let r: McpCallResult;
   try {

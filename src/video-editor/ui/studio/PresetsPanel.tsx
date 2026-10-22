@@ -1,14 +1,16 @@
 /**
- * The preset gallery (the ask's core): Higgsfield's presets page inside the studio. The stage shows
- * the category list on the left and the cards, each with the provider's own reference video
- * (plays on hover or tap, muted, looping, hotlinked from the provider), its title, one line of
+ * The preset gallery (the ask's core): Higgsfield's presets page inside the studio, videos only
+ * (the server keeps the cards with a reference video, or a picture preview of a preset whose
+ * result is a video; shared/video-presets.ts). The stage shows the category list on the left and
+ * the cards, each with the provider's own reference video (plays on hover or tap, muted, looping,
+ * hotlinked from the provider) or its picture tagged "Picture preview", its title, one line of
  * description, chips (the slash command, the source, the category) and what it needs. The right
  * panel shows the picked preset in full: the video large, the instructions ("Learn more"), the
  * price, "Use this preset" (the Generate panel prefilled) and, for an admin on a runnable preset,
  * "Run this preset" with the confirm. Members browse; nothing is invented when a category is empty.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
-import { BookOpen, LayoutGrid, Lock, Play, RefreshCw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
+import { BookOpen, Image as ImageIcon, LayoutGrid, Lock, Play, RefreshCw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { ApiError } from "@/api";
@@ -121,7 +123,11 @@ export function usePresets(s: StudioShared, active: boolean): PresetsState {
   return {
     category,
     setCategory: (c) => {
+      // Another category: the side panel forgets the preset picked in the last one.
       setCategory(c);
+      setSelected(null);
+      setDetail(null);
+      setDetailError("");
     },
     q,
     setQ,
@@ -167,12 +173,16 @@ export function PresetCardView({ card, selected, onSelect, onUse, children }: { 
         title={card.description || card.title}
         aria-label={`${card.title}: open`}
       >
-        {card.video ? <video src={card.video} poster={card.poster ?? undefined} muted loop playsInline preload="none" /> : card.poster ? <img src={card.poster} alt="" loading="lazy" /> : <span className="vs-preset-blank">No reference video</span>}
-        {card.video && (
+        {card.video ? <video src={card.video} poster={card.poster ?? undefined} muted loop playsInline preload="none" /> : card.poster ? <img src={card.poster} alt="" loading="lazy" /> : <span className="vs-preset-blank">No preview</span>}
+        {card.video ? (
           <span className="vs-preset-play" aria-hidden>
             <Play size={14} />
           </span>
-        )}
+        ) : card.poster ? (
+          <span className="vs-preset-tag" title="Higgsfield shows a picture for this preset; the result is a video">
+            <ImageIcon size={11} /> Picture preview
+          </span>
+        ) : null}
         {card.price !== null && <span className="vs-preset-price">{card.price} credits</span>}
       </button>
       <div className="vs-preset-text">
@@ -310,7 +320,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
           </span>
         </div>
         <p className="ts-hint">Pick a preset on the left to see its reference video, what it does and what it needs. “Use this preset” fills the Generate panel with its words; a runnable preset can also be run from here by an admin, on the subscription credits.</p>
-        <p className="ts-hint">The videos are Higgsfield's own examples, shown from their site; the studio keeps no copy.</p>
+        <p className="ts-hint">The videos are Higgsfield's own examples, shown from their site; the studio keeps no copy. Only presets whose result is a video are listed here; picture presets live in the Photo studio.</p>
       </div>
     );
   }
@@ -350,7 +360,12 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
         </button>
       </div>
       <div className="vs-detail-media" onMouseEnter={(e) => playOn(e, true)}>
-        {card.video ? <video key={card.video} src={card.video} poster={card.poster ?? undefined} muted loop playsInline controls preload="metadata" /> : card.poster ? <img src={card.poster} alt="" /> : <span className="vs-preset-blank">No reference video</span>}
+        {card.video ? <video key={card.video} src={card.video} poster={card.poster ?? undefined} muted loop playsInline controls preload="metadata" /> : card.poster ? <img src={card.poster} alt="" /> : <span className="vs-preset-blank">No preview</span>}
+        {!card.video && card.poster && (
+          <span className="vs-preset-tag">
+            <ImageIcon size={11} /> Picture preview
+          </span>
+        )}
       </div>
       <b className="vs-detail-title">{card.title}</b>
       {card.description && <p className="vs-detail-desc">{card.description}</p>}

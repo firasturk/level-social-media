@@ -1,6 +1,7 @@
 /** The Video studio's own routes: the preset gallery, Magnific's video tools, Higgsfield's clip tools and checks. */
 import { get, post } from "@/api";
 import type { PresetCard, PresetCategory, PresetCategoryId, PresetDetail } from "@shared/video-presets";
+import type { FrameFill, FrameId } from "@shared/video-frame";
 import type { VideoItem } from "@/studio/videoApi";
 
 export interface Access {
@@ -86,6 +87,10 @@ export interface MagnificGenerateAsk {
   artwork?: string;
   withSoundEffects?: boolean;
   confirm?: boolean;
+  /** The frame asked for, how the picture was fitted to it (when the browser did), and whether the words are in it. */
+  frame?: FrameId;
+  fill?: FrameFill;
+  words?: boolean;
 }
 export const magnificGenerate = (ask: MagnificGenerateAsk) => post<{ video: VideoItem }>("/api/studio/video/magnific/generate", ask);
 export const magnificEnhance = (body: { batch: string; videoId: string; tool: string; arguments: Record<string, unknown>; confirm?: boolean }) => post<{ video: VideoItem }>("/api/studio/video/magnific/enhance", body);

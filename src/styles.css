@@ -19224,6 +19224,36 @@ a.publish-pill.published:hover {
 .pc-video-badge.client {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
 }
+.pc-video-badge .pc-video-client {
+  font-size: 10px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--success) 70%, #fff);
+}
+/* The Frame control in the Video dialog (the studio's own styles live in video-studio.css). */
+.video-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.video-frame-row .format-chip {
+  flex: 1;
+  padding: 8px 4px;
+}
+.video-frame-fill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-600);
+}
+.video-frame-fill select {
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-900);
+}
 .pc-video-player {
   position: absolute;
   inset: 0;

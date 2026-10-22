@@ -347,6 +347,24 @@
 .vs-preset:hover .vs-preset-play {
   opacity: 0;
 }
+.vs-preset-tag {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #1d1d1f;
+  font-size: 10.5px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.vs-detail-media {
+  position: relative;
+}
 .vs-preset-price {
   position: absolute;
   left: 8px;
@@ -585,6 +603,46 @@
   height: 30px;
   align-items: center;
   color: #1d1d1f;
+}
+/* The Frame control: four frames, the fill for engines that follow the picture, one line on the route. */
+.vs-framectl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vs-framectl-seg button {
+  flex-direction: column;
+  gap: 0;
+  height: 40px;
+  line-height: 1.15;
+}
+.vs-framectl-seg button small {
+  font-size: 10px;
+  font-weight: 500;
+  color: #8e8e93;
+}
+.vs-framectl-seg button.on small {
+  color: var(--ts-accent);
+}
+.vs-framectl-fill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #6e6e73;
+}
+.vs-framectl-fill select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--ts-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12.5px;
+  color: #1d1d1f;
+  min-width: 150px;
+}
+.vs-framectl-note {
+  margin: 0;
 }
 .vs-cost {
   display: flex;

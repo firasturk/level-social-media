@@ -195,6 +195,37 @@ describe("submitting a clip", () => {
     expect((await submit(await app(), env, { source: "artwork", prompt: "Without the artwork itself" })).status).toBe(400);
   });
 
+  it("keeps the frame on the version: handed to an engine with that frame option, or composed into the artwork for one that follows the picture", async () => {
+    const env = await seed();
+    const { calls } = provider();
+    const png = "data:image/png;base64," + Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString("base64");
+    // Seedance follows the picture: the browser composed a 9:16 picture (crop to fit) and sent it as the artwork, bare of words.
+    const composed = await submit(await app(), env, { source: "artwork", artwork: png, frame: "9:16", fill: "crop", words: false });
+    expect(composed.status).toBe(200);
+    const c = (await composed.json()) as { video: { id: string; frame: string; frameFill: string; words: boolean; aspect: string | null } };
+    expect(c.video).toMatchObject({ frame: "9:16", frameFill: "crop", words: false, aspect: null });
+    expect(JSON.parse((await env.DB.prepare("SELECT settings FROM videos WHERE id = ?").bind(c.video.id).first<{ settings: string }>())!.settings)).toMatchObject({ frame: "9:16", frameFill: "crop", words: false });
+    expect(JSON.parse(String(calls.find((x) => x.url === `https://higgsfield.test/${SEEDANCE}`)!.init?.body))).not.toHaveProperty("aspect_ratio");
+    expect(ops.record).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ note: expect.stringContaining("frame 9:16 (crop)") }));
+    // Kling 2.6 Pro takes the frame itself: the aspect goes to the engine, the picture goes as it is.
+    const second = provider();
+    const kling = "kling-video/v2.6/pro/image-to-video";
+    const handed = await submit(await app(), env, { model: kling, prompt: "The cup turns slowly in the light", duration: 5, aspect: "9:16", frame: "9:16", words: false });
+    expect(handed.status).toBe(200);
+    const h = (await handed.json()) as { video: { frame: string; frameFill: string | null; words: boolean; aspect: string } };
+    expect(h.video).toMatchObject({ frame: "9:16", frameFill: null, words: false, aspect: "9:16" });
+    expect(JSON.parse(String(second.calls.find((x) => x.url === `https://higgsfield.test/${kling}`)!.init?.body))).toMatchObject({ aspect_ratio: "9:16" });
+    // An unknown frame or fill is refused before anything is sent.
+    expect((await submit(await app(), env, { frame: "3:4" })).status).toBe(400);
+    expect((await submit(await app(), env, { frame: "1:1", fill: "stretch" })).status).toBe(400);
+    // A version made before the frame control carries no frame; an artwork of that time means the words were in.
+    const old = (await list(await app(), env)).videos.at(-1)!;
+    expect(old).toMatchObject({ frame: "9:16" });
+    expect((await submit(await app(), env, { prompt: "No frame asked at all" })).status).toBe(200);
+    const plain = (await list(await app(), env)).videos[0];
+    expect(plain).toMatchObject({ frame: null, frameFill: null, words: false });
+  });
+
   it("keeps a submission the provider rejected as a failed version, and tries it again as a new job", async () => {
     const env = await seed();
     vi.stubGlobal(
@@ -324,17 +355,27 @@ describe("the stored file", () => {
 describe("the client's link", () => {
   const read = async (a: App, env: FakeEnv) => (await (await a.request(`/api/share/${TOKEN}?rid=rid-nada-01`, {}, env)).json()) as { posts: { video: { id: string; url: string; poster: string; duration: number; version: { kind: string; id: string; label: string } } | null; version: { kind: string; id: string; label: string } | null }[] };
 
-  it("exposes only the version selected for the client, serves it with Range, and never a draft", async () => {
+  it("shows the first finished clip to the client by itself, keeps a chosen one when a later clip lands, serves it with Range, and never a draft", async () => {
     const env = await seed();
     const a = await app();
-    const firstId = ((await (await upload(a, env, "first")).json()) as { video: { id: string } }).video.id;
-    const secondId = ((await (await upload(a, env, "second")).json()) as { video: { id: string } }).video.id;
-    // Nothing selected yet: the client sees the picture, and the file is not there.
-    const before = await read(a, env);
-    expect(before.posts[0].video).toBeNull();
-    expect(before.posts[0].version).toMatchObject({ kind: "image", label: expect.stringMatching(/^Picture \(/) });
+    // No clip yet: the client sees the picture, and the file is not there.
+    const none = await read(a, env);
+    expect(none.posts[0].video).toBeNull();
+    expect(none.posts[0].version).toMatchObject({ kind: "image", label: expect.stringMatching(/^Picture \(/) });
     expect((await a.request(`/api/share/${TOKEN}/video/1`, {}, env)).status).toBe(404);
-    // The team selects the first clip.
+    // The first finished clip goes to the client without anyone selecting it.
+    const first = (await (await upload(a, env, "first")).json()) as { video: { id: string; forClient: boolean } };
+    expect(first.video.forClient).toBe(true);
+    const firstId = first.video.id;
+    const auto = await read(a, env);
+    expect(auto.posts[0].video).toMatchObject({ id: firstId, version: { kind: "video", id: firstId } });
+    // A later clip does not replace the one the client already sees.
+    const second = (await (await upload(a, env, "second")).json()) as { video: { id: string; forClient: boolean } };
+    expect(second.video.forClient).toBe(false);
+    const secondId = second.video.id;
+    expect((await read(a, env)).posts[0].video!.id).toBe(firstId);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM videos WHERE for_client = 1").first<{ n: number }>())!.n).toBe(1);
+    // The team may still pick the first by hand (a no-op here) and sees who the client sees.
     const sel = await a.request("/api/studio/posts/video/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 1, id: firstId }) }, env);
     expect(sel.status).toBe(200);
     expect(((await sel.json()) as { videos: { id: string; forClient: boolean }[] }).videos.map((v) => [v.id, v.forClient])).toEqual([
@@ -355,9 +396,28 @@ describe("the client's link", () => {
     await a.request("/api/studio/posts/video/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 1, id: secondId }) }, env);
     expect((await read(a, env)).posts[0].video!.version.label).toMatch(/^Video 2 \(/);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM videos WHERE for_client = 1").first<{ n: number }>())!.n).toBe(1);
-    // And none: the picture again.
+    // "Show the picture instead": the picture again, and a third clip now becomes the client's (the post had none).
     await a.request("/api/studio/posts/video/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 1, id: null }) }, env);
     expect((await read(a, env)).posts[0].video).toBeNull();
+    expect((await a.request(`/api/share/${TOKEN}/video/1`, {}, env)).status).toBe(404);
+    const third = (await (await upload(a, env, "third")).json()) as { video: { id: string; forClient: boolean } };
+    expect(third.video.forClient).toBe(true);
+    expect((await read(a, env)).posts[0].video!.id).toBe(third.video.id);
+  });
+
+  it("marks a clip the provider finishes as the client's version when the post has none, and the summary says so", async () => {
+    const env = await seed();
+    provider({ statuses: [{ status: "in_progress" }, { status: "completed", video: { url: "https://cdn.test/out.mp4" } }] });
+    expect((await submit(await app(), env, {})).status).toBe(200);
+    const queued = (await list(await app(), env)).videos[0];
+    expect(queued).toMatchObject({ status: "generating", forClient: false });
+    // The list collects the finished clip: stored, done, and the client's version at once.
+    const done = (await list(await app(), env)).videos[0];
+    expect(done).toMatchObject({ status: "done", forClient: true });
+    const shared = await read(await app(), env);
+    expect(shared.posts[0].video).toMatchObject({ id: done.id, version: { kind: "video", id: done.id } });
+    const summary = (await (await (await app()).request("/api/studio/posts/video/summary?batch=b1", {}, env)).json()) as { posts: Record<string, { client: { id: string } | null }> };
+    expect(summary.posts["1"].client?.id).toBe(done.id);
   });
 
   it("stores the version each answer referred to, and keeps earlier answers on older versions", async () => {

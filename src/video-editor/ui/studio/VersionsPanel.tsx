@@ -1,14 +1,15 @@
 /**
  * Versions: every clip of this post, newest first, with who made it (the provider's label), its
- * cost, its state, the one the client reviews, the client's answers on each version, Compare (two
- * versions side by side on the stage) and "Select for client review".
+ * frame, its cost, its state, the one the client sees (the first finished clip by itself, or the
+ * one the team selected), the client's answers on each version, Compare (two versions side by side
+ * on the stage), "Select for client review" and "Show the picture instead".
  */
 import { useState } from "react";
 import { Check, Columns2, Download, History, Scissors, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { videoModel } from "@shared/video-models";
-import { audioLine, costLabel, engineLabel, inFlight, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "@/studio/videoApi";
+import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "@/studio/videoApi";
 import type { StudioShared } from "./types";
 
 const when = (t: number) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -26,7 +27,7 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
       await selectForClient(s.post.batch, s.post.index, id);
       await s.reloadVideos();
       s.onChanged?.();
-      toast.success(id ? "This video goes to the client for review." : "The client sees the picture.");
+      toast.success(id ? "The client sees this video on the review link." : "The client sees the picture.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -48,7 +49,7 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
         <small>{s.videos.length} clip{s.videos.length === 1 ? "" : "s"}</small>
       </div>
       <p className="ts-hint">
-        The client sees <b>{client ? versionLabel(client) : "the picture"}</b> on the review link. Every clip stays here; pick one to show it on the stage, a second one to compare.
+        The client sees <b>{client ? versionLabel(client) : "the picture"}</b> on the review link: the first finished clip goes there by itself; pick another with “Select for client review”, or “Show the picture instead”. Every clip stays here; pick one to show it on the stage, a second one to compare.
       </p>
       {s.compareId && (
         <p className="ts-hint vs-compare-note">
@@ -62,7 +63,7 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
         <li className={`${client ? "" : "current"} ${s.shownId === null ? "shown" : ""}`}>
           {s.pictureUrl ? <img src={s.pictureUrl} alt="" loading="lazy" /> : <span className="vs-blank" aria-hidden />}
           <span className="vs-list-text">
-            <b>The picture{client ? "" : " · shown to the client"}</b>
+            <b>The picture{client ? "" : " · the client sees this"}</b>
             <small>The post's current picture, words drawn by the page.</small>
             {answersOnPicture.map((a) => (
               <small key={a.rid} className={`vs-answer ${a.status}`}>
@@ -77,8 +78,8 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
               Show
             </button>
             {client && (
-              <button type="button" className="ts-mini" disabled={busy || !s.admin} onClick={() => void select(null)}>
-                Show the picture to the client
+              <button type="button" className="ts-mini" disabled={busy || !s.admin} onClick={() => void select(null)} title="The review link shows the picture, no clip">
+                Show the picture instead
               </button>
             )}
           </span>
@@ -91,12 +92,13 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
               <span className="vs-list-text">
                 <b>
                   {versionLabel(v)}
-                  {v.forClient ? " · shown to the client" : ""}
+                  {v.forClient ? " · the client sees this" : ""}
                 </b>
                 <small>
                   {engineLabel(v, (slug) => videoModel(slug)?.name)}
                   {v.duration ? ` · ${v.duration}s` : ""}
-                  {v.source === "artwork" ? " · with words and logo" : v.source === "picture" ? " · bare picture" : ""}
+                  {frameLine(v) ? ` · ${frameLine(v)}` : ""}
+                  {inputLine(v) ? ` · ${inputLine(v)}` : ""}
                   {costLabel(v) ? ` · ${costLabel(v)}` : v.status === "done" && (v.provider === "upload" || v.provider === "editor") ? " · free" : ""}
                   {audioLine(v) ? ` · ${audioLine(v)}` : ""}
                 </small>
@@ -128,9 +130,14 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
                     {s.shownId && s.shownId !== v.id ? <Columns2 size={12} /> : null} {s.shownId === v.id ? "Shown" : s.compareId === v.id ? "Comparing" : s.shownId ? "Compare" : "Show"}
                   </button>
                   {v.forClient ? (
-                    <span className="ts-mini on">
-                      <Check size={12} /> Client version
-                    </span>
+                    <>
+                      <span className="ts-mini on" title="The review link plays this clip">
+                        <Check size={12} /> The client sees this
+                      </span>
+                      <button type="button" className="ts-mini" disabled={busy || !s.admin} onClick={() => void select(null)} title={s.admin ? "The review link shows the picture, no clip" : "Admins only for now"}>
+                        Show the picture instead
+                      </button>
+                    </>
                   ) : (
                     <button type="button" className="ts-mini" disabled={busy || !s.admin} onClick={() => void select(v.id)} title={s.admin ? "The client sees this clip on the review link" : "Admins only for now"}>
                       Select for client review

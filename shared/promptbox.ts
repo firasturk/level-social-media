@@ -9,6 +9,7 @@
  * only way a proposal becomes a card, and it applies the same rules.
  */
 import { VIDEO_MODELS, VIDEO_SECONDS } from "./qa";
+import { DEFAULT_FRAME, frameLabel, isFrame } from "./video-frame";
 
 export type ToolName = "freepik.search" | "freepik.use" | "video.generate" | "photolab.run" | "none";
 export type ToolProvider = "freepik" | "higgsfield" | "none";
@@ -174,18 +175,24 @@ function duration(text: string): number {
   const n = m ? Number(m[1]) : VIDEO_SECONDS;
   return Math.min(15, Math.max(3, n));
 }
-/** The frame the card shows: "" (follows the picture) when the engine has no frame choice. */
+/**
+ * The `aspect` handed to the engine: the frame when the engine has a frame choice that includes it,
+ * "" (the engine follows the picture) otherwise. The frame itself is kept apart in `settings.frame`.
+ */
 function frameFor(model: VideoModelInfo | null | undefined, asked: string): string {
   if (!model || model.aspects === undefined) return asked;
-  return model.aspects === null ? "" : asked;
+  if (model.aspects === null) return "";
+  return model.aspects.includes(asked) ? asked : "";
 }
 
+/** The frame the sentence asks for; a Reel (9:16) unless it says otherwise (shared/video-frame.ts). */
 function aspect(text: string): string {
-  const m = /\b(9:16|16:9|1:1|4:5|3:4|4:3)\b/.exec(text);
+  const m = /\b(9:16|16:9|1:1|4:5)\b/.exec(text);
   if (m) return m[1];
-  if (/\b(story|stories|reel|reels|portrait|vertical)\b/i.test(text)) return "9:16";
+  if (/\b(square)\b/i.test(text)) return "1:1";
   if (/\b(landscape|wide|horizontal)\b/i.test(text)) return "16:9";
-  return "1:1";
+  if (/\b(feed post|portrait post|4 by 5)\b/i.test(text)) return "4:5";
+  return DEFAULT_FRAME;
 }
 
 /** True when the sentence sounds like a tool request at all (a model is asked only then). */
@@ -238,6 +245,7 @@ export function resolveIntent(rawText: string, ctx: PromptContext): ToolIntent {
         model: model?.slug ?? "",
         modelName: model?.name ?? "",
         duration: duration(text),
+        frame: aspect(text),
         aspect: frameFor(model, aspect(text)),
         source: /\b(artwork|design|with the words)\b/i.test(text) ? "artwork" : "picture",
         prompt: text,
@@ -371,10 +379,12 @@ export function validateIntent(raw: unknown, ctx: PromptContext): ToolIntent | n
     const slug = str(settings.model ?? d.model);
     const model = models.find((m) => m.slug === slug) ?? null;
     const dur = int(settings.duration ?? d.duration) ?? VIDEO_SECONDS;
-    const asp = frameFor(model, /^\d+:\d+$/.test(str(settings.aspect ?? d.aspect)) ? str(settings.aspect ?? d.aspect) : "1:1");
+    const askedFrame = str(settings.frame ?? settings.aspect ?? d.aspect);
+    const frame = isFrame(askedFrame) ? askedFrame : DEFAULT_FRAME;
+    const asp = frameFor(model, frame);
     const credits = model?.credits ?? null;
     const questions = post === null ? [question || "Which post should be animated? Say its number, or open it first."] : !model ? ["Which video engine? Name one from the catalog."] : [];
-    return { ...base, tool: "video.generate", operation: `Animate the ${str(settings.source) === "artwork" ? "design" : "picture"}`, provider: "higgsfield", settings: { model: model?.slug ?? "", modelName: model?.name ?? "", duration: Math.min(15, Math.max(3, dur)), aspect: asp, source: str(settings.source) === "artwork" ? "artwork" : "picture", prompt: str(settings.prompt, 1500) }, estimate: credits, estimateNote: credits === null ? `${COST_UNKNOWN}: ${model ? `${model.name} has no price in the catalog` : "no engine chosen"}.` : `About ${credits} credits for one ${dur}-second clip.`, needsConfirmation: true, questions };
+    return { ...base, tool: "video.generate", operation: `Animate the ${str(settings.source) === "artwork" ? "design" : "picture"}`, provider: "higgsfield", settings: { model: model?.slug ?? "", modelName: model?.name ?? "", duration: Math.min(15, Math.max(3, dur)), frame, aspect: asp, source: str(settings.source) === "artwork" ? "artwork" : "picture", prompt: str(settings.prompt, 1500) }, estimate: credits, estimateNote: credits === null ? `${COST_UNKNOWN}: ${model ? `${model.name} has no price in the catalog` : "no engine chosen"}.` : `About ${credits} credits for one ${dur}-second clip.`, needsConfirmation: true, questions };
   }
   const op = str(settings.operation ?? d.operation) || "enhance";
   return { ...base, tool: "photolab.run", operation: `${op.charAt(0).toUpperCase()}${op.slice(1)} the picture`, provider: "freepik", settings: { operation: op.toLowerCase(), prompt: str(settings.prompt, 1500) }, estimate: null, estimateNote: `${COST_UNKNOWN}: Photo Lab prices are not in the catalog.`, needsConfirmation: true, questions: post === null ? [question || "Which post should be edited? Say its number, or open it first."] : [] };
@@ -385,7 +395,7 @@ export function intentSummary(i: ToolIntent, posts: PromptContext["posts"] = [])
   const where = i.target.post === null ? "no post chosen yet" : `post ${i.target.post}${i.target.slide ? ` · slide ${i.target.slide}` : ""}${posts.find((p) => p.index === i.target.post)?.title ? ` (${posts.find((p) => p.index === i.target.post)!.title})` : ""}`;
   const s = i.settings;
   const detail =
-    i.tool === "freepik.search" ? `“${String(s.q ?? "")}”${s.type && s.type !== "photo" ? ` · ${String(s.type)}` : ""}${s.orientation ? ` · ${String(s.orientation)}` : ""}` : i.tool === "video.generate" ? `${String(s.modelName || s.model || "no engine")} · ${String(s.duration)} s · ${String(s.aspect) || "the picture's frame"}` : i.tool === "freepik.use" ? `${i.asset ? `asset ${i.asset.id}` : "no asset yet"}${s.placement ? ` · ${String(s.placement)}` : ""}` : String(s.operation ?? "");
+    i.tool === "freepik.search" ? `“${String(s.q ?? "")}”${s.type && s.type !== "photo" ? ` · ${String(s.type)}` : ""}${s.orientation ? ` · ${String(s.orientation)}` : ""}` : i.tool === "video.generate" ? `${String(s.modelName || s.model || "no engine")} · ${String(s.duration)} s · Frame: ${frameLabel(String(s.frame ?? "")) || frameLabel(DEFAULT_FRAME)}` : i.tool === "freepik.use" ? `${i.asset ? `asset ${i.asset.id}` : "no asset yet"}${s.placement ? ` · ${String(s.placement)}` : ""}` : String(s.operation ?? "");
   const cost = i.estimate === null ? i.estimateNote : i.estimate === 0 ? "free" : `about ${i.estimate} credits`;
   const q = i.questions[0] ? ` ${i.questions[0]}` : "";
   return `${i.operation}: ${detail} · ${where} · ${cost}.${q}`;
