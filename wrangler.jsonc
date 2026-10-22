@@ -66,6 +66,8 @@
     "@shared/video-presets": "./shared/video-presets.ts",
     "@shared/palette-source": "./shared/palette-source.ts",
     "@shared/video-frame": "./shared/video-frame.ts",
+    "@shared/photo-presets": "./shared/photo-presets.ts",
+    "@shared/photo-tools": "./shared/photo-tools.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

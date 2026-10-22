@@ -43,6 +43,7 @@ export default function PhotoLabPanel(props: PhotoLabPanelProps) {
           <span className="photolab-chip on">Freepik connected</span>
         )}
       </div>
+      <p className="field-hint">Magnific's own tools, paid in credits, are under AI tools in the Photo studio.</p>
       {locked && access && (
         <p className="quality-note photolab-locked">
           <b>{access.admin ? "Switched off" : "Admins only for now"}.</b> {access.reason}

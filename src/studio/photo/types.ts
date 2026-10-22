@@ -3,9 +3,11 @@ import type { Task } from "@shared/types";
 import type { AdjustParams, CropRect } from "@shared/photo-adjust";
 import type { PostEditorTools } from "../ReviewDialog";
 import type { PhotoLab } from "../photolab/usePhotoLab";
+import type { PhotoTools } from "./usePhotoTools";
+import type { PresetsState } from "./panels/Presets";
 
-/** The six panels of the left rail, in order. */
-export type PhotoPanel = "edit" | "adjust" | "lab" | "assets" | "versions" | "check";
+/** The eight panels of the left rail, in order. */
+export type PhotoPanel = "presets" | "tools" | "edit" | "adjust" | "lab" | "assets" | "versions" | "check";
 
 /** What the canvas shows. */
 export type StageView =
@@ -60,6 +62,10 @@ export interface StudioCtx {
 
   /* The Photo lab (admins only for now) */
   lab: PhotoLab;
+
+  /* The preset gallery (pictures only) and the AI tools (Higgsfield and Magnific, in credits) */
+  presets: PresetsState;
+  tools: PhotoTools;
 
   /* Versions: the takes picked for the compare (at most two keys) */
   comparePick: string[];

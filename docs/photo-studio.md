@@ -3,7 +3,14 @@
 One full-screen workspace for a post's picture, with the same shell as the Text studio: a top bar,
 a rail of tools on the left, the picture large in the middle, the chosen tool's panel on the
 right. On a phone (≤ 860 px, the Text studio's own breakpoint) one panel shows at a time, picked
-from a bottom toolbar of the same six icons, and the top bar's buttons keep their icons only.
+from a bottom toolbar (seven buttons: Presets and AI tools share one **AI** button so eight tools
+fit 390 px), and the top bar's buttons keep their icons only.
+
+Two panels came from the Video studio's preset gallery, pictures only, at Firas's ask ("the
+gallery shows videos mixed with pictures; I liked the pictures. Move that experience to the picture
+editor and separate pictures from video" and "add the Higgsfield and Freepik MCP image tools"):
+**Presets** (first in the rail; the panel a post with no picture yet opens on) and **AI tools**.
+Both are described under "The eight panels" and "Presets and AI tools" below.
 
 It replaces nothing: every tool it holds is the one the post editor's Image group already offered
 (the dialog keeps its tools for now, with a prominent **Open the Photo studio** button at the top of
@@ -27,10 +34,12 @@ the Adjust parameters), **Versions · n** (the count of takes; opens the Version
 **Text studio**, **Close**. Closing with adjustments not yet applied asks: *Apply and close* or
 *Leave without applying*.
 
-## The six panels
+## The eight panels
 
 | Panel | Icon | Costs | Who |
 | --- | --- | --- | --- |
+| **Presets** | grid | browsing is free; running a product-shot preset is credits from the Higgsfield subscription (said before the confirm) | everyone browses; admins run |
+| **AI tools** | sparkles | credits: Higgsfield's subscription or Magnific's balance, the figure asked of the provider before each run (or "cost not known") | admins only for now |
 | **Edit** (AI) | wand | one paid picture per edit (the engine's price, said before the confirm) | whoever opened the month |
 | **Adjust** | sliders | free: drawn in the browser, nothing is generated | everyone |
 | **Photo lab** | flask | Freepik, about the price shown per tool; a demo when no key is saved | admins only for now |
@@ -59,7 +68,8 @@ previous one stays a take under Versions, and the words and the logo (layers dra
 are redrawn over it. Undo / redo in the top bar step through the parameters.
 
 **Photo lab.** The four Freepik tools as cards (remove background, replace background, relight,
-upscale) with what each is good for and about what it costs; the picture source (this post's
+upscale) with what each is good for and about what it costs in dollars (the Freepik API key); a
+note at its top says *Magnific's own tools, paid in credits, are under AI tools*. The picture source (this post's
 picture, the client's Drive photos, or an earlier result through *Run another tool on this
 result*); a prompt with dictation for the two tools that take one; **Run** proposes the job (the
 server writes the estimate to the ledger first), the confirm shows the estimate, and the same
@@ -84,6 +94,114 @@ the video versions line (when the post has clips) and the month's earlier versio
 **Check.** What the automatic review found (with *Edit this picture* and *Accept as it is*), and
 the Writing check (OCR) of the raw picture and the final artwork, the same panel as the editor's.
 
+## Presets and AI tools
+
+### Presets (`server/photo-presets.ts`, `shared/photo-presets.ts`, `src/studio/photo/panels/Presets.tsx`)
+
+The gallery takes the stage (the categories on the left, the cards in a grid, a search box, a
+refresh) and the side panel shows the picked entry in full, exactly as the Video studio's gallery
+does, with one difference: every card carries the provider's **sample picture** (hotlinked from
+the provider, never copied here) and anything whose type says video is dropped. Four categories,
+each cached a day per category in an encrypted settings row (`photo_presets_cache_<category>`;
+`?refresh=1` asks again), each browse a free `preset.browse` ledger row:
+
+| Category | Ask | What a card is | "Use this …" |
+| --- | --- | --- | --- |
+| **Styles** | `get_presets {source: "soul", limit: 60}` | a Soul 2.0 picture style: its id is the `style_id` of `generate_image` with `model: "soul_2"`; the preview is a catalog sample | **Use this style**: AI tools → Higgsfield → *Generate with a style*, the style picked and the style's prompt (when it names one) filled in |
+| **Product shots** | `get_presets {source: "marketing_studio", category: "product-shot", limit: 60}` | a Marketing Studio preset with picture output; runnable through `execute_preset` on the post's picture | **Use this preset** opens the detail; an admin runs it there (*Run this preset · N credits*, or *cost not known*) |
+| **Magnific looks** | `images_upscale_presets_list` and `images_models_list` | an upscale preset or a picture model; a look with no sample keeps its name on a neutral tile that says *No sample from Magnific* | **Use this look**: AI tools → Magnific → *Upscale* with the preset, or *Restyle* with the model |
+| **Recipes** | `get_preset_instructions {}` | a picture command (/hero-shot, /reel-cover…), read-only; the video ones (katana, clips) are dropped | **Use these words** when the recipe carries a prompt; *Learn more* shows its instructions |
+
+A pseudo entry never becomes a card: anything without a real id, a title that is not a category
+name ("All", "Motion", "Product shot", "Effects"…) and, for the provider catalogs, a sample
+picture is filtered (`isRealEntry` in `server/photo-presets.ts`). A product-shot run mirrors the
+Video studio's: the detail's price is the estimate, an unknown one is confirmed at an unknown cost,
+the post's picture fills the preset's picture input (`media_import_url`, cached an hour), the same
+ask within ten minutes is refused, one `preset.run` ledger row in credits, `execute_preset` once;
+the job becomes a `photo_tool_jobs` row the AI tools panel shows and the settler collects.
+
+### AI tools (`server/photo-tools.ts`, `shared/photo-tools.ts`, `src/studio/photo/usePhotoTools.ts`, `panels/Tools.tsx`)
+
+Provider tools on the post's picture, in two groups, each tool with its few options:
+
+- **Higgsfield** (the subscription credits, the `higgsfield` switch): Upscale (`upscale_image`),
+  Remove background (`remove_background`), Outpaint (`outpaint_image`: a new frame, optional
+  words), Reframe (`reframe`: 1:1, 4:5, 9:16), Relight (`relight_image`: the light wanted),
+  Generate with a style (`generate_image {params: {model: "soul_2", prompt, medias: [{value: media_id, role: "image"}], style_id?, aspect_ratio?, count: 1}}`).
+- **Magnific** (the Magnific balance, the `freepik` switch): Upscale (`images_upscale` with the
+  presets and modes from `images_upscale_presets_list` / `images_upscale_modes_list`), Relight,
+  Remove background, Replace background (a prompt), Retouch (`retouch_models_list` + a prompt), Skin
+  enhancer, Expand, Restyle, Reimagine, Change camera, Variations.
+
+The flow per tool: **Get the cost** (Higgsfield: the same call with `get_cost: true`, sent only
+where the live schema lists `get_cost` or for `generate_image`, whose description says so, so an
+estimate can never turn into a submission by mistake; Magnific: `simulate_cost {tool, arguments}`)
+→ *About N credits · balance M* or *Cost not known* → **Run** → the confirm names the credits →
+the same request runs once (`noRetry`, a `claimSubmission` for ten minutes, one `image.tool` ledger
+row in credits) → a `photo_tool_jobs` row → the panel polls `GET /jobs` (the server asks
+`jobs_wait` / `creations_wait` with a one-second wait, six jobs at most, gives up after half an
+hour, never resubmits) → the finished picture is downloaded under the post's output prefix
+(`<owner>/<batch>/output/<task>/<job>.<ext>`) and the row closes with the credits the balance moved
+by (`balance` / `account_balance` before and after) → before / after on the canvas → **Use as the
+post's picture** (the task points at the stored result, a take with the credits in its note, the
+previous picture kept as a take and with the month's earlier pictures, *Post N before the AI
+tools*), **Save as a product photo** (a `sources` row), **Download**. An unknown Higgsfield cost
+may be confirmed anyway (as the Video studio allows); an unknown Magnific cost is blocked (as the
+Freepik rules say). Members see the list and *Admins only for now*; `GET /catalog` makes no live
+call for a member (the availability shows as unknown), and for an admin reads the live
+`tools/list` of each provider, the Magnific option lists (kept an hour in
+`photo_tools_magnific_lists`) and the balances, kept an hour (`?refresh=1`).
+
+How our options reach a tool is read from the live schema (`paramFor` in `server/photo-tools.ts`):
+a prompt goes under `prompt` / `text` / `description`, a frame under `aspect_ratio` / `aspectRatio`,
+a style under `style_id`, and so on; an option the schema does not take is left out and noted in the
+ledger row ("the light wanted not taken by relight_image"). The picture goes to Higgsfield as a
+media id (`media_id` by default, `medias` for the generator, `params.media_id` when the schema wraps
+everything under `params`) and to Magnific as a short-lived signed link where the tool takes a URL
+(`imageUrl`, `image_url`, `url`…), else as a creation uploaded first (`creations_upload_image` with
+a link when listed, else `creations_request_upload` → PUT → `creations_finalize_upload`, once an
+hour per picture). The links in the stored arguments are redacted to `<link>`.
+
+Free vs credits, in one line: Adjust, Versions, Check, browsing the presets and the Drive photos
+are free; Edit with AI is the engine's dollar price; the Photo lab is Freepik's API in dollars; the
+Presets' runs and the AI tools are credits (Higgsfield's subscription, Magnific's balance), each
+figure asked of the provider before the confirm. The videos' billing choice (credits vs Cloud API)
+does not apply to pictures: the picture tools always run on the MCP sign-ins.
+
+### What the first live run must check
+
+Every answer shape and argument name above is assumed from the tool descriptions (no provider token
+was available while this was built). Check, with the sign-ins made and an admin:
+
+1. **Styles**: the category fills with Soul styles that carry a sample picture (Admin → Integrations
+   shows a free `preset.browse` row). If it stays empty while Higgsfield's page shows styles, read
+   the stored answer (the tool's text in the browser's network tab, or `get_presets {source: "soul"}`
+   from Claude's own Higgsfield MCP) and widen `parseSoulStyles` / `sampleImageOf`: the id
+   (`style_id` vs `id`) and the preview field are the likely difference. A card without a sample is
+   dropped on purpose; if the live styles carry no preview at all, lift `isRealEntry`'s picture rule
+   for the `soul` source.
+2. **Product shots**: cards with a still; the video presets must not appear. Learn more shows the
+   instructions; *Ready?* says yes once the picture is prefilled (one `media_import_url` in the
+   ledger, cached an hour).
+3. **Magnific looks**: the models and the upscale presets; which carry a sample, which say *No
+   sample from Magnific*; and whether `images_models_list` mixes video models in (the names are
+   filtered by words today).
+4. **Get the cost** on Upscale (Higgsfield): the balance must not move (if it does, `upscale_image`
+   ran on `get_cost: true` instead of pricing: remove `get_cost` from `costable` for that tool and
+   let it be "cost not known"). Reframe is "cost not known" by design (its schema wraps `params`).
+5. **One Higgsfield run** (Upscale or Remove background): the job id lands, the picture arrives
+   within a few polls, the `image.tool` row reads "N credits reported (balance a → b)"; if the
+   result link is missing, `show_generation_by_ids` is tried; check the picture's content type
+   (the download keeps what the provider sends; an unknown one is stored as PNG).
+6. **Generate with a style**: the `generate_image` params as the ask shaped them (`model: "soul_2"`,
+   `style_id`, `medias`); whether the answer is a job list (`jobs[].job_id`) or a single job.
+7. **Magnific**: `simulate_cost` gives a figure for `images_upscale` with the picture as a link; the
+   ledger notes "picture: link as imageUrl" or "creation as creationIdentifier" (the job's
+   `settings.notes` keeps it). One cheap tool: the creation identifier lands, `creations_wait`
+   finishes it, the picture is a JPEG or PNG under the post. Check `account_balance` reads a number.
+8. **Use as the post's picture**: the take appears under Versions with the credits in its note, the
+   previous picture under the month's earlier pictures.
+
 ## The canvas
 
 The picture large; zoom to fit, 100% or in between (the pill at the bottom right, **Z** to toggle
@@ -97,10 +215,11 @@ compare, take the crop frame off), then the studio · ⌘Z / ⇧⌘Z undo / redo
 ## Members and admins
 
 Everything free works for every member of the month: Edit with AI follows the month's existing
-permission (the task's `revise`), Adjust, Versions and Check. The Photo lab and the Freepik tab of
-Assets read `access` from `/api/studio/photolab/status` and `admin` from
-`/api/studio/freepik/status`: a member sees **Admins only for now** with no provider controls, and
-the rail marks those two tools with a small lock. The rules are in `docs/integrations.md`.
+permission (the task's `revise`), Adjust, Versions, Check and browsing the Presets. The Photo lab
+and the Freepik tab of Assets read `access` from `/api/studio/photolab/status` and `admin` from
+`/api/studio/freepik/status`; the AI tools read `admin` and each provider's `enabled` from
+`/api/studio/photo/tools/catalog`: a member sees **Admins only for now** with no provider controls,
+and the rail marks those three tools with a small lock. The rules are in `docs/integrations.md`.
 
 ## The Adjust pipeline and its limits
 
@@ -145,15 +264,45 @@ the task's picture, the snapshot, the note, 415 / 413 / 400 / 409, and asserts z
 
 - Unit: `tests/photo-adjust.test.ts` (19 tests) and `tests/photo-upload.test.ts` (5 tests), with the
   rest of the suite.
+- `tests/photo-presets.test.ts` (11 tests, under the paid-route guard): Soul styles, product shots,
+  Magnific looks and recipes normalised (pseudo entries, video entries and entries without a sample
+  dropped); Not signed in with no call; a member browsing the styles, the encrypted cache row, the
+  day's cache from the isolate and from the row, `?refresh=1`, the asks of every category, the free
+  `preset.browse` rows; the Magnific looks with and without samples and the switch off; the detail
+  of a product shot for a member and an admin (the readiness with the picture prefilled), a style
+  from the cache, a recipe; a run refused to a member, for a recipe, for a style, with the switch
+  off; the confirm with the detail's price → `execute_preset` with the picture in the input →
+  `jobs_wait` → the PNG under the post's output prefix served to a member → the `preset.run` row
+  with the credits the balance moved by; a preset with no price blocked until confirmed.
+- `tests/photo-tools.test.ts` (10 tests, under the paid-route guard): the option-to-argument
+  mapping (`paramFor`, `higgsfieldArgs`, `magnificOptionArgs`, the Magnific list shapes); the
+  catalog for a member (no call) and an admin (availability, lists, balances, the hour's cache and
+  the refresh); a member and the switch refused; Upscale: `get_cost` → `image.estimate` → 409
+  needsConfirm → the run once → the picture imported once → `jobs_wait` → the picture → the ledger
+  "12 credits reported (balance 1500 → 1488)" → Use as the post's picture (the task, the take with
+  the credits in its note, the snapshot of the previous picture) and Save as a product photo (the
+  `sources` row); Reframe "cost not known" until confirmed, a synchronous answer finished at once,
+  Generate with a style's params; Magnific: not connected, the switch off, `simulate_cost` with the
+  picture as a link → confirm → `images_upscale` → `creations_wait` → a JPEG; Relight with the
+  picture uploaded as a creation (request → PUT → finalize); an unknown Magnific cost blocked.
+  Every test asserts zero network calls outside the stubs.
 - Browser (`scripts/photo-studio-smoke.mjs`, headless Chromium against the built app and a boot
   mock, no Worker, no provider): the month opens, the card's **Edit picture** opens the studio on
   the Edit panel, the rail shows the six tools, the Adjust canvas brightens a pixel with exposure
   +60 (120 → 182 red), undo lights up, the crop frame shows its eight handles, Apply confirms and
   posts one multipart form to the upload route and clears the *Adjustments not applied* chip,
-  Versions lists the take, Check shows the review, the Photo lab shows four cards, and at 390 px
-  the rail gives way to a bottom toolbar of six tools with no sideways scroll. No page errors, no
-  request outside the test server. Screenshots at 1440 (Edit and Adjust) and 390 were inspected.
+  Versions lists the take, Check shows the review, the Photo lab shows four cards with the note
+  about Magnific's tools, the Presets panel lists the four categories and draws the fixture cards
+  with their sample `<img>` (loaded from the test server) and the *No sample from Magnific* tile,
+  "Use this style" opens AI tools with the style picked and its words in the prompt, the AI tools
+  panel lists both providers (six Higgsfield tools, eleven Magnific tools, the upscale presets from
+  the catalog) with the "Get the cost" button, and at 390 px the rail gives way to a bottom toolbar
+  of seven tools (Presets and AI tools under one "AI" button) with no sideways scroll and no
+  overflow of the toolbar itself, with the gallery and the tools panel both opened on the phone. No
+  page errors, no request outside the test server. Screenshots at 1440 (Edit, Adjust, Presets, AI
+  tools) and 390 (Edit, AI tools, Presets) were inspected.
 - Not verified in a browser: a real AI edit, a real Photo lab run and a real Freepik search (fakes
   and demo only; no paid call was made), dictation (needs a microphone), the Drive picker on a
-  client with Drive photos, and the Text studio ↔ Photo studio switch on a saved month (typed and
-  built, not clicked).
+  client with Drive photos, the Text studio ↔ Photo studio switch on a saved month (typed and
+  built, not clicked), and anything the Presets and AI tools do against the live MCP servers (see
+  "What the first live run must check": the shapes are stubs, no provider token was available).

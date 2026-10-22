@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { FlaskConical, History, Images, Lock, Minus, Plus, Redo2, ScanSearch, SlidersHorizontal, Type, Undo2, Wand2, X } from "lucide-react";
+import { FlaskConical, History, Images, LayoutGrid, Lock, Minus, Plus, Redo2, ScanSearch, SlidersHorizontal, Sparkles, Type, Undo2, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { postForm } from "@/api";
 import { askConfirm } from "@/lib/confirm";
@@ -19,6 +19,7 @@ import { DEFAULT_ADJUST, describeAdjust, isDefaultAdjust, rotatedSize, type Adju
 import type { PostEditorTools } from "../ReviewDialog";
 import { useFreepikStatus } from "../FreepikPanel";
 import { usePhotoLab } from "../photolab/usePhotoLab";
+import { usePhotoTools } from "./usePhotoTools";
 import { useParamsHistory } from "./history";
 import { canvasFile, drawAdjusted, loadPicture, MAX_OUTPUT_EDGE } from "./render";
 import Stage from "./Stage";
@@ -28,6 +29,8 @@ import LabPanel from "./panels/Lab";
 import AssetsPanel from "./panels/Assets";
 import VersionsPanel from "./panels/Versions";
 import CheckPanel from "./panels/Check";
+import ToolsPanel from "./panels/Tools";
+import { PresetDetailPanel, PresetsGallery, usePhotoPresets } from "./panels/Presets";
 import type { Area, PhotoPanel, StageView, StudioCtx } from "./types";
 import "./photo-studio.css";
 
@@ -58,6 +61,8 @@ interface Props {
 }
 
 const PANELS: { id: PhotoPanel; label: string; icon: ReactNode; title: string }[] = [
+  { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: picture styles, product shots and looks with the providers' sample pictures (browsing is free)" },
+  { id: "tools", label: "AI tools", icon: <Sparkles size={18} />, title: "AI tools: Higgsfield's and Magnific's picture tools on this picture, paid in credits (admins only for now)" },
   { id: "edit", label: "Edit", icon: <Wand2 size={18} />, title: "Edit with AI: an instruction changes the picture (one paid picture)" },
   { id: "adjust", label: "Adjust", icon: <SlidersHorizontal size={18} />, title: "Adjust: crop, turn, light and colour, drawn here for free" },
   { id: "lab", label: "Photo lab", icon: <FlaskConical size={18} />, title: "Photo lab: Freepik's real-photo tools (admins only for now)" },
@@ -65,6 +70,10 @@ const PANELS: { id: PhotoPanel; label: string; icon: ReactNode; title: string }[
   { id: "versions", label: "Versions", icon: <History size={18} />, title: "Versions: every take of this post, compared and restored" },
   { id: "check", label: "Check", icon: <ScanSearch size={18} />, title: "Check: the automatic review and the writing check" },
 ];
+
+/** On a phone the two picture-making panels share one "AI" button, so eight tools fit a 390 px toolbar. */
+const AI_GROUP: PhotoPanel[] = ["presets", "tools"];
+const NARROW_PANELS: { id: PhotoPanel; label: string; icon: ReactNode; title: string }[] = [{ id: "tools", label: "AI", icon: <Sparkles size={18} />, title: "Presets and AI tools" }, ...PANELS.filter((t) => !AI_GROUP.includes(t.id))];
 
 const PREVIEW_EDGE = 1200;
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
@@ -77,7 +86,8 @@ export default function PhotoStudio(p: Props) {
   const inFlight = task.status === "queued" || task.status === "processing";
   const cost = editor.perPicture ? ` · about ${formatUsd(editor.perPicture)}` : "";
 
-  const [panel, setPanel] = useState<PhotoPanel>(p.initialPanel ?? "edit");
+  // A post with no picture yet opens on the presets: a picture can start from one.
+  const [panel, setPanel] = useState<PhotoPanel>(p.initialPanel ?? (task.output ? "edit" : "presets"));
   const [panelOpen, setPanelOpen] = useState(true);
   const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches);
   const [view, setView] = useState<StageView>({ kind: "picture", src: resultUrl, label: "The AI result" });
@@ -102,6 +112,9 @@ export default function PhotoStudio(p: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const freepik = useFreepikStatus();
   const lab = usePhotoLab({ clientId: p.clientId ?? "", batchId: editor.batchId, post: index, task: { id: task.id, imageUrl: resultUrl }, onChanged: editor.onMonthChanged });
+  const aiActive = open && (panel === "presets" || panel === "tools");
+  const tools = usePhotoTools({ batchId: editor.batchId, post: index, hasPicture: !!task.output, onChanged: onPictureChanged, active: aiActive });
+  const presets = usePhotoPresets(editor.batchId ? { batch: editor.batchId, index } : null, open && panel === "presets");
 
   /* ───────────── Narrow screens: one panel, a bottom toolbar ───────────── */
   useEffect(() => {
@@ -354,6 +367,8 @@ export default function PhotoStudio(p: Props) {
     applyAdjust: () => applyAdjust(true).then(() => undefined),
     applying,
     lab,
+    presets,
+    tools,
     comparePick,
     toggleComparePick,
     ocrPanel: editor.ocrPanel,
@@ -362,8 +377,9 @@ export default function PhotoStudio(p: Props) {
     videoVersions: editor.videoVersions,
     monthVersions: editor.versions,
   };
-  const body = panel === "edit" ? <EditPanel ctx={ctx} /> : panel === "adjust" ? <AdjustPanel ctx={ctx} /> : panel === "lab" ? <LabPanel ctx={ctx} /> : panel === "assets" ? <AssetsPanel ctx={ctx} /> : panel === "versions" ? <VersionsPanel ctx={ctx} busy={busy} /> : <CheckPanel ctx={ctx} />;
-  const locked = (id: PhotoPanel) => (id === "lab" ? lab.locked : id === "assets" ? !!freepik && !freepik.admin : false);
+  const body = panel === "presets" ? <PresetDetailPanel ctx={ctx} /> : panel === "tools" ? <ToolsPanel ctx={ctx} /> : panel === "edit" ? <EditPanel ctx={ctx} /> : panel === "adjust" ? <AdjustPanel ctx={ctx} /> : panel === "lab" ? <LabPanel ctx={ctx} /> : panel === "assets" ? <AssetsPanel ctx={ctx} /> : panel === "versions" ? <VersionsPanel ctx={ctx} busy={busy} /> : <CheckPanel ctx={ctx} />;
+  const locked = (id: PhotoPanel) => (id === "lab" ? lab.locked : id === "assets" ? !!freepik && !freepik.admin : id === "tools" ? !!tools.catalog && !tools.catalog.admin : false);
+  const bottomOn = (id: PhotoPanel) => (id === "tools" ? AI_GROUP.includes(panel) : panel === id);
   const madeTakes = takes.filter((t) => t.status === "made").length;
   const state = inFlight ? "making" : task.status === "failed" ? "failed" : task.status === "review" ? "review" : "ready";
   const dirty = !isDefaultAdjust(params);
@@ -418,37 +434,42 @@ export default function PhotoStudio(p: Props) {
             ))}
           </nav>
         )}
-        <Stage view={stageView} size={stageSize} zoom={zoom} onFit={onFit} marking={marking} area={area} onArea={setArea} preview={preview} holdBefore={holdBefore} beforeSrc={resultUrl} crop={cropFrame} loading={!img}>
-          {marking && <div className="ps-hint-pill">{area && area.w > 0.01 ? "Marked: put it in the instruction from the Edit panel. Not a mask; the whole picture is redrawn." : "Drag on the picture to mark the area to change."}</div>}
-          {view.kind === "compare" && !marking && <div className="ps-hint-pill">Drag the slider to compare · Esc to stop</div>}
-          {holdOriginal && <div className="ps-hint-pill">The product photo</div>}
-          <div className="ts-view ps-view" role="toolbar" aria-label="View">
-            <div className="ts-zoom">
-              <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.max(1, z / 1.2))} title="Zoom out" aria-label="Zoom out">
-                <Minus size={14} />
-              </button>
-              <button type="button" className="ts-zoom-value" onClick={toggleZoom} title="Fit or 100% (Z)">
-                {percent}%
-              </button>
-              <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.min(8 / fitRef.current, z * 1.2))} title="Zoom in" aria-label="Zoom in">
-                <Plus size={14} />
-              </button>
+        {panel === "presets" ? (
+          <PresetsGallery ctx={ctx} />
+        ) : (
+          <Stage view={stageView} size={stageSize} zoom={zoom} onFit={onFit} marking={marking} area={area} onArea={setArea} preview={preview} holdBefore={holdBefore} beforeSrc={resultUrl} crop={cropFrame} loading={!img && !!task.output}>
+            {marking && <div className="ps-hint-pill">{area && area.w > 0.01 ? "Marked: put it in the instruction from the Edit panel. Not a mask; the whole picture is redrawn." : "Drag on the picture to mark the area to change."}</div>}
+            {view.kind === "compare" && !marking && <div className="ps-hint-pill">Drag the slider to compare · Esc to stop</div>}
+            {holdOriginal && <div className="ps-hint-pill">The product photo</div>}
+            {!task.output && <div className="ps-hint-pill">No picture yet: start from a preset, or make the picture first.</div>}
+            <div className="ts-view ps-view" role="toolbar" aria-label="View">
+              <div className="ts-zoom">
+                <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.max(1, z / 1.2))} title="Zoom out" aria-label="Zoom out">
+                  <Minus size={14} />
+                </button>
+                <button type="button" className="ts-zoom-value" onClick={toggleZoom} title="Fit or 100% (Z)">
+                  {percent}%
+                </button>
+                <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.min(8 / fitRef.current, z * 1.2))} title="Zoom in" aria-label="Zoom in">
+                  <Plus size={14} />
+                </button>
+              </div>
             </div>
-          </div>
-        </Stage>
+          </Stage>
+        )}
         <aside className={`ts-right ps-side ${narrow && !panelOpen ? "closed" : ""}`}>
           <div className="ts-side-body">{body}</div>
         </aside>
         {narrow && (
           <nav className="ps-bottom" aria-label="Tools">
-            {PANELS.map((t) => (
+            {NARROW_PANELS.map((t) => (
               <button
                 key={t.id}
                 type="button"
-                className={panel === t.id && panelOpen ? "on" : ""}
+                className={bottomOn(t.id) && panelOpen ? "on" : ""}
                 onClick={() => {
-                  if (panel === t.id && panelOpen) setPanelOpen(false);
-                  else openPanel(t.id);
+                  if (bottomOn(t.id) && panelOpen) setPanelOpen(false);
+                  else openPanel(t.id === "tools" && AI_GROUP.includes(panel) ? panel : t.id);
                 }}
                 title={t.title}
               >

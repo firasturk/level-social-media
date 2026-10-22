@@ -28,6 +28,13 @@ export default function LabPanel({ ctx }: { ctx: StudioCtx }) {
         <span>Photo lab</span>
         {status === null ? <small>Checking…</small> : demo ? <small title={status.reason}>Demo · not connected</small> : <small className="ps-ok">Freepik connected</small>}
       </div>
+      <p className="ts-hint ps-lab-note">
+        Magnific's own tools, paid in credits, are under{" "}
+        <button type="button" className="ts-link" onClick={() => ctx.openPanel("tools")}>
+          AI tools
+        </button>
+        .
+      </p>
       {locked && access && (
         <div className="ps-locked" role="note">
           <Lock size={14} />
