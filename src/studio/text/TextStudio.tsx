@@ -1,29 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Download, Italic, Keyboard, Layers, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { postForm } from "@/api";
-import { askInput } from "@/lib/confirm";
+import { askConfirm, askInput } from "@/lib/confirm";
 import { saveBlob } from "@/lib/zip";
 import { stackedImagesPdf } from "@/lib/pdf";
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import type { Client } from "@shared/types";
-import { editText, layerId, newTextLayer, replaceInLayers, setRunStyle, styleAt, wordsOf, type CanvasFx, type RunStyle, type TextDesign, type TextLayer } from "@shared/layers";
+import { editText, isTextLayer, layerId, newImageLayer, newLogoLayer, newShapeLayer, newTextLayer, replaceInLayers, setRunStyle, styleAt, upgradeDesign, wordsOf, type CanvasFx, type Layer, type RunStyle, type ShapeKind, type TextDesign, type TextLayer } from "@shared/layers";
 import { loadFont, loadImage, paintFrame, renderOverlay, type OverlayLayout } from "@/lib/overlay";
-import { renderDesignOnly, type LayerBox } from "@/lib/textLayers";
+import { drawBasePicture, renderDesignOnly, type LayerBox } from "@/lib/textLayers";
 import { Orb } from "@/components/Orb";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
-import { Assistant, BrandAssets, LayersList, PresetsList } from "./Panels";
+import { Assistant, BrandAssets, LayersList, PresetsList, type Asset } from "./Panels";
 import Properties, { type Align } from "./Properties";
-import { brandFonts, contrastOf, designFromLegacy, hitLayer, patchWith, round3, savedColours, snapMove, toLocal, type Brand, type Guide } from "./model";
+import { brandFonts, contrastOf, designFromLegacy, hitLayer, patchWith, round3, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type Guide } from "./model";
+import "./text-studio.css";
 
 export interface EditorResult {
   headline: string;
   subline: string;
   ov: PostOverlayPatch | undefined;
 }
+
+export type { ApplyRole } from "./model";
 
 interface Props {
   open: boolean;
@@ -46,13 +49,22 @@ interface Props {
   onClose: () => void;
   /** keepOpen: an auto-save while the designer keeps working. */
   onSave: (r: EditorResult, keepOpen: boolean) => void;
+  /** Pictures a picture layer can show: the month's product photos and the brand's own assets. */
+  assets?: Asset[];
+  /** Stores an uploaded graphic for the month and returns the studio URL a picture layer can point at. */
+  onUploadGraphic?: (file: File) => Promise<string>;
+  /**
+   * Applies a look to the same-role layers of the month's other posts (their words stay) and
+   * returns how many posts changed. The logo role carries the logo's place and size.
+   */
+  onApplyToAll?: (style: Partial<Layer>, role: ApplyRole) => Promise<number>;
 }
 
 type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw" | "rot";
 type Drag =
-  | { kind: "move"; start: { x: number; y: number }; origin: TextLayer[]; ids: string[]; moved: boolean }
-  | { kind: "resize"; handle: Handle; id: string; origin: TextLayer; box: LayerBox }
-  | { kind: "rotate"; id: string; origin: TextLayer; box: LayerBox }
+  | { kind: "move"; start: { x: number; y: number }; origin: Layer[]; ids: string[]; moved: boolean }
+  | { kind: "resize"; handle: Handle; id: string; origin: Layer; box: LayerBox }
+  | { kind: "rotate"; id: string; origin: Layer; box: LayerBox }
   | { kind: "marquee"; start: { x: number; y: number }; add: boolean; now: { x: number; y: number } };
 
 const MAX_HISTORY = 60;
@@ -93,16 +105,21 @@ export default function TextStudio(p: Props) {
   const [shortcuts, setShortcuts] = useState(false);
   const pickRef = useRef<((hex: string | null) => void) | null>(null);
   const [picking, setPicking] = useState(false);
-  const clipRef = useRef<TextLayer[]>([]);
+  const clipRef = useRef<Layer[]>([]);
   const dirtyRef = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const histKey = `lsm-ts-hist:${p.batchId ?? "x"}:${p.index}`;
+  const [previewOn, setPreviewOn] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [applying, setApplying] = useState(false);
 
   const W = size?.W ?? 1080;
   const H = size?.H ?? 1350;
   const scale = fit * zoom;
   const layers = useMemo(() => design?.layers ?? [], [design]);
   const primary = useMemo(() => layers.find((l) => l.id === selected[0]) ?? null, [layers, selected]);
+  /** The selected layer when it is a text layer: the type tools work on this one. */
+  const primaryText = primary && isTextLayer(primary) ? primary : null;
   const selLayers = useMemo(() => layers.filter((l) => selected.includes(l.id)), [layers, selected]);
   const fonts = brandFonts(brand);
 
@@ -129,7 +146,8 @@ export default function TextStudio(p: Props) {
         baseRef.current = base;
         setSize({ W: w, H: h });
         for (const f of brand.fontFiles) void loadFont(f.name, `/api/studio/clients/${brand.id}/fonts/${f.id}/file`);
-        let d = p.patch?.design;
+        // A stored design of any earlier shape is read into the current one (text-only designs come back as they were).
+        let d = p.patch?.design ? (upgradeDesign(p.patch.design) ?? undefined) : undefined;
         if (!d) {
           // The first visit: the automatic layout's words become layers exactly where they were.
           const probe = document.createElement("canvas");
@@ -190,6 +208,10 @@ export default function TextStudio(p: Props) {
     c.height = H;
     let alive = true;
     const skip = editing ? new Set([editing]) : undefined;
+    // The picture alone, cropped and shifted as the design asks: what the colour picker and the
+    // contrast warnings read, and what frosted backings blur.
+    const base = baseRef.current;
+    if (base) drawBasePicture(base.getContext("2d")!, img, base.width, base.height, design.canvas);
     void paintFrame(c, img, spec, { headline: "", subline: "" }, logoSrc, { patch: patchWith(p.patch, design), skipLayers: skip }).then((l) => {
       if (!alive) return;
       boxesRef.current = l.layers ?? [];
@@ -296,12 +318,14 @@ export default function TextStudio(p: Props) {
   };
 
   /* ───────────── Layer operations ───────────── */
-  const update = (ids: string[], patch: Partial<TextLayer> | ((l: TextLayer) => Partial<TextLayer>), typing = false) => {
+  const update = (ids: string[], patch: Partial<Layer> | ((l: Layer) => Partial<Layer>), typing = false) => {
     const d = designRef.current;
     if (!d) return;
-    commit({ ...d, layers: d.layers.map((l) => (ids.includes(l.id) ? { ...l, ...(typeof patch === "function" ? patch(l) : patch) } : l)) }, typing);
+    commit({ ...d, layers: d.layers.map((l) => (ids.includes(l.id) ? ({ ...l, ...(typeof patch === "function" ? patch(l) : patch) } as Layer) : l)) }, typing);
   };
-  const updateSel = (patch: Partial<TextLayer>) => update(selected, patch);
+  const updateSel = (patch: Partial<Layer>) => update(selected, patch);
+  /** A change meant for text layers only (the font menu, the colour): other selected layers are left alone. */
+  const updateText = (patch: Partial<TextLayer>) => update(selected.filter((id) => layers.find((l) => l.id === id && isTextLayer(l))), patch);
   const setCanvasFx = (fx: CanvasFx | undefined) => {
     const d = designRef.current;
     if (d) commit({ ...d, canvas: fx });
@@ -323,15 +347,55 @@ export default function TextStudio(p: Props) {
     setSelected([l.id]);
     return l;
   };
+  /** Any new layer goes on top and becomes the selection. */
+  const addAny = (l: Layer) => {
+    const d = designRef.current;
+    if (!d) return;
+    commit({ ...d, layers: [...d.layers, l] });
+    setSelected([l.id]);
+    setEditing(null);
+  };
+  const addLogo = () => {
+    if (!logoSrc) return toast.error("This client has no logo yet: add one in the Brand kit.");
+    const d = designRef.current;
+    if (d?.layers.some((l) => l.type === "logo")) {
+      const existing = d.layers.find((l) => l.type === "logo")!;
+      setSelected([existing.id]);
+      return toast.message("The logo is already a layer: it is selected.");
+    }
+    // Where the client's layout puts it, so adding the layer changes nothing until it is moved.
+    const w = spec.logo.width;
+    const x = spec.logo.position === "top-left" ? spec.margin : spec.logo.position === "top-right" ? 1 - spec.margin - w : (1 - w) / 2;
+    const y = (spec.logo.top * W) / H;
+    addAny(newLogoLayer({ x: round3(x), y: round3(spec.logo.position === "bottom-center" ? 1 - y - (w * W * 0.5) / H : y), w }));
+  };
+  const addImage = (src: string, name?: string) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H) }));
+  const addShape = (kind: ShapeKind) =>
+    addAny(
+      newShapeLayer(kind, {
+        fill: { type: "solid", color: brand.colors[0]?.hex ?? (kind === "line" ? "#ffffff" : "#1129d3") },
+        ...(kind === "line" ? { h: round3((0.004 * W) / H) } : {}),
+      }),
+    );
+  const uploadGraphic = async (file: File) => {
+    if (!p.onUploadGraphic) return toast.error("Save the month first: an uploaded graphic is kept with it.");
+    try {
+      const src = await p.onUploadGraphic(file);
+      addImage(src, file.name.replace(/\.[^.]+$/, ""));
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
   const duplicate = (ids: string[]) => {
     const d = designRef.current;
     if (!d) return;
-    const copies: TextLayer[] = [];
+    const copies: Layer[] = [];
     const next = [...d.layers];
     for (const id of ids) {
       const l = d.layers.find((x) => x.id === id);
       if (!l) continue;
-      const c = { ...l, id: layerId(), name: l.name ? `${l.name} copy` : undefined, role: undefined, x: l.x + 0.02, y: l.y + 0.02 };
+      const c: Layer = { ...l, id: layerId(), name: l.name ? `${l.name} copy` : undefined, x: l.x + 0.02, y: l.y + 0.02 };
+      if (isTextLayer(c)) c.role = undefined;
       copies.push(c);
       next.push(c);
     }
@@ -426,7 +490,7 @@ export default function TextStudio(p: Props) {
     commit({
       ...d,
       layers: d.layers.map((l) => {
-        if (!targets.includes(l.id)) return l;
+        if (!targets.includes(l.id) || !isTextLayer(l)) return l;
         const from = r && r.end > r.start ? r.start : 0;
         const to = r && r.end > r.start ? r.end : l.text.length;
         const whole = from === 0 && to === l.text.length;
@@ -445,11 +509,11 @@ export default function TextStudio(p: Props) {
     textareaRef.current?.focus();
   };
   const richActive = useMemo(() => {
-    const l = primary;
+    const l = primaryText;
     if (!l) return { bold: false, italic: false, underline: false, strike: false, script: null };
     const at = editing === l.id ? styleAt(l.runs, Math.max(0, caret.start)) : styleAt(l.runs, 0);
     return { bold: !!at.bold || (editing !== l.id && l.weight >= 700), italic: !!at.italic || !!l.italic, underline: !!at.underline, strike: !!at.strike, script: at.script ?? null };
-  }, [primary, editing, caret]);
+  }, [primaryText, editing, caret]);
 
   /* ───────────── Pointer ───────────── */
   const toCanvas = (e: { clientX: number; clientY: number }) => {
@@ -547,7 +611,8 @@ export default function TextStudio(p: Props) {
       let bottom = b.y + b.h;
       const corner = h.length === 2;
       if (corner) {
-        // Corners scale the type: the opposite corner stays, the size follows the width.
+        // Corners scale the layer: the opposite corner stays. Type follows the width; a picture or
+        // a shape keeps its proportions; a logo's height follows its file anyway.
         const fixedX = h.includes("w") ? right : left;
         const fixedY = h.includes("n") ? bottom : top;
         const newW = Math.max(W * 0.03, Math.abs(lp.x - fixedX));
@@ -558,9 +623,18 @@ export default function TextStudio(p: Props) {
         if (h.includes("n")) top = fixedY - newH;
         else bottom = fixedY + newH;
         const c = world(b, (left + right) / 2, (top + bottom) / 2);
+        const x = round3((c.x - (right - left) / 2) / W);
+        const y = round3((c.y - (bottom - top) / 2) / H);
+        const w = round3((right - left) / W);
+        const hh = round3((bottom - top) / H);
         replace({
           ...d,
-          layers: d.layers.map((l) => (l.id === drag.id ? { ...l, size: round3(o.size * f * 1000) / 1000, w: round3((right - left) / W), h: o.autoSize === false && o.h ? round3(((bottom - top) / H) * 1) : o.h, x: round3((c.x - (right - left) / 2) / W), y: round3((c.y - (bottom - top) / 2) / H) } : l)),
+          layers: d.layers.map((l): Layer => {
+            if (l.id !== drag.id) return l;
+            if (isTextLayer(l) && isTextLayer(o)) return { ...l, size: round3(o.size * f * 1000) / 1000, w, h: o.autoSize === false && o.h ? hh : o.h, x, y };
+            if (l.type === "logo") return { ...l, w, x, y };
+            return { ...l, w, h: hh, x, y };
+          }),
         });
         return;
       }
@@ -572,11 +646,15 @@ export default function TextStudio(p: Props) {
       const vertical = h === "n" || h === "s";
       replace({
         ...d,
-        layers: d.layers.map((l) =>
-          l.id === drag.id
-            ? { ...l, w: round3((right - left) / W), ...(vertical ? { h: round3((bottom - top) / H), autoSize: false } : {}), x: round3((c.x - (right - left) / 2) / W), y: round3((c.y - (vertical ? bottom - top : b.h) / 2) / H) }
-            : l,
-        ),
+        layers: d.layers.map((l): Layer => {
+          if (l.id !== drag.id) return l;
+          const x = round3((c.x - (right - left) / 2) / W);
+          const y = round3((c.y - (vertical ? bottom - top : b.h) / 2) / H);
+          const w = round3((right - left) / W);
+          if (isTextLayer(l)) return { ...l, w, ...(vertical ? { h: round3((bottom - top) / H), autoSize: false } : {}), x, y };
+          if (l.type === "logo") return vertical ? l : { ...l, w, x, y };
+          return { ...l, w, ...(vertical ? { h: round3((bottom - top) / H) } : {}), x, y };
+        }),
       });
       return;
     }
@@ -616,13 +694,14 @@ export default function TextStudio(p: Props) {
     if (!d) return;
     const pt = toCanvas(e);
     const hit = hitLayer(boxesRef.current, d.layers, pt.x, pt.y, 4);
-    if (hit && !d.layers.find((l) => l.id === hit.id)?.locked) {
+    const l = hit ? d.layers.find((x) => x.id === hit.id) : undefined;
+    if (hit && l && isTextLayer(l) && !l.locked) {
       setSelected([hit.id]);
       setEditing(hit.id);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   };
-  const boxAt = (l: TextLayer, b: LayerBox) => ({ x: l.x * W, y: l.y * H, cx: l.x * W + b.w / 2, cy: l.y * H + b.h / 2 });
+  const boxAt = (l: Layer, b: LayerBox) => ({ x: l.x * W, y: l.y * H, cx: l.x * W + b.w / 2, cy: l.y * H + b.h / 2 });
   const world = (b: LayerBox, lx: number, ly: number) => {
     if (!b.rotate) return { x: lx, y: ly };
     const a = (b.rotate * Math.PI) / 180;
@@ -725,7 +804,7 @@ export default function TextStudio(p: Props) {
         if (clipRef.current.length) {
           e.preventDefault();
           const d = designRef.current!;
-          const copies = clipRef.current.map((l) => ({ ...l, id: layerId(), role: undefined, x: l.x + 0.03, y: l.y + 0.03 }));
+          const copies = clipRef.current.map((l): Layer => ({ ...l, id: layerId(), x: l.x + 0.03, y: l.y + 0.03, ...(isTextLayer(l) ? { role: undefined } : {}) }) as Layer);
           commit({ ...d, layers: [...d.layers, ...copies] });
           setSelected(copies.map((c) => c.id));
         }
@@ -745,9 +824,9 @@ export default function TextStudio(p: Props) {
         }
         return;
       }
-      if (e.key === "Enter" && primary && !primary.locked) {
+      if (e.key === "Enter" && primaryText && !primaryText.locked) {
         e.preventDefault();
-        setEditing(primary.id);
+        setEditing(primaryText.id);
         setTimeout(() => textareaRef.current?.focus(), 0);
         return;
       }
@@ -814,7 +893,7 @@ export default function TextStudio(p: Props) {
       const d = designRef.current!;
       const nat = imgRef.current?.naturalWidth || 1080;
       if (kind === "text") {
-        const c = await renderDesignOnly(d, nat, Math.round((nat * H) / W));
+        const c = await renderDesignOnly(d, nat, Math.round((nat * H) / W), { logoSrc });
         c.toBlob((b) => b && saveBlob(b, `${p.fileName}_text.png`), "image/png");
         return;
       }
@@ -837,6 +916,52 @@ export default function TextStudio(p: Props) {
       return c.toDataURL("image/jpeg", 0.8);
     } catch {
       return null;
+    }
+  };
+  // Export preview: the final artwork composed at the output size (the picture cropped and shifted,
+  // the helpers, every layer), drawn in the browser exactly as the export and the share link draw it.
+  useEffect(() => {
+    if (!open || !previewOn || !design) return;
+    let alive = true;
+    const t = window.setTimeout(() => {
+      const nat = imgRef.current?.naturalWidth || 1080;
+      compose(nat)
+        .then((c) => alive && setPreview(c.toDataURL("image/jpeg", 0.92)))
+        .catch((e) => alive && toast.error((e as Error).message));
+    }, 150);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, previewOn, design, spec, logoSrc]);
+  const downloadPreview = async () => {
+    try {
+      const nat = imgRef.current?.naturalWidth || 1080;
+      const c = await compose(nat);
+      c.toBlob((b) => b && saveBlob(b, `${p.fileName}_preview.png`), "image/png");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  /* ───────────── One look for the month ───────────── */
+  const applyTarget = primary ? styleToApply(primary) : null;
+  const applyToAll = async () => {
+    if (!applyTarget || !p.onApplyToAll || applying) return;
+    const what = applyTarget.role === "logo" ? "the logo's place and size" : `the ${applyTarget.role === "headline" ? "headline" : "second line"} style`;
+    const ok = await askConfirm(`Apply ${what} to the month's other posts? Their words stay; only the look changes.`, { ok: "Apply to all", danger: false });
+    if (!ok) return;
+    setApplying(true);
+    try {
+      // This post is saved first, so the month's one save holds every post as it is now.
+      flushSave(true);
+      const n = await p.onApplyToAll(applyTarget.style, applyTarget.role);
+      toast.success(n ? `Applied to ${n} other post${n === 1 ? "" : "s"}.` : "No other post to apply it to.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -863,7 +988,7 @@ export default function TextStudio(p: Props) {
       const mine = r.clients.find((c) => c.id === brand.id);
       const f = mine?.fontFiles.find((x) => x.name === name.trim());
       if (f) await loadFont(f.name, `/api/studio/clients/${brand.id}/fonts/${f.id}/file`);
-      if (selected.length) updateSel({ font: name.trim() });
+      if (selected.length) updateText({ font: name.trim() });
       toast.success(`Font "${name.trim()}" added to ${brand.name}.`);
     } catch (e) {
       toast.error((e as Error).message);
@@ -878,16 +1003,18 @@ export default function TextStudio(p: Props) {
   const warnings = useMemo(() => {
     const s = new Set<string>();
     for (const l of layers) {
+      if (!isTextLayer(l)) continue;
       const c = contrastOf(baseRef.current, l, boxes.find((b) => b.id === l.id));
       if (c !== null && c < 3) s.add(l.id);
     }
     return s;
   }, [layers, boxes]);
-  const contrast = primary ? contrastOf(baseRef.current, primary, boxes.find((b) => b.id === primary.id)) : null;
+  const contrast = primaryText ? contrastOf(baseRef.current, primaryText, boxes.find((b) => b.id === primaryText.id)) : null;
   const canUndo = pastRef.current.length > 0;
   const canRedo = futureRef.current.length > 0;
   void histTick;
-  const editingLayer = editing ? layers.find((l) => l.id === editing) : null;
+  const editingFound = editing ? layers.find((l) => l.id === editing) : null;
+  const editingLayer = editingFound && isTextLayer(editingFound) ? editingFound : null;
   const editingBox = editing ? boxes.find((b) => b.id === editing) : null;
 
   if (!open) return null;
@@ -909,11 +1036,11 @@ export default function TextStudio(p: Props) {
           <button type="button" className="ts-icon" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)"><Redo2 size={15} /></button>
           <span className="ts-sep" />
           <button type="button" className="ts-icon" onClick={() => addLayer()} title="Add text (T)"><Type size={15} /></button>
-          {primary && (
+          {primaryText && (
             <>
-              <FontMenu value={primary.font} brand={fonts} onChange={(font) => updateSel({ font })} onUpload={uploadFont} />
-              <input className="ts-size" type="number" min={6} max={W} value={Math.round(primary.size * W)} onChange={(e) => updateSel({ size: Math.max(0.005, Number(e.target.value) / W) })} title="Size at export width" />
-              <select className="ts-weight" value={primary.weight} onChange={(e) => updateSel({ weight: Number(e.target.value) })} title="Weight">
+              <FontMenu value={primaryText.font} brand={fonts} onChange={(font) => updateText({ font })} onUpload={uploadFont} />
+              <input className="ts-size" type="number" min={6} max={W} value={Math.round(primaryText.size * W)} onChange={(e) => updateText({ size: Math.max(0.005, Number(e.target.value) / W) })} title="Size at export width" />
+              <select className="ts-weight" value={primaryText.weight} onChange={(e) => updateText({ weight: Number(e.target.value) })} title="Weight">
                 {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => (
                   <option key={w} value={w}>{w}</option>
                 ))}
@@ -922,24 +1049,38 @@ export default function TextStudio(p: Props) {
               <button type="button" className={`ts-icon ${richActive.italic ? "on" : ""}`} onClick={() => rich("italic")} title="Italic (⌘I)"><Italic size={15} /></button>
               <button type="button" className={`ts-icon ${richActive.underline ? "on" : ""}`} onClick={() => rich("underline")} title="Underline (⌘U)"><Underline size={15} /></button>
               <span className="ts-sep" />
-              <button type="button" className={`ts-icon ${primary.align === "left" ? "on" : ""}`} onClick={() => updateSel({ align: "left" })} title="Align left"><AlignLeft size={15} /></button>
-              <button type="button" className={`ts-icon ${primary.align === "center" ? "on" : ""}`} onClick={() => updateSel({ align: "center" })} title="Centre"><AlignCenter size={15} /></button>
-              <button type="button" className={`ts-icon ${primary.align === "right" ? "on" : ""}`} onClick={() => updateSel({ align: "right" })} title="Align right"><AlignRight size={15} /></button>
-              <button type="button" className={`ts-icon ${primary.align === "justify" ? "on" : ""}`} onClick={() => updateSel({ align: "justify" })} title="Justify"><AlignJustify size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "left" ? "on" : ""}`} onClick={() => updateText({ align: "left" })} title="Align left"><AlignLeft size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "center" ? "on" : ""}`} onClick={() => updateText({ align: "center" })} title="Centre"><AlignCenter size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "right" ? "on" : ""}`} onClick={() => updateText({ align: "right" })} title="Align right"><AlignRight size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "justify" ? "on" : ""}`} onClick={() => updateText({ align: "justify" })} title="Justify"><AlignJustify size={15} /></button>
               <span className="ts-sep" />
-              <ColorField compact label="Text colour" value={primary.fill} onChange={(fill) => updateSel({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
+              <ColorField compact label="Text colour" value={primaryText.fill} onChange={(fill) => updateText({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
               <PopoverPrimitive.Root>
                 <PopoverPrimitive.Trigger asChild>
                   <button type="button" className="ts-icon" title="Spacing"><span className="ts-spacing-glyph">A↔</span></button>
                 </PopoverPrimitive.Trigger>
                 <PopoverPrimitive.Portal>
                   <PopoverPrimitive.Content className="ts-pop ts-spacing" sideOffset={8} collisionPadding={12}>
-                    <label className="ts-slider"><span>Line height <em>{primary.lineHeight.toFixed(2)}</em></span><input type="range" min={0.7} max={2.5} step={0.05} value={primary.lineHeight} onChange={(e) => updateSel({ lineHeight: Number(e.target.value) })} /></label>
-                    <label className="ts-slider"><span>Letter spacing <em>{Math.round((primary.letterSpacing ?? 0) * 100)}</em></span><input type="range" min={-0.1} max={0.6} step={0.01} value={primary.letterSpacing ?? 0} onChange={(e) => updateSel({ letterSpacing: Number(e.target.value) || undefined })} /></label>
-                    <label className="ts-slider"><span>Word spacing <em>{(primary.wordSpacing ?? 0).toFixed(2)}</em></span><input type="range" min={-0.2} max={1.5} step={0.05} value={primary.wordSpacing ?? 0} onChange={(e) => updateSel({ wordSpacing: Number(e.target.value) || undefined })} /></label>
+                    <label className="ts-slider"><span>Line height <em>{primaryText.lineHeight.toFixed(2)}</em></span><input type="range" min={0.7} max={2.5} step={0.05} value={primaryText.lineHeight} onChange={(e) => updateText({ lineHeight: Number(e.target.value) })} /></label>
+                    <label className="ts-slider"><span>Letter spacing <em>{Math.round((primaryText.letterSpacing ?? 0) * 100)}</em></span><input type="range" min={-0.1} max={0.6} step={0.01} value={primaryText.letterSpacing ?? 0} onChange={(e) => updateText({ letterSpacing: Number(e.target.value) || undefined })} /></label>
+                    <label className="ts-slider"><span>Word spacing <em>{(primaryText.wordSpacing ?? 0).toFixed(2)}</em></span><input type="range" min={-0.2} max={1.5} step={0.05} value={primaryText.wordSpacing ?? 0} onChange={(e) => updateText({ wordSpacing: Number(e.target.value) || undefined })} /></label>
                   </PopoverPrimitive.Content>
                 </PopoverPrimitive.Portal>
               </PopoverPrimitive.Root>
+            </>
+          )}
+          {primary && !primaryText && (
+            <label className="ts-slider ts-tool-opacity" title="Layer opacity">
+              <span>Opacity <em>{Math.round((primary.opacity ?? 1) * 100)}%</em></span>
+              <input type="range" min={0} max={100} value={Math.round((primary.opacity ?? 1) * 100)} onChange={(e) => updateSel({ opacity: Number(e.target.value) === 100 ? undefined : Number(e.target.value) / 100 })} />
+            </label>
+          )}
+          {p.onApplyToAll && applyTarget && (
+            <>
+              <span className="ts-sep" />
+              <button type="button" className="ts-btn ts-apply-all" onClick={() => void applyToAll()} disabled={applying} title={applyTarget.role === "logo" ? "Put the logo in this place and size on every post of the month" : "Give every post's same line this look; their words stay"}>
+                {applying ? <Orb size={13} /> : <Wand2 size={13} />} Apply this style to all posts
+              </button>
             </>
           )}
         </div>
@@ -950,6 +1091,7 @@ export default function TextStudio(p: Props) {
             <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.min(6, z * 1.2))} title="Zoom in (⌘+)"><Plus size={14} /></button>
           </div>
           <button type="button" className={`ts-icon ${safe ? "on" : ""}`} onClick={() => setSafe((s) => !s)} title="Safe zones (where Instagram's buttons and captions sit)"><Grid3x3 size={15} /></button>
+          <button type="button" className={`ts-icon ${previewOn ? "on" : ""}`} onClick={() => setPreviewOn((s) => !s)} title="Export preview: the final artwork at the output size, drawn here (no server call)"><Eye size={15} /></button>
           <button type="button" className="ts-icon" onClick={() => setShortcuts((s) => !s)} title="Keyboard shortcuts (?)"><Keyboard size={15} /></button>
           <PopoverPrimitive.Root>
             <PopoverPrimitive.Trigger asChild>
@@ -981,10 +1123,33 @@ export default function TextStudio(p: Props) {
           </div>
           <div className="ts-side-body">
             {leftTab === "layers" && design && (
-              <LayersList layers={layers} selected={selected} warnings={warnings} onSelect={select} onChange={(id, patch) => update([id], patch)} onReorder={reorder} onDuplicate={(id) => duplicate([id])} onDelete={(id) => remove([id])} onAdd={() => addLayer()} />
+              <LayersList
+                layers={layers}
+                selected={selected}
+                warnings={warnings}
+                onSelect={select}
+                onChange={(id, patch) => update([id], patch)}
+                onReorder={reorder}
+                onDuplicate={(id) => duplicate([id])}
+                onDelete={(id) => remove([id])}
+                onAdd={() => addLayer()}
+                onAddLogo={logoSrc ? addLogo : undefined}
+                onAddImage={addImage}
+                onAddShape={addShape}
+                onUploadGraphic={p.onUploadGraphic ? uploadGraphic : undefined}
+                assets={p.assets ?? []}
+              />
             )}
-            {leftTab === "presets" && <PresetsList brand={brand} selected={primary} onApply={(style) => updateSel(style)} onAddWith={(style, name) => addLayer({ ...style, name }, name === "Price tag" ? "19.99 JOD" : name === "Quote" ? "“Made with love”" : "Your words here")} />}
-            {leftTab === "brand" && <BrandAssets brand={brand} palette={palette} onFont={(font) => (selected.length ? updateSel({ font }) : addLayer({ font }))} onColour={(hex) => (selected.length ? updateSel({ fill: { type: "solid", color: hex } }) : addLayer({ fill: { type: "solid", color: hex } }))} onUploadFont={uploadFont} />}
+            {leftTab === "presets" && <PresetsList brand={brand} selected={primaryText} onApply={(style) => updateText(style)} onAddWith={(style, name) => addLayer({ ...style, name }, name === "Price tag" ? "19.99 JOD" : name === "Quote" ? "“Made with love”" : "Your words here")} />}
+            {leftTab === "brand" && (
+              <BrandAssets
+                brand={brand}
+                palette={palette}
+                onFont={(font) => (primaryText ? updateText({ font }) : addLayer({ font }))}
+                onColour={(hex) => (primaryText ? updateText({ fill: { type: "solid", color: hex } }) : primary?.type === "shape" ? updateSel({ fill: { type: "solid", color: hex } }) : addLayer({ fill: { type: "solid", color: hex } }))}
+                onUploadFont={uploadFont}
+              />
+            )}
           </div>
         </aside>
 
@@ -995,7 +1160,20 @@ export default function TextStudio(p: Props) {
               <Orb size={24} />
             </div>
           )}
-          {design && size && (
+          {design && size && previewOn && (
+            <div className="ts-preview" style={{ width: W * scale }}>
+              <div className="ts-preview-head">
+                <span>
+                  Export preview · {imgRef.current?.naturalWidth ?? W} × {Math.round(((imgRef.current?.naturalWidth ?? W) * H) / W)} px, drawn here
+                </span>
+                <button type="button" className="ts-btn" onClick={() => void downloadPreview()} title="Save this preview as a PNG (no server call)">
+                  <Download size={13} /> Download preview PNG
+                </button>
+              </div>
+              {preview ? <img src={preview} alt="Export preview" style={{ width: W * scale, height: H * scale }} /> : <div className="ts-loading" style={{ width: W * scale, height: H * scale }}><Orb size={24} /></div>}
+            </div>
+          )}
+          {design && size && !previewOn && (
             <div className="ts-canvas-wrap" style={{ width: W * scale, height: H * scale }}>
               <canvas ref={canvasRef} style={{ width: W * scale, height: H * scale }} />
               <div className="ts-overlay" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={onDouble}>
@@ -1022,7 +1200,7 @@ export default function TextStudio(p: Props) {
                     >
                       {single && !l.locked && (
                         <>
-                          {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as Handle[]).map((h) => (
+                          {(["nw", "n", "ne", "e", "se", "s", "sw", "w"] as Handle[]).filter((h) => l.type !== "logo" || (h !== "n" && h !== "s")).map((h) => (
                             <span key={h} className={`ts-handle ${h}`} data-handle={h} />
                           ))}
                           <span className="ts-rot-line" />
@@ -1062,7 +1240,7 @@ export default function TextStudio(p: Props) {
                       opacity: editingLayer.opacity ?? 1,
                     }}
                     onChange={(e) => {
-                      update([editingLayer.id], (l) => editText(l, e.target.value), true);
+                      update([editingLayer.id], (l) => (isTextLayer(l) ? editText(l, e.target.value) : {}), true);
                       setCaret({ start: e.target.selectionStart, end: e.target.selectionEnd });
                     }}
                     onSelect={(e) => setCaret({ start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd })}
@@ -1080,7 +1258,23 @@ export default function TextStudio(p: Props) {
                   />
                 )}
                 {primary && selLayers.length === 1 && !editing && boxes.find((b) => b.id === primary.id) && (
-                  <ContextBar box={boxes.find((b) => b.id === primary.id)!} scale={scale} layer={primary} onRich={rich} onDuplicate={() => duplicate([primary.id])} onDelete={() => remove([primary.id])} onLock={() => update([primary.id], { locked: !primary.locked || undefined })} onAssist={() => setRightTab("assist")} fill={<ColorField compact label="Text colour" value={primary.fill} onChange={(fill) => updateSel({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />} />
+                  <ContextBar
+                    box={boxes.find((b) => b.id === primary.id)!}
+                    scale={scale}
+                    layer={primary}
+                    onRich={rich}
+                    onDuplicate={() => duplicate([primary.id])}
+                    onDelete={() => remove([primary.id])}
+                    onLock={() => update([primary.id], { locked: !primary.locked || undefined })}
+                    onAssist={() => setRightTab("assist")}
+                    fill={
+                      primaryText ? (
+                        <ColorField compact label="Text colour" value={primaryText.fill} onChange={(fill) => updateText({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
+                      ) : primary.type === "shape" ? (
+                        <ColorField compact label="Fill" value={primary.fill} onChange={(fill) => updateSel({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
+                      ) : null
+                    }
+                  />
                 )}
               </div>
             </div>
@@ -1097,7 +1291,7 @@ export default function TextStudio(p: Props) {
             {rightTab === "props" && design && (
               <Properties
                 sel={{ layer: primary, count: selLayers.length, contrast }}
-                onChange={(patch) => (patch.text !== undefined && primary ? update(selected, (l) => editText(l, patch.text!), true) : updateSel(patch))}
+                onChange={(patch) => ("text" in patch && patch.text !== undefined && primaryText ? update(selected, (l) => (isTextLayer(l) ? editText(l, patch.text!) : {}), true) : updateSel(patch))}
                 onRich={rich}
                 brand={brand}
                 palette={palette}
@@ -1116,15 +1310,15 @@ export default function TextStudio(p: Props) {
               <Assistant
                 batch={p.batchId ?? null}
                 index={p.index}
-                text={primary?.text ?? ""}
-                allText={layers.filter((l) => !l.hidden).map((l) => l.text).join("\n")}
+                text={primaryText?.text ?? ""}
+                allText={layers.filter(isTextLayer).filter((l) => !l.hidden).map((l) => l.text).join("\n")}
                 compose={composeJpeg}
                 language={brand.language}
                 onApply={(text) => {
-                  if (primary) update([primary.id], (l) => editText(l, text));
+                  if (primaryText) update([primaryText.id], (l) => (isTextLayer(l) ? editText(l, text) : {}));
                   else addLayer({}, text);
                 }}
-                onAddLayer={(text) => addLayer({ y: (primary?.y ?? 0.4) + 0.12 }, text)}
+                onAddLayer={(text) => addLayer({ y: (primaryText?.y ?? 0.4) + 0.12 }, text)}
               />
             )}
           </div>
@@ -1138,6 +1332,7 @@ export default function TextStudio(p: Props) {
               {[
                 ["T", "Add a text layer"],
                 ["Enter / double-click", "Edit the words in place"],
+                ["Layers › Add", "A logo, a picture (product, brand asset, upload) or a shape"],
                 ["Esc", "Stop editing, clear the selection, close"],
                 ["⌘Z / ⇧⌘Z", "Undo / redo"],
                 ["⌘B ⌘I ⌘U", "Bold, italic, underline (selected words or layer)"],
@@ -1168,17 +1363,22 @@ export default function TextStudio(p: Props) {
   return createPortal(sheet, document.body);
 }
 
-function ContextBar({ box, scale, layer, onRich, onDuplicate, onDelete, onLock, onAssist, fill }: { box: LayerBox; scale: number; layer: TextLayer; onRich: (w: "bold" | "italic") => void; onDuplicate: () => void; onDelete: () => void; onLock: () => void; onAssist: () => void; fill: React.ReactNode }) {
+function ContextBar({ box, scale, layer, onRich, onDuplicate, onDelete, onLock, onAssist, fill }: { box: LayerBox; scale: number; layer: Layer; onRich: (w: "bold" | "italic") => void; onDuplicate: () => void; onDelete: () => void; onLock: () => void; onAssist: () => void; fill: React.ReactNode }) {
   // Above the rotation handle; under the box when the layer touches the top edge.
   const top = box.y * scale - 92;
+  const text = isTextLayer(layer) ? layer : null;
   return (
     <div className="ts-context" style={{ left: Math.max(0, box.cx * scale - 120), top: top < 0 ? (box.y + box.h) * scale + 14 : top }} onPointerDown={(e) => e.stopPropagation()}>
       {fill}
-      <button type="button" className={layer.weight >= 700 ? "on" : ""} onClick={() => onRich("bold")} title="Bold"><Bold size={13} /></button>
-      <button type="button" className={layer.italic ? "on" : ""} onClick={() => onRich("italic")} title="Italic"><Italic size={13} /></button>
+      {text && (
+        <>
+          <button type="button" className={text.weight >= 700 ? "on" : ""} onClick={() => onRich("bold")} title="Bold"><Bold size={13} /></button>
+          <button type="button" className={text.italic ? "on" : ""} onClick={() => onRich("italic")} title="Italic"><Italic size={13} /></button>
+        </>
+      )}
       <button type="button" onClick={onDuplicate} title="Duplicate (⌘D)"><Copy size={13} /></button>
       <button type="button" onClick={onLock} title={layer.locked ? "Unlock" : "Lock"}>{layer.locked ? <Lock size={13} /> : <LockOpen size={13} />}</button>
-      <button type="button" onClick={onAssist} title="Ask the assistant"><Sparkles size={13} /></button>
+      {text && <button type="button" onClick={onAssist} title="Ask the assistant"><Sparkles size={13} /></button>}
       <button type="button" className="danger" onClick={onDelete} title="Delete"><Trash2 size={13} /></button>
     </div>
   );

@@ -4,7 +4,7 @@
  */
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
-import { contrastRatio, fillColor, luminance, newTextLayer, type TextDesign, type TextLayer } from "@shared/layers";
+import { contrastRatio, fillColor, luminance, newTextLayer, type Layer, type TextDesign, type TextLayer } from "@shared/layers";
 import { layoutBox, luminanceUnder, type LayerBox } from "@/lib/textLayers";
 
 export interface Brand {
@@ -121,11 +121,12 @@ export const PRESETS: Preset[] = [
   { name: "Arc", hint: "Words along a curve", make: (b) => ({ font: headFont(b), weight: 800, size: 0.07, curve: 50, fill: { type: "solid", color: "#ffffff" } }) },
 ];
 
-/** The look of a layer without its words and place, for saved styles and presets. */
-export function styleOf(l: TextLayer): Partial<TextLayer> {
-  const { font, weight, italic, size, lineHeight, letterSpacing, wordSpacing, paragraphSpacing, padding, align, transform, fill, opacity, stroke, shadow, innerShadow, glow, blur, background, curve, skew, blend } = l;
-  return { font, weight, italic, size, lineHeight, letterSpacing, wordSpacing, paragraphSpacing, padding, align, transform, fill, opacity, stroke, shadow, innerShadow, glow, blur, background, curve, skew, blend };
-}
+/*
+ * The look of a layer (styleOf) and "one look for the whole month" (applyStyleToDesign,
+ * applyStyleToPosts, styleToApply, logoPlacementOf, ApplyRole) are pure data logic and live in
+ * shared/layers.ts so the tests and the server can read them; the editor takes them from here.
+ */
+export { applyStyleToDesign, applyStyleToPosts, logoPlacementOf, styleOf, styleToApply, type ApplyRole } from "@shared/layers";
 
 /* ───────────── Small stores ───────────── */
 
@@ -183,7 +184,7 @@ export function toLocal(box: LayerBox, x: number, y: number): { x: number; y: nu
   return { x: box.cx + dx * Math.cos(a) - dy * Math.sin(a), y: box.cy + dx * Math.sin(a) + dy * Math.cos(a) };
 }
 
-export function hitLayer(boxes: LayerBox[], layers: TextLayer[], x: number, y: number, slack = 0): LayerBox | null {
+export function hitLayer(boxes: LayerBox[], layers: Layer[], x: number, y: number, slack = 0): LayerBox | null {
   for (let i = boxes.length - 1; i >= 0; i--) {
     const b = boxes[i];
     const l = layers.find((k) => k.id === b.id);

@@ -7,7 +7,9 @@ import {
   FolderDown,
   RefreshCw,
   ScanLine,
+  Type,
 } from "lucide-react";
+import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import {
   Dialog,
@@ -101,7 +103,10 @@ export default function ReviewDialog({
   onRemake,
   onPrev,
   onNext,
+  onTextStudio,
 }: {
+  /** Opens the Text studio on this post's words and layers (no picture is made); absent when the image is not a post. */
+  onTextStudio?: () => void;
   task: Task | null;
   source: Source | null;
   busy: boolean;
@@ -201,6 +206,11 @@ export default function ReviewDialog({
               >
                 Original
               </button>
+              {onTextStudio && (
+                <button type="button" className="editor-text-studio" title="Text studio" aria-label="Text studio" onClick={onTextStudio}>
+                  <Type size={14} /> Text studio
+                </button>
+              )}
               <span className="nav-arrows">
                 <button onClick={onPrev} disabled={!onPrev} aria-label="Previous image">
                   <ChevronLeft size={16} />
