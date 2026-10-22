@@ -4,14 +4,18 @@
  * (server/video-presets.ts normalises the tool answers into it) and the studio (which only draws it).
  * No preset is invented here: a category with no answer says so.
  *
- * The gallery shows videos only (`keepCard`): a card needs a real id, a title and a reference video,
- * or a preview picture plus a declared video output (Marketing Studio motion presets). The
- * provider's category lists (entries titled "All", "Motion", "Product shot"…), entries with no
- * preview and no description, and recipes that are not a video made from a picture (Blender, After
- * Effects, DaVinci, websites…) are dropped before they reach the studio.
+ * The gallery shows videos only (`keepCard`): a card needs a real id, a title and a reference
+ * **video** (the provider says which preview is a video with `preview_type`). Picture presets
+ * (the Marketing Studio's product shots, whose preview is a picture) belong to the Photo studio and
+ * never reach this gallery. The provider's category lists (entries titled "All", "Motion",
+ * "Product shot"…) and recipes that are not a video made from a picture (Blender, After Effects,
+ * DaVinci, websites…) are dropped too.
+ *
+ * No UGC category: Higgsfield's UGC ads live in its Marketing Studio widget, not in the preset
+ * catalog (`get_presets` with `query: "ugc"` answers nothing), so nothing is promised there.
  */
 
-export type PresetCategoryId = "popular" | "paid-ads" | "motion" | "marketing" | "production" | "ugc" | "faceless" | "effects" | "genjutsu" | "recipes";
+export type PresetCategoryId = "popular" | "paid-ads" | "motion" | "marketing" | "production" | "faceless" | "effects" | "genjutsu" | "recipes";
 
 export interface PresetCategory {
   id: PresetCategoryId;
@@ -24,10 +28,9 @@ export const PRESET_CATEGORIES: readonly PresetCategory[] = [
   { id: "popular", label: "Popular", hint: "What Higgsfield shows first: the viral effects and the marketing presets together." },
   { id: "paid-ads", label: "Paid Ads", hint: "Presets written for ads: a product, a hook, a call to action." },
   { id: "motion", label: "Motion Design", hint: "Moving graphics and transitions from the Marketing Studio." },
-  { id: "marketing", label: "Marketing", hint: "Product shots and ad formats from the Marketing Studio." },
-  { id: "production", label: "Production", hint: "Katana: multi-shot productions with a storyline." },
-  { id: "ugc", label: "UGC", hint: "Creator-style clips that look filmed on a phone." },
-  { id: "faceless", label: "Faceless", hint: "Clips with no presenter: hands, products, text and scenes." },
+  { id: "marketing", label: "Marketing", hint: "Product, logo and unboxing clips from the Marketing Studio." },
+  { id: "production", label: "Production", hint: "Katana: multi-shot productions with a storyline (the community catalog)." },
+  { id: "faceless", label: "Faceless", hint: "\"What if\" explainer styles: scenes, text and data, no presenter." },
   { id: "effects", label: "Effects", hint: "The viral effects applied to a picture." },
   { id: "genjutsu", label: "Genjutsu", hint: "Trending motion transfers and replacements." },
   { id: "recipes", label: "Recipes", hint: "Step-by-step commands (/hero-shot and the like) with what each one does." },
@@ -121,7 +124,7 @@ export function outputKind(...values: unknown[]): "video" | "image" | null {
   return null;
 }
 
-/** Why a card is kept out of the gallery, or null when it stays. Only video presets with a real preview are shown. */
+/** Why a card is kept out of the gallery, or null when it stays. Only presets with a real reference video are shown. */
 export function dropReason(c: Pick<PresetCard, "id" | "title" | "description" | "video" | "poster" | "output" | "source" | "category">): string | null {
   if (!c.id || !String(c.id).trim() || c.id === "undefined" || c.id === "null") return "no id";
   if (!c.title.trim()) return "no title";
@@ -129,9 +132,7 @@ export function dropReason(c: Pick<PresetCard, "id" | "title" | "description" | 
   if (c.output === "image") return "makes a picture, not a video";
   if (c.video) return null;
   if (!c.poster && !c.description) return "no preview and no description";
-  if (!c.poster) return "no reference video";
-  if (c.output === "video" || (c.source === "marketing_studio" && /motion/i.test(c.category ?? ""))) return null;
-  return "no reference video and no video output declared";
+  return "no reference video";
 }
 
 export const keepCard = (c: Parameters<typeof dropReason>[0]): boolean => dropReason(c) === null;

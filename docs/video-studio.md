@@ -50,8 +50,8 @@ The rail marks the paid tools with a small lock for members.
 ### Presets (the gallery)
 
 The stage shows Higgsfield's presets page inside the studio: the category list on the left
-(**Popular, Paid Ads, Motion Design, Marketing, Production, UGC, Faceless, Effects, Genjutsu,
-Recipes**, as Firas saw them), a search box, and the cards. Each card carries the provider's own
+(**Popular, Paid Ads, Motion Design, Marketing, Production, Faceless, Effects, Genjutsu,
+Recipes**, as Firas saw them minus UGC: see the table below), a search box, and the cards. Each card carries the provider's own
 **reference video**, which plays on hover (or on a tap) muted and looping, with the preview image
 as its poster when there is one; the title; one line of description; chips (the slash command, the
 source, the category); *Needs: 1 product picture*; **Use this preset** and **Learn more**. The
@@ -73,15 +73,17 @@ preset's detail, so the side panel never shows a preset from another category.
 
 **Videos only** (`keepCard` / `dropReason` in `shared/video-presets.ts`, applied by `parsePresets`
 and `parseRecipes` in `server/video-presets.ts`; a detail lookup passes `all: true` and keeps
-everything so a preset can still be opened). A card stays when it has a real id, a title and a
-reference **video**, or a preview picture plus a declared video output (`execution.output_type`,
-`output`, `produces`, `media_type`… saying video, or a Marketing Studio preset in the `motion`
-category). Dropped, with the reason named in the tests: an entry with no id; an entry whose title
-is a known category name (*All*, *Motion*, *Product shot*, *Effects*, *Ads*, *Viral*… — the
-presets page's filter list came back as four such "presets" under UGC); an entry with no preview
-and no description; a preset whose declared output is a picture (those belong to the Photo studio);
-a picture-only card with no video output declared. A kept card without a video shows its picture
-with a **Picture preview** tag, never a black "No reference video" box. Recipes stay only when they
+everything so a preset can still be opened). A card stays only when it has a real id, a title and
+a reference **video**. The provider says which preview is a video: every live entry carries
+`preview_url` with `preview_type: "video" | "image"` (and usually `thumbnail_url`); the parser
+believes `preview_type` first, so a `/published/<hash>` link with no extension is still the video
+when the provider says so, and a product shot whose preview is a picture is a picture preset
+whatever its link looks like. Dropped, with the reason named in the tests: an entry with no id; an
+entry whose title is a known category name (*All*, *Motion*, *Product shot*, *Effects*, *Ads*,
+*Viral*… — the presets page's filter list once came back as four such "presets"); an entry with no
+preview and no description; a preset whose preview or declared output is a picture (those belong to
+the Photo studio's Presets); any other card with no reference video (a picture-only card is never
+shown in the Video studio, whatever output it declares). Recipes stay only when they
 make a video from a picture (`isVideoFromPictureRecipe`): their words say video / clip / reel /
 motion, name a picture they take (or their `inputs` do, or the provider's own `runnable` flag is
 not false), and do not point at another tool — Blender, After Effects, DaVinci, websites, games,
@@ -94,16 +96,22 @@ factory*, *destruction studio*, *exploded view*, *faceless* go). Every card carr
 
 | Category | `get_presets` asks |
 | --- | --- |
-| Popular | the combined feed (no `source`) |
-| Paid Ads | `source: marketing_studio, query: "ad"` |
+| Popular | the combined feed (no `source`), 50 at a time |
+| Paid Ads | the combined feed with `query: "ad"` |
 | Motion Design | `source: marketing_studio, category: "motion"` |
-| Marketing | `source: marketing_studio, category: "product-shot"` + `category: "ads"` (merged) |
-| Production | `source: katana, katana_source: "higgsfield"` (no query; searched locally) |
-| UGC | `query: "ugc"` |
-| Faceless | `query: "faceless"` |
+| Marketing | `source: marketing_studio` with `query: "product"`, `"logo"` and `"unboxing"` (merged; the `product-shot` category is pictures only, so it is searched for clips instead) |
+| Production | `source: katana` (the community catalog; `katana_source: "higgsfield"` answers nothing; no query, searched locally; 20 is Katana's maximum page) |
+| Faceless | `source: what_if` (the "What if" explainer styles: scenes, text and data, no presenter; no query, searched locally) |
 | Effects | `source: viral` |
 | Genjutsu | `source: genjutsu, category: "genjutsu-trending"` |
 | Recipes | `get_preset_instructions` with no preset (the recipes and commands list) |
+
+Every ask takes the provider's maximum page (50; Katana 20) because picture presets in the answer
+are dropped afterwards. There is **no UGC category**: `get_presets` with `query: "ugc"` (and
+`"faceless"`, `"talking"`, `"creator"`, `"influencer"`) answers nothing on 22 Oct 2026; Higgsfield's
+UGC ads live in its Marketing Studio widget (`show_marketing_studio_v2`), which is not a catalog
+the studio can list. A search typed in the gallery is sent as `query` joined to the category's
+own words (every word must match on the provider's side); Katana and What if are searched here.
 
 Each category's cards are cached a day in the settings row `video_presets_cache_<category>`
 (encrypted like every setting) and in the isolate; the gallery's refresh button asks again
@@ -362,8 +370,8 @@ understands.
 - Browser (`scripts/video-studio-smoke.mjs`, headless Chromium against the built app and a boot
   mock with fixture presets whose reference videos the script serves): the month opens, the card's
   clapperboard opens the studio on Presets (no clip yet), the rail shows seven tools, the category
-  list ten categories, five cards: four with a muted looping inline `<video>` and one picture-only
-  card with the *Picture preview* tag and no blank box, the command chips and *Needs*; the search
+  list nine categories, five cards, each with a muted looping inline `<video>`, no picture tag and
+  no blank box, the command chips and *Needs*; the search
   leaves one card; switching the category closes the picked preset's detail; an empty category says
   so; Learn more opens the detail with the video large, the run button and the instructions; Use
   this preset opens Generate with the preset's words, the "From the preset" note, the engine chips

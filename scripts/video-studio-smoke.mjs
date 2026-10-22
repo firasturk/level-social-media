@@ -6,8 +6,8 @@
  * videos are served by this script). The month opens, the card's clapperboard opens the Video
  * studio, and the script checks that the studio mounts with its seven tools, that it opens on the
  * Presets panel for a post with no clip, that the gallery renders the category list and the cards
- * with `<video muted loop playsinline>` elements (a card with a picture only carries the "Picture
- * preview" tag), that the search filters the cards, that switching categories forgets the picked
+ * with `<video muted loop playsinline>` elements (videos only: no picture tag, no blank box), that
+ * the search filters the cards, that switching categories forgets the picked
  * preset, that "Use this preset" opens Generate with the preset's words, that Generate shows the
  * Frame control on Reel 9:16 by default (the fill appears for an engine that follows the picture;
  * the choice is remembered per month), that Versions and Edit mount, and that the 390 px layout
@@ -103,7 +103,6 @@ const CATEGORIES = [
   { id: "motion", label: "Motion Design", hint: "Moving graphics." },
   { id: "marketing", label: "Marketing", hint: "Product shots and ad formats." },
   { id: "production", label: "Production", hint: "Katana productions." },
-  { id: "ugc", label: "UGC", hint: "Creator-style clips." },
   { id: "faceless", label: "Faceless", hint: "No presenter." },
   { id: "effects", label: "Effects", hint: "Viral effects." },
   { id: "genjutsu", label: "Genjutsu", hint: "Motion transfers." },
@@ -132,7 +131,7 @@ async function startStatic() {
         return;
       }
       // Four cards with a reference video, and one Motion Design preset that Higgsfield shows with a picture only (its result is a video).
-      const presets = [presetCard(base, "hero_shot", "Hero Shot"), presetCard(base, "glitch_pop", "Glitch Pop", { source: "viral", category: "viral", type: "effect", price: null, needs: ["2 pictures"] }), presetCard(base, "turntable", "Turntable"), presetCard(base, "launch_day", "Launch day", { source: "katana", category: null, runnable: false, command: "/katana/launch-day", price: null }), presetCard(base, "logo_spin", "Logo spin", { category: "motion", type: "motion", video: null, command: null })];
+      const presets = [presetCard(base, "hero_shot", "Hero Shot"), presetCard(base, "glitch_pop", "Glitch Pop", { source: "viral", category: "viral", type: "effect", price: null, needs: ["2 pictures"] }), presetCard(base, "turntable", "Turntable"), presetCard(base, "launch_day", "Launch day", { source: "katana", category: null, runnable: false, command: "/katana/launch-day", price: null }), presetCard(base, "logo_spin", "Logo spin", { category: "motion", type: "motion", command: null })];
       const MOCK = {
         "/api/auth/me": { user: ADMIN, registrationOpen: false },
         "/api/studio/state": { user: ADMIN, batches: [BATCH], trash: [], spend: [], spendThreshold: 20, clients: [CLIENT], engine: { model: "nano-banana-pro", configured: false, source: "none", openai: "none", google: "none", fal: "none", review: false, vertex: null }, preview: true, workflowV2: true },
@@ -227,15 +226,15 @@ try {
   await gallery.waitFor({ state: "visible", timeout: 20000 });
   await studio.locator(".vs-preset").first().waitFor({ state: "visible", timeout: 20000 });
   result.categories = await studio.locator(".vs-cats button").count();
-  if (result.categories !== 10) errors.push(`The category list should show 10 categories, found ${result.categories}`);
+  if (result.categories !== 9) errors.push(`The category list should show 9 categories, found ${result.categories}`);
   result.cards = await studio.locator(".vs-preset").count();
   if (result.cards !== 5) errors.push(`The gallery should show 5 fixture cards, found ${result.cards}`);
   // React sets `muted` as a property, not an attribute, so the three are read from the elements.
   result.videos = await studio.locator(".vs-preset video").evaluateAll((els) => els.filter((v) => v.muted && v.loop && v.playsInline && v.hasAttribute("playsinline")).length);
-  if (result.videos !== 4) errors.push(`The four video cards should carry a muted, looping, inline video, found ${result.videos}`);
-  // The picture-only card shows its picture with the "Picture preview" tag, never a black "No reference video" box.
-  result.pictureTags = await studio.locator(".vs-preset .vs-preset-tag").allInnerTexts();
-  if (result.pictureTags.length !== 1 || !/Picture preview/.test(result.pictureTags[0])) errors.push(`One card should carry the "Picture preview" tag, found ${JSON.stringify(result.pictureTags)}`);
+  if (result.videos !== 5) errors.push(`The five cards should each carry a muted, looping, inline video, found ${result.videos}`);
+  // Videos only: no card is a picture, none shows a black "No reference video" box.
+  result.pictureTags = await studio.locator(".vs-preset .vs-preset-tag").count();
+  if (result.pictureTags !== 0) errors.push(`No card should carry a picture tag, found ${result.pictureTags}`);
   result.blankBoxes = await studio.locator(".vs-preset .vs-preset-blank").count();
   if (result.blankBoxes !== 0) errors.push(`No card should show a blank box, found ${result.blankBoxes}`);
   result.commandChips = await studio.locator(".vs-preset .vs-chip.cmd").allInnerTexts();
@@ -245,11 +244,6 @@ try {
   await page.waitForTimeout(600);
   result.playsOnHover = await studio.locator(".vs-preset video").first().evaluate((v) => !v.paused || v.readyState > 0);
   await page.screenshot({ path: join(outDir, "video-studio-1440-presets.png") });
-  // The picture-only card, scrolled into view, with its "Picture preview" tag.
-  await studio.locator(".vs-preset").last().scrollIntoViewIfNeeded();
-  await page.waitForTimeout(200);
-  await page.screenshot({ path: join(outDir, "video-studio-1440-presets-picture.png") });
-  await studio.locator(".vs-preset").first().scrollIntoViewIfNeeded();
   // The search filters the cards.
   await studio.locator(".vs-search input").fill("glitch");
   await page.waitForTimeout(200);

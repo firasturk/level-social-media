@@ -82,6 +82,11 @@ const HERO = {
 };
 const GLITCH = { id: "glitch", name: "Glitch Pop", description: "A viral glitch effect.", type: "effect", category: "viral", preview_url: "https://cdn.test/presets/glitch.mp4", thumbnail: "https://cdn.test/presets/glitch.png", execution: { available: true, input_schema: { type: "object", properties: { image: { type: "array", items: { type: "media" }, minItems: 2 } }, required: ["image"] } } };
 const KATANA = { slug: "launch-day", title: "Launch day", description: "A six-shot product launch story.", type: "production", previews: [{ type: "video", url: "https://cdn.test/katana/launch" }] };
+// The live shapes (22 Oct 2026): `preview_type` says what `preview_url` is; Katana and "What if" answer `{items}` only, with slashed ids and extension-less links.
+const KATANA_LIVE = { id: "katana/launch-day", name: "Launch day", thumbnail_url: "https://static.test/katana-presets/published/aa11", preview_url: "https://static.test/katana-presets/published/bb22", preview_type: "video" };
+const WHAT_IF_LIVE = { id: "what-if/haze-countdown", name: "Haze Countdown", description: "Hazy grey city streets · big countdown timers · flying debris", thumbnail_url: "https://static.test/what-if-styles/published/cc33", preview_url: "https://static.test/what-if-styles/published/dd44", preview_type: "video" };
+const CHILLED_CAN = { id: "5c8a57f4", name: "Chilled Can", type: "product_shots_people", thumbnail_url: "https://cdn.test/cdn-cgi/image/width=1080,format=auto/product-shots-people/can.webp", preview_url: "https://cdn.test/cdn-cgi/image/width=1080,format=auto/product-shots-people/can.webp", preview_type: "image" };
+const CALLOUTS = { id: "46406130", name: "Monospace Callouts", type: "hypermotion", thumbnail_url: "https://cdn.test/motion-preview/callouts.webp", preview_url: "https://cdn.test/motion-preview/callouts.mp4", preview_type: "video" };
 
 interface StubOptions {
   /** `get_presets` answers nothing for these sources. */
@@ -127,11 +132,14 @@ function higgsfieldStub(opts: StubOptions = {}) {
       }
       const source = String(args.source ?? "");
       if (opts.emptyFor?.includes(source || "combined")) return text(b.id, { presets: [], next_cursor: null });
-      if (source === "katana") {
-        expect(args.katana_source).toBe("higgsfield");
-        return text(b.id, { items: [KATANA] });
+      // Katana and "What if" answer `{items}` only, no cursor, no categories.
+      if (source === "katana") return text(b.id, { items: [KATANA_LIVE] });
+      if (source === "what_if") return text(b.id, { items: [WHAT_IF_LIVE] });
+      if (source === "marketing_studio") {
+        // The live Marketing Studio: a product search mixes picture presets (dropped) with clips; the logo search answers a clip; unboxing nothing.
+        const items = args.query === "product" ? [CHILLED_CAN, hero] : args.query === "logo" ? [{ ...hero, id: "logo_loop", name: "Logo loop", category: "motion" }] : args.query === "unboxing" ? [] : [hero];
+        return text(b.id, { presets: items, next_cursor: args.cursor ? null : "page-2" });
       }
-      if (source === "marketing_studio") return text(b.id, { presets: args.category === "ads" ? [{ ...hero, id: "ad_hook", name: "Ad hook", category: "ads" }] : [hero], next_cursor: args.cursor ? null : "page-2" });
       if (source === "viral") return text(b.id, { presets: [GLITCH] });
       // The combined feed: both, with a page cursor.
       return text(b.id, { presets: [hero, GLITCH], next_cursor: "page-2" });
@@ -225,7 +233,7 @@ describe("normalising the answers", () => {
     expect(parseRecipes({ content: [{ type: "text", text: JSON.stringify({ recipes: [{ command: "/create-website", title: "Create website", description: "Build a website." }] }) }] }, { all: true })).toHaveLength(1);
   });
 
-  it("keeps videos only: drops the provider's category entries, cards with no preview and no description, picture presets, and cards with neither a video nor a video output", () => {
+  it("keeps videos only: drops the provider's category entries, cards with no preview and no description, picture presets (preview_type image) and every card with no reference video", () => {
     const answer = {
       // The filter list of the presets page, which came back as four cards titled All, Motion, Product shot, Effects.
       categories: [
@@ -242,23 +250,31 @@ describe("normalising the answers", () => {
         { id: "still_life", name: "Still life", description: "A still life picture of the product.", thumbnail: "https://cdn.test/presets/still.png", execution: { available: true, output_type: "image" } },
         { id: "logo_spin", name: "Logo spin", description: "The logo spins in.", source: "marketing_studio", category: "motion", preview_image: "https://cdn.test/presets/spin.png", execution: { available: true, output_type: "video", input_schema: { type: "object", properties: { image: { type: "string", format: "media" } }, required: ["image"] } } },
         { id: "rise", name: "Rise", description: "The product rises.", source: "marketing_studio", category: "product-shot", poster: "https://cdn.test/presets/rise.jpg", execution: { available: true, output: "video" } },
+        CHILLED_CAN,
+        CALLOUTS,
+        KATANA_LIVE,
       ],
     };
     const r = { content: [{ type: "text" as const, text: JSON.stringify(answer) }] };
     const kept = parsePresets(r, "viral");
-    expect(kept.map((c) => c.id)).toEqual(["hero_shot", "logo_spin", "rise"]);
-    expect(kept[1]).toMatchObject({ video: null, poster: "https://cdn.test/presets/spin.png", output: "video", needs: ["1 product picture"] });
-    expect(kept[2]).toMatchObject({ video: null, poster: "https://cdn.test/presets/rise.jpg", output: "video" });
+    // Picture-only cards go even when they declare a video output: the gallery shows what it can play.
+    expect(kept.map((c) => c.id)).toEqual(["hero_shot", "46406130", "katana/launch-day"]);
+    expect(kept[1]).toMatchObject({ video: "https://cdn.test/motion-preview/callouts.mp4", poster: "https://cdn.test/motion-preview/callouts.webp", output: "video" });
+    expect(kept[2]).toMatchObject({ video: "https://static.test/katana-presets/published/bb22", poster: "https://static.test/katana-presets/published/aa11", output: "video" });
+    // The live picture preset: `preview_type: "image"` makes it a picture whatever its link looks like.
+    const can = parsePresets(r, "viral", { all: true }).find((c) => c.id === "5c8a57f4")!;
+    expect(can).toMatchObject({ video: null, poster: CHILLED_CAN.preview_url, output: "image" });
+    expect(dropReason(can)).toBe("makes a picture, not a video");
     // Why each one went, in plain words.
     expect(dropReason({ id: "all", title: "All", description: "", video: null, poster: null, output: null, source: "viral", category: null })).toBe("a category name, not a preset");
     expect(dropReason({ id: "x", title: "Product-shot", description: "", video: null, poster: "https://x/p.png", output: null, source: "viral", category: null })).toBe("a category name, not a preset");
     expect(dropReason({ id: "", title: "Nameless", description: "d", video: "https://x/v.mp4", poster: null, output: null, source: "viral", category: null })).toBe("no id");
     expect(dropReason({ id: "mystery", title: "Mystery", description: "", video: null, poster: null, output: null, source: "viral", category: null })).toBe("no preview and no description");
-    expect(dropReason({ id: "tin", title: "Brushed Tin", description: "Metal", video: null, poster: "https://x/p.png", output: null, source: "viral", category: "effects" })).toBe("no reference video and no video output declared");
+    expect(dropReason({ id: "tin", title: "Brushed Tin", description: "Metal", video: null, poster: "https://x/p.png", output: null, source: "viral", category: "effects" })).toBe("no reference video");
     expect(dropReason({ id: "still", title: "Still life", description: "A picture", video: "https://x/v.mp4", poster: null, output: "image", source: "marketing_studio", category: null })).toBe("makes a picture, not a video");
-    expect(dropReason({ id: "spin", title: "Logo spin", description: "", video: null, poster: "https://x/p.png", output: null, source: "marketing_studio", category: "motion" })).toBeNull();
+    expect(dropReason({ id: "spin", title: "Logo spin", description: "", video: null, poster: "https://x/p.png", output: "video", source: "marketing_studio", category: "motion" })).toBe("no reference video");
     // A detail lookup keeps everything preset-shaped, so a preset can still be opened.
-    expect(parsePresets(r, "viral", { all: true }).map((c) => c.id)).toEqual(["all", "motion", "product-shot", "effects", "hero_shot", "mystery", "brushed_tin", "still_life", "logo_spin", "rise"]);
+    expect(parsePresets(r, "viral", { all: true }).map((c) => c.id)).toEqual(["all", "motion", "product-shot", "effects", "hero_shot", "mystery", "brushed_tin", "still_life", "logo_spin", "rise", "5c8a57f4", "46406130", "katana/launch-day"]);
   });
 });
 
@@ -285,7 +301,7 @@ describe("browsing the gallery", () => {
     expect(r.nextCursor).toBe("page-2");
     const asks = stub.rpc.filter((x) => x.name === "get_presets");
     expect(asks).toHaveLength(1);
-    expect(asks[0].args).toEqual({ limit: 24 });
+    expect(asks[0].args).toEqual({ limit: 50 });
     // Cached: no second call, from this isolate or from the stored row.
     const raw = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(cacheKey("popular", "")).first<{ value: string }>();
     expect(raw?.value).toBeTruthy();
@@ -309,25 +325,31 @@ describe("browsing the gallery", () => {
     expect(browsed.every((o) => o.estimate === 0 && o.status === "done")).toBe(true);
   });
 
-  it("maps every category to its asks: two Marketing Studio asks for Marketing, Katana for Production, the recipes list, and says when a category has nothing", async () => {
+  it("maps every category to its asks: three Marketing Studio searches for Marketing, the Katana community catalog for Production, What if for Faceless, the recipes list, no UGC, and says when a category has nothing", async () => {
     const env = await seed();
     await signedIn(env);
     const stub = higgsfieldStub({ emptyFor: ["genjutsu"] });
     useHiggsfieldMcpFetch(stub.fn);
     const marketing = (await json(await browse(env, "category=marketing"))) as { items: { id: string; category: string }[] };
-    expect(marketing.items.map((i) => i.id)).toEqual(["hero_shot", "ad_hook"]);
+    // The picture preset (Chilled Can) is dropped; the two clips stay.
+    expect(marketing.items.map((i) => i.id)).toEqual(["hero_shot", "logo_loop"]);
     const marketingAsks = stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args);
     expect(marketingAsks).toEqual([
-      { source: "marketing_studio", category: "product-shot", limit: 24 },
-      { source: "marketing_studio", category: "ads", limit: 24 },
+      { source: "marketing_studio", query: "product", limit: 50 },
+      { source: "marketing_studio", query: "logo", limit: 50 },
+      { source: "marketing_studio", query: "unboxing", limit: 50 },
     ]);
-    const production = (await json(await browse(env, "category=production"))) as { items: { id: string; source: string; runnable: boolean }[] };
+    const production = (await json(await browse(env, "category=production"))) as { items: { id: string; source: string; runnable: boolean; video: string | null; poster: string | null; output: string }[] };
     expect(production.items).toHaveLength(1);
-    expect(production.items[0]).toMatchObject({ id: "launch-day", source: "katana", runnable: false });
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "katana", katana_source: "higgsfield", limit: 20 });
-    const ugc = await json(await browse(env, "category=ugc"));
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ query: "ugc", limit: 24 });
-    expect((ugc.items as unknown[]).length).toBe(2);
+    // The slashed id, the extension-less `/published/` links read by `preview_type`, not runnable from here.
+    expect(production.items[0]).toMatchObject({ id: "katana/launch-day", source: "katana", runnable: false, video: "https://static.test/katana-presets/published/bb22", poster: "https://static.test/katana-presets/published/aa11", output: "video" });
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "katana", limit: 20 });
+    const faceless = (await json(await browse(env, "category=faceless"))) as { items: { id: string; source: string; video: string | null }[] };
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "what_if", limit: 50 });
+    expect(faceless.items).toHaveLength(1);
+    expect(faceless.items[0]).toMatchObject({ id: "what-if/haze-countdown", source: "what_if", video: "https://static.test/what-if-styles/published/dd44" });
+    // No UGC category: the preset catalog has none (Higgsfield's UGC lives in its Marketing Studio widget).
+    expect((await browse(env, "category=ugc")).status).toBe(400);
     const effects = (await json(await browse(env, "category=effects"))) as { items: { id: string }[] };
     expect(effects.items.map((i) => i.id)).toEqual(["glitch"]);
     const recipes = (await json(await browse(env, "category=recipes"))) as { items: { id: string; source: string; runnable: boolean; description: string }[] };
@@ -338,11 +360,13 @@ describe("browsing the gallery", () => {
     const genjutsu = (await json(await browse(env, "category=genjutsu"))) as { items: unknown[]; empty: string };
     expect(genjutsu.items).toEqual([]);
     expect(genjutsu.empty).toMatch(/Nothing in this category/);
-    // A search goes to the provider as `query` (Katana is searched here instead).
+    // A search goes to the provider as `query`, joined to the category's own words (Katana and What if are searched here instead).
     await browse(env, "category=paid-ads&q=hook");
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "marketing_studio", query: "hook", limit: 24 });
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ query: "ad hook", limit: 50 });
     await browse(env, "category=production&q=zzz");
     expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).not.toHaveProperty("query");
+    await browse(env, "category=faceless&q=zzz");
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "what_if", limit: 50 });
   });
 
   it("opens one preset with its inputs, instructions and, for an admin on a post, the readiness with the picture prefilled", async () => {

@@ -1,9 +1,10 @@
 /**
  * The Video studio's preset gallery, from the Higgsfield MCP (docs/video-studio.md): the presets
- * page's categories (Popular, Paid Ads, Motion Design, Marketing, Production, UGC, Faceless,
- * Effects, Genjutsu, Recipes) mapped to `get_presets` sources and queries, each answer normalised
- * into cards with the provider's own reference video (hotlinked, never copied here) and cached a
- * day per category in an encrypted settings row. Every member browses; only an admin runs a
+ * page's categories (Popular, Paid Ads, Motion Design, Marketing, Production, Faceless, Effects,
+ * Genjutsu, Recipes) mapped to `get_presets` sources and queries, each answer normalised into cards
+ * with the provider's own reference video (hotlinked, never copied here; `preview_type: "video"`
+ * says which preview is one, and only those cards stay) and cached a day per category in an
+ * encrypted settings row. Every member browses; only an admin runs a
  * preset, on the subscription credits, with the usual rules: the switch, confirm before spend
  * (the detail's price, or "cost not known" until confirmed), one claim per ask, a ledger row, no
  * retry. A run is `execute_preset` → job ids → a `videos` row with provider `higgsfield-mcp`
@@ -14,8 +15,11 @@
  *   GET  /:id         ?source=&batch=&index=            one preset with its inputs, readiness, price and instructions
  *   POST /run         {batch, index, presetId, source, inputs?, confirm?}   admins
  *
- * Every answer shape below is assumed from the tool descriptions and read defensively; the first
- * live run must check them (docs/video-studio.md, "What the first live run must check").
+ * The answer shapes were read live on 22 Oct 2026: every gallery answers `{items: [{id, name,
+ * description?, kind|type?, thumbnail_url?, preview_url, preview_type: "image"|"video"}],
+ * categories?, next_cursor?, total?}` (the combined feed adds `sections`); Katana and "What if"
+ * answer `{items}` only, with ids `katana/<slug>` and `what-if/<slug>` and no cursor. The parser
+ * still reads other shapes defensively.
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -53,21 +57,34 @@ interface PresetAsk {
   limit?: number;
 }
 
-/** What each category asks `get_presets`; "recipes" asks `get_preset_instructions` with no preset instead. */
+/**
+ * What each category asks `get_presets`; "recipes" asks `get_preset_instructions` with no preset
+ * instead. Picture presets in an answer (the product shots) are dropped afterwards, so the asks
+ * take the provider's maximum page (50; Katana allows 20) to leave enough videos.
+ *
+ * Checked live (22 Oct 2026): the Marketing Studio's `product-shot` category is pictures only, so
+ * Marketing searches it for product, logo and unboxing clips instead; `source: katana` with
+ * `katana_source: "higgsfield"` answers nothing while the default (community) catalog answers 20
+ * productions; `query: "ugc"` and `query: "faceless"` answer nothing, so Faceless takes the
+ * "What if" explainer styles (scenes, text and data, no presenter) and there is no UGC category.
+ */
 export const CATEGORY_ASKS: Record<Exclude<PresetCategoryId, "recipes">, PresetAsk[]> = {
-  popular: [{ limit: 24 }],
-  "paid-ads": [{ source: "marketing_studio", query: "ad", limit: 24 }],
-  motion: [{ source: "marketing_studio", category: "motion", limit: 24 }],
+  popular: [{ limit: 50 }],
+  "paid-ads": [{ query: "ad", limit: 50 }],
+  motion: [{ source: "marketing_studio", category: "motion", limit: 50 }],
   marketing: [
-    { source: "marketing_studio", category: "product-shot", limit: 24 },
-    { source: "marketing_studio", category: "ads", limit: 24 },
+    { source: "marketing_studio", query: "product", limit: 50 },
+    { source: "marketing_studio", query: "logo", limit: 50 },
+    { source: "marketing_studio", query: "unboxing", limit: 50 },
   ],
-  production: [{ source: "katana", katana_source: "higgsfield", limit: 20 }],
-  ugc: [{ query: "ugc", limit: 24 }],
-  faceless: [{ query: "faceless", limit: 24 }],
-  effects: [{ source: "viral", limit: 24 }],
-  genjutsu: [{ source: "genjutsu", category: "genjutsu-trending", limit: 24 }],
+  production: [{ source: "katana", limit: 20 }],
+  faceless: [{ source: "what_if", limit: 50 }],
+  effects: [{ source: "viral", limit: 50 }],
+  genjutsu: [{ source: "genjutsu", category: "genjutsu-trending", limit: 50 }],
 };
+
+/** The sources whose catalog takes no `query` (searched here instead). */
+const UNSEARCHABLE_SOURCES: readonly string[] = ["katana", "what_if"];
 
 /* ───────────── Reading the answers ───────────── */
 
@@ -96,8 +113,26 @@ function kindOf(v: unknown): string {
   return String(o.type ?? o.kind ?? o.media_type ?? o.mime_type ?? o.mimeType ?? "").toLowerCase();
 }
 
-/** The reference video and the still of a preset object, whatever the answer calls them. */
+/** The provider's own word on what `preview_url` is ("video" | "image"), when the object carries it. */
+function previewTypeOf(o: Record<string, unknown>): "video" | "image" | null {
+  const t = String(o.preview_type ?? o.previewType ?? "").toLowerCase();
+  return t === "video" ? "video" : t === "image" ? "image" : null;
+}
+
+/**
+ * The reference video and the still of a preset object, whatever the answer calls them. The live
+ * shape (`preview_url` + `preview_type` + `thumbnail_url`) is read first and believed: a
+ * `preview_type: "image"` preview is a still even when its link has no extension, and a
+ * `preview_type: "video"` preview is the video even under `/published/<hash>` links.
+ */
 export function mediaOf(o: Record<string, unknown>): { video: string | null; poster: string | null } {
+  const declared = previewTypeOf(o);
+  if (declared) {
+    const preview = urlOf(o.preview_url ?? o.previewUrl);
+    const thumb = urlOf(o.thumbnail_url ?? o.thumbnailUrl ?? o.thumbnail);
+    if (declared === "video") return { video: preview, poster: thumb };
+    return { video: null, poster: preview ?? thumb };
+  }
   let video: string | null = null;
   let poster: string | null = null;
   const take = (u: string | null, kind: string, key: string) => {
@@ -209,8 +244,8 @@ function cardOf(o: Record<string, unknown>, fallbackSource: string): PresetCard 
   const engine = [o.model, o.engine, o.model_id, o.default_model].find((v) => typeof v === "string" && v.trim()) as string | undefined;
   const prompt = [o.prompt, o.default_prompt, o.prompt_template, o.example_prompt, o.suggested_prompt].find((v) => typeof v === "string" && v.trim()) as string | undefined;
   const category = typeof o.category === "string" ? o.category : Array.isArray(o.categories) && typeof o.categories[0] === "string" ? o.categories[0] : null;
-  // What the preset makes: the execution block's word first, then the preset's own output fields, then a "motion" category.
-  const output = outputKind(exec?.output_type, exec?.output, exec?.outputs, exec?.result_type, exec?.produces, exec?.media_type, o.output_type, o.output, o.result_type, o.output_kind, o.produces, o.media_type, o.kind) ?? (/motion/i.test(category ?? "") ? "video" : null);
+  // What the preset makes: the provider's `preview_type` first (a picture preview is a picture preset), then the execution block's word, the preset's own output fields, then a "motion" category.
+  const output = previewTypeOf(o) ?? outputKind(exec?.output_type, exec?.output, exec?.outputs, exec?.result_type, exec?.produces, exec?.media_type, o.output_type, o.output, o.result_type, o.output_kind, o.produces, o.media_type, o.kind) ?? (/motion/i.test(category ?? "") ? "video" : null);
   return {
     id,
     source,
@@ -347,14 +382,15 @@ export async function fetchCategory(mcp: HiggsfieldMcp, category: PresetCategory
   let nextCursor: string | null = null;
   for (const [i, ask] of asks.entries()) {
     const args: Record<string, unknown> = { ...ask };
-    // Katana takes no query: its cards are searched here instead.
-    if (q && ask.source !== "katana") args.query = q;
+    const unsearchable = UNSEARCHABLE_SOURCES.includes(ask.source ?? "");
+    // Katana and "What if" take no query: their cards are searched here instead. Elsewhere the search joins the category's own words (every word must match).
+    if (q && !unsearchable) args.query = ask.query ? `${ask.query} ${q}` : q;
     if (cursor && i === 0) args.cursor = cursor;
     const r = await mcp.call("get_presets", args);
     if (r.isError) continue;
     for (const card of parsePresets(r, ask.source ?? "viral")) {
       if (seen.has(`${card.source}:${card.id}`)) continue;
-      if (q && ask.source === "katana" && !matches(card, q)) continue;
+      if (q && unsearchable && !matches(card, q)) continue;
       seen.add(`${card.source}:${card.id}`);
       items.push(card);
     }
