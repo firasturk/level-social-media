@@ -293,6 +293,21 @@ export function parseModels(r: McpCallResult): McpVideoModel[] {
   return out;
 }
 
+/** Entries of the catalog that are tools on an existing video, not engines that make one from a picture. */
+const NOT_AN_ENGINE = /upscal|deflick|dubbing|voice|lip\s*sync|lipsync|reframe|remov|multiplier|recreate|\bedit\b|draw|preset|topaz|hyperion|motion\s*control|replace|extend|interpolat|background|analysis|caption|subtitle|translate/i;
+/** The engines the studio shows first, in this order; the rest follow by name. */
+const FAVOURITE_ENGINES = [/^seedance_2_5/i, /^kling3_0$/i, /^kling3_0_turbo/i, /^kling3_0_pro/i, /^minimax_h3$/i, /^marketing_studio_video/i, /^seedance_2_0$/i, /^kling2_6/i, /^wan_?2_6/i, /^hailuo/i];
+function engineRank(m: McpVideoModel): number {
+  const i = FAVOURITE_ENGINES.findIndex((re) => re.test(m.id));
+  return i === -1 ? FAVOURITE_ENGINES.length : i;
+}
+/** Only engines that turn a picture into a clip, favourites first. */
+export function engineList(models: McpVideoModel[]): McpVideoModel[] {
+  return models
+    .filter((m) => !NOT_AN_ENGINE.test(m.id) && !NOT_AN_ENGINE.test(m.name))
+    .sort((a, b) => engineRank(a) - engineRank(b) || a.name.localeCompare(b.name));
+}
+
 /** The catalog: the stored copy for a day, else `models_explore` (type video, image input); `refresh` asks again. */
 export async function mcpModels(env: Env, mcp: HiggsfieldMcp, refresh = false): Promise<{ models: McpVideoModel[]; at: number }> {
   if (!refresh && modelsMemo && Date.now() - modelsMemo.at < MODELS_TTL_MS) return modelsMemo;
@@ -717,7 +732,8 @@ higgsfieldMcpRoutes.get("/models", async (c) => {
   const mcp = new HiggsfieldMcp(c.env, fetcher());
   await mcp.connect();
   const { models, at } = await mcpModels(c.env, mcp, c.req.query("refresh") === "1");
-  return c.json({ ok: true, models, at });
+  // The dialog gets the engines that make a clip from a picture, favourites first; `?all=1` lists the raw catalog.
+  return c.json({ ok: true, models: c.req.query("all") === "1" ? models : engineList(models), at });
 });
 
 /** The cost in credits of exactly this clip (nothing is submitted), with the balance. Admins. */

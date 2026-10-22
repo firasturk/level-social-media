@@ -22,6 +22,9 @@ const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
  * sign-in; the engines come from the subscription's catalog, the cost is asked in credits before
  * the run) or the Cloud API key (pay per clip; the engines come from shared/video-models.ts).
  */
+/** Engines shown before "More engines" unfolds the rest of the subscription's list. */
+const ENGINES_SHOWN = 6;
+
 export default function VideoDialog({
   open,
   batchId,
@@ -73,6 +76,8 @@ export default function VideoDialog({
   const [billing, setBilling] = useState<HiggsfieldBilling>("cloud");
   const [mcp, setMcp] = useState<HiggsfieldMcpStatus | null>(null);
   const [mcpModels, setMcpModels] = useState<McpVideoModel[]>([]);
+  /** The engine list shows a handful first; the rest unfold. */
+  const [moreEngines, setMoreEngines] = useState(false);
   const [mcpModel, setMcpModel] = useState("");
   const [mcpDuration, setMcpDuration] = useState<number | "">("");
   const [mcpAspect, setMcpAspect] = useState("");
@@ -412,12 +417,17 @@ export default function VideoDialog({
                     <TriangleAlert size={14} /> Not signed in: Connection → Higgsfield → Sign in. Videos on the subscription credits run on that sign-in (or switch the billing to the Cloud API there).
                   </p>
                 ) : mcpModels.length ? (
-                  <div className="preset-row">
-                    {mcpModels.map((x) => (
-                      <button key={x.id} type="button" className={`format-chip ${mcpModel === x.id ? "active" : ""}`} onClick={() => pickMcpModel(x.id)} title={x.description || x.id}>
+                  <div className="engine-chips">
+                    {(moreEngines ? mcpModels : mcpModels.slice(0, ENGINES_SHOWN)).map((x) => (
+                      <button key={x.id} type="button" className={`engine-chip ${mcpModel === x.id ? "active" : ""}`} onClick={() => pickMcpModel(x.id)} title={x.description || x.id}>
                         {x.name}
                       </button>
                     ))}
+                    {mcpModels.length > ENGINES_SHOWN && (
+                      <button type="button" className="engine-chip more" onClick={() => setMoreEngines((m) => !m)}>
+                        {moreEngines ? "Fewer engines" : `More engines · ${mcpModels.length - ENGINES_SHOWN}`}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <small className="field-hint">{mcpLoading ? "Reading the subscription's engines…" : mcpError || (admin ? "No engine list yet." : "Admins only for now.")}</small>

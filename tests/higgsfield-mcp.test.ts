@@ -20,7 +20,7 @@ import { postConfig } from "../shared/config";
 import type { User } from "../shared/types";
 import { StudioError } from "../server/errors";
 import { studioRoutes } from "../server/studio";
-import { CALLBACK_PATH, HIGGSFIELD_MCP_URL, HIGGSFIELD_RESOURCE_METADATA, MCP_PROVIDER, NOT_SIGNED_IN, resetHiggsfieldMcpCaches, storedTokens, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
+import { CALLBACK_PATH, engineList, HIGGSFIELD_MCP_URL, HIGGSFIELD_RESOURCE_METADATA, MCP_PROVIDER, NOT_SIGNED_IN, resetHiggsfieldMcpCaches, storedTokens, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
 import { CLOUD_CHOSEN, CREDITS_CHOSEN } from "../server/higgsfield-billing";
 import { getSetting, setSetting, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "../server/settings";
 import * as integrations from "../server/integrations";
@@ -606,5 +606,26 @@ describe("the billing choice", () => {
     expect(cloud.status).toBe(428);
     expect(String((await json(cloud)).error)).toMatch(/not connected/i);
     expect(reached).toEqual([]);
+  });
+});
+
+describe("the engine list the dialog shows", () => {
+  it("keeps the engines that make a clip from a picture, favourites first, and drops the tools on an existing video", () => {
+    const m = (id: string, name: string) => ({ id, name, description: "", durations: [], aspects: [], supportsUnlim: false });
+    const list = engineList([
+      m("video_upscale", "Video Upscale"),
+      m("wan_2_6", "Wan 2.6 Video"),
+      m("dubbing", "dubbing"),
+      m("kling3_0", "Kling v3.0"),
+      m("voice_change", "voice_change"),
+      m("seedance_2_5", "Seedance 2.5"),
+      m("sync_lipsync_3", "Sync Lipsync 3"),
+      m("ad_multiplier", "Ad Multiplier"),
+      m("minimax_h3", "MiniMax H3"),
+      m("cinema_studio_4", "Cinema Studio 4.0"),
+      m("video_deflicker", "Video Deflicker"),
+      m("draw_to_video", "Draw To Video"),
+    ]);
+    expect(list.map((x) => x.id)).toEqual(["seedance_2_5", "kling3_0", "minimax_h3", "wan_2_6", "cinema_studio_4"]);
   });
 });

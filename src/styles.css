@@ -19958,3 +19958,36 @@ a.publish-pill.published:hover {
 .pc-photo-studio:focus-visible {
   background: var(--blue, #1129d3);
 }
+
+/* ───────────── Video dialog: the engine chips and the dialog's own scroll ───────────── */
+.video-dialog {
+  max-height: 92vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.engine-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.engine-chip {
+  padding: 6px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-700);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.engine-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+.engine-chip.more {
+  border-style: dashed;
+  color: var(--ink-500);
+}
