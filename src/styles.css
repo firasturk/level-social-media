@@ -17834,6 +17834,7 @@ label.cta input {
 .notify-actions {
   flex-wrap: wrap;
   margin-top: 4px;
+}
 /* ───────────── Photo lab: Freepik's real-photo tools in the editor and on a Drive photo ───────────── */
 .editor-photolab {
   margin: 8px 0;
