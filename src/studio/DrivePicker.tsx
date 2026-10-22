@@ -1,30 +1,312 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, FolderOpen, RefreshCw, Sparkles } from "lucide-react";
+import {
+  Check,
+  Copy,
+  FolderOpen,
+  FolderPlus,
+  Pin,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { get, post, put } from "@/api";
-import { DRIVE_KINDS, DRIVE_KIND_LABELS, type DriveKind, type DrivePhoto, type DrivePick, type DriveSkipped } from "@shared/drive";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { del, get, post, put } from "@/api";
+import {
+  DRIVE_KINDS,
+  DRIVE_KIND_LABELS,
+  DRIVE_ROLES,
+  DRIVE_ROLE_LABELS,
+  type DriveFolder,
+  type DriveKind,
+  type DriveListing,
+  type DrivePhoto,
+  type DrivePick,
+  type DriveRole,
+} from "@shared/drive";
+import type { PostReference } from "@shared/posts";
+import "./drive.css";
 
-interface DriveState {
-  link: string;
-  email: string | null;
-  folder: string | null;
-  photos: DrivePhoto[];
-  /** Files it does not read (videos, RAW files…), by folder. */
-  skipped?: DriveSkipped[];
-  error?: string;
-}
-
-const photoUrl = (id: string, size: number) => `/api/studio/drive/photo/${encodeURIComponent(id)}?size=${size}`;
+const photoUrl = (id: string, size: number) =>
+  `/api/studio/drive/photo/${encodeURIComponent(id)}?size=${size}`;
+const driveApi = (client: string, path = "") =>
+  `/api/studio/drive/${encodeURIComponent(client)}${path}`;
 /** The first folder under the client's folder: the chips the photos are sorted by. */
 const topOf = (p: DrivePhoto) => p.folder.split(" / ")[0] ?? "";
 const PAGE = 120;
 
+const EMPTY: DriveListing = {
+  link: "",
+  email: null,
+  folder: null,
+  folders: [],
+  photos: [],
+  groups: { product: [], brand: [], reference: [], output: [] },
+  missing: [],
+  demo: false,
+};
+
+/** What each role's photos are for, in a line under the tab. */
+const ROLE_NOTES: Record<DriveRole, string> = {
+  product: "Photos of the products. These are the only photos a post is built from.",
+  brand:
+    "Logos, packaging art and brand files. Kept apart from the products; never put in a picture as a product.",
+  reference: "Inspiration pictures. Pin one to a post from the post editor; it is never a product.",
+  output: "Finished pictures the team exported to Drive.",
+};
+
+function useDriveListing(clientId: string, open = true) {
+  const [state, setState] = useState<DriveListing | null>(null);
+  const load = useCallback(
+    (fresh = false) => {
+      setState(null);
+      get<DriveListing>(driveApi(clientId, fresh ? "?fresh=1" : ""))
+        .then((r) => setState({ ...EMPTY, ...r }))
+        .catch((e) => setState({ ...EMPTY, error: (e as Error).message }));
+    },
+    [clientId],
+  );
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+  return { state, setState, load };
+}
+
+/** "Not connected · demo listing": the fixture stands in for Drive on a preview with no credential. */
+function DemoLabel({ on }: { on: boolean }) {
+  return on ? <span className="drive-demo">Not connected · demo listing</span> : null;
+}
+
+/** One photo of the listing: its rendition, its name and kind, and the badges (a copy, an AI pick, a video frame). */
+function DriveThumb({
+  p,
+  on,
+  onClick,
+  caption,
+  why,
+  byId,
+}: {
+  p: DrivePhoto;
+  on: boolean;
+  onClick: () => void;
+  caption?: string;
+  why?: DrivePick;
+  byId: Map<string, DrivePhoto>;
+}) {
+  const dup = p.duplicateOf ? byId.get(p.duplicateOf) : undefined;
+  const title = why
+    ? `${why.product}: ${why.reason}`
+    : [
+        p.kind ? DRIVE_KIND_LABELS[p.kind] : "",
+        p.note,
+        `${p.folder ? `${p.folder} / ` : ""}${p.file}`,
+        dup ? `Same picture as ${dup.name} (${dup.file})` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+  return (
+    <button
+      type="button"
+      className={`journey-thumb pick ${on ? "on" : ""}`}
+      onClick={onClick}
+      title={title}
+    >
+      <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
+      <figcaption>{caption || p.name}</figcaption>
+      <span className="drive-thumb-kind">
+        {[p.kind ? DRIVE_KIND_LABELS[p.kind] : "Not read yet", p.note].filter(Boolean).join(" · ")}
+      </span>
+      {why && <span className="journey-tag drive-ai">AI pick</span>}
+      {p.video && <span className="journey-tag drive-video">Video frame</span>}
+      {dup && <span className="journey-tag drive-dup">same as {dup.name}</span>}
+      {on && (
+        <span className="journey-thumb-check">
+          <Check size={12} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+/** A photo the studio knew that Drive no longer gives. */
+function MissingThumb({ p }: { p: DrivePhoto }) {
+  return (
+    <div
+      className="journey-thumb drive-thumb-missing"
+      title={`${p.reason ?? "Not available in Drive."}\n${p.folder ? `${p.folder} / ` : ""}${p.file}`}
+    >
+      <div className="drive-thumb-blank">
+        <FolderOpen size={18} />
+      </div>
+      <figcaption>{p.name}</figcaption>
+      <span className="drive-thumb-kind">{p.kind ? DRIVE_KIND_LABELS[p.kind] : ""}</span>
+      <span className="journey-tag drive-unavailable">Not available in Drive</span>
+    </div>
+  );
+}
+
+/** The client's folders: each with a role, approved or waiting; a new one from its link. */
+function DriveFolders({
+  clientId,
+  folders,
+  email,
+  onChanged,
+}: {
+  clientId: string;
+  folders: DriveFolder[];
+  email: string | null;
+  onChanged: () => void;
+}) {
+  const [link, setLink] = useState("");
+  const [role, setRole] = useState<DriveRole>("product");
+  const [busy, setBusy] = useState(false);
+  const act = async (fn: () => Promise<unknown>, done?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (done) toast.success(done);
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="drive-folders">
+      <div className="drive-folders-head">
+        <span>Folders</span>
+        {email && (
+          <span className="field-hint">
+            Share each folder with <code>{email}</code> as Viewer.
+          </span>
+        )}
+      </div>
+      {folders.map((f) => (
+        <div key={f.id} className="drive-folder">
+          <span className="drive-folder-name">
+            <a href={f.link} target="_blank" rel="noreferrer">
+              {f.name || f.id}
+            </a>
+            {f.default && (
+              <span className="journey-tag muted">{f.demo ? "demo" : "profile folder"}</span>
+            )}
+          </span>
+          {f.default ? (
+            <span className="field-hint">{DRIVE_ROLE_LABELS[f.role]}</span>
+          ) : (
+            <select
+              value={f.role}
+              aria-label="What the folder holds"
+              disabled={busy}
+              onChange={(e) =>
+                void act(() =>
+                  put(driveApi(clientId, `/folders/${encodeURIComponent(f.id)}`), {
+                    role: e.target.value,
+                  }),
+                )
+              }
+            >
+              {DRIVE_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {DRIVE_ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          )}
+          {f.default ? (
+            <span />
+          ) : (
+            <button
+              type="button"
+              className={`drive-approve ${f.approved ? "on" : ""}`}
+              disabled={busy}
+              onClick={() =>
+                void act(
+                  () =>
+                    put(driveApi(clientId, `/folders/${encodeURIComponent(f.id)}`), {
+                      approved: !f.approved,
+                    }),
+                  f.approved ? "Folder no longer read." : "Folder approved: its photos are read.",
+                )
+              }
+              title={
+                f.approved
+                  ? "Approved: the studio reads this folder. Click to stop."
+                  : "Waiting: approve it so the studio reads it."
+              }
+            >
+              <Check size={12} /> {f.approved ? "Approved" : "Approve"}
+            </button>
+          )}
+          {f.default ? (
+            <span />
+          ) : (
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              title="Take this folder off the client"
+              onClick={() =>
+                void act(
+                  () => del(driveApi(clientId, `/folders/${encodeURIComponent(f.id)}`)),
+                  "Folder removed.",
+                )
+              }
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      ))}
+      <div className="drive-add">
+        <input
+          value={link}
+          onChange={(e) => setLink(e.target.value)}
+          placeholder="https://drive.google.com/drive/folders/…"
+          dir="ltr"
+          aria-label="Drive folder link"
+        />
+        <select
+          value={role}
+          aria-label="What the new folder holds"
+          onChange={(e) => setRole(e.target.value as DriveRole)}
+        >
+          {DRIVE_ROLES.map((r) => (
+            <option key={r} value={r}>
+              {DRIVE_ROLE_LABELS[r]}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !link.trim()}
+          onClick={() =>
+            void act(async () => {
+              await post(driveApi(clientId, "/folders"), { link, role, approved: true });
+              setLink("");
+            }, "Folder added and approved.")
+          }
+        >
+          {busy ? <Orb size={16} /> : <FolderPlus size={16} />} Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
- * The client's Google Drive folder: shared once with the studio's Google account, then the team
- * browses its photos by folder, or lets the vision model pick the best product photos, and adds
- * them to the month.
+ * The client's Google Drive: its approved folders by role, shared once with the studio's Google
+ * account, then the team browses the photos by tab and folder, or lets the vision model pick the
+ * best product photos, and adds them to the month. Only product photos join a month as products.
  */
 export default function DrivePicker({
   open,
@@ -43,9 +325,10 @@ export default function DrivePicker({
   /** The chosen photos joined the month. */
   onAdded: () => Promise<void>;
 }) {
-  const [state, setState] = useState<DriveState | null>(null);
+  const { state, setState, load } = useDriveListing(client.id, open);
   const [link, setLink] = useState("");
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<DriveRole>("product");
   const [top, setTop] = useState("");
   /** What the photos show, as vision read them: products, the shop, the kitchen… */
   const [kind, setKind] = useState<DriveKind | "">("");
@@ -54,36 +337,43 @@ export default function DrivePicker({
   const [ai, setAi] = useState<Map<string, DrivePick>>(new Map());
   const [picking, setPicking] = useState(false);
   const [adding, setAdding] = useState(0);
+  const [manage, setManage] = useState(false);
 
-  const load = useCallback(
-    (fresh = false) => {
-      setState(null);
-      get<DriveState>(`/api/studio/drive/${encodeURIComponent(client.id)}${fresh ? "?fresh=1" : ""}`)
-        .then((r) => {
-          setState(r);
-          setLink(r.link);
-        })
-        .catch((e) => setState({ link: "", email: null, folder: null, photos: [], error: (e as Error).message }));
-    },
-    [client.id],
-  );
   useEffect(() => {
-    if (open) load();
-  }, [open, load]);
+    if (state) setLink(state.link);
+  }, [state]);
 
   const photos = useMemo(() => state?.photos ?? [], [state]);
-  const tops = useMemo(() => [...new Set(photos.map(topOf))].sort((a, b) => a.localeCompare(b)), [photos]);
-  const inFolder = photos.filter((p) => !top || topOf(p) === top);
+  const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
+  const inTab = useMemo(() => state?.groups[tab] ?? [], [state, tab]);
+  const missingInTab = useMemo(
+    () => (state?.missing ?? []).filter((p) => (p.role ?? "product") === tab),
+    [state, tab],
+  );
+  const tops = useMemo(
+    () => [...new Set(inTab.map(topOf))].sort((a, b) => a.localeCompare(b)),
+    [inTab],
+  );
+  const inFolder = inTab.filter((p) => !top || topOf(p) === top);
   const kinds = DRIVE_KINDS.filter((k) => inFolder.some((p) => p.kind === k));
   const unread = inFolder.filter((p) => !p.kind).length;
   const list = inFolder.filter((p) => !kind || !kinds.includes(kind) || p.kind === kind);
-  const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
+
+  function switchTab(r: DriveRole) {
+    setTab(r);
+    setTop("");
+    setKind("");
+    setShown(PAGE);
+  }
 
   async function saveLink() {
     setSaving(true);
     try {
-      const r = await put<{ folder: string; narrowed: boolean }>(`/api/studio/drive/${encodeURIComponent(client.id)}`, { link });
-      if (r.narrowed) toast.success(`That folder holds every client: ${client.name} reads only its own folder, "${r.folder}".`);
+      const r = await put<{ folder: string; narrowed: boolean }>(driveApi(client.id), { link });
+      if (r.narrowed)
+        toast.success(
+          `That folder holds every client: ${client.name} reads only its own folder, "${r.folder}".`,
+        );
       load(true);
     } catch (e) {
       toast.error((e as Error).message);
@@ -96,7 +386,10 @@ export default function DrivePicker({
   async function connectAll() {
     setSaving(true);
     try {
-      const r = await post<{ connected: { client: string; folder: string }[]; missing: string[] }>("/api/studio/drive/all", { link });
+      const r = await post<{ connected: { client: string; folder: string }[]; missing: string[] }>(
+        "/api/studio/drive/all",
+        { link },
+      );
       toast.success(
         `${r.connected.length} client${r.connected.length === 1 ? "" : "s"} connected (${r.connected.map((x) => x.client).join(", ") || "none"}).${r.missing.length ? ` No folder named after ${r.missing.join(", ")}.` : ""}`,
       );
@@ -111,7 +404,10 @@ export default function DrivePicker({
   async function pickForMe() {
     setPicking(true);
     try {
-      const r = await post<{ picks: DrivePick[]; looked: number; of: number }>(`/api/studio/drive/${encodeURIComponent(client.id)}/pick`, { count, folder: top });
+      const r = await post<{ picks: DrivePick[]; looked: number; of: number }>(
+        driveApi(client.id, "/pick"),
+        { count, folder: top },
+      );
       setAi(new Map(r.picks.map((x) => [x.id, x])));
       setPicked(r.picks.map((x) => x.id));
       toast.success(`Looked at ${r.looked} of ${r.of} photos and picked ${r.picks.length}.`);
@@ -126,11 +422,20 @@ export default function DrivePicker({
     if (!batchId) return;
     setAdding(1);
     try {
-      const photos = picked.flatMap((id) => {
+      // A copy of a photo already picked is added once, under the first's name.
+      const firsts = new Set<string>();
+      const chosen = picked.flatMap((id) => {
         const p = byId.get(id);
-        return p ? [{ id, name: ai.get(id)?.product || p.name }] : [];
+        if (!p || (p.role ?? "product") !== "product") return [];
+        const head = p.duplicateOf ?? p.id;
+        if (firsts.has(head)) return [];
+        firsts.add(head);
+        return [{ id, name: ai.get(id)?.product || p.name }];
       });
-      const r = await post<{ added: string[]; failed: string[] }>("/api/studio/posts/products/drive", { batch: batchId, photos });
+      const r = await post<{ added: string[]; failed: string[] }>(
+        "/api/studio/posts/products/drive",
+        { batch: batchId, photos: chosen },
+      );
       for (const f of r.failed) toast.error(f);
       if (r.added.length) {
         toast.success(`${r.added.length} photo${r.added.length > 1 ? "s" : ""} added from Drive.`);
@@ -146,16 +451,25 @@ export default function DrivePicker({
     }
   }
 
-  const needsLink = state && (!state.link || !state.folder);
+  const needsLink =
+    state &&
+    !state.demo &&
+    !state.folders.some((f) => f.approved) &&
+    (!state.link || !state.folder);
+  const pickedProducts = picked.filter(
+    (id) => (byId.get(id)?.role ?? "product") === "product",
+  ).length;
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !adding && onClose()}>
       <DialogContent className="drive-dialog">
         <DialogHeader>
-          <DialogTitle>{client.name}'s Google Drive</DialogTitle>
+          <DialogTitle>
+            {client.name}'s Google Drive <DemoLabel on={!!state?.demo} />
+          </DialogTitle>
           <DialogDescription>
             {state?.folder
-              ? `${state.folder} · ${photos.length} photo${photos.length === 1 ? "" : "s"}. Pick them yourself, or let the AI pick the best ${count}.`
-              : "Connect the client's Drive folder once: the studio reads its photos and picks the best ones for the month."}
+              ? `${state.folder} · ${photos.length} photo${photos.length === 1 ? "" : "s"} in ${state.folders.filter((f) => f.approved).length} folder${state.folders.filter((f) => f.approved).length === 1 ? "" : "s"}. Pick product photos yourself, or let the AI pick the best ${count}.`
+              : "Connect the client's Drive folders once: the studio reads their photos and picks the best product photos for the month."}
           </DialogDescription>
         </DialogHeader>
 
@@ -168,14 +482,19 @@ export default function DrivePicker({
             {state.error && <p className="drive-error">{state.error}</p>}
             <ol className="meta-steps">
               <li>
-                In Google Drive, share the client's folder (or the folder above all the clients) with this account as <strong>Viewer</strong>:
+                In Google Drive, share the client's folder (or the folder above all the clients)
+                with this account as <strong>Viewer</strong>:
                 {state.email ? (
                   <span className="drive-email">
                     <code>{state.email}</code>
                     <button
                       type="button"
                       className="text-button"
-                      onClick={() => void navigator.clipboard.writeText(state.email!).then(() => toast.success("Copied."))}
+                      onClick={() =>
+                        void navigator.clipboard
+                          .writeText(state.email!)
+                          .then(() => toast.success("Copied."))
+                      }
                     >
                       <Copy size={13} /> Copy
                     </button>
@@ -184,35 +503,95 @@ export default function DrivePicker({
                   <span> connect the Google Cloud service account in Connection first.</span>
                 )}
               </li>
-              <li>Open the client's folder in Drive, copy the address from the browser and paste it here.</li>
+              <li>
+                Open the client's folder in Drive, copy the address from the browser and paste it
+                here.
+              </li>
             </ol>
             <div className="footer-actions">
-              <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://drive.google.com/drive/folders/…" dir="ltr" aria-label="Drive folder link" />
-              <button type="button" className="primary" onClick={() => void saveLink()} disabled={saving || !link.trim()}>
+              <input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://drive.google.com/drive/folders/…"
+                dir="ltr"
+                aria-label="Drive folder link"
+              />
+              <button
+                type="button"
+                className="primary"
+                onClick={() => void saveLink()}
+                disabled={saving || !link.trim()}
+              >
                 {saving ? <Orb size={16} /> : <FolderOpen size={16} />} Connect
               </button>
             </div>
-            <button type="button" className="text-button drive-all" onClick={() => void connectAll()} disabled={saving || !link.trim()} title="For a folder that holds every client's folder">
+            <button
+              type="button"
+              className="text-button drive-all"
+              onClick={() => void connectAll()}
+              disabled={saving || !link.trim()}
+              title="For a folder that holds every client's folder"
+            >
               Connect every client from this folder (each one gets the folder with its name)
             </button>
+            <DriveFolders
+              clientId={client.id}
+              folders={state.folders}
+              email={state.email}
+              onChanged={() => load(true)}
+            />
           </div>
         ) : (
           <>
+            {state.error && <p className="drive-error">{state.error}</p>}
+            <div className="drive-tabs" role="tablist">
+              {DRIVE_ROLES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === r}
+                  className={`drive-tab ${tab === r ? "active" : ""}`}
+                  onClick={() => switchTab(r)}
+                >
+                  {DRIVE_ROLE_LABELS[r]}
+                  <small>
+                    {state.groups[r].length +
+                      (state.missing.filter((p) => (p.role ?? "product") === r).length || 0)}
+                  </small>
+                </button>
+              ))}
+            </div>
+            <p className="drive-role-note">{ROLE_NOTES[tab]}</p>
             <div className="drive-bar">
               <div className="journey-filter">
-                <button type="button" className={`journey-chip small ${!top ? "active" : ""}`} onClick={() => (setTop(""), setShown(PAGE))}>
-                  All · {photos.length}
+                <button
+                  type="button"
+                  className={`journey-chip small ${!top ? "active" : ""}`}
+                  onClick={() => (setTop(""), setShown(PAGE))}
+                >
+                  All · {inTab.length}
                 </button>
                 {tops.map((t) => (
-                  <button key={t || "-"} type="button" className={`journey-chip small ${top === t ? "active" : ""}`} onClick={() => (setTop(t), setShown(PAGE))}>
-                    {t || "Top folder"} · {photos.filter((p) => topOf(p) === t).length}
+                  <button
+                    key={t || "-"}
+                    type="button"
+                    className={`journey-chip small ${top === t ? "active" : ""}`}
+                    onClick={() => (setTop(t), setShown(PAGE))}
+                  >
+                    {t || "Top folder"} · {inTab.filter((p) => topOf(p) === t).length}
                   </button>
                 ))}
               </div>
               {kinds.length > 0 && (
                 <div className="journey-filter drive-kinds" aria-label="What the photos show">
                   {kinds.map((k) => (
-                    <button key={k} type="button" className={`journey-chip small ${kind === k ? "active" : ""}`} onClick={() => (setKind(kind === k ? "" : k), setShown(PAGE))}>
+                    <button
+                      key={k}
+                      type="button"
+                      className={`journey-chip small ${kind === k ? "active" : ""}`}
+                      onClick={() => (setKind(kind === k ? "" : k), setShown(PAGE))}
+                    >
                       {DRIVE_KIND_LABELS[k]} · {inFolder.filter((p) => p.kind === k).length}
                     </button>
                   ))}
@@ -220,15 +599,43 @@ export default function DrivePicker({
                 </div>
               )}
               <span className="drive-tools">
-                <button type="button" className="text-button" onClick={() => load(true)} title="Read the folder again">
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => load(true)}
+                  title="Read the folders again"
+                >
                   <RefreshCw size={13} /> Refresh
                 </button>
-                <button type="button" className="text-button" onClick={() => setState({ ...state, folder: null })}>
-                  <FolderOpen size={13} /> Change folder
+                <button type="button" className="text-button" onClick={() => setManage((m) => !m)}>
+                  <FolderOpen size={13} /> {manage ? "Hide folders" : "Folders"}
                 </button>
+                {!state.demo && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() =>
+                      setState({
+                        ...state,
+                        folder: null,
+                        folders: state.folders.filter((f) => !f.approved),
+                      })
+                    }
+                  >
+                    Change folder
+                  </button>
+                )}
               </span>
             </div>
-            {!!state.skipped?.length && (
+            {manage && (
+              <DriveFolders
+                clientId={client.id}
+                folders={state.folders}
+                email={state.email}
+                onChanged={() => load(true)}
+              />
+            )}
+            {!!state.skipped?.length && tab === "product" && (
               <p className="field-hint drive-skipped">
                 Not read (only JPEG, PNG, WebP, HEIC and TIFF photos are):{" "}
                 {state.skipped
@@ -237,53 +644,218 @@ export default function DrivePicker({
                   .join(" · ")}
               </p>
             )}
-            {list.length ? (
+            {list.length || missingInTab.length ? (
               <div className="drive-grid">
                 {list.slice(0, shown).map((p) => {
                   const on = picked.includes(p.id);
-                  const why = ai.get(p.id);
                   return (
-                    <button
+                    <DriveThumb
                       key={p.id}
-                      type="button"
-                      className={`journey-thumb pick ${on ? "on" : ""}`}
-                      onClick={() => setPicked((l) => (on ? l.filter((x) => x !== p.id) : [...l, p.id]))}
-                      title={why ? `${why.product}: ${why.reason}` : [p.kind ? DRIVE_KIND_LABELS[p.kind] : "", p.note, `${p.folder ? `${p.folder} / ` : ""}${p.file}`].filter(Boolean).join("\n")}
-                    >
-                      <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
-                      <figcaption>{why?.product || p.name}</figcaption>
-                      {why && <span className="journey-tag drive-ai">AI pick</span>}
-                      {p.video && <span className="journey-tag drive-video">Video frame</span>}
-                      {on && (
-                        <span className="journey-thumb-check">
-                          <Check size={12} />
-                        </span>
-                      )}
-                    </button>
+                      p={p}
+                      on={on}
+                      byId={byId}
+                      why={ai.get(p.id)}
+                      caption={ai.get(p.id)?.product}
+                      onClick={() =>
+                        setPicked((l) => (on ? l.filter((x) => x !== p.id) : [...l, p.id]))
+                      }
+                    />
                   );
                 })}
+                {!top && !kind && missingInTab.map((p) => <MissingThumb key={p.id} p={p} />)}
               </div>
             ) : (
               <p className="field-hint">No photos in this folder.</p>
             )}
+            {missingInTab.length > 0 && !top && !kind && (
+              <p className="drive-missing-note">
+                {missingInTab.length} photo{missingInTab.length === 1 ? " is" : "s are"} not
+                available in Drive any more (deleted, in the bin, moved or unshared). What a month
+                already used is kept.
+              </p>
+            )}
             {list.length > shown && (
-              <button type="button" className="secondary drive-more" onClick={() => setShown((n) => n + PAGE)}>
+              <button
+                type="button"
+                className="secondary drive-more"
+                onClick={() => setShown((n) => n + PAGE)}
+              >
                 Show more ({list.length - shown} left)
               </button>
             )}
             <div className="footer-actions drive-actions">
-              <button type="button" className="secondary" onClick={() => void pickForMe()} disabled={picking || !!adding || !list.length}>
-                {picking ? <Orb size={16} /> : <Sparkles size={16} />}
-                {picking ? "Looking at the photos…" : `Pick the best ${count} for me${top ? ` in ${top}` : ""}`}
-              </button>
-              <button type="button" className="primary" onClick={() => void add()} disabled={!picked.length || !!adding || !batchId}>
-                {adding ? <Orb size={16} /> : <Check size={16} />}
-                {adding ? `Adding ${picked.length}…` : `Add ${picked.length || ""} to this month`}
-              </button>
+              {tab === "product" ? (
+                <>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void pickForMe()}
+                    disabled={picking || !!adding || !list.length}
+                  >
+                    {picking ? <Orb size={16} /> : <Sparkles size={16} />}
+                    {picking
+                      ? "Looking at the photos…"
+                      : `Pick the best ${count} for me${top ? ` in ${top}` : ""}`}
+                  </button>
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => void add()}
+                    disabled={!pickedProducts || !!adding || !batchId}
+                  >
+                    {adding ? <Orb size={16} /> : <Check size={16} />}
+                    {adding
+                      ? `Adding ${pickedProducts}…`
+                      : `Add ${pickedProducts || ""} to this month`}
+                  </button>
+                </>
+              ) : (
+                <span className="field-hint">
+                  {tab === "reference"
+                    ? "References are pinned to a post from the post editor; they never join the month as products."
+                    : `${DRIVE_ROLE_LABELS[tab]} never join the month as products.`}
+                </span>
+              )}
             </div>
           </>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A Drive photo pinned to one post as its reference, from the post editor: the reference folders'
+ * pictures first (inspiration), the product photos as a second tab. The pinned picture is copied
+ * into the studio with the Drive file's version, so a later change in Drive never alters this post.
+ */
+export function DriveReferencePicker({
+  clientId,
+  batchId,
+  postIndex,
+  onPinned,
+}: {
+  clientId: string;
+  batchId: string;
+  postIndex: number;
+  /** The post's new reference, as the server recorded it. */
+  onPinned: (reference: PostReference) => void;
+}) {
+  const { state, load } = useDriveListing(clientId);
+  const [tab, setTab] = useState<"reference" | "product">("reference");
+  const [chosen, setChosen] = useState("");
+  const [note, setNote] = useState("");
+  const [pinning, setPinning] = useState(false);
+  const photos = useMemo(() => state?.groups[tab] ?? [], [state, tab]);
+  const byId = useMemo(() => new Map((state?.photos ?? []).map((p) => [p.id, p])), [state]);
+  const missing = useMemo(
+    () => (state?.missing ?? []).filter((p) => (p.role ?? "product") === tab),
+    [state, tab],
+  );
+
+  async function pin() {
+    if (!chosen) return;
+    setPinning(true);
+    try {
+      const r = await post<{ reference: PostReference }>(driveApi(clientId, "/pin"), {
+        batch: batchId,
+        post: postIndex,
+        photoId: chosen,
+        note: note.trim() || undefined,
+      });
+      toast.success(`Pinned to post ${postIndex}: ${r.reference.name ?? "the picture"}.`);
+      setChosen("");
+      setNote("");
+      onPinned(r.reference);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPinning(false);
+    }
+  }
+
+  if (!state)
+    return (
+      <div className="journey-reading">
+        <Orb size={16} /> Opening the Drive folders…
+      </div>
+    );
+  return (
+    <div className="drive-ref">
+      <div className="drive-ref-bar">
+        <div className="drive-tabs" role="tablist">
+          {(["reference", "product"] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              role="tab"
+              aria-selected={tab === r}
+              className={`drive-tab ${tab === r ? "active" : ""}`}
+              onClick={() => (setTab(r), setChosen(""))}
+            >
+              {DRIVE_ROLE_LABELS[r]}
+              <small>{state.groups[r].length}</small>
+            </button>
+          ))}
+        </div>
+        <span className="drive-tools">
+          <DemoLabel on={state.demo} />
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => load(true)}
+            title="Read the folders again"
+          >
+            <RefreshCw size={13} /> Refresh
+          </button>
+        </span>
+      </div>
+      {state.error && <p className="drive-error">{state.error}</p>}
+      <p className="drive-role-note">
+        {tab === "reference"
+          ? "An inspiration picture: the post takes its mood, light or framing, never its product."
+          : "A product photo pinned as a reference: the post takes how it is shot; the month's product stays its product."}
+      </p>
+      {photos.length || missing.length ? (
+        <div className="drive-ref-grid">
+          {photos.map((p) => (
+            <DriveThumb
+              key={p.id}
+              p={p}
+              on={chosen === p.id}
+              byId={byId}
+              onClick={() => setChosen(chosen === p.id ? "" : p.id)}
+            />
+          ))}
+          {missing.map((p) => (
+            <MissingThumb key={p.id} p={p} />
+          ))}
+        </div>
+      ) : (
+        <p className="field-hint">
+          {tab === "reference"
+            ? "No reference folder is approved for this client yet. Add one in the Drive picker with the role References."
+            : "No product photos in the client's Drive."}
+        </p>
+      )}
+      <div className="drive-ref-actions">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="What to take from it (optional)"
+          aria-label="What to take from the reference"
+          maxLength={600}
+        />
+        <button
+          type="button"
+          className="primary"
+          onClick={() => void pin()}
+          disabled={!chosen || pinning}
+        >
+          {pinning ? <Orb size={16} /> : <Pin size={16} />}{" "}
+          {pinning ? "Pinning…" : `Pin to post ${postIndex}`}
+        </button>
+      </div>
+    </div>
   );
 }

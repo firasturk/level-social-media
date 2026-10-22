@@ -796,7 +796,7 @@ postRoutes.post("/import-references", async (c) => {
 
 /* ───────────── The month's plan ───────────── */
 
-interface BatchRow {
+export interface BatchRow {
   id: string;
   owner: string;
   name: string;
@@ -807,7 +807,7 @@ interface BatchRow {
 }
 
 /** A member's own months; an admin opens every month of the team (the maker stays its owner). */
-async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
+export async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
   if (!id) throw new StudioError("Plan id is required.");
   const b =
     user.role === "admin"
@@ -910,7 +910,7 @@ function productName(s: SourceRow): string {
   return decodeEntities(stemOf(s.name).split("/").pop() ?? s.name);
 }
 
-async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> {
+export async function saveConfig(env: Env, b: BatchRow, config: Config): Promise<void> {
   // Whatever wrote the plan (ideas, shots, a style, a refit, the designer's card), the words to
   // draw, bags and lettered items leave the idea and the shot here, quietly, before anything else
   // reads them.
