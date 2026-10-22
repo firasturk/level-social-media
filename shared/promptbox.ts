@@ -50,6 +50,8 @@ export interface VideoModelInfo {
   note?: string;
   /** Credits for one clip at the default length, when the catalog publishes it. */
   credits?: number | null;
+  /** The frames the engine offers; null when it follows the picture's own frame. */
+  aspects?: string[] | null;
 }
 
 export interface PromptContext {
@@ -69,7 +71,7 @@ export const FREE_NOTE = "Free: browsing costs nothing";
 
 /** The video engines the box can name, with the credits the catalog knows. */
 export function videoCatalog(): VideoModelInfo[] {
-  return VIDEO_MODELS.map((m) => ({ slug: m.slug, name: m.name, note: m.note, credits: (m as { credits?: number }).credits ?? null }));
+  return VIDEO_MODELS.map((m) => ({ slug: m.slug, name: m.name, note: m.note, credits: (m as { credits?: number }).credits ?? null, aspects: m.aspect ?? null }));
 }
 
 export function isToolName(v: unknown): v is ToolName {
@@ -172,6 +174,12 @@ function duration(text: string): number {
   const n = m ? Number(m[1]) : VIDEO_SECONDS;
   return Math.min(15, Math.max(3, n));
 }
+/** The frame the card shows: "" (follows the picture) when the engine has no frame choice. */
+function frameFor(model: VideoModelInfo | null | undefined, asked: string): string {
+  if (!model || model.aspects === undefined) return asked;
+  return model.aspects === null ? "" : asked;
+}
+
 function aspect(text: string): string {
   const m = /\b(9:16|16:9|1:1|4:5|3:4|4:3)\b/.exec(text);
   if (m) return m[1];
@@ -230,7 +238,7 @@ export function resolveIntent(rawText: string, ctx: PromptContext): ToolIntent {
         model: model?.slug ?? "",
         modelName: model?.name ?? "",
         duration: duration(text),
-        aspect: aspect(text),
+        aspect: frameFor(model, aspect(text)),
         source: /\b(artwork|design|with the words)\b/i.test(text) ? "artwork" : "picture",
         prompt: text,
       },
@@ -363,7 +371,7 @@ export function validateIntent(raw: unknown, ctx: PromptContext): ToolIntent | n
     const slug = str(settings.model ?? d.model);
     const model = models.find((m) => m.slug === slug) ?? null;
     const dur = int(settings.duration ?? d.duration) ?? VIDEO_SECONDS;
-    const asp = /^\d+:\d+$/.test(str(settings.aspect ?? d.aspect)) ? str(settings.aspect ?? d.aspect) : "1:1";
+    const asp = frameFor(model, /^\d+:\d+$/.test(str(settings.aspect ?? d.aspect)) ? str(settings.aspect ?? d.aspect) : "1:1");
     const credits = model?.credits ?? null;
     const questions = post === null ? [question || "Which post should be animated? Say its number, or open it first."] : !model ? ["Which video engine? Name one from the catalog."] : [];
     return { ...base, tool: "video.generate", operation: `Animate the ${str(settings.source) === "artwork" ? "design" : "picture"}`, provider: "higgsfield", settings: { model: model?.slug ?? "", modelName: model?.name ?? "", duration: Math.min(15, Math.max(3, dur)), aspect: asp, source: str(settings.source) === "artwork" ? "artwork" : "picture", prompt: str(settings.prompt, 1500) }, estimate: credits, estimateNote: credits === null ? `${COST_UNKNOWN}: ${model ? `${model.name} has no price in the catalog` : "no engine chosen"}.` : `About ${credits} credits for one ${dur}-second clip.`, needsConfirmation: true, questions };
@@ -377,7 +385,7 @@ export function intentSummary(i: ToolIntent, posts: PromptContext["posts"] = [])
   const where = i.target.post === null ? "no post chosen yet" : `post ${i.target.post}${i.target.slide ? ` · slide ${i.target.slide}` : ""}${posts.find((p) => p.index === i.target.post)?.title ? ` (${posts.find((p) => p.index === i.target.post)!.title})` : ""}`;
   const s = i.settings;
   const detail =
-    i.tool === "freepik.search" ? `“${String(s.q ?? "")}”${s.type && s.type !== "photo" ? ` · ${String(s.type)}` : ""}${s.orientation ? ` · ${String(s.orientation)}` : ""}` : i.tool === "video.generate" ? `${String(s.modelName || s.model || "no engine")} · ${String(s.duration)} s · ${String(s.aspect)}` : i.tool === "freepik.use" ? `${i.asset ? `asset ${i.asset.id}` : "no asset yet"}${s.placement ? ` · ${String(s.placement)}` : ""}` : String(s.operation ?? "");
+    i.tool === "freepik.search" ? `“${String(s.q ?? "")}”${s.type && s.type !== "photo" ? ` · ${String(s.type)}` : ""}${s.orientation ? ` · ${String(s.orientation)}` : ""}` : i.tool === "video.generate" ? `${String(s.modelName || s.model || "no engine")} · ${String(s.duration)} s · ${String(s.aspect) || "the picture's frame"}` : i.tool === "freepik.use" ? `${i.asset ? `asset ${i.asset.id}` : "no asset yet"}${s.placement ? ` · ${String(s.placement)}` : ""}` : String(s.operation ?? "");
   const cost = i.estimate === null ? i.estimateNote : i.estimate === 0 ? "free" : `about ${i.estimate} credits`;
   const q = i.questions[0] ? ` ${i.questions[0]}` : "";
   return `${i.operation}: ${detail} · ${where} · ${cost}.${q}`;

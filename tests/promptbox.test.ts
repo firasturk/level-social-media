@@ -64,7 +64,8 @@ describe("the deterministic resolver", () => {
     expect(i.tool).toBe("video.generate");
     expect(i.provider).toBe("higgsfield");
     expect(i.target.post).toBe(1);
-    expect(i.settings).toMatchObject({ model: KLING, modelName: "Kling 3.0", duration: 5, aspect: "1:1", source: "picture" });
+    // Kling 3.0 has no frame choice in the catalog: the card follows the picture's own frame ("").
+    expect(i.settings).toMatchObject({ model: KLING, modelName: "Kling 3.0", duration: 5, aspect: "", source: "picture" });
     expect(i.estimate).toBeNull();
     expect(i.estimateNote).toMatch(/^Cost not known yet/);
     expect(i.needsConfirmation).toBe(true);
@@ -284,7 +285,7 @@ describe("execute", () => {
       expect(r.kind).toBe("done");
       expect((r.intent as ToolIntent).estimate).toBe(12);
       expect(generate).toHaveBeenCalledTimes(1);
-      expect(generate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: "admin" }), expect.objectContaining({ batch: "b1", index: 1, model: KLING, duration: 8, aspect: "9:16", source: "picture" }));
+      expect(generate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: "admin" }), expect.objectContaining({ batch: "b1", index: 1, model: KLING, duration: 8, aspect: "", source: "picture" }));
       expect(record).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ provider: "higgsfield", kind: "video.generate", status: "confirmed", estimate: 12, post: 1 }));
       // The estimate is the admin's or the catalog's, never the card's: a card that claims a price is still blocked.
       const r2 = await execute(a, env, { intent: { ...intent, estimate: 1 }, confirm: true });

@@ -36,7 +36,7 @@ function settingLines(i: ToolIntent): [string, string][] {
   const s = i.settings;
   const str = (k: string) => (s[k] === undefined || s[k] === null || s[k] === "" ? "" : String(s[k]));
   if (i.tool === "freepik.search") return [["Query", str("q") || "(none)"], ["Type", str("type") || "photo"], ["Orientation", str("orientation") || "any"], ["Page", str("page") || "1"]];
-  if (i.tool === "video.generate") return [["Model", str("modelName") || str("model") || "(none)"], ["Duration", `${str("duration") || "5"} s`], ["Aspect", str("aspect") || "1:1"], ["Source", str("source") === "artwork" ? "the design with its words" : "the picture"]];
+  if (i.tool === "video.generate") return [["Model", str("modelName") || str("model") || "(none)"], ["Duration", `${str("duration") || "5"} s`], ["Frame", str("aspect") || "follows the picture"], ["Source", str("source") === "artwork" ? "the design with its words" : "the picture"]];
   if (i.tool === "freepik.use") return [["Role", str("role") === "reference" ? "reference for the next take" : "layer in the design"], ["Placement", str("placement") || "where the design puts it"]];
   return [["Operation", str("operation") || "enhance"]];
 }
