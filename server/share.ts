@@ -10,6 +10,7 @@ import { StudioError } from "./errors";
 import { all, first, now, run } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
 import type { Config } from "@shared/config";
+import { recordClientAnswer } from "./notify";
 
 export const shareRoutes = new Hono<{ Bindings: Env }>();
 
@@ -263,5 +264,6 @@ shareRoutes.post("/:token/review", async (c) => {
     },
   };
   await run(c.env.DB, "UPDATE batches SET config = ?, updated = ? WHERE id = ?", JSON.stringify(cfg), now(), b.id);
+  await recordClientAnswer(c.env, { id: b.id, client: config.client ?? b.client }, { index: parsed.data.index, ...cfg.approvals[String(parsed.data.index)] }).catch((e) => console.error("[notify]", e));
   return c.json({ ok: true, approval: cfg.approvals[String(parsed.data.index)] });
 });

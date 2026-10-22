@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { del, get, post } from "@/api";
 import MetaConnection, { useMetaStatus } from "./MetaConnection";
+import NotifyConnection, { useNotifyStatus } from "./Notify";
 
 export interface EngineInfo {
   model: string;
@@ -46,6 +47,7 @@ export default function ConnectionDialog({
   const [vertexLocation, setVertexLocation] = useState("global");
   const [savingVertex, setSavingVertex] = useState(false);
   const [meta, refreshMeta] = useMetaStatus(open);
+  const [notifyStatus, refreshNotify] = useNotifyStatus(open);
 
   async function saveVertex() {
     setSavingVertex(true);
@@ -82,12 +84,12 @@ export default function ConnectionDialog({
     }
   }
   const [falKey, setFalKey] = useState("");
-  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "meta";
+  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "meta" | "notify";
   // Opens on the tab last used in this browser, else on the vendor of the current image model.
   const [vendor, setVendorState] = useState<Vendor>(() => {
     try {
       const saved = localStorage.getItem("connection-tab") as Vendor | null;
-      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "meta"].includes(saved))
+      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "meta", "notify"].includes(saved))
         return saved;
     } catch {
       /* private mode */
@@ -282,6 +284,7 @@ export default function ConnectionDialog({
               ["openai", "OpenAI", engine.openai !== "none"],
               ["fal", "fal.ai", engine.fal !== "none"],
               ["meta", "Instagram", !!meta?.connected],
+              ["notify", "Notifications", !!notifyStatus?.connected],
             ] as const
           ).map(([k, label, on]) => (
             <button
@@ -637,6 +640,7 @@ export default function ConnectionDialog({
           </>
         )}
         {vendor === "meta" && <MetaConnection status={meta} onChanged={refreshMeta} />}
+        {vendor === "notify" && <NotifyConnection status={notifyStatus} onChanged={refreshNotify} />}
         <details className="prompt-details">
           <summary>Advanced: default model slug</summary>
           <label htmlFor="engine-model" className="field-label">

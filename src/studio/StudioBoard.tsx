@@ -10,6 +10,7 @@ import { formatUsd } from "@shared/pricing";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
 import type { Approval } from "@shared/config";
+import { NotifySubscribe } from "./Notify";
 
 export type StudioTab = "posts" | "words" | "approval" | "versions";
 
@@ -50,6 +51,7 @@ export default function StudioBoard({
   onClientChanges,
   clientChangesBusy,
   more,
+  badge,
   children,
 }: {
   tab: StudioTab;
@@ -69,6 +71,8 @@ export default function StudioBoard({
   clientChangesBusy: boolean;
   /** The More menu's items (the old toolbar's tools). */
   more: ReactNode;
+  /** "Client answered · n new", beside the counts. */
+  badge?: ReactNode;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -99,6 +103,7 @@ export default function StudioBoard({
           ))}
         </div>
         <span className="studio-counts">{countsLine(counts)}</span>
+        {badge}
         <div className="studio-actions">
           {changes > 0 && (
             <button type="button" className="cta secondary" onClick={onClientChanges} disabled={clientChangesBusy} title="Read what the client asked on the approval page, change those posts and make them again">
@@ -185,10 +190,13 @@ export function ApprovalView({
   onClientLink,
   onWhatsApp,
   onOpen,
+  client,
 }: {
   plan: Post[];
   tasks: Task[];
   approvals: Record<string, Approval> | undefined;
+  /** The month's client: shows "Email me when <client> answers". */
+  client?: { id: string; name: string } | null;
   outputThumb: (t: Task) => string;
   onClientLink: () => void;
   onWhatsApp: () => void;
@@ -215,6 +223,7 @@ export function ApprovalView({
           )}
         </p>
         <div className="approval-actions">
+          {client && <NotifySubscribe client={client} />}
           <button type="button" className="cta secondary" onClick={onClientLink}>
             <Link2 size={14} /> Copy the client link
           </button>

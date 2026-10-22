@@ -13,6 +13,7 @@ import { serveStatic } from "./static";
 import { readDrivePhotos } from "./drive";
 import { auditRoutes, dailyAudit } from "./audit";
 import { shareRoutes } from "./share";
+import { sendDueNotifications } from "./notify";
 
 type Variables = { user: User };
 
@@ -134,6 +135,8 @@ export default {
     ctx.waitUntil(readDrivePhotos(env).catch((e) => console.error("[drive]", errorMessage(e))));
     // The system check runs once a day and tells the admin when something fails.
     ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
+    // The client's answers on the approval page reach the team as one e-mail per month.
+    ctx.waitUntil(sendDueNotifications(env).catch((e) => console.error("[notify]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     // Synchronous images run in the background of the cron pass (six at once, refilled as they
     // finish) instead of one after another.
