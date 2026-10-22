@@ -88,6 +88,8 @@ import { ocrRoutes } from "./ocr-routes";
 import { feedbackRoutes } from "./feedback";
 import { notifyRoutes } from "./notify";
 import { photoLabRoutes } from "./photolab";
+import { photoPresetRoutes } from "./photo-presets";
+import { photoToolRoutes } from "./photo-tools";
 import { freepikRoutes } from "./freepik";
 import { freepikMcpRoutes } from "./freepik-mcp";
 import { higgsfieldMcpRoutes } from "./higgsfield-mcp";
@@ -120,6 +122,9 @@ studioRoutes.route("/promptbox", promptboxRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
 studioRoutes.route("/notify", notifyRoutes);
 studioRoutes.route("/photolab", photoLabRoutes);
+// The Photo studio's preset gallery (pictures only) and its AI tools (Higgsfield and Magnific image tools, in credits).
+studioRoutes.route("/photo/presets", photoPresetRoutes);
+studioRoutes.route("/photo/tools", photoToolRoutes);
 // The MCP adapter first: /freepik/mcp/* is its own sub-app, the rest of /freepik is the stock library.
 studioRoutes.route("/freepik/mcp", freepikMcpRoutes);
 // Videos on the Higgsfield subscription credits (the MCP sign-in), next to the Cloud API path under /posts/video.
