@@ -2085,6 +2085,8 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
   );
   // A post may name a product this month does not have (removed, or from another month): it is
   // brought from the client's gallery; a picture is never made of a product nobody photographed.
+  /** Products the preview counts on without copying them yet: name → where they come from. */
+  const pending = new Map<string, string>();
   {
     const monthNames = sources.filter((x) => x.kind === "product").map(productName);
     const named = plan
@@ -2101,6 +2103,12 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       const galleryNames = gallery.map(productName);
       const have = new Set(sources.map((x) => x.stem));
       const notInGallery: string[] = [];
+      // The plan preview: the photo is not copied yet, but the post counts as ready with the
+      // note, as the run would make it (the preview never says blocked where the run would pay).
+      const pendingSource = (n: string, from: string, note: string | null): SourceRow => {
+        pending.set(n, from);
+        return { id: `pending:${pending.size}`, name: `${n}.jpg`, stem: stemKey(`${n}.jpg`), key: "", reference_key: null, kind: "product", role: "lead", note: note || null };
+      };
       for (const n of [...new Set(named)]) {
         const m = matchProduct(n, galleryNames);
         if (!m) {
@@ -2109,6 +2117,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
         }
         if (dry) {
           notes.push(`${n} comes from the client's gallery when the run starts.`);
+          sources.push(pendingSource(n, "the client's gallery", gallery[galleryNames.indexOf(m)].note ?? null));
           continue;
         }
         const row = await copyGalleryProduct(env, user.id, b, config.client, gallery[galleryNames.indexOf(m)].id, have);
@@ -2126,6 +2135,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
           if (!photo) continue;
           if (dry) {
             notes.push(`${n} comes from the client's Drive when the run starts.`);
+            sources.push(pendingSource(n, "the client's Drive", photo.note ?? null));
             continue;
           }
           try {
@@ -2137,7 +2147,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       }
     }
   }
-  await describeProducts(env, sources);
+  await describeProducts(env, sources.filter((s) => !s.id.startsWith("pending:")));
   const sellsDrinks = sources.some((s) => s.kind === "product" && FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const tasks = await all<TaskLite>(
     env.DB,
@@ -2286,12 +2296,25 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     const productMatch = matchProduct(leadName, productNames);
     if (leadName && !productMatch) {
       missingProduct.push({ index: post.index, product: leadName });
-      outcomes.push({ index: post.index, title: post.title, status: "blocked", why: `No photo of ${leadName} this month.` });
+      outcomes.push({ index: post.index, title: post.title, status: "blocked", why: `No photo of ${leadName} this month. Choose its product image (from the client's Drive, an earlier month or an upload).` });
       continue;
+    }
+    // A post that names products but has none selected is not made with a reference picture in
+    // their place: the team picks the product first (nothing is guessed before paying).
+    if (!leadName && !portraitDay && !typographic && post.type !== "offer" && extraNames.length) {
+      const named = extraNames.filter((n): n is string => !!n);
+      const why = `Post ${post.index} has no product selected: it names ${named.join(", ")}. Choose its product image before it is made.`;
+      if (dry) {
+        skipped.push(post.index);
+        outcomes.push({ index: post.index, title: post.title, status: "blocked", why });
+        continue;
+      }
+      throw new StudioError(why, 428);
     }
     const product = productMatch
       ? productSources.find((s) => productName(s) === productMatch)
       : undefined;
+    if (product?.id.startsWith("pending:")) changes.push(`${productName(product)} comes from ${pending.get(leadName!) ?? "the client's Drive"} when the run starts.`);
     // Further products shown in the same picture, attached after image 1.
     // "Sahlab" next to "Sahlab with nuts" is the same product twice, not two products together.
     const sameBase = (a: string, b: string) => {
@@ -2341,7 +2364,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     // photo never looks right. A product in someone's hand cannot be set in: such a post is drawn.
     const held = /\b(hands?|held|holding|holds|lifts?|lifting|grips?)\b/i.test(`${post.brief} ${post.scene ?? ""}`);
     const wantsExact = !!(config.exact || post.exact) && !held && !!product && !extraProducts.length && post.type !== "offer" && !!(refId || styled);
-    const exactProduct = wantsExact && (await import("./exact").then((m) => m.cutsCleanly(env, product!))) ? product : undefined;
+    const exactProduct = wantsExact && !product!.id.startsWith("pending:") && (await import("./exact").then((m) => m.cutsCleanly(env, product!))) ? product : undefined;
     if (exactProduct) changes.push("Exact product: the engine paints the place and the real photo is set in afterwards.");
     else if ((config.exact || post.exact) && product) changes.push(held ? "Exact product asked, but the product is held in a hand: it is drawn from its photo instead." : extraProducts.length ? "Exact product asked, but the post shows several products: they are drawn from their photos." : "Exact product asked, but the photo cannot be cut out cleanly (a busy background): the product is drawn from its photo.");
     let sourceId = exactProduct ? undefined : product?.id;
@@ -2368,7 +2391,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     if (!sourceId) {
       if (!refId) {
         // The plan preview lists the post as blocked with the reason; a run stops here and says so.
-        const why = `Post ${post.index} has no product. Add reference photos to the theme so the post can use one as its image, or pick a product for it.`;
+        const why = `Post ${post.index} has no product selected. Choose its product image (from the client's Drive, an earlier month or an upload), or add reference photos to the theme so the post can use one as its image.`;
         if (dry) {
           skipped.push(post.index);
           outcomes.push({ index: post.index, title: post.title, status: "blocked", why });
@@ -3720,12 +3743,25 @@ async function applyCampaign(env: Env, user: User, b: BatchRow, plan: CampaignPl
   // The month may have grown since the draft was written: the new posts take the numbers after its last post.
   const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
   const firstDraft = plan.added.reduce((m, p) => Math.min(m, p.index), Number.MAX_SAFE_INTEGER);
-  const added = plan.added.map((post) => ({
-    ...post,
-    index: nextIndex + (post.index - firstDraft),
-    product: post.product && imported.has(post.product) ? imported.get(post.product) : post.product,
-    products: post.products ? post.products.map((n) => imported.get(n) ?? n) : post.products,
-  }));
+  // The names a post can point at: this month's product photos and what was just brought in.
+  const known = [...new Set([...have, ...imported.values()])];
+  const added = plan.added.map((post) => {
+    const products = post.products ? post.products.map((n) => imported.get(n) ?? n) : post.products;
+    let product = post.product && imported.has(post.product) ? imported.get(post.product) : post.product;
+    // A post with a photo brought in for it but no product written on it (the planner named the
+    // product among the post's products, its title or its headline only) points at that photo now:
+    // a product nobody chose is never guessed; a product the post names is not left off it.
+    if (!product && post.type !== "greeting" && post.type !== "offer") {
+      const named = [...(products ?? []), post.title, post.headline ?? ""].map((n) => matchProduct(n, known)).find((n): n is string => !!n);
+      if (named) product = named;
+    }
+    return {
+      ...post,
+      index: nextIndex + (post.index - firstDraft),
+      product,
+      products: products?.filter((n) => n !== product).length ? products!.filter((n) => n !== product) : undefined,
+    };
+  });
   if (existing.length + added.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this plan adds ${added.length} to ${existing.length}.`, 409);
   // The brief's colours are this month's: the theme, shared by other months, is left as it is
   // (the designer can push them to the theme from the Direction screen).
@@ -4598,7 +4634,7 @@ postRoutes.post("/products/fill", async (c) => {
   let config = JSON.parse(b.config) as Config;
   const monthNames = (await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, kind, role FROM sources WHERE batch = ? AND kind = 'product'", b.id)).map(productName);
   const missing = (config.plan ?? []).filter(
-    (p) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "") && (d.drive || !matchProduct(p.product, monthNames)),
+    (p) => showsProduct(p) && !p.productLock && (d.drive || !matchProduct(p.product, monthNames)),
   );
   if (!missing.length) return c.json({ ok: true, filled: [] });
   const { matches, drive } = await matchProducts(c.env, b, config, missing, !!d.drive);
@@ -4670,6 +4706,194 @@ postRoutes.post("/products/fill", async (c) => {
     }
   }
   return c.json({ ok: true, filled });
+});
+
+/** Posts whose picture shows a product: not greetings or offers, not a text, texture or place tile. */
+const showsProduct = (p: Post) => p.type !== "greeting" && p.type !== "offer" && !NO_PRODUCT_TILES.has(p.tileSpec?.kind ?? "");
+
+/** One post of a product proposal: the image it would use, why, and the other images that fit it. */
+interface ProductProposal {
+  index: number;
+  title: string;
+  headline?: string;
+  /** The month product the post has now, when it has a photo. */
+  current?: string;
+  locked: boolean;
+  /** confident: the post names this product itself (nothing was guessed); false: the model's pick. */
+  pick: (ProductOption & { reason: string; confident: boolean }) | null;
+  alternatives: (ProductOption & { reason?: string })[];
+}
+
+/**
+ * "Choose for me": a product image proposed for every post that shows one, nothing written yet.
+ * A post that names a product with a photo (this month, an earlier month, the Drive) keeps it:
+ * that is its own choice. The rest get the image that fits the post's words and grid tile best
+ * (the Fill-from-Drive logic), spread across the products; a locked post is left as it is. The
+ * team reviews the proposal (replace, exclude, lock) and applies it with /products/choose.
+ */
+postRoutes.post("/products/propose", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+      /** From the client's Drive first (the Drive's photos for the posts the model picks for). */
+      drive: z.boolean().optional(),
+    }),
+  );
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const client = await clientRow(c.env, config.client);
+  const posts = (config.plan ?? []).filter((p) => showsProduct(p) && (!d.indexes || d.indexes.includes(p.index)));
+  const options = await productOptions(c.env, b, client.id);
+  const drive = options.filter((o) => o.source === "drive").length;
+  const names = options.map((o) => o.name);
+  const monthNames = options.filter((o) => o.source === "month").map((o) => o.name);
+  const optionOf = (name: string) => options.find((o) => o.name === name)!;
+  const proposals = new Map<number, ProductProposal>();
+  const ask: Post[] = [];
+  for (const p of posts) {
+    const current = matchProduct(p.product, monthNames);
+    const base = { index: p.index, title: p.title, headline: p.headline, current, locked: !!p.productLock };
+    if (p.productLock) {
+      proposals.set(p.index, { ...base, pick: current ? { ...optionOf(current), reason: "Locked by the team.", confident: true } : null, alternatives: [] });
+      continue;
+    }
+    // The post names its product and a photo of it exists: that is the pick, nothing to guess.
+    const named = [p.product, ...(p.products ?? [])].map((n) => matchProduct(n, names)).find((n): n is string => !!n);
+    if (named) {
+      proposals.set(p.index, { ...base, pick: { ...optionOf(named), reason: current && named === current ? "The product this post has." : "Named on the post.", confident: true }, alternatives: [] });
+      continue;
+    }
+    ask.push(p);
+  }
+  if (ask.length && options.length) {
+    const { matches } = await matchProducts(c.env, b, config, ask, !!d.drive);
+    // A photo already proposed for another post goes to the next pick: the month is spread, not the same product everywhere.
+    const given = new Set<string>();
+    for (const m of matches) {
+      const post = ask.find((p) => p.index === m.index)!;
+      const picks = d.drive && m.picks.some((x) => x.source === "drive") ? m.picks.filter((x) => x.source === "drive") : m.picks;
+      const pick = picks.find((x) => !given.has(`${x.source}:${x.id}`)) ?? picks[0] ?? null;
+      if (pick) given.add(`${pick.source}:${pick.id}`);
+      proposals.set(m.index, {
+        index: post.index,
+        title: post.title,
+        headline: post.headline,
+        current: matchProduct(post.product, monthNames),
+        locked: false,
+        pick: pick ? { ...pick, confident: false } : null,
+        alternatives: m.picks.filter((x) => x !== pick),
+      });
+    }
+  }
+  return c.json({
+    ok: true,
+    proposals: posts.map((p) => proposals.get(p.index) ?? { index: p.index, title: p.title, headline: p.headline, current: matchProduct(p.product, monthNames), locked: !!p.productLock, pick: null, alternatives: [] }),
+    drive,
+    options,
+  });
+});
+
+/**
+ * The team's product choices applied: each chosen photo joins the month once (a gallery or Drive
+ * photo as its own copy; two posts with the same photo share the copy) and goes on its post, which
+ * is locked when asked. A post left out of the choices is untouched. The words of a post whose
+ * product changed kind are written again for it; its shot is cleared so it is written for the product.
+ */
+postRoutes.post("/products/choose", async (c) => {
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      choices: z
+        .array(
+          z.object({
+            index: z.number().int().min(1).max(MAX_POST_COUNT),
+            source: z.enum(["month", "gallery", "drive"]),
+            id: z.string().min(1).max(120),
+            name: z.string().max(200).default(""),
+            lock: z.boolean().optional(),
+          }),
+        )
+        .max(MAX_POST_COUNT),
+      /** Posts whose lock is taken off (their product stays). */
+      unlock: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+    }),
+  );
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, d.batch);
+  let config = JSON.parse(b.config) as Config;
+  const month = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note FROM sources WHERE batch = ?", b.id);
+  const taken = new Set(month.map((s) => s.stem));
+  const monthNames = month.filter((s) => s.kind === "product").map(productName);
+  const named = new Map<string, string>();
+  const chosen = new Map<number, { name: string; lock: boolean; source: ProductOption["source"] }>();
+  const failed: string[] = [];
+  for (const ch of d.choices) {
+    if (!(config.plan ?? []).some((p) => p.index === ch.index)) {
+      failed.push(`Post ${ch.index} is not in the plan.`);
+      continue;
+    }
+    const key = `${ch.source}:${ch.id}`;
+    let name = named.get(key);
+    if (!name)
+      try {
+        if (ch.source === "month") {
+          const row = month.find((s) => s.id === ch.id && s.kind === "product");
+          if (!row) throw new StudioError("That photo is no longer in this month.", 404);
+          name = productName(row);
+        } else if (ch.source === "gallery") {
+          const row = await copyGalleryProduct(c.env, user.id, b, config.client, ch.id, taken);
+          name = row ? productName(row) : (matchProduct(ch.name, monthNames) ?? ch.name);
+        } else {
+          const row = await importDrivePhoto(c.env, user.id, b.id, ch.id, ch.name, taken);
+          c.executionCtx.waitUntil(describeUpload(c.env, row.id).catch((e) => console.error("[drive] describe", errorMessage(e))));
+          name = productName(row);
+        }
+        named.set(key, name);
+      } catch (e) {
+        failed.push(`Post ${ch.index}: ${errorMessage(e)}`);
+        continue;
+      }
+    chosen.set(ch.index, { name, lock: !!ch.lock, source: ch.source });
+  }
+  const unlock = new Set(d.unlock ?? []);
+  const fresh = (await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id))!;
+  config = JSON.parse(fresh.config) as Config;
+  const was = new Map((config.plan ?? []).map((p) => [p.index, p.product]));
+  config.plan = (config.plan ?? []).map((p) => {
+    const ch = chosen.get(p.index);
+    if (!ch) return unlock.has(p.index) ? { ...p, productLock: undefined } : p;
+    const same = !!p.product && p.product.toLowerCase() === ch.name.toLowerCase();
+    return { ...(same ? p : withProduct(p, ch.name)), productLock: ch.lock ? true : undefined };
+  });
+  await saveConfig(c.env, fresh, config);
+  const filled = [...chosen].map(([index, ch]) => ({ index, product: ch.name, source: ch.source }));
+  // Another product than before (not another photo of the same one): the post's words follow it.
+  for (const [index, ch] of chosen) {
+    const before = was.get(index);
+    const sameKind = !before || productKeyOf(before) === productKeyOf(ch.name) || productKeyOf(before).startsWith(productKeyOf(ch.name)) || productKeyOf(ch.name).startsWith(productKeyOf(before));
+    if (sameKind) continue;
+    try {
+      const latest = (await first<BatchRow>(c.env.DB, "SELECT * FROM batches WHERE id = ?", b.id))!;
+      await refitWords(c.env, latest, JSON.parse(latest.config) as Config, index);
+    } catch (e) {
+      console.error("[products] choose refit", index, errorMessage(e));
+    }
+  }
+  return c.json({ ok: true, filled, failed });
+});
+
+/** The team locks a post's product image (an automatic proposal leaves it alone), or unlocks it. */
+postRoutes.post("/products/lock", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT), lock: z.boolean() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  if (!(config.plan ?? []).some((p) => p.index === d.index)) throw new StudioError("That post is not in the plan.", 404);
+  config.plan = (config.plan ?? []).map((p) => (p.index === d.index ? { ...p, productLock: d.lock ? true : undefined } : p));
+  await saveConfig(c.env, b, config);
+  return c.json({ ok: true, post: config.plan.find((p) => p.index === d.index) });
 });
 
 /**

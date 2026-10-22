@@ -35,6 +35,8 @@ import BrandChip from "./BrandChip";
 import { RelevantRules } from "./MemoryPanel";
 import Working from "@/components/Working";
 import TestGrid from "./TestGrid";
+import ProductChoice, { PostProductCell, productOf } from "./ProductChoice";
+import ProductSwap from "./ProductSwap";
 import { askInput } from "@/lib/confirm";
 import type { OverlaySpec } from "@shared/overlay";
 
@@ -526,6 +528,8 @@ export default function Flow(p: FlowProps) {
     await readScenes([index]);
   }
   const [open, setOpen] = useState<number | null>(null);
+  /** The post whose product image is being chosen or replaced from the Plan's product column. */
+  const [swapTarget, setSwapTarget] = useState<Post | null>(null);
   const planKey = JSON.stringify(p.plan.map((x) => [x.index, x.ideaAt, x.product, x.reference?.at, x.style]));
   const loadPreview = useCallback(async () => {
     if (!p.batchId) return;
@@ -1208,7 +1212,7 @@ export default function Flow(p: FlowProps) {
                           </span>
                           <div className="flow-input-text">
                             <b>{theme && theme.references ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
-                            <span>{theme && theme.references ? "They set the light and palette for every post, never their objects." : "Would set the light and palette for every post, never their objects. Optional."}</span>
+                            <span>{theme && theme.references ? "Visual references: they set the light and palette for every post, never their objects. They are not product photos." : "Visual references: would set the light and palette for every post, never their objects. Not product photos. Optional."}</span>
                           </div>
                           <span className="flow-input-actions">
                             {theme && (
@@ -1253,11 +1257,11 @@ export default function Flow(p: FlowProps) {
                           </span>
                           <div className="flow-input-text">
                             <b>
-                              Product photos · {p.products.length}
+                              Product images · {p.products.length}
                               {missing.length ? ` of ${p.products.length + missing.length}` : ""}
                             </b>
                             <span>
-                              Always used; the real product is matched to each post.
+                              The real items in the pictures, one on each post that shows a product; never a reference picture.
                               {missing.length ? (
                                 <>
                                   {" "}
@@ -1270,10 +1274,11 @@ export default function Flow(p: FlowProps) {
                             </span>
                           </div>
                           <span className="flow-input-actions">
-                            <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                              Upload
-                            </button>
+                            <span className="flow-pill dark">1 · wins</span>
                           </span>
+                        </li>
+                        <li className="flow-input-wide">
+                          <ProductChoice batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} />
                         </li>
                       </ul>
                     );
@@ -1503,14 +1508,18 @@ export default function Flow(p: FlowProps) {
                   </p>
                 </div>
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Products</span>
+                  <span className="flow-eyebrow">Product images</span>
                   <div className="flow-thumbs small">
                     {p.products.slice(0, 7).map((s) => (
-                      <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} />
+                      <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} title={`Product photo: ${displayName(s.name)}`} />
                     ))}
                   </div>
                   <small>
-                    {p.products.length} with photos{missingProducts.missing.length ? `, ${missingProducts.missing.length} without` : ""}
+                    {(() => {
+                      const shown = p.plan.filter((x) => x.type !== "greeting" && x.type !== "offer" && !["text", "texture", "place"].includes(x.tileSpec?.kind ?? ""));
+                      const without = shown.filter((x) => !productOf(x, p.products)).length;
+                      return `${p.products.length} product photo${p.products.length === 1 ? "" : "s"} · ${shown.length - without} of ${shown.length} post${shown.length === 1 ? "" : "s"} have theirs${without ? ` · ${without} without` : ""}`;
+                    })()}
                     {blockedList.length ? ` · ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} waiting` : ""}
                   </small>
                 </div>
@@ -1589,6 +1598,10 @@ export default function Flow(p: FlowProps) {
                   </ul>
                 </div>
               </section>
+              <section className="journey-box flow-box prodc-box">
+                <span className="flow-eyebrow">Product images</span>
+                <ProductChoice variant="bar" batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} onChanged={loadPreview} />
+              </section>
               <section className="journey-box flow-posts">
                 <div className="flow-posts-head">
                   <span>#</span>
@@ -1617,9 +1630,9 @@ export default function Flow(p: FlowProps) {
                             {o?.status === "blocked" && (
                               <span className="flow-post-flag">
                                 {o.why}
-                                {missingProducts.posts.includes(x.index) && (
-                                  <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                                    Upload a photo
+                                {(missingProducts.posts.includes(x.index) || /no product/i.test(o.why ?? "")) && (
+                                  <button type="button" className="text-button" onClick={() => setSwapTarget(x)}>
+                                    Choose a product image
                                   </button>
                                 )}
                               </span>
@@ -1635,7 +1648,9 @@ export default function Flow(p: FlowProps) {
                               </span>
                             )}
                           </span>
-                          <span className="flow-post-product">{x.product || (x.offer?.products[0] ?? "—")}</span>
+                          <span className="flow-post-product">
+                            <PostProductCell post={x} products={p.products} sourceUrl={p.sourceUrl} onChoose={setSwapTarget} />
+                          </span>
                           <span className="flow-post-out">
                             <span className={`flow-pill ${state.cls}`}>{state.text || kind}</span>
                             <small>{kind}</small>
@@ -1854,6 +1869,17 @@ export default function Flow(p: FlowProps) {
       </div>
 
       <input ref={uploadInput} type="file" accept="image/*" multiple hidden onChange={(e) => { const files = [...(e.target.files ?? [])]; e.target.value = ""; if (files.length) void p.onUpload(files); }} />
+      <ProductSwap
+        open={!!swapTarget}
+        onClose={() => setSwapTarget(null)}
+        batchId={p.batchId}
+        target={swapTarget}
+        sourceUrl={p.sourceUrl}
+        onChanged={async () => {
+          await p.refresh();
+          if (stage === 2) await loadPreview();
+        }}
+      />
       {picking && client && (
         <StyleScreen
           open

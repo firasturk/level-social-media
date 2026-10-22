@@ -139,8 +139,13 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
     // the planner wrote in "product" (a cup in the picture would defeat the slide).
     // An ingredients slide and a separator carry no product photo.
     const bare = role === "ingredients" || role === "separator";
-    const lead = bare ? undefined : matchProduct(String(x.product ?? ""), products);
-    const extras = bare ? [] : (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n && n !== lead);
+    const title = String(x.title ?? "").trim();
+    const listed = bare ? [] : (Array.isArray(x.products) ? (x.products as unknown[]) : []).map((n) => matchProduct(String(n ?? ""), products)).filter((n): n is string => !!n);
+    // The product field first; when the planner left it empty but named the product among the
+    // post's products, its title or its headline, that product leads: a post is never left with
+    // a photo brought in for it and no product on it.
+    const lead = bare ? undefined : (matchProduct(String(x.product ?? ""), products) ?? listed[0] ?? matchProduct(title, products) ?? matchProduct(headline, products));
+    const extras = [...new Set(listed)].filter((n) => n !== lead);
     const kindRaw = String(x.group ?? "single");
     const kind: GroupKind | null = kindRaw === "carousel" || kindRaw === "series" ? kindRaw : null;
     const of = Math.max(1, Math.min(10, Math.round(Number(x.of) || 1)));
@@ -157,7 +162,7 @@ export function parseBriefPlan(raw: unknown, products: string[], firstIndex: num
     const post: Post = {
       index: index++,
       type,
-      title: String(x.title ?? "").trim().slice(0, 80) || headline.slice(0, 80) || "Post",
+      title: title.slice(0, 80) || headline.slice(0, 80) || "Post",
       brief: brief.slice(0, 2000),
       caption: String(x.caption ?? "").trim().slice(0, 2200),
       hashtags: String(x.hashtags ?? "").trim().slice(0, 400),

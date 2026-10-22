@@ -29,7 +29,7 @@ function productsIn(instruction: string): string[] {
   let inList = false;
   for (const raw of instruction.split("\n")) {
     const line = raw.trim();
-    if (/^PRODUCTS?\b/i.test(line) || /PRODUCTS AVAILABLE AS PHOTOS/i.test(line)) inList = true;
+    if (/^PRODUCTS?\b/i.test(line) || /PRODUCTS AVAILABLE AS PHOTOS/i.test(line) || /^THE PRODUCT PHOTOS OF THE MONTH/i.test(line)) inList = true;
     else if (inList && /^- /.test(line)) out.push(line.slice(2).split(/\s*(?::|\[)/)[0].trim());
     else if (inList && line && !/^- /.test(line)) inList = false;
   }
@@ -99,6 +99,28 @@ function gridRead(instruction: string) {
   return { world: `${DEMO} world: street signs under noon sun, hard shadows, blue sky, the brand's cup as the sign's symbol, sky blue and sign yellow with asphalt grey.`, tiles, fonts: { headline: "", body: "", why: `${DEMO}: no font chosen.` }, posts: ideas(instruction, tiles.length) };
 }
 
+/**
+ * Products matched to posts: each post gets the options whose names share a word with its words
+ * (its product first), so the preview's "Choose for me" walks through with a readable pick.
+ */
+function productMatches(instruction: string) {
+  const posts = [...instruction.matchAll(/^Post (\d+) \[[^\]]*\](.*)$/gm)].map((m) => ({ post: Number(m[1]), text: m[2].toLowerCase() }));
+  const options = [...instruction.matchAll(/^(\d+)\. (.+?) \((this month|an earlier month|the client's Drive)\)/gm)].map((m) => ({ option: Number(m[1]), name: m[2].toLowerCase() }));
+  const words = (t: string) => new Set(t.split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3));
+  const matches = posts.map(({ post, text }) => {
+    const named = /product now: (.+)$/.exec(text)?.[1]?.trim();
+    const pw = words(text);
+    const picks = options
+      .map((o) => ({ o, hits: named && named === o.name ? 99 : [...words(o.name)].filter((w) => pw.has(w)).length }))
+      .filter((x) => x.hits > 0)
+      .sort((a, b) => b.hits - a.hits)
+      .slice(0, 3)
+      .map((x) => ({ option: x.o.option, reason: `${DEMO}: its name is in the post's words.`, same: !!named && named === x.o.name }));
+    return { post, picks };
+  });
+  return { matches };
+}
+
 function generic(schema: Schema, name = ""): unknown {
   if (schema.enum?.length) return schema.enum[0];
   switch (schema.type) {
@@ -140,6 +162,7 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
     const posts = [...new Set((instruction.match(/Post (\d+)/g) ?? []).map((m) => Number(m.slice(5))))];
     out = { shots: (posts.length ? posts : [1]).map((post) => ({ post, ref: 1, shot: `${DEMO} shot for post ${post}: the cup inside the sign plate, eye level, 35 mm, noon sun, hard shadow to the left, nothing else on the pole.` })) };
   } else if (props.summary && props.points) out = { summary: `${DEMO}: this screen was read without a provider.`, points: [`${DEMO}: the inputs on this screen were read.`, "Nothing here cost a provider call.", `Images seen: ${images}.`], logic: `${DEMO}: plan the month from what this screen shows.`, categories: [] };
+  else if (props.matches) out = productMatches(instruction);
   else if (props.palette) out = { palette: COLOURS };
   else if (props.prompt && props.brief) out = { prompt: `${DEMO} prompt: the product in the style's staging, the brand's colours, no text in the picture.`, brief: `${DEMO}: the product set in the style's scene, lit as the style is lit, with the brand's colours on the surfaces.` };
   else if (props.note && Object.keys(props).length === 1) out = { note: `${DEMO}: the product as its photo shows it, whole and undistorted.` };

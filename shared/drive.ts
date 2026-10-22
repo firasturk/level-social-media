@@ -341,6 +341,19 @@ export function parsePicks(raw: unknown, photos: DrivePhoto[], count: number): D
   return out;
 }
 
+/* ───────────── The client's product library ───────────── */
+
+/**
+ * Whether the client has a connected product library, from its folder listing: an approved Drive
+ * folder, or the folder on its profile standing in while none is approved. With one, uploading
+ * product photos is optional (the three ways to choose product images are all open); without, the
+ * photos come from an upload until a folder is connected.
+ */
+export function productLibrary(folders: Pick<DriveFolder, "approved" | "role" | "demo">[]): { connected: boolean; folders: number; demo: boolean } {
+  const approved = folders.filter((f) => f.approved && (f.role === "product" || !f.role));
+  return { connected: approved.length > 0, folders: approved.length, demo: approved.some((f) => !!f.demo) };
+}
+
 /* ───────────── Matching products to posts ───────────── */
 
 /** Where a product photo can come from: this month, the client's earlier months, or its Drive. */
