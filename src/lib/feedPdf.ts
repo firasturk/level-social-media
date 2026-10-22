@@ -16,6 +16,15 @@ export interface FeedDeck {
   /** The month's direction text, shown before the per-post notes. */
   direction: string;
   posts: FeedPost[];
+  /** The client's real Instagram account (from its profile): the feed page carries its handle and followers. */
+  instagram?: { username: string; followers?: number } | null;
+}
+
+/** A follower count the way Instagram shows it: 84,429 → 84.4K, 1,250,000 → 1.3M. */
+export function compactCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (n >= 10_000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1).replace(/\.0$/, "")}K`;
+  return n.toLocaleString("en");
 }
 
 const W = 1600;
@@ -266,7 +275,7 @@ function feed(deck: FeedDeck, brand: string): HTMLCanvasElement {
   ctx.textAlign = "right";
   ctx.fillText("●●● ▲ ▮", fx + frameW - 60, fy + 34);
   ctx.textAlign = "left";
-  const handle = deck.client.slug.replace(/-/g, ".");
+  const handle = deck.instagram?.username?.trim() || deck.client.slug.replace(/-/g, ".");
   ctx.font = `700 34px ${SANS}`;
   ctx.fillText(handle, fx + 60, fy + 110);
   ctx.textAlign = "right";
@@ -279,7 +288,7 @@ function feed(deck: FeedDeck, brand: string): HTMLCanvasElement {
   circleImage(ctx, deck.logo, fx + 150, fy + 270, 86, initialsOf(deck.client.name), accent);
   const stats: [string, string][] = [
     [String(deck.posts.length), "posts"],
-    ["—", "followers"],
+    [deck.instagram?.followers ? compactCount(deck.instagram.followers) : "—", "followers"],
     ["—", "following"],
   ];
   stats.forEach(([n, label], i) => {

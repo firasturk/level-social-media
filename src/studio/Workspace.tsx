@@ -1096,9 +1096,14 @@ export default function Workspace({
         posts.push({ post: p, image });
       }
       const theme = themes.find((t) => t.id === themeId);
+      // The client's real Instagram account, when its profile was analysed: the feed page shows that handle, not a made-up one.
+      const instagram = await get<{ profile?: { sources?: { instagram?: { username: string; followers: number } | null } | null } }>(`/api/studio/profile/${client.id}`)
+        .then((r) => r.profile?.sources?.instagram ?? null)
+        .catch(() => null);
       const blob = await buildFeedPdf({
         client,
         month,
+        instagram,
         logo: logoSrc ? await loadImage(logoSrc).catch(() => null) : null,
         direction: config?.notes || theme?.direction || theme?.description || "",
         posts,
