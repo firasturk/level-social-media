@@ -2326,9 +2326,18 @@ input[type="checkbox"] {
 /* connection dialog vendor tabs */
 .vendor-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   border-bottom: 1px solid var(--border);
   margin: 4px 0 14px;
+  min-width: 0;
+}
+/* The dialog is one grid column: it never grows past the dialog to fit a wide child (the eight vendor tabs did). */
+.connection-dialog {
+  grid-template-columns: minmax(0, 1fr);
+}
+.connection-dialog > * {
+  min-width: 0;
 }
 .vendor-tabs button {
   border: 0;
@@ -17088,12 +17097,15 @@ label.cta input {
 }
 
 /* A radio or a checkbox never stretches: the global input width is for text fields. */
+input[type="radio"],
+input[type="checkbox"],
 .check-row input[type="radio"],
 .check-row input[type="checkbox"],
 .flow-scope input,
 .editor-group input[type="radio"] {
   width: auto;
   flex: none;
+  padding: 0;
 }
 
 /* The workflow's top bar: the client and the month are switchable there; the radio sits at the bottom */
