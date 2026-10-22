@@ -518,8 +518,12 @@ styleRoutes.get("/start-pictures", async (c) => {
   const saved = client ? await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status IN ('active', 'review') AND id IN (SELECT style FROM client_styles WHERE client = ?)`, client) : [];
   const savedPins = shuffle(saved.filter((s) => !s.tiles));
   const savedGrids = shuffle(saved.filter((s) => s.tiles > 0));
-  const pins = savedPins.length >= 6 ? savedPins : [...savedPins, ...shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND client IS NULL AND tiles = 0 AND score >= 9 ORDER BY updated DESC LIMIT 80`)).filter((g) => !savedPins.some((s) => s.id === g.id))];
-  const grid = savedGrids[0] ?? shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND client IS NULL AND tiles >= 9 AND score >= 9 ORDER BY updated DESC LIMIT 40`))[0] ?? null;
+  // The gallery's own styles carry no client (an empty string or NULL); a client's private ones carry its id.
+  const gallery = "(client IS NULL OR client = '')";
+  const pins = savedPins.length >= 6 ? savedPins : [...savedPins, ...shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND ${gallery} AND tiles = 0 AND score >= 9 ORDER BY updated DESC LIMIT 80`)).filter((g) => !savedPins.some((s) => s.id === g.id))];
+  // A grid the client saved, else one of the client's own grids, else one of the gallery's.
+  const own = client ? await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND client = ? AND tiles >= 9`, client) : [];
+  const grid = savedGrids[0] ?? shuffle(own)[0] ?? shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND ${gallery} AND tiles >= 9 AND score >= 9 ORDER BY updated DESC LIMIT 40`))[0] ?? null;
   return c.json({ ok: true, day, source: savedPins.length >= 6 ? "saved" : savedPins.length ? "saved+gallery" : "gallery", brief: pins.slice(0, 2), refs: pins.slice(2, 5), style: pins[5] ?? pins[0] ?? null, grid });
 });
 
