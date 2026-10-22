@@ -30,8 +30,10 @@ import { askConfirm } from "@/lib/confirm";
 import { del, postForm } from "@/api";
 import { rasterize } from "@/lib/image";
 import { referenceThumb } from "./PostTools";
-import VoiceInput from "@/components/VoiceInput";
+import VoiceInput, { appendDictation } from "@/components/VoiceInput";
 import { POST_TYPE_INFO, POST_TYPES, type Post } from "@shared/posts";
+import { LANGUAGE_LABELS, languageWithSource, type ClientLanguage } from "@shared/language";
+import { TYPO_LABELS } from "@shared/typography";
 
 /** The four groups of the post editor, in the order the team works: the idea, its picture, the words, the earlier versions. */
 const GROUPS = [
@@ -174,6 +176,9 @@ export interface PostEditorTools {
   /** Who accepted it, when someone did. */
   acceptedBy?: string;
   lineage: "current" | "older" | "unknown" | "none";
+  /** The brand kit's content language and the month's override, so the post's own override can say what it replaces. */
+  brandLanguage?: ClientLanguage;
+  monthLanguage?: ClientLanguage;
 }
 
 export default function ReviewDialog({
@@ -289,6 +294,21 @@ export default function ReviewDialog({
     void (dirty ? saveDraft() : Promise.resolve()).then(() => then?.());
   };
   const editRef = useRef<HTMLTextAreaElement>(null);
+  /** The language this post inherits (the month's, else the brand kit's) when it sets none of its own. */
+  const inherited = languageWithSource(editor?.brandLanguage, editor?.monthLanguage);
+  /**
+   * "Make another version" is a fresh picture from the saved idea (not an edit of this one): the
+   * scope, the source and the cost are said before anything is made.
+   */
+  const remake = async () => {
+    if (!onRemake) return;
+    if (editor) {
+      const slide = editor.post.group ? ` (slide ${editor.post.group.slide} of ${editor.post.group.of})` : "";
+      const ok = await askConfirm(`Make another version of post ${editor.post.index}${slide}? A fresh picture is made from the saved idea and shot, not from the current picture. One paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Make another version${cost}`, danger: false, cancel: "Not now" });
+      if (!ok) return;
+    }
+    leave(onRemake);
+  };
   const qa = task?.qa ? (JSON.parse(task.qa) as QA) : null;
   // The stored brief is a written skill brief in the skill approaches, or the No prompt plan
   // (background, pose, framing). Anything unreadable is simply not shown.
@@ -407,8 +427,11 @@ export default function ReviewDialog({
             </label>
             <label className="field-label">
               Idea: what the photograph shows
-              <textarea rows={3} value={field("brief") ?? ""} onChange={(e) => set("brief", e.target.value)} disabled={busy} />
+              <textarea rows={3} dir="auto" value={field("brief") ?? ""} onChange={(e) => set("brief", e.target.value)} disabled={busy} />
             </label>
+            <div className="revision-voice">
+              <VoiceInput label="Dictate the idea" onText={(t) => set("brief", appendDictation(field("brief") ?? "", t))} disabled={busy} />
+            </div>
             <label className="field-label">
               Shot: the scene written for this product (empty: written again from the month's look)
               <textarea rows={3} value={field("scene") ?? ""} onChange={(e) => set("scene", e.target.value || undefined)} disabled={busy} />
@@ -445,8 +468,8 @@ export default function ReviewDialog({
                   type="button"
                   className="secondary"
                   disabled={busy || inFlight}
-                  onClick={() => leave(onRemake)}
-                  title="A fresh picture of the saved idea; the picture it replaces stays under Versions"
+                  onClick={() => void remake()}
+                  title="A fresh picture of the saved idea (asked first, with the cost); the picture it replaces stays under Versions"
                 >
                   Save and make another version{cost}
                 </button>
@@ -489,12 +512,41 @@ export default function ReviewDialog({
             </label>
             <label className="field-label">
               Caption: posted with the picture, not drawn on it
-              <textarea rows={3} value={field("caption") ?? ""} onChange={(e) => set("caption", e.target.value)} disabled={busy} />
+              <textarea rows={3} dir="auto" value={field("caption") ?? ""} onChange={(e) => set("caption", e.target.value)} disabled={busy} />
             </label>
+            <div className="revision-voice">
+              <VoiceInput label="Dictate the caption" onText={(t) => set("caption", appendDictation(field("caption") ?? "", t))} disabled={busy} />
+            </div>
             <label className="field-label">
               Hashtags
               <input value={field("hashtags") ?? ""} onChange={(e) => set("hashtags", e.target.value)} disabled={busy} />
             </label>
+            <label className="field-label">
+              Language for this post
+              <select value={field("language") ?? ""} onChange={(e) => set("language", (e.target.value || undefined) as Post["language"])} disabled={busy}>
+                <option value="">
+                  Follow {inherited.source === "month" ? "the month" : "the brand kit"} ({LANGUAGE_LABELS[inherited.language]})
+                </option>
+                {(Object.keys(LANGUAGE_LABELS) as ClientLanguage[]).map((l) => (
+                  <option key={l} value={l}>
+                    {LANGUAGE_LABELS[l]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <small className="revision-note">The language the caption writer, the Text studio's layouts and their default fonts use for this post. Nothing is translated: the words stay as you wrote them.</small>
+            <div className="editor-flat">
+              <b>Layers and the picture</b>
+              <ul>
+                <li>The headline, the second line, the logo, their position, size and layout are layers drawn over the saved picture. Changing them is free: no picture is made.</li>
+                {field("ov")?.typo && (
+                  <li>
+                    The typography style on this post ("{TYPO_LABELS[field("ov")!.typo!.style]}") is drawn by the automatic layout, not a layer you can grab. The Text studio turns the words into layers and sets the typography aside; "Back to the automatic layout" in the studio brings it back.
+                  </li>
+                )}
+                <li>Letters the engine drew inside the photo itself are part of the picture, not a layer: they cannot be moved or retyped here. "Edit this picture" with the "Remove text" preset takes them out (one paid picture).</li>
+              </ul>
+            </div>
             {editor.onCheckWords && task?.output && (
               <div className="editor-proposal-wrap">
                 <div className="editor-actions">
@@ -722,6 +774,7 @@ export default function ReviewDialog({
                   }}
                 >
                   {area && area.w > 0.01 && <div className="mark-box" style={{ left: `${area.x * 100}%`, top: `${area.y * 100}%`, width: `${area.w * 100}%`, height: `${area.h * 100}%` }} />}
+                  <span className="mark-hint">{area && area.w > 0.01 ? "Marked: it goes into the instruction in words. Not a mask; the whole picture is redrawn." : "Drag to mark the area to change. It guides the instruction; it is not a mask."}</span>
                 </div>
               )}
             </div>
@@ -755,7 +808,7 @@ export default function ReviewDialog({
                       <RefreshCw size={15} /> Edit this picture
                     </button>
                     {onRemake && (
-                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={onRemake} title="Make another version: a fresh picture of the same idea; this one stays under Versions">
+                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="Make another version: a fresh picture of the same idea (asked first, with the cost); this one stays under Versions">
                         Make another version{cost}
                       </button>
                     )}
@@ -870,22 +923,22 @@ export default function ReviewDialog({
                   )}
                   <span className="field-label">What do you want to do?</span>
                   <div className="editor-choices">
-                    <button type="button" className="editor-choice" onClick={() => editRef.current?.focus()}>
+                    <button type="button" className="editor-choice" onClick={() => editRef.current?.focus()} title="The current picture is changed as your note says; the rest is kept by instruction">
                       <b>Edit this picture</b>
-                      <span>Change something in the current photo from a note: the background, an object, the light.</span>
-                      <em>about {formatUsd(editor.perPicture)}</em>
+                      <span>Change something in the current photo from a note: the background, an object, the light. Starts from this picture.</span>
+                      <em>about {formatUsd(editor.perPicture)} · one picture</em>
                     </button>
                     {onRemake && (
-                      <button type="button" className="editor-choice" disabled={busy || inFlight} onClick={() => leave(onRemake)}>
+                      <button type="button" className="editor-choice" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture from the saved idea; you are asked first">
                         <b>Make another version</b>
-                        <span>A fresh picture of the same idea. The current one is kept under Versions.</span>
-                        <em>about {formatUsd(editor.perPicture)}</em>
+                        <span>A fresh picture of the same idea, from the idea and shot rather than this picture. The current one is kept under Versions.</span>
+                        <em>about {formatUsd(editor.perPicture)} · one picture</em>
                       </button>
                     )}
-                    <button type="button" className="editor-choice" onClick={() => setGroup("words")}>
+                    <button type="button" className="editor-choice" onClick={() => setGroup("words")} title="Nothing is generated: the words and layers are drawn over the saved picture">
                       <b>Edit words &amp; layout</b>
-                      <span>Headline, caption and where they sit. Drawn over the photo, never remade.</span>
-                      <em className="free">Free</em>
+                      <span>Headline, second line, logo, position, size and layout. Drawn over the photo as layers; the photo is never remade.</span>
+                      <em className="free">Free · no picture is made</em>
                     </button>
                   </div>
                 </>
@@ -895,15 +948,19 @@ export default function ReviewDialog({
               Edit this picture
             </label>
             {editor && task && (
-              <p className="edit-scope">
-                Post {editor.post.index}
-                {editor.post.group ? ` · ${editor.post.group.kind} slide ${editor.post.group.slide} of ${editor.post.group.of}` : ""} · source: the current picture
-                {task.updated ? ` (${new Date(task.updated).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})` : ""}
-                {editor.lineage === "older" ? ", made for an earlier idea" : editor.lineage === "unknown" ? ", lineage unknown" : ""}. Only this post changes; the picture it replaces stays under Versions.
-              </p>
+              <div className="edit-scope">
+                {task.output && <img className="edit-scope-thumb" src={resultUrl} alt="The picture this edit starts from" />}
+                <p>
+                  <b>Scope:</b> post {editor.post.index}
+                  {editor.post.group ? `, ${editor.post.group.kind} slide ${editor.post.group.slide} of ${editor.post.group.of}` : ""} only. <b>Source:</b> the current picture
+                  {task.updated ? ` (${new Date(task.updated).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})` : ""}
+                  {editor.lineage === "older" ? ", made for an earlier idea" : editor.lineage === "unknown" ? ", lineage unknown" : ""}
+                  {editor.post.reference ? ", with the attached reference" : ""}. <b>What changes:</b> what the instruction says; the rest is kept by instruction. The picture it replaces stays under Versions; the words and layers are redrawn over the new picture.
+                </p>
+              </div>
             )}
             <div className="edit-actions-row">
-              <button type="button" className={`text-button ${marking ? "on" : ""}`} disabled={busy || !task?.output} onClick={() => { setMarking((m) => !m); if (view === "compare") setView("result"); }}>
+              <button type="button" className={`text-button ${marking ? "on" : ""}`} disabled={busy || !task?.output} onClick={() => { setMarking((m) => !m); if (view === "compare") setView("result"); }} title="Drag a box on the picture: it is put into the instruction in words (where and how big). It guides the engine; it is not a mask, and the whole picture is redrawn.">
                 {marking ? "Stop marking" : "Mark an area"}
               </button>
               {area && area.w > 0.01 && (
@@ -941,7 +998,7 @@ export default function ReviewDialog({
               disabled={busy}
             />
             <div className="revision-voice">
-              <VoiceInput label="Dictate the change" onText={(t) => setEdit((e) => (e.trim() ? `${e.trim()} ${t}` : t))} disabled={busy} />
+              <VoiceInput label="Dictate the change" onText={(t) => setEdit((e) => appendDictation(e, t))} disabled={busy} />
             </div>
             {editor?.batchId && <EditReference batchId={editor.batchId} post={editor.post} note={edit} disabled={busy || inFlight} onChanged={() => editor.onMonthChanged?.()} />}
             <button
@@ -972,12 +1029,12 @@ export default function ReviewDialog({
               {inFlight ? "Edit in progress…" : `Edit this picture${cost}`}
             </button>
             {onRemake && editor && (
-              <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => leave(onRemake)} title="A fresh picture of the same idea; this one stays under Versions">
+              <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture of the same idea, asked first with the cost; this one stays under Versions">
                 Make another version{cost}
               </button>
             )}
             {editor && (
-              <button type="button" className="secondary" disabled={busy} onClick={() => setGroup("words")} title="Headline, caption and layout: saved free, no picture is made">
+              <button type="button" className="secondary" disabled={busy} onClick={() => setGroup("words")} title="Headline, second line, logo, position, size and layout: layers over the saved picture, saved free; no picture is made">
                 Edit words &amp; layout · free
               </button>
             )}

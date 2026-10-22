@@ -195,6 +195,8 @@ export interface Post {
   captionFrom?: string;
   /** The designer wrote or edited the caption: a new image never rewrites it by itself. */
   captionHand?: boolean;
+  /** This post's content language, when it differs from the month's and the brand kit's (see shared/language). */
+  language?: "ar" | "en" | "both";
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */

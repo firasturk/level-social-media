@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { ChevronDown, ChevronUp, Circle, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon, Lock, LockOpen, Minus, Plus, Sparkles, Square, Stamp, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronDown, ChevronUp, Circle, Copy, Eye, EyeOff, GripVertical, Image as ImageIcon, LayoutTemplate, Lock, LockOpen, Minus, Plus, Sparkles, Square, Stamp, Trash2, TriangleAlert, Type, Upload } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { post } from "@/api";
 import { ASSIST_ACTIONS, ASSIST_LABELS, type AssistAction, type AssistAnswer, type AssistSuggestion } from "@shared/text-assist";
 import { isTextLayer, type Layer, type ShapeKind, type TextLayer } from "@shared/layers";
-import { brandFonts, PRESETS, savedStyles, styleOf, type Brand, type SavedStyle } from "./model";
+import type { LanguageSource } from "@shared/language";
+import { brandFonts, LANGUAGE_LABELS, PRESETS, savedStyles, styleOf, type Brand, type ClientLanguage, type LayoutPreset, type SavedStyle } from "./model";
 
 /* ───────────── Layers ───────────── */
 
@@ -230,7 +231,99 @@ export function LayersList({
   );
 }
 
-/* ───────────── Presets and saved styles ───────────── */
+/* ───────────── Layouts ───────────── */
+
+/**
+ * The layouts library: whole arrangements drawn as thumbnails over this very picture (the one
+ * renderer at a small size), previewed on the stage before anything changes, applied to this
+ * design by default and to the month's other designs only after an explicit confirmation.
+ */
+export function LayoutsList({
+  layouts,
+  language,
+  languageSource,
+  thumb,
+  cacheKey,
+  trialId,
+  onPreview,
+  onApply,
+  onApplyAll,
+}: {
+  layouts: LayoutPreset[];
+  language: ClientLanguage;
+  languageSource: LanguageSource;
+  /** The layout over this post's picture, as a small JPEG data URL; null when it could not be drawn. */
+  thumb: (preset: LayoutPreset) => Promise<string | null>;
+  /** Changes when the thumbnails must be drawn again (the words, the picture or the language changed). */
+  cacheKey: string;
+  /** The layout on the stage right now, when one is being previewed. */
+  trialId: string | null;
+  onPreview: (preset: LayoutPreset) => void;
+  onApply: (preset: LayoutPreset) => void;
+  /** Absent when the studio is not open on a month (nothing else to apply to). */
+  onApplyAll?: (preset: LayoutPreset) => void;
+}) {
+  const [thumbs, setThumbs] = useState<Record<string, string | null>>({});
+  useEffect(() => {
+    let alive = true;
+    setThumbs({});
+    void (async () => {
+      // One at a time: each thumbnail loads fonts and draws the picture; a burst would stall the stage.
+      for (const l of layouts) {
+        const url = await thumb(l).catch(() => null);
+        if (!alive) return;
+        setThumbs((t) => ({ ...t, [l.id]: url }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cacheKey, layouts]);
+  const from = languageSource === "post" ? "this post" : languageSource === "month" ? "this month" : languageSource === "brand" ? "the brand kit" : "the studio default";
+  return (
+    <div className="ts-layouts">
+      <div className="ts-panel-head">
+        <span>
+          <LayoutTemplate size={13} /> Layouts
+        </span>
+      </div>
+      <p className="ts-hint">
+        Built for {LANGUAGE_LABELS[language]} (from {from}) in the brand's fonts and colours, with this post's own words. Preview puts one on the picture without changing anything; Apply replaces this design's words, shapes and helpers (pictures you added stay) and ⌘Z brings yours back.
+      </p>
+      {layouts.map((l) => {
+        const t = thumbs[l.id];
+        const on = trialId === l.id;
+        return (
+          <div key={l.id} className={`ts-layout ${on ? "on" : ""}`}>
+            <button type="button" className="ts-layout-thumb" onClick={() => onPreview(l)} title={on ? "On the stage now" : "Preview on the picture (nothing changes until you apply)"} aria-pressed={on}>
+              {t ? <img src={t} alt={`${l.name} over this picture`} /> : t === null ? <span className="ts-layout-blank">No preview</span> : <span className="ts-layout-blank">Drawing…</span>}
+            </button>
+            <span className="ts-layout-meta">
+              <b>{l.name}</b>
+              <small>{l.hint}</small>
+              <span className="ts-preset-actions">
+                <button type="button" className="ts-link" onClick={() => onPreview(l)}>
+                  {on ? "Previewing" : "Preview"}
+                </button>
+                <button type="button" className="ts-link" onClick={() => onApply(l)} title="Apply to this design only">
+                  Apply
+                </button>
+                {onApplyAll && (
+                  <button type="button" className="ts-link" onClick={() => onApplyAll(l)} title="Apply to every design of the month, after a confirmation that says how many change">
+                    All designs…
+                  </button>
+                )}
+              </span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ───────────── Text styles and saved styles ───────────── */
 
 export function PresetsList({
   brand,
@@ -305,11 +398,12 @@ export function PresetsList({
   return (
     <div className="ts-presets">
       <div className="ts-panel-head">
-        <span>Styles</span>
+        <span>Text styles</span>
         <button type="button" className="ts-mini" onClick={save} disabled={!selected} title="Save the selected layer's look as a reusable style">
           <Plus size={12} /> Save style
         </button>
       </div>
+      <p className="ts-hint">The look of one layer: font, colour, outline, glow. Nothing moves. Whole arrangements are under Layouts.</p>
       {saved.length > 0 && (
         <>
           <span className="ts-group-title">Saved for {brand.name}</span>

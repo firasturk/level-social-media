@@ -525,22 +525,25 @@ export function BrandKit({
         onChange={(e) => setDraft((d) => ({ ...d, tone: e.target.value }))}
         onBlur={() => void save(true)}
       />
-      <label className="field-label">Caption language</label>
+      <label className="field-label">Content language</label>
       <Select
         value={draft.language}
         onValueChange={(language) =>
           setDraft((d) => ({ ...d, language: language as Client["language"] }))
         }
       >
-        <SelectTrigger aria-label="Caption language">
+        <SelectTrigger aria-label="Content language">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="ar">Arabic</SelectItem>
           <SelectItem value="en">English</SelectItem>
-          <SelectItem value="both">Arabic and English</SelectItem>
+          <SelectItem value="both">Arabic and English (bilingual layouts)</SelectItem>
         </SelectContent>
       </Select>
+      <p className="field-hint">
+        The default for captions, headlines, the Text studio's layouts and their fonts. A month or a single post can override it in the post editor; nothing is ever translated for you.
+      </p>
       </Group>
       <Group kit="rules" title="Rules">
       <div className="field-grid">

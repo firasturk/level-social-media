@@ -94,7 +94,16 @@ export function designFromLegacy(spec: OverlaySpec, headline: string, subline: s
   };
 }
 
-/* ───────────── Presets ───────────── */
+/* ───────────── Text styles (the look of one layer) and layouts (whole arrangements) ───────────── */
+
+/*
+ * Layouts are whole arrangements (headline, second line, price, logo, helpers) built from the
+ * brand and the post's words in its language; they live in shared/layouts.ts so the tests and
+ * "apply to all designs" can build them without a browser. Text styles below change one layer's
+ * look only (outline, neon, gradient) and never move anything.
+ */
+export { LAYOUTS, applyLayout, layoutsFor, type LayoutContext, type LayoutPreset } from "@shared/layouts";
+export { LANGUAGE_LABELS, directionFor, languageWithSource, resolveLanguage, sampleContent, type ClientLanguage } from "@shared/language";
 
 export interface Preset {
   name: string;

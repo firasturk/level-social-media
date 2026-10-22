@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { postForm } from "@/api";
@@ -15,9 +15,9 @@ import { drawBasePicture, renderDesignOnly, type LayerBox } from "@/lib/textLaye
 import { Orb } from "@/components/Orb";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
-import { Assistant, BrandAssets, LayersList, PresetsList, type Asset } from "./Panels";
+import { Assistant, BrandAssets, LayersList, LayoutsList, PresetsList, type Asset } from "./Panels";
 import Properties, { type Align } from "./Properties";
-import { brandFonts, contrastOf, designFromLegacy, hitLayer, patchWith, round3, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type Guide } from "./model";
+import { applyLayout, brandFonts, contrastOf, designFromLegacy, directionFor, hitLayer, languageWithSource, layoutsFor, patchWith, round3, sampleContent, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type ClientLanguage, type Guide, type LayoutPreset } from "./model";
 import "./text-studio.css";
 
 export interface EditorResult {
@@ -58,6 +58,24 @@ interface Props {
    * returns how many posts changed. The logo role carries the logo's place and size.
    */
   onApplyToAll?: (style: Partial<Layer>, role: ApplyRole) => Promise<number>;
+  /**
+   * The month's and this post's content language overrides, when any; the brand kit's language
+   * is the default. The layouts and new layers follow the resolved language.
+   */
+  monthLanguage?: ClientLanguage;
+  postLanguage?: ClientLanguage;
+  /**
+   * Applies a layout to the month's other designs: `make` builds each post's design from its own
+   * words (and its own language); `dryRun` only counts. Returns how many posts changed (or would).
+   */
+  onApplyLayoutToAll?: (make: (post: { headline?: string; subline?: string; design?: TextDesign | null; language?: ClientLanguage }) => TextDesign, name: string, dryRun: boolean) => Promise<number>;
+}
+
+/** A layout on the stage before it is applied: nothing in the design has changed yet. */
+interface Trial {
+  id: string;
+  name: string;
+  design: TextDesign;
 }
 
 type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw" | "rot";
@@ -97,8 +115,12 @@ export default function TextStudio(p: Props) {
   const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(0.5);
-  const [leftTab, setLeftTab] = useState<"layers" | "presets" | "brand">("layers");
+  const [leftTab, setLeftTab] = useState<"layers" | "layouts" | "presets" | "brand">("layers");
   const [rightTab, setRightTab] = useState<"props" | "assist">("props");
+  /** Narrow screens have one panel: which side's tab it shows. */
+  const [side, setSide] = useState<"left" | "right">("right");
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches);
+  const [trial, setTrial] = useState<Trial | null>(null);
   const [safe, setSafe] = useState(false);
   const [saving, setSaving] = useState<"saved" | "dirty" | "saving">("saved");
   const [saved, setSaved] = useState<string[]>(() => savedColours.list(brand.id));
@@ -122,6 +144,18 @@ export default function TextStudio(p: Props) {
   const primaryText = primary && isTextLayer(primary) ? primary : null;
   const selLayers = useMemo(() => layers.filter((l) => selected.includes(l.id)), [layers, selected]);
   const fonts = brandFonts(brand);
+  /** The content language in force: the post's, else the month's, else the brand kit's. */
+  const { language: lang, source: langSource } = languageWithSource(brand.language, p.monthLanguage, p.postLanguage);
+
+  /* ───────────── Narrow screens: one panel, every tab ───────────── */
+  useEffect(() => {
+    if (!open) return;
+    const mq = window.matchMedia("(max-width: 860px)");
+    const onChange = () => setNarrow(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [open]);
 
   /* ───────────── Loading ───────────── */
   useEffect(() => {
@@ -208,11 +242,13 @@ export default function TextStudio(p: Props) {
     c.height = H;
     let alive = true;
     const skip = editing ? new Set([editing]) : undefined;
+    // A layout being previewed is drawn in place of the design; the design itself is untouched.
+    const shown = trial?.design ?? design;
     // The picture alone, cropped and shifted as the design asks: what the colour picker and the
     // contrast warnings read, and what frosted backings blur.
     const base = baseRef.current;
-    if (base) drawBasePicture(base.getContext("2d")!, img, base.width, base.height, design.canvas);
-    void paintFrame(c, img, spec, { headline: "", subline: "" }, logoSrc, { patch: patchWith(p.patch, design), skipLayers: skip }).then((l) => {
+    if (base) drawBasePicture(base.getContext("2d")!, img, base.width, base.height, shown.canvas);
+    void paintFrame(c, img, spec, { headline: "", subline: "" }, logoSrc, { patch: patchWith(p.patch, shown), skipLayers: skip }).then((l) => {
       if (!alive) return;
       boxesRef.current = l.layers ?? [];
       setBoxes(l.layers ?? []);
@@ -221,7 +257,7 @@ export default function TextStudio(p: Props) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, design, size, editing, spec, logoSrc]);
+  }, [open, design, trial, size, editing, spec, logoSrc]);
 
   /* ───────────── History and saving ───────────── */
   const persistHistory = (present: TextDesign) => {
@@ -341,6 +377,8 @@ export default function TextStudio(p: Props) {
       y: 0.42,
       w: 0.8,
       name: undefined,
+      // A new layer reads the way the post's language does; mixed copy decides for itself.
+      direction: directionFor(lang),
       ...over,
     });
     commit({ ...d, layers: [...d.layers, l] });
@@ -722,7 +760,8 @@ export default function TextStudio(p: Props) {
           pickRef.current?.(null);
           pickRef.current = null;
           setPicking(false);
-        } else if (editing) setEditing(null);
+        } else if (trial) setTrial(null);
+        else if (editing) setEditing(null);
         else if (shortcuts) setShortcuts(false);
         else if (selected.length) setSelected([]);
         else close();
@@ -965,6 +1004,68 @@ export default function TextStudio(p: Props) {
     }
   };
 
+  /* ───────────── Layouts: preview on the stage, apply here, apply to the month on request ───────────── */
+  const layouts = useMemo(() => layoutsFor(lang), [lang]);
+  /** This post's words as the layouts draw them: the design's own lines, else the plan's. */
+  const wordsNow = (d: TextDesign | null): { headline?: string; subline?: string } => {
+    const w = d ? wordsOf(d) : { headline: "", subline: "" };
+    return { headline: w.headline || p.headline, subline: w.subline || p.subline };
+  };
+  const designForLayout = (preset: LayoutPreset, base: TextDesign | null, words: { headline?: string; subline?: string }, language: ClientLanguage = lang): TextDesign =>
+    applyLayout(base, preset.make({ brand, language, sample: sampleContent(language, words), hasLogo: !!logoSrc, ratio: H / W }));
+  const layoutThumb = async (preset: LayoutPreset): Promise<string | null> => {
+    const d = designRef.current;
+    if (!d) return null;
+    const c = await renderOverlay(src, spec, { headline: "", subline: "" }, logoSrc, 320, { patch: patchWith(p.patch, designForLayout(preset, d, wordsNow(d))) });
+    return c.toDataURL("image/jpeg", 0.8);
+  };
+  const layoutKey = useMemo(() => {
+    const w = wordsNow(design);
+    return `${src}|${lang}|${w.headline ?? ""}|${w.subline ?? ""}|${logoSrc ?? ""}|${design?.layers.filter((l) => l.type === "image").length ?? 0}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src, lang, logoSrc, design ? wordsOf(design).headline : "", design ? wordsOf(design).subline : "", design?.layers.filter((l) => l.type === "image").length]);
+  const previewLayout = (preset: LayoutPreset) => {
+    const d = designRef.current;
+    if (!d) return;
+    if (trial?.id === preset.id) return setTrial(null);
+    setEditing(null);
+    setTrial({ id: preset.id, name: preset.name, design: designForLayout(preset, d, wordsNow(d)) });
+  };
+  const applyLayoutHere = (preset: LayoutPreset) => {
+    const d = designRef.current;
+    if (!d) return;
+    const next = trial?.id === preset.id ? trial.design : designForLayout(preset, d, wordsNow(d));
+    setTrial(null);
+    commit(next);
+    const head = next.layers.find((l) => isTextLayer(l) && l.role === "headline");
+    setSelected(head ? [head.id] : []);
+    toast.success(`"${preset.name}" applied to this design. ⌘Z brings yours back.`);
+  };
+  const applyLayoutEverywhere = async (preset: LayoutPreset) => {
+    if (!p.onApplyLayoutToAll || applying) return;
+    const make = (post: { headline?: string; subline?: string; design?: TextDesign | null; language?: ClientLanguage }) => designForLayout(preset, post.design ?? null, { headline: post.headline, subline: post.subline }, post.language ?? lang);
+    setApplying(true);
+    try {
+      const n = await p.onApplyLayoutToAll(make, preset.name, true);
+      if (!n) {
+        toast.message("No other design with a picture to apply it to.");
+        return;
+      }
+      const ok = await askConfirm(
+        `Apply "${preset.name}" to the other ${n} design${n === 1 ? "" : "s"} of the month? Each is built from its own post's words and language; pictures added to a design stay. Their current layouts are replaced, and this cannot be undone from here (each post keeps "Back to the automatic layout"). This design is not changed by this.`,
+        { ok: `Apply to ${n} design${n === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
+      );
+      if (!ok) return;
+      flushSave(true);
+      const changed = await p.onApplyLayoutToAll(make, preset.name, false);
+      toast.success(`"${preset.name}" applied to ${changed} other design${changed === 1 ? "" : "s"}. No picture was touched.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setApplying(false);
+    }
+  };
+
   /* ───────────── Misc ───────────── */
   const pickFromCanvas = () =>
     new Promise<string | null>((resolve) => {
@@ -1018,6 +1119,105 @@ export default function TextStudio(p: Props) {
   const editingBox = editing ? boxes.find((b) => b.id === editing) : null;
 
   if (!open) return null;
+
+  /* ───────────── The two panels' tabs and bodies (one panel holds all of them on a narrow screen) ───────────── */
+  const pickLeft = (t: typeof leftTab) => {
+    setLeftTab(t);
+    setSide("left");
+  };
+  const pickRight = (t: typeof rightTab) => {
+    setRightTab(t);
+    setSide("right");
+  };
+  const leftOn = (t: typeof leftTab) => (leftTab === t && (!narrow || side === "left") ? "on" : "");
+  const rightOn = (t: typeof rightTab) => (rightTab === t && (!narrow || side === "right") ? "on" : "");
+  const leftTabs = (
+    <>
+      <button type="button" className={leftOn("layers")} onClick={() => pickLeft("layers")}><Layers size={13} /> Layers</button>
+      <button type="button" className={leftOn("layouts")} onClick={() => pickLeft("layouts")} title="Whole arrangements of the words, built for this post"><LayoutTemplate size={13} /> Layouts</button>
+      <button type="button" className={leftOn("presets")} onClick={() => pickLeft("presets")} title="The look of one layer: outline, neon, gradient…"><Wand2 size={13} /> Styles</button>
+      <button type="button" className={leftOn("brand")} onClick={() => pickLeft("brand")}><Palette size={13} /> Brand</button>
+    </>
+  );
+  const rightTabs = (
+    <>
+      <button type="button" className={rightOn("props")} onClick={() => pickRight("props")}>Properties</button>
+      <button type="button" className={rightOn("assist")} onClick={() => pickRight("assist")}><Sparkles size={13} /> Assistant</button>
+    </>
+  );
+  const leftBody = (
+    <>
+      {leftTab === "layers" && design && (
+        <LayersList
+          layers={layers}
+          selected={selected}
+          warnings={warnings}
+          onSelect={select}
+          onChange={(id, patch) => update([id], patch)}
+          onReorder={reorder}
+          onDuplicate={(id) => duplicate([id])}
+          onDelete={(id) => remove([id])}
+          onAdd={() => addLayer()}
+          onAddLogo={logoSrc ? addLogo : undefined}
+          onAddImage={addImage}
+          onAddShape={addShape}
+          onUploadGraphic={p.onUploadGraphic ? uploadGraphic : undefined}
+          assets={p.assets ?? []}
+        />
+      )}
+      {leftTab === "layouts" && design && (
+        <LayoutsList layouts={layouts} language={lang} languageSource={langSource} thumb={layoutThumb} cacheKey={layoutKey} trialId={trial?.id ?? null} onPreview={previewLayout} onApply={applyLayoutHere} onApplyAll={p.onApplyLayoutToAll ? (l) => void applyLayoutEverywhere(l) : undefined} />
+      )}
+      {leftTab === "presets" && <PresetsList brand={brand} selected={primaryText} onApply={(style) => updateText(style)} onAddWith={(style, name) => addLayer({ ...style, name }, name === "Price tag" ? sampleContent(lang).price : name === "Quote" ? "“Made with love”" : "Your words here")} />}
+      {leftTab === "brand" && (
+        <BrandAssets
+          brand={brand}
+          palette={palette}
+          onFont={(font) => (primaryText ? updateText({ font }) : addLayer({ font }))}
+          onColour={(hex) => (primaryText ? updateText({ fill: { type: "solid", color: hex } }) : primary?.type === "shape" ? updateSel({ fill: { type: "solid", color: hex } }) : addLayer({ fill: { type: "solid", color: hex } }))}
+          onUploadFont={uploadFont}
+        />
+      )}
+    </>
+  );
+  const rightBody = (
+    <>
+      {rightTab === "props" && design && (
+        <Properties
+          sel={{ layer: primary, count: selLayers.length, contrast }}
+          onChange={(patch) => ("text" in patch && patch.text !== undefined && primaryText ? update(selected, (l) => (isTextLayer(l) ? editText(l, patch.text!) : {}), true) : updateSel(patch))}
+          onRich={rich}
+          brand={brand}
+          palette={palette}
+          saved={saved}
+          onSaveColour={saveColour}
+          pickFromCanvas={pickFromCanvas}
+          canvasFx={design.canvas}
+          onCanvasFx={setCanvasFx}
+          onAlign={align}
+          onUploadFont={uploadFont}
+          W={W}
+          richActive={richActive}
+        />
+      )}
+      {rightTab === "assist" && (
+        <Assistant
+          batch={p.batchId ?? null}
+          index={p.index}
+          text={primaryText?.text ?? ""}
+          allText={layers.filter(isTextLayer).filter((l) => !l.hidden).map((l) => l.text).join("\n")}
+          compose={composeJpeg}
+          language={lang}
+          onApply={(text) => {
+            if (primaryText) update([primaryText.id], (l) => (isTextLayer(l) ? editText(l, text) : {}));
+            else addLayer({}, text);
+          }}
+          onAddLayer={(text) => addLayer({ y: (primaryText?.y ?? 0.4) + 0.12 }, text)}
+        />
+      )}
+    </>
+  );
+
   const sheet = (
     <div className={`ts ${picking ? "picking" : ""}`} role="dialog" aria-label="Text studio">
       {/* Top toolbar */}
@@ -1031,65 +1231,19 @@ export default function TextStudio(p: Props) {
           </span>
           <span className={`ts-save ${saving}`}>{saving === "saved" ? "Saved" : saving === "saving" ? "Saving…" : "Unsaved changes"}</span>
         </div>
-        <div className="ts-tools">
-          <button type="button" className="ts-icon" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)"><Undo2 size={15} /></button>
-          <button type="button" className="ts-icon" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)"><Redo2 size={15} /></button>
-          <span className="ts-sep" />
-          <button type="button" className="ts-icon" onClick={() => addLayer()} title="Add text (T)"><Type size={15} /></button>
-          {primaryText && (
-            <>
-              <FontMenu value={primaryText.font} brand={fonts} onChange={(font) => updateText({ font })} onUpload={uploadFont} />
-              <input className="ts-size" type="number" min={6} max={W} value={Math.round(primaryText.size * W)} onChange={(e) => updateText({ size: Math.max(0.005, Number(e.target.value) / W) })} title="Size at export width" />
-              <select className="ts-weight" value={primaryText.weight} onChange={(e) => updateText({ weight: Number(e.target.value) })} title="Weight">
-                {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
-              <button type="button" className={`ts-icon ${richActive.bold ? "on" : ""}`} onClick={() => rich("bold")} title="Bold (⌘B)"><Bold size={15} /></button>
-              <button type="button" className={`ts-icon ${richActive.italic ? "on" : ""}`} onClick={() => rich("italic")} title="Italic (⌘I)"><Italic size={15} /></button>
-              <button type="button" className={`ts-icon ${richActive.underline ? "on" : ""}`} onClick={() => rich("underline")} title="Underline (⌘U)"><Underline size={15} /></button>
-              <span className="ts-sep" />
-              <button type="button" className={`ts-icon ${primaryText.align === "left" ? "on" : ""}`} onClick={() => updateText({ align: "left" })} title="Align left"><AlignLeft size={15} /></button>
-              <button type="button" className={`ts-icon ${primaryText.align === "center" ? "on" : ""}`} onClick={() => updateText({ align: "center" })} title="Centre"><AlignCenter size={15} /></button>
-              <button type="button" className={`ts-icon ${primaryText.align === "right" ? "on" : ""}`} onClick={() => updateText({ align: "right" })} title="Align right"><AlignRight size={15} /></button>
-              <button type="button" className={`ts-icon ${primaryText.align === "justify" ? "on" : ""}`} onClick={() => updateText({ align: "justify" })} title="Justify"><AlignJustify size={15} /></button>
-              <span className="ts-sep" />
-              <ColorField compact label="Text colour" value={primaryText.fill} onChange={(fill) => updateText({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
-              <PopoverPrimitive.Root>
-                <PopoverPrimitive.Trigger asChild>
-                  <button type="button" className="ts-icon" title="Spacing"><span className="ts-spacing-glyph">A↔</span></button>
-                </PopoverPrimitive.Trigger>
-                <PopoverPrimitive.Portal>
-                  <PopoverPrimitive.Content className="ts-pop ts-spacing" sideOffset={8} collisionPadding={12}>
-                    <label className="ts-slider"><span>Line height <em>{primaryText.lineHeight.toFixed(2)}</em></span><input type="range" min={0.7} max={2.5} step={0.05} value={primaryText.lineHeight} onChange={(e) => updateText({ lineHeight: Number(e.target.value) })} /></label>
-                    <label className="ts-slider"><span>Letter spacing <em>{Math.round((primaryText.letterSpacing ?? 0) * 100)}</em></span><input type="range" min={-0.1} max={0.6} step={0.01} value={primaryText.letterSpacing ?? 0} onChange={(e) => updateText({ letterSpacing: Number(e.target.value) || undefined })} /></label>
-                    <label className="ts-slider"><span>Word spacing <em>{(primaryText.wordSpacing ?? 0).toFixed(2)}</em></span><input type="range" min={-0.2} max={1.5} step={0.05} value={primaryText.wordSpacing ?? 0} onChange={(e) => updateText({ wordSpacing: Number(e.target.value) || undefined })} /></label>
-                  </PopoverPrimitive.Content>
-                </PopoverPrimitive.Portal>
-              </PopoverPrimitive.Root>
-            </>
-          )}
-          {primary && !primaryText && (
-            <label className="ts-slider ts-tool-opacity" title="Layer opacity">
-              <span>Opacity <em>{Math.round((primary.opacity ?? 1) * 100)}%</em></span>
-              <input type="range" min={0} max={100} value={Math.round((primary.opacity ?? 1) * 100)} onChange={(e) => updateSel({ opacity: Number(e.target.value) === 100 ? undefined : Number(e.target.value) / 100 })} />
-            </label>
-          )}
-        </div>
         <div className="ts-top-right">
+          <span className="ts-tool-group" aria-label="History">
+            <button type="button" className="ts-icon" onClick={undo} disabled={!canUndo} title="Undo (⌘Z)"><Undo2 size={15} /></button>
+            <button type="button" className="ts-icon" onClick={redo} disabled={!canRedo} title="Redo (⇧⌘Z)"><Redo2 size={15} /></button>
+          </span>
           {p.onApplyToAll && applyTarget && (
             <button type="button" className="ts-btn ts-apply-all" onClick={() => void applyToAll()} disabled={applying} title={applyTarget.role === "logo" ? "Apply this style to all posts: the logo in this place and size on every post of the month" : "Apply this style to all posts: every post's same line gets this look; their words stay"}>
-              {applying ? <Orb size={13} /> : <Wand2 size={13} />} Apply this style to all posts
+              {applying ? <Orb size={13} /> : <Wand2 size={13} />} <span>Apply this style to all posts</span>
             </button>
           )}
-          <div className="ts-zoom">
-            <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.max(0.2, z / 1.2))} title="Zoom out (⌘−)"><Minus size={14} /></button>
-            <button type="button" className="ts-zoom-value" onClick={() => setZoom(1)} title="Fit (⌘0)">{Math.round(scale * 100)}%</button>
-            <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.min(6, z * 1.2))} title="Zoom in (⌘+)"><Plus size={14} /></button>
-          </div>
-          <button type="button" className={`ts-icon ${safe ? "on" : ""}`} onClick={() => setSafe((s) => !s)} title="Safe zones (where Instagram's buttons and captions sit)"><Grid3x3 size={15} /></button>
-          <button type="button" className={`ts-icon ${previewOn ? "on" : ""}`} onClick={() => setPreviewOn((s) => !s)} title="Export preview: the final artwork at the output size, drawn here (no server call)"><Eye size={15} /></button>
-          <button type="button" className="ts-icon" onClick={() => setShortcuts((s) => !s)} title="Keyboard shortcuts (?)"><Keyboard size={15} /></button>
+          <button type="button" className={`ts-btn ts-preview-toggle ${previewOn ? "on" : ""}`} onClick={() => setPreviewOn((s) => !s)} title="Export preview: the final artwork at the output size, drawn here (no server call)" aria-pressed={previewOn}>
+            <Eye size={14} /> <span>Preview</span>
+          </button>
           <PopoverPrimitive.Root>
             <PopoverPrimitive.Trigger asChild>
               <button type="button" className="ts-btn" title="Export this post"><Download size={14} /> Export <ChevronDown size={12} /></button>
@@ -1110,47 +1264,89 @@ export default function TextStudio(p: Props) {
         </div>
       </header>
 
-      <div className="ts-body">
-        {/* Left sidebar */}
-        <aside className="ts-left">
-          <div className="ts-tabs">
-            <button type="button" className={leftTab === "layers" ? "on" : ""} onClick={() => setLeftTab("layers")}><Layers size={13} /> Layers</button>
-            <button type="button" className={leftTab === "presets" ? "on" : ""} onClick={() => setLeftTab("presets")}><Wand2 size={13} /> Styles</button>
-            <button type="button" className={leftTab === "brand" ? "on" : ""} onClick={() => setLeftTab("brand")}><Palette size={13} /> Brand</button>
-          </div>
-          <div className="ts-side-body">
-            {leftTab === "layers" && design && (
-              <LayersList
-                layers={layers}
-                selected={selected}
-                warnings={warnings}
-                onSelect={select}
-                onChange={(id, patch) => update([id], patch)}
-                onReorder={reorder}
-                onDuplicate={(id) => duplicate([id])}
-                onDelete={(id) => remove([id])}
-                onAdd={() => addLayer()}
-                onAddLogo={logoSrc ? addLogo : undefined}
-                onAddImage={addImage}
-                onAddShape={addShape}
-                onUploadGraphic={p.onUploadGraphic ? uploadGraphic : undefined}
-                assets={p.assets ?? []}
-              />
+      {/* Selected-layer tools, grouped by task: type · emphasis · alignment · colour and spacing. Nothing here makes a picture. */}
+      <div className="ts-tools" role="toolbar" aria-label="Layer tools">
+        <span className="ts-tool-group" aria-label="Add">
+          <button type="button" className="ts-icon" onClick={() => addLayer()} title="Add text (T)" aria-label="Add text"><Type size={15} /></button>
+        </span>
+        {primaryText && (
+          <>
+            <span className="ts-tool-group" aria-label="Type">
+              <FontMenu value={primaryText.font} brand={fonts} onChange={(font) => updateText({ font })} onUpload={uploadFont} />
+              <input className="ts-size" type="number" min={6} max={W} value={Math.round(primaryText.size * W)} onChange={(e) => updateText({ size: Math.max(0.005, Number(e.target.value) / W) })} title="Size at export width" aria-label="Font size" />
+              <select className="ts-weight" value={primaryText.weight} onChange={(e) => updateText({ weight: Number(e.target.value) })} title="Weight" aria-label="Font weight">
+                {[100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
+              </select>
+            </span>
+            <span className="ts-tool-group" aria-label="Emphasis">
+              <button type="button" className={`ts-icon ${richActive.bold ? "on" : ""}`} onClick={() => rich("bold")} title="Bold (⌘B)"><Bold size={15} /></button>
+              <button type="button" className={`ts-icon ${richActive.italic ? "on" : ""}`} onClick={() => rich("italic")} title="Italic (⌘I)"><Italic size={15} /></button>
+              <button type="button" className={`ts-icon ${richActive.underline ? "on" : ""}`} onClick={() => rich("underline")} title="Underline (⌘U)"><Underline size={15} /></button>
+            </span>
+            <span className="ts-tool-group" aria-label="Alignment">
+              <button type="button" className={`ts-icon ${primaryText.align === "left" ? "on" : ""}`} onClick={() => updateText({ align: "left" })} title="Align left"><AlignLeft size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "center" ? "on" : ""}`} onClick={() => updateText({ align: "center" })} title="Centre"><AlignCenter size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "right" ? "on" : ""}`} onClick={() => updateText({ align: "right" })} title="Align right"><AlignRight size={15} /></button>
+              <button type="button" className={`ts-icon ${primaryText.align === "justify" ? "on" : ""}`} onClick={() => updateText({ align: "justify" })} title="Justify"><AlignJustify size={15} /></button>
+              <select className="ts-dir" value={primaryText.direction ?? "auto"} onChange={(e) => updateText({ direction: e.target.value as TextLayer["direction"] })} title="Reading direction: auto follows the first letter; set it for a line of numbers or a mixed line" aria-label="Reading direction">
+                <option value="auto">Auto</option>
+                <option value="rtl">RTL</option>
+                <option value="ltr">LTR</option>
+              </select>
+            </span>
+            <span className="ts-tool-group" aria-label="Colour and spacing">
+              <ColorField compact label="Text colour" value={primaryText.fill} onChange={(fill) => updateText({ fill })} brand={[...brand.colors, ...palette]} saved={saved} onSaveColour={saveColour} allowGradient onPickFromCanvas={pickFromCanvas} />
+              <PopoverPrimitive.Root>
+                <PopoverPrimitive.Trigger asChild>
+                  <button type="button" className="ts-icon" title="Spacing" aria-label="Spacing"><span className="ts-spacing-glyph">A↔</span></button>
+                </PopoverPrimitive.Trigger>
+                <PopoverPrimitive.Portal>
+                  <PopoverPrimitive.Content className="ts-pop ts-spacing" sideOffset={8} collisionPadding={12}>
+                    <label className="ts-slider"><span>Line height <em>{primaryText.lineHeight.toFixed(2)}</em></span><input type="range" min={0.7} max={2.5} step={0.05} value={primaryText.lineHeight} onChange={(e) => updateText({ lineHeight: Number(e.target.value) })} /></label>
+                    <label className="ts-slider"><span>Letter spacing <em>{Math.round((primaryText.letterSpacing ?? 0) * 100)}</em></span><input type="range" min={-0.1} max={0.6} step={0.01} value={primaryText.letterSpacing ?? 0} onChange={(e) => updateText({ letterSpacing: Number(e.target.value) || undefined })} /></label>
+                    <label className="ts-slider"><span>Word spacing <em>{(primaryText.wordSpacing ?? 0).toFixed(2)}</em></span><input type="range" min={-0.2} max={1.5} step={0.05} value={primaryText.wordSpacing ?? 0} onChange={(e) => updateText({ wordSpacing: Number(e.target.value) || undefined })} /></label>
+                  </PopoverPrimitive.Content>
+                </PopoverPrimitive.Portal>
+              </PopoverPrimitive.Root>
+            </span>
+            {contrast !== null && contrast < 3 && (
+              <button type="button" className="ts-warn-chip" onClick={() => { setRightTab("props"); setSide("right"); }} title={`These words read badly over the picture (${contrast.toFixed(1)}:1). Properties offers a backing or a fade; your colours are never changed for you.`}>
+                <TriangleAlert size={12} /> Low contrast
+              </button>
             )}
-            {leftTab === "presets" && <PresetsList brand={brand} selected={primaryText} onApply={(style) => updateText(style)} onAddWith={(style, name) => addLayer({ ...style, name }, name === "Price tag" ? "19.99 JOD" : name === "Quote" ? "“Made with love”" : "Your words here")} />}
-            {leftTab === "brand" && (
-              <BrandAssets
-                brand={brand}
-                palette={palette}
-                onFont={(font) => (primaryText ? updateText({ font }) : addLayer({ font }))}
-                onColour={(hex) => (primaryText ? updateText({ fill: { type: "solid", color: hex } }) : primary?.type === "shape" ? updateSel({ fill: { type: "solid", color: hex } }) : addLayer({ fill: { type: "solid", color: hex } }))}
-                onUploadFont={uploadFont}
-              />
-            )}
-          </div>
-        </aside>
+          </>
+        )}
+        {primary && !primaryText && (
+          <label className="ts-slider ts-tool-opacity" title="Layer opacity">
+            <span>Opacity <em>{Math.round((primary.opacity ?? 1) * 100)}%</em></span>
+            <input type="range" min={0} max={100} value={Math.round((primary.opacity ?? 1) * 100)} onChange={(e) => updateSel({ opacity: Number(e.target.value) === 100 ? undefined : Number(e.target.value) / 100 })} />
+          </label>
+        )}
+        {!primary && <span className="ts-tools-hint">Select a layer to edit it, press T for text, or pick a layout. Words, logo, position and size are drawn here: no picture is made.</span>}
+      </div>
 
-        {/* Stage */}
+      <div className="ts-body">
+        {/* Left sidebar (on narrow screens its tabs join the one panel at the bottom) */}
+        {!narrow && (
+          <aside className="ts-left">
+            <div className="ts-tabs">{leftTabs}</div>
+            <div className="ts-side-body">{leftBody}</div>
+          </aside>
+        )}
+
+        {/* Stage: the scroller, with the trial bar and the view tools pinned over it (they do not scroll away when zoomed in) */}
+        <div className="ts-stage-wrap">
+          {trial && (
+            <div className="ts-trial" role="status">
+              <span>
+                <LayoutTemplate size={13} /> Previewing <b>{trial.name}</b> · nothing has changed yet
+              </span>
+              <button type="button" className="ts-btn primary" onClick={() => applyLayoutHere(layouts.find((l) => l.id === trial.id) ?? layouts[0])}>Apply to this design</button>
+              <button type="button" className="ts-btn" onClick={() => setTrial(null)}>Keep my design</button>
+            </div>
+          )}
         <div className="ts-stage" ref={stageRef}>
           {!design && (
             <div className="ts-loading">
@@ -1173,7 +1369,7 @@ export default function TextStudio(p: Props) {
           {design && size && !previewOn && (
             <div className="ts-canvas-wrap" style={{ width: W * scale, height: H * scale }}>
               <canvas ref={canvasRef} style={{ width: W * scale, height: H * scale }} />
-              <div className="ts-overlay" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={onDouble}>
+              <div className={`ts-overlay ${trial ? "trial" : ""}`} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onDoubleClick={onDouble}>
                 {safe && (
                   <div className="ts-safe" aria-hidden>
                     <span className="ts-safe-top" style={{ height: `${14}%` }} />
@@ -1277,48 +1473,25 @@ export default function TextStudio(p: Props) {
             </div>
           )}
         </div>
+          {/* View tools: zoom, safe zones and the shortcuts card sit by the stage, out of the editing tools' way. */}
+          <div className="ts-view" role="toolbar" aria-label="View">
+            <div className="ts-zoom">
+              <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.max(0.2, z / 1.2))} title="Zoom out (⌘−)" aria-label="Zoom out"><Minus size={14} /></button>
+              <button type="button" className="ts-zoom-value" onClick={() => setZoom(1)} title="Fit (⌘0)">{Math.round(scale * 100)}%</button>
+              <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.min(6, z * 1.2))} title="Zoom in (⌘+)" aria-label="Zoom in"><Plus size={14} /></button>
+            </div>
+            <button type="button" className={`ts-icon ${safe ? "on" : ""}`} onClick={() => setSafe((s) => !s)} title="Safe zones (where Instagram's buttons and captions sit)" aria-label="Safe zones" aria-pressed={safe}><Grid3x3 size={15} /></button>
+            <button type="button" className="ts-icon" onClick={() => setShortcuts((s) => !s)} title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts"><Keyboard size={15} /></button>
+          </div>
+        </div>
 
-        {/* Right panel */}
+        {/* Right panel; on narrow screens the one panel, with every tab */}
         <aside className="ts-right">
           <div className="ts-tabs">
-            <button type="button" className={rightTab === "props" ? "on" : ""} onClick={() => setRightTab("props")}>Properties</button>
-            <button type="button" className={rightTab === "assist" ? "on" : ""} onClick={() => setRightTab("assist")}><Sparkles size={13} /> Assistant</button>
+            {narrow && leftTabs}
+            {rightTabs}
           </div>
-          <div className="ts-side-body">
-            {rightTab === "props" && design && (
-              <Properties
-                sel={{ layer: primary, count: selLayers.length, contrast }}
-                onChange={(patch) => ("text" in patch && patch.text !== undefined && primaryText ? update(selected, (l) => (isTextLayer(l) ? editText(l, patch.text!) : {}), true) : updateSel(patch))}
-                onRich={rich}
-                brand={brand}
-                palette={palette}
-                saved={saved}
-                onSaveColour={saveColour}
-                pickFromCanvas={pickFromCanvas}
-                canvasFx={design.canvas}
-                onCanvasFx={setCanvasFx}
-                onAlign={align}
-                onUploadFont={uploadFont}
-                W={W}
-                richActive={richActive}
-              />
-            )}
-            {rightTab === "assist" && (
-              <Assistant
-                batch={p.batchId ?? null}
-                index={p.index}
-                text={primaryText?.text ?? ""}
-                allText={layers.filter(isTextLayer).filter((l) => !l.hidden).map((l) => l.text).join("\n")}
-                compose={composeJpeg}
-                language={brand.language}
-                onApply={(text) => {
-                  if (primaryText) update([primaryText.id], (l) => (isTextLayer(l) ? editText(l, text) : {}));
-                  else addLayer({}, text);
-                }}
-                onAddLayer={(text) => addLayer({ y: (primaryText?.y ?? 0.4) + 0.12 }, text)}
-              />
-            )}
-          </div>
+          <div className="ts-side-body">{narrow && side === "left" ? leftBody : rightBody}</div>
         </aside>
       </div>
       {shortcuts && (
@@ -1330,6 +1503,7 @@ export default function TextStudio(p: Props) {
                 ["T", "Add a text layer"],
                 ["Enter / double-click", "Edit the words in place"],
                 ["Layers › Add", "A logo, a picture (product, brand asset, upload) or a shape"],
+                ["Layouts", "Preview a whole arrangement on the picture; Apply changes this design only (⌘Z undoes it)"],
                 ["Esc", "Stop editing, clear the selection, close"],
                 ["⌘Z / ⇧⌘Z", "Undo / redo"],
                 ["⌘B ⌘I ⌘U", "Bold, italic, underline (selected words or layer)"],

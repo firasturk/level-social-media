@@ -124,9 +124,12 @@ export default function PlanView({
   onRefresh,
   outputThumb,
   wordsRequest,
+  monthLanguage,
 }: {
   /** Another screen (the review dialog) asks for the Text studio on a post: a new token opens it. */
   wordsRequest?: { index: number; at: number } | null;
+  /** The month's content language when it overrides the brand kit's (config.language); the Text studio follows it. */
+  monthLanguage?: "ar" | "en" | "both";
   /** The picture at card size (a smaller copy the server keeps); the full picture opens in the dialogs. */
   outputThumb?: (t: Task) => string;
   /** The month's notes for the ideas writer (kept in the side panel). */
@@ -1564,6 +1567,33 @@ export default function PlanView({
               setDraft(r.plan);
               await onSavePlan(r.plan);
               return r.changed;
+            }}
+            monthLanguage={monthLanguage}
+            postLanguage={p.language}
+            onApplyLayoutToAll={async (make, _name, dryRun) => {
+              // A layout for the month's other designs: each post with a picture gets the layout built
+              // from its own words and language; pictures a designer added to a design stay. Only the
+              // design data changes: no picture is touched and nothing is generated.
+              const targets = draftRef.current.filter((x) => x.index !== p.index && !!taskOf(x.index)?.output && x.overlay !== false);
+              if (dryRun || !targets.length) return targets.length;
+              const next = draftRef.current.map((x) => {
+                if (!targets.includes(x)) return x;
+                const design = make({ headline: x.headline, subline: x.subline, design: x.ov?.design ?? null, language: x.language });
+                const ov = { ...(x.ov ?? {}), design };
+                // The automatic layout's own placement and typography give way to the layers, as in the studio.
+                delete ov.dx;
+                delete ov.dy;
+                delete ov.scale;
+                delete ov.position;
+                delete ov.pin;
+                delete ov.typo;
+                delete ov.typoFor;
+                return { ...x, ov };
+              });
+              draftRef.current = next;
+              setDraft(next);
+              await onSavePlan(next);
+              return targets.length;
             }}
           />
         );
