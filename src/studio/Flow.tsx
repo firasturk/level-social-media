@@ -311,10 +311,15 @@ export default function Flow(p: FlowProps) {
   /** The picked grid applied: the month planned from it, tile by tile (an existing plan is kept as a version). */
   async function applyGrid(): Promise<boolean> {
     if (!pickedGrid) return true;
-    if (p.plan.length) {
+    {
+      const g = gridInfo[pickedGrid.id];
+      const n = g?.tiles || pickedGrid.tiles;
+      const scope = `The whole grid is planned: ${n ? `${n} tile${n === 1 ? "" : "s"} become ${n} post${n === 1 ? "" : "s"}` : "one post per tile"}${g?.read ? ` (${kindsLine(g)})` : ""}. Single tiles cannot be picked on their own yet; from the Plan, one picture can be made as a test before the rest.`;
       const ok = await askConfirm(
-        `Follow "${pickedGrid.title}"? The month's ${p.plan.length} post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`,
-        { ok: "Follow this grid", danger: false, cancel: "Keep the current posts" },
+        p.plan.length
+          ? `Follow "${pickedGrid.title}"? ${scope} The month's ${p.plan.length} current post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`
+          : `Follow "${pickedGrid.title}"? ${scope} Nothing is made until the plan is confirmed.`,
+        { ok: "Follow this grid", danger: false, cancel: p.plan.length ? "Keep the current posts" : "Not now" },
       );
       if (!ok) return false;
     }
@@ -827,6 +832,7 @@ export default function Flow(p: FlowProps) {
                                   </span>
                                   <span className="flow-muted">{g?.read ? kindsLine(g) : "Its tiles (pictures, text tiles, people) are read when the month is planned from it."}</span>
                                   {g?.world && <span className="flow-muted">{g.world}</span>}
+                                  <span className="flow-muted">The whole grid is planned, one post per tile; a single tile cannot be picked on its own. One picture can be made as a test from the Plan.</span>
                                 </>
                               );
                             })()}
