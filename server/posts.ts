@@ -23,6 +23,7 @@ import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftStatus, type PlanDraft } from "@shared/draft";
+import { blockingConflicts, detectConflicts, guideFor, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
@@ -2009,6 +2010,9 @@ export interface PreparedPost {
   existing?: boolean;
   /** What was taken out of the post's text before paying, and which input stepped back for which (precedence), in words. */
   changes?: string[];
+  /** What will guide this picture, in five layers, and where the inputs disagree. */
+  guide?: GuideLayer[];
+  conflicts?: Conflict[];
 }
 
 interface PreparedPlan {
@@ -2484,6 +2488,26 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     }
     if (brief.refIsSource) changes.push("No product photo on this post: the reference picture is image 1 and is recreated.");
     if (brief.editRef) changes.push("A picture pinned to this post is attached: it wins over the grid tile and the theme reference here.");
+    // What will guide this picture, and where its inputs disagree: a conflict the post does not
+    // allow blocks it until the team adapts the style or allows the exception on this post.
+    const guideInput = {
+      brand: { dos: client.dos, donts: client.donts, rules: client.image_rules },
+      campaign: config.campaign ? { text: config.campaign.text, summary: config.campaign.summary } : undefined,
+      post: { title: post.title, brief: post.brief, scene: post.scene, headline: post.headline, caption: post.caption, people: post.people, allow: post.allow, type: post.type, product: post.product, exact: !!exactProduct, tileSpec: post.tileSpec },
+      style: styled ? { title: styled.title, prompt: styled.prompt } : null,
+      theme: theme ? { direction: theme.goal || theme.description, shots: theme.shots ? (() => { try { return JSON.parse(theme.shots) as string[]; } catch { return []; } })() : [], title: theme.title } : null,
+      rules: lessons,
+      palette: (config.palette?.length ? config.palette : []).map((x) => x.hex),
+      pinned: !!post.reference?.key,
+    };
+    const conflicts = detectConflicts(guideInput);
+    const guide = guideFor(guideInput);
+    const blockingNow = blockingConflicts(conflicts);
+    if (blockingNow.length) {
+      // The statement that would queue this post is dropped: nothing is paid for a picture the team has not decided on.
+      outcomes.push({ index: post.index, title: post.title, status: "blocked", why: `${blockingNow[0].text} Adapt the style, or allow it on this post.`, brief, prompt: buildPostPrompt(brief), existing: !!existing?.output, changes: changes.length ? changes : undefined, guide, conflicts });
+      continue;
+    }
     const prompt = buildPostPrompt(brief);
     const caption = JSON.stringify({ text: post.caption, hashtags: post.hashtags });
     if (existing)
@@ -2512,7 +2536,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     planned++;
     paid++;
     if (exactProduct) exactPlanned++;
-    outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "picture", paid: true, exact: !!exactProduct, brief, prompt, existing: !!existing?.output, changes: changes.length ? changes : undefined });
+    outcomes.push({ index: post.index, title: post.title, status: "ready", kind: "picture", paid: true, exact: !!exactProduct, brief, prompt, existing: !!existing?.output, changes: changes.length ? changes : undefined, guide, conflicts });
   }
   return { statements, planned, paid, exactPlanned, skipped, missingProduct, outcomes, notes, draft };
 }

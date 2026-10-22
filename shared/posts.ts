@@ -151,6 +151,8 @@ export interface Post {
   group?: { id: string; kind: "carousel" | "series"; slide: number; of: number; role?: string };
   /** The real product photo is set into the picture (exact mode) for this post, whatever the month says. */
   exact?: boolean;
+  /** Exceptions allowed on this post alone ("people", "text"…): a conflict with the brief's constraints no longer blocks it. Never a brand rule. */
+  allow?: string[];
   /** An ingredients slide: the picture shows only these ingredients of the product, no cup or packaging. */
   ingredients?: string;
   /** A picture the designer attached to this post as a reference for its next take or revision. */

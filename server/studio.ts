@@ -209,6 +209,7 @@ studioRoutes.get("/state", async (c) => {
     spend,
     spendThreshold: adminSettings.spendThreshold,
     workflowV2: adminSettings.workflowV2,
+    pricesHidden: adminSettings.pricing === "admins" && user.role !== "admin",
     autopilotReview: adminSettings.autopilotReview,
     preview: previewNoImages(c.env) || undefined,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",

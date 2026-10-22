@@ -16,7 +16,7 @@ import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext } from "@shared/issues";
-import { formatUsd, rateFor, testSize } from "@shared/pricing";
+import { formatUsd, rateFor, setPricesHidden, testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
@@ -226,6 +226,7 @@ export default function Workspace({
       setSpend(d.spend ?? []);
       setEngine(d.engine);
       setWorkflowV2(!!d.workflowV2);
+      setPricesHidden(!!d.pricesHidden);
       setAutopilotReview(!!d.autopilotReview);
       setSpendThreshold(Number(d.spendThreshold ?? 20));
       setPreviewMode(!!d.preview);

@@ -22,6 +22,7 @@ import Zoomable from "./Zoomable";
 import CompareSlider from "./CompareSlider";
 import { formatUsd } from "@shared/pricing";
 import { toast } from "sonner";
+import { askConfirm } from "@/lib/confirm";
 import VoiceInput from "@/components/VoiceInput";
 import { POST_TYPE_INFO, POST_TYPES, type Post } from "@shared/posts";
 
@@ -36,6 +37,26 @@ export type Group = (typeof GROUPS)[number]["id"];
 
 /** One-click revision instructions; each appends to the edit box. */
 const REVISION_PRESETS: { label: string; text: string }[] = [
+  {
+    label: "Background",
+    text: "Change only the background: a cleaner, simpler setting in the brand's colours; the product, its position, size and light stay exactly as they are.",
+  },
+  {
+    label: "Lighting",
+    text: "Relight the scene: softer, more natural light from one side with gentle shadows; the product's own colours stay true to its photo.",
+  },
+  {
+    label: "Composition",
+    text: "Recompose: the product centred and larger in the frame with calm space around it for the words; nothing new added.",
+  },
+  {
+    label: "Remove an object",
+    text: "Remove the [name the object] from the picture and fill the place naturally; everything else stays exactly as it is.",
+  },
+  {
+    label: "Product correction",
+    text: "Make the product match its photo exactly: shape, colours, label and lid as photographed, whole and undistorted; keep the scene.",
+  },
   {
     label: "Blend with scene",
     text: "Light the product with the scene's own light: same direction, hardness and colour as the surroundings, real highlights and reflections on its materials, one shadow matching the scene's shadows plus a soft contact shadow at its base, the same grain and colour grade as the background, no cutout edges. Keep the product, the composition and the framing exactly.",
@@ -189,6 +210,19 @@ export default function ReviewDialog({
     }
   });
   useEffect(() => setCheckResult(null), [editor?.post.index, task?.output]);
+  /** An area marked on the picture to guide the edit (fractions of the picture). The engine redraws the whole picture: this is guidance in words, not a hard mask. */
+  const [marking, setMarking] = useState(false);
+  const [area, setArea] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const drag = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    setArea(null);
+    setMarking(false);
+  }, [task?.id, task?.output]);
+  const areaWords = (a: { x: number; y: number; w: number; h: number }) => {
+    const col = a.x + a.w / 2 < 0.34 ? "left" : a.x + a.w / 2 > 0.66 ? "right" : "centre";
+    const row = a.y + a.h / 2 < 0.34 ? "top" : a.y + a.h / 2 > 0.66 ? "bottom" : "middle";
+    return `Change only the marked area (${row} ${col} of the picture, about ${Math.round(a.w * 100)}% wide and ${Math.round(a.h * 100)}% tall); keep everything outside it exactly as it is.`;
+  };
   async function checkWords() {
     if (!editor?.onCheckWords) return;
     setChecking(true);
@@ -625,6 +659,31 @@ export default function ReviewDialog({
                   overlay={<div className="center-line" />}
                 />
               )}
+              {task && marking && (
+                <div
+                  className="mark-area"
+                  role="application"
+                  aria-label="Drag to mark an area of the picture"
+                  onPointerDown={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    drag.current = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+                    setArea({ x: drag.current.x, y: drag.current.y, w: 0, h: 0 });
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={(e) => {
+                    if (!drag.current) return;
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+                    const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+                    setArea({ x: Math.min(x, drag.current.x), y: Math.min(y, drag.current.y), w: Math.abs(x - drag.current.x), h: Math.abs(y - drag.current.y) });
+                  }}
+                  onPointerUp={() => {
+                    drag.current = null;
+                  }}
+                >
+                  {area && area.w > 0.01 && <div className="mark-box" style={{ left: `${area.x * 100}%`, top: `${area.y * 100}%`, width: `${area.w * 100}%`, height: `${area.h * 100}%` }} />}
+                </div>
+              )}
             </div>
           </div>
           <div className="revision-panel">
@@ -743,8 +802,32 @@ export default function ReviewDialog({
               </p>
             )}
             <label className="field-label" htmlFor="revision">
-              Edit this result
+              Edit this picture
             </label>
+            {editor && task && (
+              <p className="edit-scope">
+                Post {editor.post.index}
+                {editor.post.group ? ` · ${editor.post.group.kind} slide ${editor.post.group.slide} of ${editor.post.group.of}` : ""} · source: the current picture
+                {task.updated ? ` (${new Date(task.updated).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})` : ""}
+                {editor.lineage === "older" ? ", made for an earlier idea" : editor.lineage === "unknown" ? ", lineage unknown" : ""}. Only this post changes; the picture it replaces stays under Versions.
+              </p>
+            )}
+            <div className="edit-actions-row">
+              <button type="button" className={`text-button ${marking ? "on" : ""}`} disabled={busy || !task?.output} onClick={() => { setMarking((m) => !m); if (view === "compare") setView("result"); }}>
+                {marking ? "Stop marking" : "Mark an area"}
+              </button>
+              {area && area.w > 0.01 && (
+                <button type="button" className="text-button" onClick={() => setEdit((e) => (e.trim() ? `${e.trim()} ${areaWords(area)}` : areaWords(area)))}>
+                  Use the marked area in the instruction
+                </button>
+              )}
+              {area && area.w > 0.01 && (
+                <button type="button" className="text-button" onClick={() => setArea(null)}>
+                  Clear
+                </button>
+              )}
+              <small className="revision-note">This engine redraws the whole picture from this one: a marked area guides the instruction, it is not a hard mask. The product is kept by instruction, not pixel-locked; for a pixel-exact product use Exact product.</small>
+            </div>
             <div className="preset-chips">
               {REVISION_PRESETS.map((p) => (
                 <button
@@ -772,12 +855,31 @@ export default function ReviewDialog({
             </div>
             <button
               className="primary"
-              onClick={() => onRevise(edit).then(() => setEdit(""))}
+              onClick={async () => {
+                if (editor) {
+                  const ok = await askConfirm(`Edit post ${editor.post.index}'s picture${editor.post.group ? ` (slide ${editor.post.group.slide} of ${editor.post.group.of})` : ""}: one paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Edit this picture${cost}`, danger: false, cancel: "Not now" });
+                  if (!ok) return;
+                }
+                await onRevise(edit);
+                setEdit("");
+                setArea(null);
+              }}
               disabled={busy || !edit.trim() || inFlight}
+              title="The current picture is changed as the instruction says: one paid picture"
             >
               {busy ? <Orb size={17} /> : <RefreshCw size={17} />}
-              {inFlight ? "Revision in progress…" : "Generate revision"}
+              {inFlight ? "Edit in progress…" : `Edit this picture${cost}`}
             </button>
+            {onRemake && editor && (
+              <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => leave(onRemake)} title="A fresh picture of the same idea; this one stays under Versions">
+                Make another version{cost}
+              </button>
+            )}
+            {editor && (
+              <button type="button" className="secondary" disabled={busy} onClick={() => setGroup("words")} title="Headline, caption and layout: saved free, no picture is made">
+                Edit words &amp; layout · free
+              </button>
+            )}
             <button
               className="secondary"
               onClick={onDownload}

@@ -29,6 +29,8 @@
     "@shared/overlay": "./shared/overlay.ts",
     "@shared/brief": "./shared/brief.ts",
     "@shared/campaign": "./shared/campaign.ts",
+    "@shared/draft": "./shared/draft.ts",
+    "@shared/conflicts": "./shared/conflicts.ts",
     "@shared/client-changes": "./shared/client-changes.ts",
     "@shared/ideas-chat": "./shared/ideas-chat.ts",
     "@shared/memory": "./shared/memory.ts",

@@ -22,6 +22,7 @@ import type { Config } from "@shared/config";
 import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { draftLabel, type PlanDraft } from "@shared/draft";
+import { CONFLICT_LABELS, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
@@ -84,6 +85,8 @@ export interface FlowPreview {
     changes?: string[];
     /** The reading made from the Plan for this post, when it still applies. */
     preflight?: { notes: string[]; dropped: boolean; at: number; shot: string } | null;
+    guide?: GuideLayer[];
+    conflicts?: Conflict[];
   }[];
   planned: number;
   paid: number;
@@ -235,7 +238,8 @@ export default function Flow(p: FlowProps) {
   const [picking, setPicking] = useState<"grid" | "style" | null>(null);
   const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
   /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
-  const [styleTarget, setStyleTarget] = useState<number | "next">(() => p.plan.find((x) => !x.style && x.type !== "greeting")?.index ?? p.plan[0]?.index ?? "next");
+  /** No post is chosen for a style by itself: with posts in the month the team picks one; without, the first post of the plan written next. */
+  const [styleTarget, setStyleTarget] = useState<number | "next" | null>(() => (p.plan.length ? null : "next"));
   const [moving, setMoving] = useState(false);
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
   /** Quick Campaign on a month that has posts: new posts are added, unless the month's posts are to be replaced. */
@@ -425,7 +429,11 @@ export default function Flow(p: FlowProps) {
         }
       }
       if (startStyle) {
-        // The style goes on the post chosen for it; "next" is the first post of the plan just written.
+        // The style goes on the post chosen for it; "next" is the first post of the plan just written. No post is picked quietly.
+        if (styleTarget === null) {
+          toast.error("Choose the post the style goes on first.");
+          return;
+        }
         const index = styleTarget === "next" ? (p.plan[0]?.index ?? 1) : styleTarget;
         await p.onStyles([{ index, style: startStyle.id }]);
         setStyleTarget(index);
@@ -883,9 +891,9 @@ export default function Flow(p: FlowProps) {
                       )}
                       <label className="flow-target">
                         <span className="flow-eyebrow">For which post</span>
-                        <select value={String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "next" ? "next" : Number(e.target.value))}>
+                        <select value={styleTarget === null ? "" : String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "" ? null : e.target.value === "next" ? "next" : Number(e.target.value))}>
                           {p.plan.length ? (
-                            [...p.plan]
+                            [<option key="" value="">Choose the post…</option>, ...[...p.plan]
                               .sort((a, b) => a.index - b.index)
                               .map((x) => (
                                 <option key={x.index} value={x.index}>
@@ -893,13 +901,15 @@ export default function Flow(p: FlowProps) {
                                   {x.style ? " (has a style)" : ""}
                                   {taskOf(x.index)?.output ? " · picture made" : ""}
                                 </option>
-                              ))
+                              ))]
                           ) : (
                             <option value="next">The first post of the plan written next</option>
                           )}
                         </select>
                         <small className="flow-muted">
-                          {styleTarget === "next"
+                          {styleTarget === null
+                            ? "Pick the one post this style goes on; nothing is chosen for you."
+                            : styleTarget === "next"
                             ? "No posts yet: the plan is written first, and the style goes on its first post."
                             : taskOf(styleTarget as number)?.output
                               ? "This post has a picture: the style rewrites its idea and shot; making another version is a separate step you confirm."
@@ -1271,7 +1281,8 @@ export default function Flow(p: FlowProps) {
                     <small className="flow-muted">The ideas, shots, captions and reviews are text calls billed per call by the provider, outside the picture budget; without a key they come from demo fixtures and say so.</small>
                   </section>
                   <section className="journey-box flow-box">
-                    <span className="flow-eyebrow">What the pinned pictures say</span>
+                    <span className="flow-eyebrow">{theme && theme.references > 0 ? "What the pinned pictures say" : "What the theme's description says"}</span>
+                    {theme && theme.references === 0 && themeNote ? <small className="flow-muted">No reference pictures were read: this comes from the theme's written description alone.</small> : null}
                     {themeNote ? (
                       <>
                         <p className="flow-text">{themeNote.summary}</p>
@@ -1405,7 +1416,7 @@ export default function Flow(p: FlowProps) {
                     Change
                   </button>
                 </div>
-                {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
                   <div className="flow-sum-cell scope">
                     <span className="flow-eyebrow">This operation</span>
                     <p>
@@ -1548,6 +1559,72 @@ export default function Flow(p: FlowProps) {
                                   {t && lineageUnknown(t) ? " · this picture was made before lineage was kept (unknown lineage)" : ""}
                                 </small>
                               </div>
+                              {o?.conflicts?.length ? (
+                                <div className={`flow-post-changes conflicts ${o.conflicts.some((c) => !c.allowed) ? "block" : ""}`}>
+                                  <span className="flow-eyebrow">{o.conflicts.some((c) => !c.allowed) ? "Inputs disagree · decide before paying" : "Exceptions allowed on this post"}</span>
+                                  <ul>
+                                    {o.conflicts.map((c, k) => (
+                                      <li key={k}>
+                                        {c.text}
+                                        {c.allowed ? <em> · allowed on this post</em> : null}
+                                        {!c.allowed && (
+                                          <span className="flow-conflict-actions">
+                                            {c.source === "style" && x.style && (
+                                              <button type="button" className="text-button" onClick={() => void p.onStyles([{ index: x.index, style: null }]).then(() => loadPreview())} title="Takes the style off this post: its own idea and shot come back">
+                                                Take the style off
+                                              </button>
+                                            )}
+                                            <button
+                                              type="button"
+                                              className="text-button"
+                                              onClick={async () => {
+                                                const ok = await askConfirm(`Allow ${CONFLICT_LABELS[c.kind]} on post ${x.index} only? The brief's rule stays for every other post; nothing becomes a brand rule.`, { ok: `Allow on post ${x.index}`, danger: false, cancel: "Keep the rule" });
+                                                if (!ok) return;
+                                                await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: [...new Set([...(y.allow ?? []), c.kind])] } : y)));
+                                                await loadPreview();
+                                              }}
+                                            >
+                                              Allow on this post
+                                            </button>
+                                          </span>
+                                        )}
+                                        {c.allowed && (
+                                          <button
+                                            type="button"
+                                            className="text-button"
+                                            onClick={async () => {
+                                              await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: (y.allow ?? []).filter((k) => k !== c.kind) } : y)));
+                                              await loadPreview();
+                                            }}
+                                          >
+                                            Withdraw
+                                          </button>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                              {o?.guide?.length ? (
+                                <details className="flow-guide">
+                                  <summary>What will guide this picture</summary>
+                                  <ol className="flow-guide-layers">
+                                    {o.guide.map((layer) => (
+                                      <li key={layer.id}>
+                                        <b>{layer.label}</b>
+                                        <ul>
+                                          {layer.items.map((it, k) => (
+                                            <li key={k}>
+                                              {it.text} <small className="flow-muted">· {it.from}</small>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                  {x.briefBeforeStyle && x.style ? <small className="flow-muted">Idea before the style: {x.briefBeforeStyle}</small> : null}
+                                </details>
+                              ) : null}
                               {(o?.changes?.length || (o?.images && o.highestImage && o.highestImage < o.images.length)) ? (
                                 <div className="flow-post-changes">
                                   <span className="flow-eyebrow">What changed or was excluded</span>
@@ -1594,10 +1671,15 @@ export default function Flow(p: FlowProps) {
               <footer className="flow-confirm">
                 <div className="flow-confirm-text">
                   <b>
-                    {preview && !readyPictures && !readyTiles && made > 0
-                      ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
-                      : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
+                    {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget)
+                      ? `1 picture · post ${styleTarget}${taskOf(styleTarget)?.output ? ", another version of its picture" : ""} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)}`
+                      : preview && !readyPictures && !readyTiles && made > 0
+                        ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
+                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
                   </b>
+                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
+                    <span className="flow-muted">Only post {styleTarget} changes. Its current picture stays under Versions; the month's other posts are untouched. The whole-month figures above are a separate summary.</span>
+                  )}
                   <span className="flow-muted">
                     Estimate {formatUsd(total)}
                     {retakes ? `, at most ${formatUsd(maximum)} if each picture is retaken once by itself after the review` : ", no automatic retakes"}. List prices, an estimate.
@@ -1613,7 +1695,7 @@ export default function Flow(p: FlowProps) {
                   <button type="button" className="secondary btn-pill" onClick={() => p.onDone()}>
                     Save the plan, make nothing
                   </button>
-                  {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
                     <button
                       type="button"
                       className="primary btn-pill"

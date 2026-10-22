@@ -31,6 +31,7 @@ interface AdminSettings {
   inviteCode: string;
   spendThreshold: number;
   workflowV2: boolean;
+  pricing?: "everyone" | "admins";
   autopilotReview: boolean;
   retentionDays: number;
   notifyWebhook: string;
@@ -87,6 +88,7 @@ export default function AdminView({ me }: { me: string }) {
         inviteCode: d.settings.inviteCode,
         spendThreshold: d.settings.spendThreshold,
         workflowV2: d.settings.workflowV2,
+        pricing: d.settings.pricing ?? "everyone",
         autopilotReview: d.settings.autopilotReview,
         retentionDays: d.settings.retentionDays,
         notifyWebhook: d.settings.notifyWebhook,
@@ -289,6 +291,14 @@ export default function AdminView({ me }: { me: string }) {
               <span className="field-label">Four-stage workflow</span>
               <small>Start, Direction, Plan, Studio instead of the journey, for everyone on the team. The classic journey stays one click away in the Studio.</small>
             </span>
+          </label>
+          <label>
+            <span className="field-label">Who sees prices</span>
+            <select value={form.pricing ?? "everyone"} onChange={(e) => setForm({ ...form, pricing: e.target.value as "everyone" | "admins" })}>
+              <option value="everyone">Everyone on the team</option>
+              <option value="admins">Admins only</option>
+            </select>
+            <small>Admins only: the team sees "cost shown to admins" where an amount would be. Every spend confirmation and limit stays exactly as it is.</small>
           </label>
           <label className="check-row">
             <input type="checkbox" checked={!!form.autopilotReview} onChange={(e) => setForm({ ...form, autopilotReview: e.target.checked })} />
