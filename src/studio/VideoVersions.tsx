@@ -8,7 +8,7 @@ import { Check, Clapperboard, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { videoModel } from "@shared/video-models";
-import { inFlight, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
+import { audioLine, inFlight, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
 
 export default function VideoVersions({ batchId, index, onOpenVideo, onChanged }: { batchId: string; index: number; onOpenVideo?: () => void; onChanged?: () => void }) {
   const [videos, setVideos] = useState<VideoItem[] | null>(null);
@@ -77,6 +77,7 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onChanged }
                 {v.source === "artwork" ? " · with words and logo" : v.source === "picture" ? " · bare picture" : ""}
                 {` · ${STATUS_TEXT[v.status]}`}
                 {v.estimate !== null && v.estimate > 0 ? ` · $${v.estimate.toFixed(v.estimate < 1 ? 3 : 2)}` : ""}
+                {audioLine(v) ? ` · ${audioLine(v)}` : ""}
               </small>
               {inFlight(v) && (
                 <small>

@@ -69,6 +69,7 @@ import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
 import { videoRoutes } from "./video";
+import { videoAudioRoutes } from "./video-audio";
 import { VIDEO_MODELS, videoPriceSetting } from "@shared/video-models";
 import { promptboxRoutes } from "./promptbox";
 import { styleRoutes } from "./styles";
@@ -92,6 +93,8 @@ export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
 // The video versions of a post, under the posts' own path (mounted here so posts.ts and video.ts do not import each other in a loop).
+// The audio of those versions first, so /posts/video/audio/* is not read as a video route.
+studioRoutes.route("/posts/video/audio", videoAudioRoutes);
 studioRoutes.route("/posts/video", videoRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);

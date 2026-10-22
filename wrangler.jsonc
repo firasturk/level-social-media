@@ -56,6 +56,7 @@
     "@shared/issues": "./shared/issues.ts",
     "@shared/ocr-check": "./shared/ocr-check.ts",
     "@shared/feedback": "./shared/feedback.ts",
+    "@shared/video-audio": "./shared/video-audio.ts",
     "@shared/publish": "./shared/publish.ts",
     "@shared/grid-preview": "./shared/grid-preview.ts",
     "@shared/campaign-size": "./shared/campaign-size.ts",
