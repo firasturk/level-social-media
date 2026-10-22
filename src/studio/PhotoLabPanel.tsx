@@ -18,6 +18,10 @@ import type { PhotoLabStatus } from "./FreepikConnection";
  * before and after, then use the result as the post's picture, save it as a product photo of the
  * month or download it. With no Freepik key the panel says "Demo · Not connected" and the demo
  * result is the input itself.
+ *
+ * Admins only for now: a member sees the entry point and the note, no controls. A run is two
+ * requests: the server proposes it with the estimate it wrote to the ledger, the admin confirms,
+ * and the same request goes again with {opId, confirm: true}.
  */
 
 export interface PhotoLabJob {
@@ -132,6 +136,8 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
   }, [job, loadHistory]);
 
   const demo = !status?.connected;
+  const access = status?.access;
+  const locked = !!status && !!access && (!access.admin || !access.enabled);
   const source: Source | null = chainJob
     ? { kind: "job", id: chainJob.id }
     : tab === "post"
@@ -158,16 +164,22 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
       toast.error("Describe the new background first.");
       return;
     }
-    if (!demo) {
-      const ok = await askConfirm(
-        `${chosen.label} on ${sourceLabel} costs about ${formatUsd(cost)} on Freepik (approximate: Freepik bills credits per call). Run it?`,
-        { ok: `Run · about ${formatUsd(cost)}`, danger: false, cancel: "Not now" },
-      );
-      if (!ok) return;
-    }
     setRunning(true);
     try {
-      const r = await post<{ job: PhotoLabJob }>("/api/studio/photolab/run", { client: clientId, source, op, prompt: prompt.trim() || undefined });
+      const payload = { client: clientId, source, op, prompt: prompt.trim() || undefined };
+      // First the proposal: nothing is sent; the server answers with the estimate it put on the ledger.
+      const proposal = await post<{ opId: string; estimate: number | null; needsConfirmation: true }>("/api/studio/photolab/run", payload);
+      const estimate = proposal.estimate;
+      const ok = await askConfirm(
+        estimate == null
+          ? `${chosen.label} on ${sourceLabel}: the cost is not known, so the server will refuse it until an admin clarifies the price.`
+          : demo
+            ? `${chosen.label} on ${sourceLabel} as a demo: nothing is sent to Freepik and nothing is charged. Run it?`
+            : `${chosen.label} on ${sourceLabel} costs about ${formatUsd(estimate)} on Freepik (approximate: Freepik bills credits per call). Run it?`,
+        { ok: estimate == null ? "Try anyway" : demo ? "Run (demo)" : `Run · about ${formatUsd(estimate)}`, danger: false, cancel: "Not now" },
+      );
+      if (!ok) return;
+      const r = await post<{ job: PhotoLabJob }>("/api/studio/photolab/run", { ...payload, opId: proposal.opId, confirm: true });
       setJob(r.job);
       if (r.job.status === "done") {
         toast.success(`${r.job.opLabel} done${r.job.demo ? " (demo)" : ""}.`);
@@ -222,8 +234,14 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
           <span className="photolab-chip on">Freepik connected</span>
         )}
       </div>
-      {demo && status && <p className="field-hint">{status.reason}</p>}
+      {locked && access && (
+        <p className="quality-note photolab-locked">
+          <b>{access.admin ? "Switched off" : "Admins only for now"}.</b> {access.reason}
+        </p>
+      )}
+      {!locked && demo && status && <p className="field-hint">{status.reason}</p>}
 
+      {!locked && (
       <div className="photolab-section">
         <span className="field-label">Picture</span>
         {chainJob ? (
@@ -287,7 +305,9 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
           </>
         )}
       </div>
+      )}
 
+      {!locked && (
       <div className="photolab-section">
         <span className="field-label">Tool</span>
         <div className="photolab-ops" role="radiogroup">
@@ -327,6 +347,7 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
           {!source && <span className="field-hint">Pick a picture first.</span>}
         </div>
       </div>
+      )}
 
       {job && (
         <div className="photolab-section photolab-result">
@@ -348,12 +369,12 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
               <CompareSlider before={job.input} after={job.output} alt={`${job.opLabel} result`} />
               {job.demo && <p className="field-hint">A demo result: the same picture, so the flow can be tried. Connect Freepik to get the real tool.</p>}
               <div className="photolab-actions">
-                {batchId && postIndex != null && task && (
+                {!locked && batchId && postIndex != null && task && (
                   <button type="button" className="primary" disabled={!!using} onClick={() => void applyResult("picture")}>
                     {using === "picture" ? <Orb size={16} /> : <Check size={16} />} Use as the post's picture
                   </button>
                 )}
-                {batchId && (
+                {!locked && batchId && (
                   <button type="button" className="secondary" disabled={!!using} onClick={() => void applyResult("product")}>
                     {using === "product" ? <Orb size={16} /> : <ImagePlus size={16} />} Save as a product photo
                   </button>
@@ -361,9 +382,11 @@ export default function PhotoLabPanel({ clientId, batchId, post: postIndex, task
                 <a className="secondary button-link" href={job.output} download={`photo-lab-${job.op}.${job.output.includes("svg") ? "svg" : "png"}`}>
                   <Download size={16} /> Download
                 </a>
-                <button type="button" className="text-button" onClick={chain}>
-                  <Wand2 size={14} /> Run another tool on this result
-                </button>
+                {!locked && (
+                  <button type="button" className="text-button" onClick={chain}>
+                    <Wand2 size={14} /> Run another tool on this result
+                  </button>
+                )}
               </div>
             </>
           )}

@@ -18819,3 +18819,36 @@ a.publish-pill.published:hover {
 .flow-step .flow-precedence-line {
   flex: none;
 }
+
+/* Admin → Integrations: the switch per provider, the estimate on file and the ledger. */
+.integration-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.integration-estimate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.integration-estimate .footer-actions input {
+  flex: 1;
+}
+.integrations-table .batches-head,
+.integrations-table .batches-row {
+  grid-template-columns: 1.6fr 1fr 0.8fr 1.1fr 0.6fr 1.2fr 1.1fr 0.8fr;
+  font-size: 13px;
+}
+.integrations-task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.photolab-locked {
+  margin: 4px 0 8px;
+}

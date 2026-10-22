@@ -1,5 +1,6 @@
 import { askConfirm } from "@/lib/confirm";
 import SystemCheck from "./SystemCheck";
+import IntegrationsPanel from "./IntegrationsPanel";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -211,6 +212,8 @@ export default function AdminView({ me }: { me: string }) {
           ))}
         </div>
       </section>
+
+      <IntegrationsPanel />
 
       <section className="batches-page admin-settings">
         <div className="panel-heading" style={{ padding: "8px 16px 0" }}>

@@ -12,12 +12,20 @@ import type { PhotoLabOp } from "@shared/pricing";
  * stored encrypted on the server. Without it the Photo lab runs as a labelled demo.
  */
 
+/** Whether the viewer may run the provider: admins only for now, and only while its switch is on. */
+export interface IntegrationAccess {
+  admin: boolean;
+  enabled: boolean;
+  reason: string;
+}
+
 export interface PhotoLabStatus {
   connected: boolean;
   provider: "freepik" | "demo";
   reason: string;
   prices: Record<PhotoLabOp, number>;
   approximate: boolean;
+  access?: IntegrationAccess;
 }
 
 export function useFreepikStatus(open: boolean): [PhotoLabStatus | null, () => void] {
@@ -70,12 +78,27 @@ export default function FreepikTab({
     }
   }
 
+  if (status && status.access && !status.access.admin)
+    return (
+      <>
+        <div className="qa-heading" style={{ marginTop: 12 }}>
+          <KeyRound size={18} />
+          <strong>Freepik (Photo lab: Magnific tools)</strong>
+        </div>
+        <p className="quality-note">
+          <b>Admins only for now.</b> The Freepik key and the Photo lab are limited to admins until the integration is approved for the whole team.
+          {status.connected ? " A key is saved on the server." : " No key is saved yet."}
+        </p>
+      </>
+    );
+
   return (
     <>
       <div className="qa-heading" style={{ marginTop: 12 }}>
         <KeyRound size={18} />
         <strong>Freepik (Photo lab: Magnific tools)</strong>
       </div>
+      {status?.access && !status.access.enabled && <p className="image-error">{status.access.reason}</p>}
       {status?.connected ? (
         <div className="success-note">
           <Check size={19} />A Freepik key is saved on the server. The Photo lab (remove or replace a background,

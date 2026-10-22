@@ -20,6 +20,7 @@ import {
   heroStamp,
 } from "./settings";
 import { notify } from "./notify";
+import { integrationAdminRoutes } from "./integrations";
 import { purgeBatch, TRASH_DAYS } from "./batchfiles";
 import type { User } from "@shared/types";
 
@@ -30,6 +31,9 @@ adminRoutes.use("*", async (c, next) => {
   if (c.get("user").role !== "admin") throw new StudioError("Admin only.", 403);
   await next();
 });
+
+// Integrations: the switch per outside provider and the ledger of what was run (server/integrations.ts).
+adminRoutes.route("/integrations", integrationAdminRoutes);
 
 export interface AdminSettings {
   inviteCode: string;
