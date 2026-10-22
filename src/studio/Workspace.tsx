@@ -140,7 +140,7 @@ export default function Workspace({
   });
   const [connection, setConnection] = useState(false);
   const [workflowV2, setWorkflowV2] = useState(false);
-  /* The workflow is drawn light, as designed: with it on, the studio is light for everyone. */
+  /* The workflow is drawn light, as designed: the first time it is on, this browser goes light; the toggle then decides. */
   const [theme, toggleTheme] = useTheme(workflowV2);
   const [stateReady, setStateReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
@@ -1965,6 +1965,8 @@ export default function Workspace({
           ambassadors={ambassadors}
           themeRefs={themeRefs}
           previewMode={previewMode}
+          theme={theme}
+          onToggleTheme={toggleTheme}
           onNewGrid={async () => {
             await newGrid();
           }}

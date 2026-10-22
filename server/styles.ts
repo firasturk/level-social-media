@@ -487,6 +487,42 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
 
 styleRoutes.get("/", async (c) => c.json(await list(c.env, c.get("user"), listQuery(c))));
 
+/**
+ * The pictures on the Start board's four cards: the client's saved pins (and a saved grid), shuffled
+ * once a day by a seed of the client and the date, so the cards change daily without anyone
+ * choosing; a client with too few saved pins is topped up from the gallery's best.
+ */
+styleRoutes.get("/start-pictures", async (c) => {
+  const client = c.req.query("client") ?? "";
+  const day = new Date().toISOString().slice(0, 10);
+  const seed = `${client}|${day}`;
+  let h = 2166136261;
+  for (const ch of seed) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const rand = () => {
+    h = (h + 0x6d2b79f5) >>> 0;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const shuffle = <T,>(xs: T[]) => {
+    const a = [...xs];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rand() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+  type Pick = { id: string; title: string; updated: number; tiles: number };
+  const cols = "id, title, updated, tiles";
+  const saved = client ? await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status IN ('active', 'review') AND id IN (SELECT style FROM client_styles WHERE client = ?)`, client) : [];
+  const savedPins = shuffle(saved.filter((s) => !s.tiles));
+  const savedGrids = shuffle(saved.filter((s) => s.tiles > 0));
+  const pins = savedPins.length >= 6 ? savedPins : [...savedPins, ...shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND client IS NULL AND tiles = 0 AND score >= 9 ORDER BY updated DESC LIMIT 80`)).filter((g) => !savedPins.some((s) => s.id === g.id))];
+  const grid = savedGrids[0] ?? shuffle(await all<Pick>(c.env.DB, `SELECT ${cols} FROM styles WHERE thumb_key IS NOT NULL AND status = 'active' AND client IS NULL AND tiles >= 9 AND score >= 9 ORDER BY updated DESC LIMIT 40`))[0] ?? null;
+  return c.json({ ok: true, day, source: savedPins.length >= 6 ? "saved" : savedPins.length ? "saved+gallery" : "gallery", brief: pins.slice(0, 2), refs: pins.slice(2, 5), style: pins[5] ?? pins[0] ?? null, grid });
+});
+
 /** Styles by id (a month's posts show their style's name and picture). */
 styleRoutes.get("/lookup", async (c) => {
   const ids = (c.req.query("ids") ?? "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 60);

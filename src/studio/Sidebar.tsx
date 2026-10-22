@@ -19,7 +19,6 @@ export default function Sidebar({
   onConnection,
   theme,
   onToggleTheme,
-  themeLocked,
   onSignOut,
   clients,
   client,
@@ -150,16 +149,14 @@ export default function Sidebar({
           <span className="sidebar-name" title={user.email}>
             {user.name}
           </span>
-          {!themeLocked && (
-            <button
-              className="icon-button"
-              onClick={onToggleTheme}
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-            </button>
-          )}
+          <button
+            className="icon-button"
+            onClick={onToggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
           <button className="icon-button" onClick={onSignOut} title="Sign out" aria-label="Sign out">
             <LogOut size={15} />
           </button>

@@ -17408,3 +17408,17 @@ label.cta input {
   pointer-events: auto;
   margin-left: auto;
 }
+
+/* Day or night from the workflow's top bar */
+.flow-theme {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-900);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}

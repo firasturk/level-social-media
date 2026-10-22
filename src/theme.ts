@@ -35,25 +35,30 @@ export function initTheme() {
   applyTheme(currentTheme(), false);
 }
 
+const RESET_KEY = "mfs-theme-light-once";
+
 /**
- * `forceLight`: the four-stage workflow is drawn light, as its boards are designed; while it is
- * on, the studio stays light whatever this browser saved, and the toggle does nothing.
+ * `lightFirst`: the four-stage workflow is drawn light, as its boards are designed. The first time
+ * it is on in this browser the saved dark choice is set back to light, once; the toggle then works
+ * as before and whatever is chosen stays.
  */
-export function useTheme(forceLight = false): [Theme, () => void] {
+export function useTheme(lightFirst = false): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() =>
     typeof document === "undefined" ? "light" : currentTheme(),
   );
   useEffect(() => {
-    if (forceLight) {
-      applyTheme("light");
-      setTheme("light");
+    if (!lightFirst) return;
+    try {
+      if (localStorage.getItem(RESET_KEY) === "1") return;
+      localStorage.setItem(RESET_KEY, "1");
+    } catch {
       return;
     }
+    setTheme("light");
+  }, [lightFirst]);
+  useEffect(() => {
     applyTheme(theme);
-  }, [theme, forceLight]);
-  const toggle = useCallback(() => {
-    if (forceLight) return;
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
-  }, [forceLight]);
+  }, [theme]);
+  const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
   return [theme, toggle];
 }
