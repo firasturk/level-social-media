@@ -19335,3 +19335,495 @@ a.publish-pill.published:hover {
   background: var(--surface, #fff);
   color: inherit;
 }
+
+/* ───────────── Video editor ───────────── */
+/* The card header's tools: the T (Text studio) with the clapperboard (Edit video) directly under it, same size and look. */
+.post-head .pc-head-tools {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+  pointer-events: auto;
+}
+.studio-card .post-head .pc-head-tools .pc-text-studio {
+  margin-left: 0;
+}
+/* The editor reuses the Text studio's shell (.ts) for its top bar, buttons, tabs and sliders. */
+/* The Text studio's file bar is a flex row with a growing title; here the title keeps its width and the tools sit in the middle. */
+.ts.ve .ts-top-left {
+  flex: 0 1 auto;
+}
+.ts.ve .ve-tools {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+.ve .ve-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+}
+.ve-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.ve-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* A definite row, so the canvas's max-height has something to resolve against. */
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  place-items: center;
+  padding: 16px;
+  background: #e9e9ee;
+  overflow: hidden;
+}
+.ve-canvas {
+  /* The canvas keeps its own aspect ratio (a replaced element) and is scaled down to fit the stage, never up. */
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  background: #111;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+}
+.ve-stage-msg {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0 auto;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: #1d1d1f;
+  font-size: 14px;
+  padding: 20px 24px;
+  z-index: 2;
+}
+.ve-stage-msg small {
+  color: #6e6e73;
+  max-width: 480px;
+  line-height: 1.45;
+}
+.ve-stop {
+  color: #8a2b1d;
+  background: #fbe9e5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ve-stage-note {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2;
+}
+.ve-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-top: 1px solid var(--ts-line);
+  border-bottom: 1px solid var(--ts-line);
+  background: var(--ts-panel);
+}
+.ve-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.ve-time small,
+.ve-selected {
+  color: #6e6e73;
+  font-weight: 400;
+}
+.ve-grow {
+  flex: 1;
+}
+.ve-tools {
+  justify-content: center;
+}
+.ve-readonly {
+  font-size: 12px;
+  color: #8a2b1d;
+  background: #fbe9e5;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+/* Timeline */
+.ve-timeline {
+  position: relative;
+  height: 118px;
+  flex: none;
+  background: #f0f0f3;
+  user-select: none;
+  overflow: hidden;
+}
+.ve-ruler {
+  position: relative;
+  height: 24px;
+  border-bottom: 1px solid var(--ts-line);
+  cursor: pointer;
+}
+.ve-tick {
+  position: absolute;
+  top: 4px;
+  font-size: 10px;
+  color: #8e8e93;
+  transform: translateX(2px);
+}
+.ve-tick::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 12px;
+  width: 1px;
+  height: 8px;
+  background: #c7c7cc;
+}
+.ve-beat {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 6px;
+  background: var(--ts-accent);
+  opacity: 0.8;
+}
+.ve-track {
+  position: relative;
+  height: 94px;
+  padding: 12px 0;
+}
+.ve-clip {
+  position: absolute;
+  top: 12px;
+  height: 70px;
+  border-radius: 8px;
+  background: #d9dbe4;
+  border: 2px solid transparent;
+  overflow: hidden;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ve-clip.on {
+  border-color: var(--ts-accent);
+  background: #e3e6f7;
+}
+.ve-clip-label {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #1d1d1f;
+}
+.ve-xfade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(17, 41, 211, 0.25), transparent);
+  pointer-events: none;
+}
+.ve-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ve-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 3px;
+  height: 22px;
+  margin-top: -11px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.ve-handle.in {
+  left: 0;
+}
+.ve-handle.out {
+  right: 0;
+}
+.ve-clip.on .ve-handle::after {
+  background: var(--ts-accent);
+}
+.ve-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #c24400;
+  pointer-events: none;
+  z-index: 2;
+}
+.ve-playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -5px;
+  border: 6px solid transparent;
+  border-top: 8px solid #c24400;
+}
+.ve-empty {
+  position: absolute;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #6e6e73;
+  font-size: 12.5px;
+  padding: 0 24px;
+}
+/* Panels */
+.ve-side .ts-tabs button {
+  font-size: 11.5px;
+  padding: 0 4px;
+}
+/* Five tabs in a 320 px panel: words only; the icons stay on the phone's bottom bar. */
+.ve-side .ts-tabs button svg {
+  display: none;
+}
+.ve-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ve-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ve-panel .ts-btn {
+  justify-content: center;
+}
+.ve-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.ve-fields:disabled {
+  opacity: 0.6;
+}
+.ve-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ve-sources li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--ts-line);
+}
+.ve-source-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ve-source-text b {
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ve-source-text small,
+.ve-estimate {
+  font-size: 11.5px;
+  color: #6e6e73;
+}
+.ve-clip-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.ve-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.ve-row input,
+.ve-row select {
+  height: 30px;
+  border: 1px solid var(--ts-line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 8px;
+  max-width: 150px;
+  font-size: 12.5px;
+}
+.ve-row input {
+  width: 84px;
+  text-align: right;
+}
+.ve-actions,
+.ve-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ve-actions .ts-mini.danger {
+  color: #c0392b;
+}
+.ve-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.ve-looks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+.ve-look {
+  height: 32px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--ts-line);
+  font-size: 12px;
+  font-weight: 500;
+}
+.ve-look.on {
+  background: #1d1d1f;
+  color: #fff;
+  border-color: #1d1d1f;
+}
+.ve-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid var(--ts-line);
+  font-size: 12.5px;
+}
+.ve-progress span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ve-progress progress {
+  width: 100%;
+  height: 6px;
+  accent-color: var(--ts-accent);
+}
+.ve-done {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #e6f4ea;
+  color: #1e6b3a;
+  font-size: 12.5px;
+}
+.ts-hint.warn {
+  color: #8a2b1d;
+}
+/* Narrow screens (phones): one panel at a time, picked from a bottom toolbar; the preview stays on top. */
+.ve-bottom {
+  display: none;
+}
+@media (max-width: 860px) {
+  .ve .ve-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+  }
+  .ve .ts-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .ve .ts-top-right .ts-btn:not(.primary) span,
+  .ve .ts-title small {
+    display: none;
+  }
+  .ve-stage {
+    padding: 8px;
+  }
+  .ve-timeline {
+    height: 96px;
+  }
+  .ve-track {
+    height: 72px;
+    padding: 8px 0;
+  }
+  .ve-clip {
+    top: 8px;
+    height: 54px;
+  }
+  .ve-side {
+    max-height: 44vh;
+    border-left: 0;
+    border-top: 1px solid var(--ts-line);
+  }
+  .ve-side.closed {
+    display: none;
+  }
+  .ve-bottom {
+    display: flex;
+    justify-content: space-around;
+    height: 56px;
+    padding: 4px 4px env(safe-area-inset-bottom, 0);
+    background: var(--ts-panel);
+    border-top: 1px solid var(--ts-line);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ve-bottom button {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 64px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: #6e6e73;
+  }
+  .ve-bottom button.on {
+    color: #1d1d1f;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+}

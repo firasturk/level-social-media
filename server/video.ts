@@ -498,10 +498,75 @@ videoRoutes.post("/select", async (c) => {
   return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)) });
 });
 
+export const MAX_VIDEO_FILE = MAX_UPLOAD;
+
+export interface StoreVideoAsk {
+  /** The mp4 file as sent. */
+  file: File;
+  index: number;
+  note: string;
+  /** 'upload' for a sample a person attached, 'editor' for an export of the video editor. */
+  provider: "upload" | "editor";
+  source: "upload" | "editor";
+  /** The model column (what made it): 'upload', or the editor's project id. */
+  model?: string;
+  /** Extra settings kept with the clip (the editor notes its project id and rev). */
+  extra?: Record<string, unknown>;
+  opId?: string | null;
+}
+
+/**
+ * An mp4 stored as a finished version of a post, after the same checks for every origin: a real
+ * MP4 (ftyp), H.264 video (else 400), AAC sound and a front `moov` noted as warnings when absent
+ * (iPhone plays those from the first byte). The caller has settled who may do this. Returns the
+ * stored row with its version number and what the file's boxes said.
+ */
+export async function storeVideoFile(env: Env, user: User, b: { id: string; owner: string }, ask: StoreVideoAsk): Promise<{ video: VideoItem; info: ReturnType<typeof readMp4> }> {
+  const { file, index } = ask;
+  if (file.size > MAX_UPLOAD) throw new StudioError("The video is too large (60 MB at most).");
+  if (!Number.isInteger(index) || index < 1) throw new StudioError("Post index is required.");
+  const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index);
+  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  const bytes = await file.arrayBuffer();
+  const info = readMp4(bytes);
+  if (!info.isMp4) throw new StudioError("The file is not an MP4 (no ftyp box at the start).");
+  if (info.video !== "h264") throw new StudioError(`The video must be H.264 in an MP4 for iPhone playback (found: ${info.codecs.join(", ") || "no video track"}).`);
+  const warnings: string[] = [];
+  if (info.audio && info.audio !== "aac") warnings.push("The sound is not AAC; iPhone may play it silently.");
+  if (info.faststart === false) warnings.push("The moov index is at the end of the file; playback starts only after the whole file is fetched.");
+  const id = uuid();
+  const key = `${b.owner}/${b.id}/video/${t.id}/${id}.mp4`;
+  await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
+  const note = ask.note.slice(0, 200);
+  const settings: StoredSettings & Record<string, unknown> = { ...(ask.extra ?? {}), duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog" };
+  const ts = now();
+  await run(
+    env.DB,
+    "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, key, error, created, updated, provider, settings, poster_key, source, for_client, op_id) VALUES (?, ?, ?, ?, ?, ?, ?, 'done', NULL, ?, NULL, ?, ?, ?, ?, ?, ?, 0, ?)",
+    id,
+    b.id,
+    index,
+    t.id,
+    user.id,
+    ask.model ?? ask.provider,
+    note || file.name,
+    key,
+    ts,
+    ts,
+    ask.provider,
+    JSON.stringify(settings),
+    t.output,
+    ask.source,
+    ask.opId ?? null,
+  );
+  const rows = await postRows(env, b.id, index);
+  const row = rows.find((r) => r.id === id)!;
+  return { video: videoItem(row, versionNumbers(rows).get(id) ?? 0), info };
+}
+
 /**
  * A labelled mp4 uploaded as a finished version (admins): tests playback end to end without a
- * paid call. The file must be an MP4 with H.264 video; AAC sound and a front `moov` are checked
- * and noted (iPhone plays those from the first byte).
+ * paid call, and gives the video editor its raw footage. The checks live in `storeVideoFile`.
  */
 videoRoutes.post("/upload", async (c) => {
   const user = c.get("user");
@@ -516,38 +581,8 @@ videoRoutes.post("/upload", async (c) => {
   if (file.size > MAX_UPLOAD) throw new StudioError("The video is too large (60 MB at most).");
   if (!Number.isInteger(index) || index < 1) throw new StudioError("Post index is required.");
   const b = await ownedPlan(c.env, user, batch);
-  const t = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index);
-  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
-  const bytes = await file.arrayBuffer();
-  const info = readMp4(bytes);
-  if (!info.isMp4) throw new StudioError("The file is not an MP4 (no ftyp box at the start).");
-  if (info.video !== "h264") throw new StudioError(`The video must be H.264 in an MP4 for iPhone playback (found: ${info.codecs.join(", ") || "no video track"}).`);
-  const warnings: string[] = [];
-  if (info.audio && info.audio !== "aac") warnings.push("The sound is not AAC; iPhone may play it silently.");
-  if (info.faststart === false) warnings.push("The moov index is at the end of the file; playback starts only after the whole file is fetched.");
-  const id = uuid();
-  const key = `${b.owner}/${b.id}/video/${t.id}/${id}.mp4`;
-  await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
-  const settings: StoredSettings = { duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog" };
-  const ts = now();
-  await run(
-    c.env.DB,
-    "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, key, error, created, updated, provider, settings, poster_key, source, for_client, op_id) VALUES (?, ?, ?, ?, ?, 'upload', ?, 'done', NULL, ?, NULL, ?, ?, 'upload', ?, ?, 'upload', 0, NULL)",
-    id,
-    b.id,
-    index,
-    t.id,
-    user.id,
-    note || file.name,
-    key,
-    ts,
-    ts,
-    JSON.stringify(settings),
-    t.output,
-  );
-  const rows = await postRows(c.env, b.id, index);
-  const row = rows.find((r) => r.id === id)!;
-  return c.json({ ok: true, video: videoItem(row, versionNumbers(rows).get(id) ?? 0), info });
+  const { video, info } = await storeVideoFile(c.env, user, b, { file, index, note, provider: "upload", source: "upload" });
+  return c.json({ ok: true, video, info });
 });
 
 /** The stored mp4, with Range (seeking, iPhone) and HEAD. */

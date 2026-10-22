@@ -4,7 +4,7 @@
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
+import { Check, Clapperboard, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
@@ -32,6 +32,7 @@ export default function PostCardCompact({
   dayTitle,
   onEdit,
   onTextStudio,
+  onEditVideo,
   onFixReview,
   onAccept,
   fixing,
@@ -54,6 +55,8 @@ export default function PostCardCompact({
   onEdit: (group?: EditorGroup) => void;
   /** Opens the Text studio on this post's words and layers: the icon above the picture. No picture is made. */
   onTextStudio?: () => void;
+  /** Opens the Video editor on the post's selected video version: the icon under the T. Only when a finished clip exists. */
+  onEditVideo?: () => void;
   onFixReview?: () => void;
   onAccept?: () => void;
   fixing: boolean;
@@ -112,19 +115,37 @@ export default function PostCardCompact({
               </span>
             )
           )}
-          {onTextStudio && task?.output && !inFlight && (
-            <button
-              type="button"
-              className="pc-text-studio"
-              title="Text studio: the words and layers on this picture"
-              aria-label="Text studio"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTextStudio();
-              }}
-            >
-              <Type size={13} />
-            </button>
+          {task?.output && !inFlight && (onTextStudio || onEditVideo) && (
+            <span className="pc-head-tools">
+              {onTextStudio && (
+                <button
+                  type="button"
+                  className="pc-text-studio"
+                  title="Text studio: the words and layers on this picture"
+                  aria-label="Text studio"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTextStudio();
+                  }}
+                >
+                  <Type size={13} />
+                </button>
+              )}
+              {onEditVideo && (
+                <button
+                  type="button"
+                  className="pc-text-studio pc-edit-video"
+                  title="Edit video"
+                  aria-label="Edit video"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditVideo();
+                  }}
+                >
+                  <Clapperboard size={13} />
+                </button>
+              )}
+            </span>
           )}
         </header>
         {media}

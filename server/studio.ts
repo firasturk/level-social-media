@@ -70,6 +70,7 @@ import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
 import { videoRoutes } from "./video";
 import { videoAudioRoutes } from "./video-audio";
+import { videoEditorRoutes } from "./video-editor";
 import { VIDEO_MODELS, videoPriceSetting } from "@shared/video-models";
 import { promptboxRoutes } from "./promptbox";
 import { styleRoutes } from "./styles";
@@ -96,6 +97,8 @@ studioRoutes.route("/posts", postRoutes);
 // The audio of those versions first, so /posts/video/audio/* is not read as a video route.
 studioRoutes.route("/posts/video/audio", videoAudioRoutes);
 studioRoutes.route("/posts/video", videoRoutes);
+// The video editor's projects and exports, next to the versions they read and produce.
+studioRoutes.route("/posts/video/editor", videoEditorRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);

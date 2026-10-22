@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { BadgeCheck, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sun } from "lucide-react";
+import { BadgeCheck, Clapperboard, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sun } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
 import type { Client, EngineModel, User } from "@shared/types";
 import type { EngineInfo } from "./ConnectionDialog";
 
-export type Page = "studio" | "batches" | "styles" | "approvals" | "admin";
+export type Page = "studio" | "batches" | "styles" | "approvals" | "admin" | "video-editor";
 
 /** Left rail: brand, pages, the client list and the connection/user footer. */
 export default function Sidebar({
@@ -109,6 +109,10 @@ export default function Sidebar({
         <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
           <Images size={17} />
           <span className="sb-text">Styles</span>
+        </button>
+        <button className={page === "video-editor" ? "active" : ""} onClick={() => onPage("video-editor")} title="Cut, colour and score clips from this computer; the export is saved as a file">
+          <Clapperboard size={17} />
+          <span className="sb-text">Video editor</span>
         </button>
         {user.role === "admin" && (
           <button className={page === "admin" ? "active" : ""} onClick={() => onPage("admin")}>

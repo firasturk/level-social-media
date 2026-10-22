@@ -27,6 +27,7 @@ export default function VideoDialog({
   composeArtwork,
   onClose,
   onChanged,
+  onEditVideo,
 }: {
   open: boolean;
   batchId: string;
@@ -39,6 +40,8 @@ export default function VideoDialog({
   onClose: () => void;
   /** The post's versions changed (a clip made, selected or finished): the cards read them again. */
   onChanged?: () => void;
+  /** Opens the Video editor on a finished version (trims, colour, music; the export becomes a new version). */
+  onEditVideo?: (id: string) => void;
 }) {
   const [idea, setIdea] = useState("");
   const [model, setModel] = useState(DEFAULT_VIDEO_MODEL);
@@ -386,6 +389,11 @@ export default function VideoDialog({
                             Select for client review
                           </button>
                         ))}
+                      {v.status === "done" && v.url && onEditVideo && (
+                        <button type="button" className="text-button" onClick={() => onEditVideo(v.id)} title="Trim, colour, music and more; the export becomes a new version">
+                          Edit in the Video editor
+                        </button>
+                      )}
                       {v.status === "failed" && v.error && <small className="video-fail">{v.error}</small>}
                     </li>
                   ))}
