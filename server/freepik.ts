@@ -15,6 +15,7 @@ import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { FREEPIK_KEY_SETTING, FREEPIK_MCP_TOKEN_SETTING, FREEPIK_PLAN_SETTING, deleteSetting, getSetting, setSetting } from "./settings";
+import { MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
 import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { ownedPlan, saveConfig } from "./posts";
 import { storeBytes } from "./styles";
@@ -742,7 +743,9 @@ async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
 freepikRoutes.get("/status", async (c) => {
   const user = c.get("user");
   const fp = await resolveFreepik(c.env, fetcher());
+  // The MCP is connected through the sign-in (server/magnific-signin.ts) or, the advanced path, a pasted token.
   const mcpToken = await getSetting(c.env, FREEPIK_MCP_TOKEN_SETTING);
+  const mcpSignedIn = await magnificSignIn.isSignedIn(c.env);
   let enabled = true;
   let switchReason = "";
   try {
@@ -762,7 +765,7 @@ freepikRoutes.get("/status", async (c) => {
     planLabel: PLAN_LABELS[fp.plan],
     downloadEstimate: downloadEstimate(fp.plan, fp.connected),
     entitlements: ENTITLEMENTS,
-    mcp: { connected: !!mcpToken, url: "https://mcp.magnific.com" },
+    mcp: { connected: mcpSignedIn || !!mcpToken, signedIn: mcpSignedIn, token: !!mcpToken, url: MAGNIFIC_MCP_URL },
     switch: { enabled, reason: switchReason },
   });
 });

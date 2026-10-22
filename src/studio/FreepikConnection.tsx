@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Check, KeyRound, Library, Plug, Trash2 } from "lucide-react";
+import { Check, KeyRound, Library, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { askConfirm } from "@/lib/confirm";
 import { del, get, post } from "@/api";
 import type { PhotoLabOp } from "@shared/pricing";
 import type { FreepikStatus } from "./FreepikPanel";
+import MagnificSignIn from "./MagnificSignIn";
 import "./freepik.css";
 
 /**
@@ -157,12 +158,10 @@ function fmt(n: number | undefined): string {
 /**
  * Stock assets and the Magnific MCP: the plan family (which decides whether a stock download is in
  * the plan or billed in credits; unset, downloads are blocked as "cost not known") and the MCP
- * bearer token (OAuth with the Magnific account; see docs/freepik.md for how to obtain one).
+ * sign-in block (MagnificSignIn.tsx: one button, the Magnific account's own sign-in in a new tab).
  */
 function FreepikAssetsSettings({ connected }: { connected: boolean }) {
   const [status, setStatus] = useState<FreepikStatus | null>(null);
-  const [token, setToken] = useState("");
-  const [saving, setSaving] = useState(false);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let live = true;
@@ -180,29 +179,6 @@ function FreepikAssetsSettings({ connected }: { connected: boolean }) {
       await post("/api/studio/freepik/plan", { plan });
       setTick((t) => t + 1);
       toast.success(plan === "unknown" ? "Plan cleared: stock downloads are blocked until it is set." : "Freepik plan saved.");
-    } catch (e) {
-      toast.error((e as Error).message);
-    }
-  }
-  async function saveToken() {
-    setSaving(true);
-    try {
-      const r = await post<{ ok: boolean; tools: number }>("/api/studio/freepik/mcp/token", { token });
-      setToken("");
-      setTick((t) => t + 1);
-      toast.success(`Magnific MCP connected: ${r.tools} tools listed.`);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function removeToken() {
-    if (!(await askConfirm("Remove the saved Magnific MCP token? The MCP tools go back to Not connected."))) return;
-    try {
-      await del("/api/studio/freepik/mcp/token");
-      setTick((t) => t + 1);
-      toast.success("Magnific MCP token removed.");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -232,31 +208,7 @@ function FreepikAssetsSettings({ connected }: { connected: boolean }) {
           </label>
         ))}
       </div>
-      <div className="qa-heading" style={{ marginTop: 18 }}>
-        <Plug size={18} />
-        <strong>Magnific MCP (mcp.magnific.com)</strong>
-      </div>
-      {status.mcp.connected ? (
-        <div className="success-note">
-          <Check size={19} />A Magnific MCP token is saved. Its tools are listed under the Freepik panel's governance: browsing is free, a download follows the plan, anything generative is estimated and confirmed first.
-        </div>
-      ) : (
-        <p className="quality-note">
-          <b>Not connected.</b> The MCP server signs in with OAuth (the Magnific account), not an API key. Obtain a bearer access token for it (docs/freepik.md explains the device sign-in) and paste it here; it is checked with initialize and tools/list, which cost nothing, then stored encrypted. Access tokens expire: paste a fresh one when the tools say the token was refused.
-        </p>
-      )}
-      <div className="footer-actions">
-        <input id="freepik-mcp-token" type="password" autoComplete="off" placeholder="eyJ…" aria-label="Magnific MCP bearer token" value={token} onChange={(e) => setToken(e.target.value.trim())} />
-        <button className="primary" onClick={() => void saveToken()} disabled={saving || token.length < 20}>
-          {saving ? <Orb size={17} /> : <Plug size={17} />}
-          {status.mcp.connected ? "Replace" : "Save"}
-        </button>
-        {status.mcp.connected && (
-          <button className="secondary danger" onClick={() => void removeToken()} aria-label="Remove Magnific MCP token">
-            <Trash2 size={17} />
-          </button>
-        )}
-      </div>
+      <MagnificSignIn onChanged={() => setTick((t) => t + 1)} />
     </>
   );
 }

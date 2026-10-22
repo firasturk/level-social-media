@@ -4,7 +4,7 @@
  * Cloud API key (server/higgsfield.ts). docs/higgsfield-mcp.md says what is verified and what is
  * assumed.
  *
- * Sign-in (OAuth 2.0, nothing pasted by anyone):
+ * Sign-in (OAuth 2.0, nothing pasted by anyone; the flow lives in server/oauth-signin.ts, shared with the Magnific MCP):
  *   1. Discovery: the protected-resource metadata of the MCP server names its authorization server
  *      (clerk.higgsfield.ai); that server's metadata gives the endpoints (verified 22 Oct 2026).
  *   2. Dynamic client registration (RFC 7591), once; the client id (and secret, if issued) is kept
@@ -29,7 +29,8 @@ import type { Env } from "./env";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { first, now, run, uuid } from "./db";
-import { deleteSetting, getSetting, setSetting, resolveEngineKey, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_MODELS_SETTING, HIGGSFIELD_MCP_PENDING_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "./settings";
+import { getSetting, setSetting, resolveEngineKey, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_MODELS_SETTING } from "./settings";
+import { OAuthSignIn, readJsonSetting } from "./oauth-signin";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
@@ -53,7 +54,6 @@ const BALANCE_TTL_MS = 60_000;
 const MEDIA_TTL_MS = 60 * 60 * 1000;
 const MODELS_TTL_MS = 24 * 60 * 60 * 1000;
 const TOOLS_TTL_MS = 10 * 60 * 1000;
-const PENDING_TTL_MS = 15 * 60 * 1000;
 const POLL_LIMIT = 6;
 
 /* ───────────── Fetch injection and caches ───────────── */
@@ -61,245 +61,54 @@ const POLL_LIMIT = 6;
 let fetchForTests: typeof fetch | null = null;
 export function useHiggsfieldMcpFetch(fn: typeof fetch | null): void {
   fetchForTests = fn;
+  higgsfieldSignIn.useFetch(fn);
 }
 const fetcher = (): typeof fetch => fetchForTests ?? ((input, init) => fetch(input, init));
 
-let discovered: { at: number; as: AuthServer; resource: string } | null = null;
 let toolsCache: { at: number; names: string[] } | null = null;
 let balanceCache: { at: number; credits: number | null; plan: string | null } | null = null;
 const mediaCache = new Map<string, { id: string; at: number }>();
 let modelsMemo: { at: number; models: McpVideoModel[] } | null = null;
 
-/** Tests start from nothing; a sign-out drops everything the token had filled. */
-export function resetHiggsfieldMcpCaches(): void {
-  discovered = null;
+/** What a token had filled: dropped when the tokens change hands (sign-in, sign-out, a refused refresh). */
+function dropTokenCaches(): void {
   toolsCache = null;
   balanceCache = null;
   mediaCache.clear();
   modelsMemo = null;
 }
 
-/* ───────────── Discovery: the metadata documents ───────────── */
-
-export interface AuthServer {
-  issuer?: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  registration_endpoint?: string;
-  device_authorization_endpoint?: string;
-  revocation_endpoint?: string;
-  code_challenge_methods_supported?: string[];
-  scopes_supported?: string[];
-  grant_types_supported?: string[];
+/** Tests start from nothing: the metadata is read again and every cache is empty. */
+export function resetHiggsfieldMcpCaches(): void {
+  higgsfieldSignIn.resetDiscovery();
+  dropTokenCaches();
 }
 
-async function getJson(fetchFn: typeof fetch, url: string): Promise<Record<string, unknown>> {
-  const r = await fetchFn(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
-  const text = await r.text();
-  if (!r.ok) throw new StudioError(`Higgsfield's metadata could not be read (${r.status} at ${url}).`, 502);
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    throw new StudioError(`Higgsfield's metadata at ${url} is not JSON.`, 502);
-  }
-}
-
-/** The authorization server the MCP server names, and its endpoints; read once an hour. */
-export async function discover(fetchFn: typeof fetch = fetcher()): Promise<{ as: AuthServer; resource: string }> {
-  if (discovered && Date.now() - discovered.at < 60 * 60 * 1000) return discovered;
-  const pr = await getJson(fetchFn, HIGGSFIELD_RESOURCE_METADATA);
-  const resource = typeof pr.resource === "string" ? pr.resource : HIGGSFIELD_MCP_URL;
-  const servers = Array.isArray(pr.authorization_servers) ? pr.authorization_servers.filter((s): s is string => typeof s === "string") : [];
-  if (!servers.length) throw new StudioError("Higgsfield's MCP metadata names no authorization server, so the sign-in cannot start (see docs/higgsfield-mcp.md).", 502);
-  const base = servers[0].replace(/\/$/, "");
-  let as = (await getJson(fetchFn, `${base}/.well-known/oauth-authorization-server`).catch(() => null)) as AuthServer | null;
-  if (!as?.token_endpoint) as = (await getJson(fetchFn, `${base}/.well-known/openid-configuration`)) as unknown as AuthServer;
-  if (typeof as?.authorization_endpoint !== "string" || typeof as?.token_endpoint !== "string") throw new StudioError(`${base} publishes no authorization and token endpoints; the sign-in cannot start.`, 502);
-  discovered = { at: Date.now(), as, resource };
-  return discovered;
-}
-
-/* ───────────── The registered client and the tokens (encrypted settings) ───────────── */
-
-export interface StoredClient {
-  client_id: string;
-  client_secret?: string;
-  issuer: string;
-  /** Null for a client registered for the device flow only. */
-  redirect_uri: string | null;
-  registered: number;
-}
-
-export interface StoredTokens {
-  access: string;
-  refresh: string | null;
-  /** Epoch ms, null when the server gave no expiry. */
-  expiresAt: number | null;
-  scope: string | null;
-  email: string | null;
-  obtained: number;
-}
-
-type Pending = { kind: "code"; state: string; verifier: string; user: string; created: number; opId: string; redirectUri: string } | { kind: "device"; deviceCode: string; userCode: string; verificationUri: string; verificationUriComplete: string | null; interval: number; expires: number; user: string; created: number; opId: string; refused: string };
-
-async function readJsonSetting<T>(env: Env, key: string): Promise<T | null> {
-  const v = await getSetting(env, key);
-  if (!v) return null;
-  try {
-    return JSON.parse(v) as T;
-  } catch {
-    return null;
-  }
-}
-const storedClient = (env: Env) => readJsonSetting<StoredClient>(env, HIGGSFIELD_MCP_CLIENT_SETTING);
-export const storedTokens = (env: Env) => readJsonSetting<StoredTokens>(env, HIGGSFIELD_MCP_TOKENS_SETTING);
-const readPending = async (env: Env): Promise<Pending | null> => {
-  const p = await readJsonSetting<Pending>(env, HIGGSFIELD_MCP_PENDING_SETTING);
-  return p && Date.now() - p.created < PENDING_TTL_MS ? p : null;
-};
-
-function redirectUri(env: Env): string {
-  if (!env.PUBLIC_BASE_URL) throw new StudioError("Server is missing PUBLIC_BASE_URL (needed for the Higgsfield sign-in redirect).", 503);
-  return new URL(CALLBACK_PATH, env.PUBLIC_BASE_URL).toString();
-}
-
-class RegistrationRefused extends StudioError {
-  constructor(status: number, body: string, withRedirect: boolean) {
-    super(`Higgsfield refused to register the studio as an OAuth client${withRedirect ? " with a redirect" : " for the device flow"} (${status}): ${body.slice(0, 300) || "no detail"}.`, 502, false, { refused: body.slice(0, 300), status });
-  }
-}
-
-/** RFC 7591 registration: a public client (PKCE) with the redirect, or a device-flow client without one. */
-async function registerClient(env: Env, fetchFn: typeof fetch, as: AuthServer, redirect: string | null): Promise<StoredClient> {
-  if (!as.registration_endpoint) throw new StudioError("Higgsfield's authorization server publishes no registration endpoint; the studio cannot register itself as a client.", 502);
-  const body: Record<string, unknown> = {
-    client_name: "Level Studio",
-    client_uri: env.PUBLIC_BASE_URL,
-    token_endpoint_auth_method: "none",
-    scope: MCP_SCOPES,
-    grant_types: redirect ? ["authorization_code", "refresh_token"] : ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
-  };
-  if (redirect) {
-    body.redirect_uris = [redirect];
-    body.response_types = ["code"];
-    body.application_type = "web";
-  }
-  const r = await fetchFn(as.registration_endpoint, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000) });
-  const text = await r.text();
-  if (!r.ok) throw new RegistrationRefused(r.status, text, !!redirect);
-  let d: { client_id?: unknown; client_secret?: unknown };
-  try {
-    d = JSON.parse(text) as typeof d;
-  } catch {
-    throw new StudioError("Higgsfield's registration answer is not JSON.", 502);
-  }
-  if (typeof d.client_id !== "string" || !d.client_id) throw new StudioError("Higgsfield's registration answer carries no client id.", 502);
-  const client: StoredClient = { client_id: d.client_id, issuer: as.issuer ?? as.token_endpoint, redirect_uri: redirect, registered: Date.now() };
-  if (typeof d.client_secret === "string" && d.client_secret) client.client_secret = d.client_secret;
-  await setSetting(env, HIGGSFIELD_MCP_CLIENT_SETTING, JSON.stringify(client));
-  return client;
-}
-
-/** The client registered once for this redirect (and this issuer); registered now when none fits. */
-async function ensureClient(env: Env, fetchFn: typeof fetch, as: AuthServer, redirect: string | null): Promise<StoredClient> {
-  const have = await storedClient(env);
-  if (have && have.issuer === (as.issuer ?? as.token_endpoint) && have.redirect_uri === redirect) return have;
-  return registerClient(env, fetchFn, as, redirect);
-}
-
-/* ───────────── Tokens ───────────── */
-
-function b64url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-export async function pkcePair(): Promise<{ verifier: string; challenge: string }> {
-  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
-  const challenge = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))));
-  return { verifier, challenge };
-}
-
-/** The e-mail in an id token's payload (not verified: shown, never trusted for access). */
-function emailOf(idToken: unknown): string | null {
-  if (typeof idToken !== "string") return null;
-  const parts = idToken.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/"))) as { email?: unknown };
-    return typeof payload.email === "string" ? payload.email : null;
-  } catch {
-    return null;
-  }
-}
-
-class TokenRefused extends StudioError {
-  constructor(
-    status: number,
-    public readonly oauthError: string,
-    description: string,
-  ) {
-    super(`Higgsfield's token endpoint refused (${status}): ${oauthError}${description ? ` · ${description}` : ""}.`, 502, false, { oauthError });
-  }
-}
-
-/** One request to the token endpoint (code exchange, refresh, device poll), form-encoded as RFC 6749 says. */
-async function tokenRequest(fetchFn: typeof fetch, as: AuthServer, client: StoredClient, params: Record<string, string>, previous: StoredTokens | null): Promise<StoredTokens> {
-  const body = new URLSearchParams({ ...params, client_id: client.client_id });
-  if (client.client_secret) body.set("client_secret", client.client_secret);
-  const r = await fetchFn(as.token_endpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString(), signal: AbortSignal.timeout(20_000) });
-  const text = await r.text();
-  let d: Record<string, unknown> = {};
-  try {
-    d = JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    /* not JSON */
-  }
-  if (!r.ok) throw new TokenRefused(r.status, typeof d.error === "string" ? d.error : text.slice(0, 120) || r.statusText, typeof d.error_description === "string" ? d.error_description : "");
-  if (typeof d.access_token !== "string" || !d.access_token) throw new StudioError("Higgsfield's token answer carries no access token.", 502);
-  const expiresIn = Number(d.expires_in);
-  return {
-    access: d.access_token,
-    refresh: typeof d.refresh_token === "string" && d.refresh_token ? d.refresh_token : (previous?.refresh ?? null),
-    expiresAt: Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : null,
-    scope: typeof d.scope === "string" ? d.scope : (previous?.scope ?? null),
-    email: emailOf(d.id_token) ?? previous?.email ?? null,
-    obtained: Date.now(),
-  };
-}
-
-const SIGN_IN_EXPIRED = "Higgsfield sign-in expired: sign in again under Connection → Higgsfield.";
+/* ───────────── The sign-in: server/oauth-signin.ts, shared with the Magnific MCP ───────────── */
 
 /**
- * A usable access token: the stored one while it has a minute left, else refreshed with the
- * refresh token (and stored). `force` refreshes now (after a 401). An `invalid_grant` means the
- * sign-in is over: the tokens are dropped and the admin is asked to sign in again.
+ * Discovery, one registration, PKCE, the callback, refresh, the device fallback: all in the shared
+ * helper. The settings keep the keys of the first release (`higgsfield_mcp_client`,
+ * `higgsfield_mcp_tokens`, `higgsfield_mcp_pending`, see server/settings.ts) so an existing
+ * sign-in is not lost.
  */
-export async function freshAccessToken(env: Env, fetchFn: typeof fetch, force = false): Promise<string> {
-  const t = await storedTokens(env);
-  if (!t) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
-  if (!force && (t.expiresAt === null || t.expiresAt - 60_000 > Date.now())) return t.access;
-  if (!t.refresh) {
-    if (force) throw new StudioError(SIGN_IN_EXPIRED, 409, false, { notSignedIn: true });
-    return t.access;
-  }
-  const { as, resource } = await discover(fetchFn);
-  const client = await storedClient(env);
-  if (!client) throw new StudioError(SIGN_IN_EXPIRED, 409, false, { notSignedIn: true });
-  try {
-    const next = await tokenRequest(fetchFn, as, client, { grant_type: "refresh_token", refresh_token: t.refresh, resource }, t);
-    await setSetting(env, HIGGSFIELD_MCP_TOKENS_SETTING, JSON.stringify(next));
-    return next.access;
-  } catch (e) {
-    if (e instanceof TokenRefused && /^(invalid_grant|invalid_token|unauthorized_client)$/.test(e.oauthError)) {
-      await deleteSetting(env, HIGGSFIELD_MCP_TOKENS_SETTING);
-      resetHiggsfieldMcpCaches();
-      throw new StudioError(SIGN_IN_EXPIRED, 409, false, { notSignedIn: true, refused: e.message });
-    }
-    throw e;
-  }
-}
+export const higgsfieldSignIn = new OAuthSignIn({
+  label: "Higgsfield",
+  ledgerProvider: "higgsfield",
+  resource: HIGGSFIELD_MCP_URL,
+  protectedResourceUrl: HIGGSFIELD_RESOURCE_METADATA,
+  scopes: MCP_SCOPES,
+  redirectPath: CALLBACK_PATH,
+  settingsPrefix: "higgsfield_mcp",
+  clientName: "Level Studio",
+  returnParam: "higgsfield",
+  signInHint: "Connection → Higgsfield",
+  notSignedIn: NOT_SIGNED_IN,
+  onReset: dropTokenCaches,
+});
+export type { AuthServer, StoredClient, StoredTokens } from "./oauth-signin";
+export { pkcePair } from "./oauth-signin";
+export const storedTokens = (env: Env) => higgsfieldSignIn.storedTokens(env);
 
 /* ───────────── The MCP session: tools by name, one refresh on 401 ───────────── */
 
@@ -313,7 +122,7 @@ export class HiggsfieldMcp {
 
   /** Signed in, or a 409 saying so; no call to the MCP server yet. */
   async connect(force = false): Promise<void> {
-    const token = await freshAccessToken(this.env, this.fetchFn, force);
+    const token = await higgsfieldSignIn.accessToken(this.env, force);
     this.client = new McpClient(token, this.fetchFn, HIGGSFIELD_MCP_URL, { label: "Higgsfield MCP", unauthorizedHint: "the sign-in may have expired; sign in again under Connection → Higgsfield." });
   }
 
@@ -826,13 +635,13 @@ async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
 /** Signed in?, the account, the plan and credits (cached a minute), the billing choice, the switch. Every member. */
 higgsfieldMcpRoutes.get("/status", async (c) => {
   const user = c.get("user");
-  const tokens = await storedTokens(c.env);
+  const signin = await higgsfieldSignIn.status(c.env, user);
   const access = await integrationAccess(c.env, user, "higgsfield");
   const billingSet = await getSetting(c.env, HIGGSFIELD_BILLING_SETTING);
   let credits: number | null = null;
   let plan: string | null = null;
   let balanceError = "";
-  if (tokens && access.enabled) {
+  if (signin.signedIn && access.enabled) {
     try {
       const mcp = new HiggsfieldMcp(c.env, fetcher());
       const bal = await balanceOf(mcp, c.req.query("fresh") === "1");
@@ -842,11 +651,13 @@ higgsfieldMcpRoutes.get("/status", async (c) => {
       balanceError = errorMessage(e);
     }
   }
-  const pending = user.role === "admin" ? await readPending(c.env) : null;
   return c.json({
-    signedIn: !!tokens,
-    email: tokens?.email ?? null,
-    signedInAt: tokens?.obtained ?? null,
+    signedIn: signin.signedIn,
+    expired: signin.expired,
+    email: signin.email,
+    signedInAt: signin.signedInAt,
+    expiresAt: signin.expiresAt,
+    refresh: signin.refresh,
     plan,
     credits,
     creditsAt: balanceCache?.at ?? null,
@@ -858,7 +669,7 @@ higgsfieldMcpRoutes.get("/status", async (c) => {
     switch: { enabled: access.enabled },
     access,
     url: HIGGSFIELD_MCP_URL,
-    device: pending?.kind === "device" ? { userCode: pending.userCode, verificationUri: pending.verificationUri, verificationUriComplete: pending.verificationUriComplete, interval: pending.interval, expires: pending.expires, refused: pending.refused } : null,
+    device: signin.device,
   });
 });
 
@@ -872,143 +683,30 @@ higgsfieldMcpRoutes.post("/billing", async (c) => {
 });
 
 /**
- * Starts the sign-in: the client is registered once, PKCE state and verifier are kept short-lived,
- * the authorize link comes back for a new tab. When registration with a redirect is refused, the
- * device flow is tried and its user code comes back instead, with what was refused.
+ * Starts the sign-in (server/oauth-signin.ts): the authorize link for a new tab, or, when the
+ * redirect registration is refused, the device flow's user code with what was refused.
  */
 higgsfieldMcpRoutes.post("/signin/start", async (c) => {
   const user = await gate(c);
-  const fetchFn = fetcher();
-  const { as, resource } = await discover(fetchFn);
-  const redirect = redirectUri(c.env);
-  const opId = await recordIntegrationOp(c.env, { provider: "higgsfield", kind: "mcp.signin", user: user.id, estimate: 0, reported: 0, status: "running", note: `sign-in started at ${as.issuer ?? as.authorization_endpoint}` });
-  let refusal: RegistrationRefused | null = null;
-  try {
-    const client = await ensureClient(c.env, fetchFn, as, redirect);
-    const { verifier, challenge } = await pkcePair();
-    const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    const pending: Pending = { kind: "code", state, verifier, user: user.id, created: Date.now(), opId, redirectUri: redirect };
-    await setSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING, JSON.stringify(pending));
-    const u = new URL(as.authorization_endpoint);
-    u.searchParams.set("response_type", "code");
-    u.searchParams.set("client_id", client.client_id);
-    u.searchParams.set("redirect_uri", redirect);
-    u.searchParams.set("scope", MCP_SCOPES);
-    u.searchParams.set("state", state);
-    u.searchParams.set("code_challenge", challenge);
-    u.searchParams.set("code_challenge_method", "S256");
-    u.searchParams.set("resource", resource);
-    return c.json({ ok: true, mode: "redirect", url: u.toString() });
-  } catch (e) {
-    if (!(e instanceof RegistrationRefused)) {
-      await updateIntegrationOp(c.env, opId, { status: "failed", note: errorMessage(e) });
-      throw e;
-    }
-    refusal = e;
-  }
-  // The fallback: the device flow, when the authorization server offers one.
-  if (!as.device_authorization_endpoint) {
-    await updateIntegrationOp(c.env, opId, { status: "failed", note: refusal.message });
-    throw new StudioError(`${refusal.message} The authorization server lists no device flow either, so the studio cannot sign in by itself.`, 502, false, { refused: refusal.data?.refused });
-  }
-  let client: StoredClient;
-  try {
-    client = await ensureClient(c.env, fetchFn, as, null);
-  } catch (e) {
-    await updateIntegrationOp(c.env, opId, { status: "failed", note: `${refusal.message} ${errorMessage(e)}` });
-    throw new StudioError(`${refusal.message} ${errorMessage(e)}`, 502, false, { refused: refusal.data?.refused, deviceRefused: e instanceof StudioError ? e.data?.refused : errorMessage(e) });
-  }
-  const body = new URLSearchParams({ client_id: client.client_id, scope: MCP_SCOPES, resource });
-  if (client.client_secret) body.set("client_secret", client.client_secret);
-  const r = await fetchFn(as.device_authorization_endpoint, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString(), signal: AbortSignal.timeout(20_000) });
-  const text = await r.text();
-  if (!r.ok) {
-    await updateIntegrationOp(c.env, opId, { status: "failed", note: `${refusal.message} device flow refused (${r.status}): ${text.slice(0, 200)}` });
-    throw new StudioError(`${refusal.message} The device flow was refused too (${r.status}): ${text.slice(0, 200)}.`, 502, false, { refused: refusal.data?.refused });
-  }
-  const d = JSON.parse(text) as { device_code?: string; user_code?: string; verification_uri?: string; verification_uri_complete?: string; expires_in?: number; interval?: number };
-  if (!d.device_code || !d.user_code || !d.verification_uri) throw new StudioError("Higgsfield's device-flow answer is missing the code or the link.", 502);
-  const pending: Pending = { kind: "device", deviceCode: d.device_code, userCode: d.user_code, verificationUri: d.verification_uri, verificationUriComplete: d.verification_uri_complete ?? null, interval: Math.max(5, Number(d.interval) || 5), expires: Date.now() + (Number(d.expires_in) || 600) * 1000, user: user.id, created: Date.now(), opId, refused: refusal.message };
-  await setSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING, JSON.stringify(pending));
-  return c.json({ ok: true, mode: "device", userCode: pending.userCode, verificationUri: pending.verificationUri, verificationUriComplete: pending.verificationUriComplete, interval: pending.interval, expires: pending.expires, refused: refusal.message });
+  return c.json({ ok: true, ...(await higgsfieldSignIn.start(c.env, user)) });
 });
 
 /** The device flow's poll: one token request per call; the page calls it every `interval` seconds. */
 higgsfieldMcpRoutes.post("/signin/poll", async (c) => {
   const user = await gate(c);
-  const pending = await readPending(c.env);
-  if (!pending || pending.kind !== "device") throw new StudioError("No device sign-in is in progress: press Sign in to Higgsfield again.", 409);
-  if (pending.user !== user.id) throw new StudioError("Another admin started this sign-in.", 403);
-  if (Date.now() > pending.expires) {
-    await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-    await updateIntegrationOp(c.env, pending.opId, { status: "failed", note: "device code expired" });
-    throw new StudioError("The sign-in code expired: press Sign in to Higgsfield again.", 410);
-  }
-  const fetchFn = fetcher();
-  const { as, resource } = await discover(fetchFn);
-  const client = await storedClient(c.env);
-  if (!client) throw new StudioError("The registered client is gone: press Sign in to Higgsfield again.", 409);
-  try {
-    const tokens = await tokenRequest(fetchFn, as, client, { grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: pending.deviceCode, resource }, null);
-    await setSetting(c.env, HIGGSFIELD_MCP_TOKENS_SETTING, JSON.stringify(tokens));
-    await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-    resetHiggsfieldMcpCaches();
-    await updateIntegrationOp(c.env, pending.opId, { status: "done", note: `signed in (device flow)${tokens.email ? ` as ${tokens.email}` : ""}` });
-    return c.json({ ok: true, signedIn: true, email: tokens.email });
-  } catch (e) {
-    if (e instanceof TokenRefused && (e.oauthError === "authorization_pending" || e.oauthError === "slow_down")) return c.json({ ok: true, signedIn: false, pending: true, interval: e.oauthError === "slow_down" ? pending.interval + 5 : pending.interval });
-    await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-    await updateIntegrationOp(c.env, pending.opId, { status: "failed", note: errorMessage(e) });
-    throw e;
-  }
+  return c.json({ ok: true, ...(await higgsfieldSignIn.poll(c.env, user)) });
 });
 
 /** Where the browser lands after Higgsfield: the code is exchanged, the tokens kept, back to the studio. */
 higgsfieldMcpRoutes.get("/callback", async (c) => {
-  const user = c.get("user");
-  const back = (q: string) => c.redirect(`/?${q}`, 302);
-  const failed = (reason: string) => back(`higgsfield=error&reason=${encodeURIComponent(reason.slice(0, 300))}`);
-  const q = c.req.query();
-  const pending = await readPending(c.env);
-  if (!user || user.role !== "admin") return failed("Only an admin can finish the Higgsfield sign-in.");
-  if (q.error) {
-    if (pending) {
-      await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-      await updateIntegrationOp(c.env, pending.opId, { status: "failed", note: `${q.error}${q.error_description ? `: ${q.error_description}` : ""}` });
-    }
-    return failed(`Higgsfield said: ${q.error}${q.error_description ? ` (${q.error_description})` : ""}`);
-  }
-  if (!pending || pending.kind !== "code") return failed("No sign-in was in progress (or it took more than fifteen minutes): press Sign in to Higgsfield again.");
-  if (!q.state || q.state !== pending.state) return failed("The sign-in did not match the one started here: press Sign in to Higgsfield again.");
-  if (pending.user !== user.id) return failed("Another admin started this sign-in; finish it from their session or start again.");
-  if (!q.code) return failed("Higgsfield sent no code back.");
-  const fetchFn = fetcher();
-  try {
-    const { as, resource } = await discover(fetchFn);
-    const client = await storedClient(c.env);
-    if (!client) throw new StudioError("The registered client is gone: press Sign in to Higgsfield again.", 409);
-    const tokens = await tokenRequest(fetchFn, as, client, { grant_type: "authorization_code", code: q.code, redirect_uri: pending.redirectUri, code_verifier: pending.verifier, resource }, null);
-    await setSetting(c.env, HIGGSFIELD_MCP_TOKENS_SETTING, JSON.stringify(tokens));
-    await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-    resetHiggsfieldMcpCaches();
-    await updateIntegrationOp(c.env, pending.opId, { status: "done", note: `signed in (authorization code + PKCE)${tokens.email ? ` as ${tokens.email}` : ""}` });
-    return back("higgsfield=connected");
-  } catch (e) {
-    await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-    await updateIntegrationOp(c.env, pending.opId, { status: "failed", note: errorMessage(e) });
-    return failed(errorMessage(e));
-  }
+  const result = await higgsfieldSignIn.callback(c.env, c.get("user"), c.req.query());
+  return c.redirect(higgsfieldSignIn.returnPath(result), 302);
 });
 
-/** The tokens are dropped (the registered client stays); a ledger row says who. Admins. */
+/** The tokens and the cached catalog are dropped (the registered client stays); a ledger row says who. Admins. */
 higgsfieldMcpRoutes.post("/signout", async (c) => {
   const user = requireIntegrationAdmin(c, "higgsfield");
-  const tokens = await storedTokens(c.env);
-  await deleteSetting(c.env, HIGGSFIELD_MCP_TOKENS_SETTING);
-  await deleteSetting(c.env, HIGGSFIELD_MCP_PENDING_SETTING);
-  await deleteSetting(c.env, HIGGSFIELD_MCP_MODELS_SETTING);
-  resetHiggsfieldMcpCaches();
-  await recordIntegrationOp(c.env, { provider: "higgsfield", kind: "mcp.signout", user: user.id, estimate: 0, reported: 0, status: "done", note: tokens ? `signed out${tokens.email ? ` (${tokens.email})` : ""}` : "nothing was signed in" });
+  await higgsfieldSignIn.signOut(c.env, user, [HIGGSFIELD_MCP_MODELS_SETTING]);
   return c.json({ ok: true });
 });
 

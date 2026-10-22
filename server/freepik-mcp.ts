@@ -6,27 +6,31 @@
  * free. Results that are stock assets land in the same `assets` library as the API's downloads.
  *
  * The server authenticates with OAuth 2.0 (Keycloak at auth.magnific.com/realms/mcp; verified
- * 22 Oct 2026: an unauthenticated POST answers 401 with a Bearer challenge). The studio does not
- * run the browser sign-in itself: an admin obtains a bearer access token (see docs/freepik.md) and
- * saves it under the encrypted setting `freepik_mcp_token`. With no token the adapter answers
- * "Not connected" and a labelled demo tool list; no call leaves the server.
+ * 22 Oct 2026: an unauthenticated POST answers 401 with a Bearer challenge). The studio signs in
+ * itself (server/magnific-signin.ts on the shared helper server/oauth-signin.ts: one "Sign in to
+ * Magnific" button, nothing pasted) and runs the tools on that sign-in's access token, refreshed
+ * when due and once on a 401. A bearer token pasted by hand (`freepik_mcp_token`, the advanced
+ * path) is still honoured as a fallback for one release. With neither the adapter answers "Not
+ * connected" and a labelled demo tool list; no call leaves the server.
  */
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { getSetting, setSetting, deleteSetting, FREEPIK_MCP_TOKEN_SETTING } from "./settings";
-import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { assetJson, costNotKnown, downloadEstimate, isFlattened, licenseOf, resolveFreepik, storeDownloaded, upsertStockItem, mimeOfName, type AssetJson, type AssetKind, type StockItem } from "./freepik";
 import { McpClient, resultText, type McpCallResult, type McpTool } from "./mcp-client";
+import { MAGNIFIC_CALLBACK_PATH, MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
 import type { User } from "@shared/types";
 
-export const MCP_URL = "https://mcp.magnific.com";
+export const MCP_URL = MAGNIFIC_MCP_URL;
 
 /* ───────────── JSON-RPC over streamable HTTP: server/mcp-client.ts, shared with Higgsfield ───────────── */
 
 export { McpClient, MCP_PROTOCOL, parseRpcBody, resultText } from "./mcp-client";
 export type { McpCallResult, McpContent, McpTool } from "./mcp-client";
+export { MAGNIFIC_CALLBACK_PATH, MAGNIFIC_RESOURCE_METADATA, MAGNIFIC_SCOPES, magnificSignIn } from "./magnific-signin";
 
 /* ───────────── What a tool costs ───────────── */
 
@@ -43,7 +47,7 @@ export function classifyTool(name: string): ToolCost {
 
 export const COST_LABELS: Record<ToolCost, string> = { free: "Free", download: "Download: in the plan or credits, by plan", credits: "Credits" };
 
-/** The labelled list shown with no token; the live tools/list is the source of truth once connected. */
+/** The labelled list shown with nothing connected; the live tools/list is the source of truth once connected. */
 export const DEMO_TOOLS: (McpTool & { cost: ToolCost; demo: true })[] = [
   { name: "stock_search", description: "Search Freepik stock by keyword or by visual similarity. (demo list)", cost: "free", demo: true },
   { name: "stock_get", description: "Full details of a stock item: preview, size, formats, author. (demo list)", cost: "free", demo: true },
@@ -53,7 +57,7 @@ export const DEMO_TOOLS: (McpTool & { cost: ToolCost; demo: true })[] = [
   { name: "images_generate", description: "Make a picture from a prompt: costs credits by model and size. (demo list)", cost: "credits", demo: true },
 ];
 
-export const MCP_NOT_CONNECTED = "Not connected: the Magnific MCP needs a bearer token saved under Connection → Freepik (OAuth sign-in with the Magnific account; see docs/freepik.md). No tool runs until then.";
+export const MCP_NOT_CONNECTED = "Not connected: sign in to Magnific under Connection → Freepik → Magnific MCP (one button; or, the advanced path, paste a bearer token there). No tool runs until then.";
 
 /** A credit figure in a simulate_cost answer ("12 credits", {"credits": 12}, {"cost": 12}). */
 export function creditsIn(r: McpCallResult): number | null {
@@ -190,16 +194,80 @@ export async function normaliseAssets(env: Env, user: User, tool: string, args: 
   return out;
 }
 
+/* ───────────── The session: the sign-in's token first, the pasted token as the fallback ───────────── */
+
+let fetchForTests: typeof fetch | null = null;
+/** Tests inject fetch for the MCP server and the sign-in alike; null restores the real one. */
+export function useMcpFetch(fn: typeof fetch | null): void {
+  fetchForTests = fn;
+  magnificSignIn.useFetch(fn);
+}
+const fetcher = () => fetchForTests ?? fetch;
+
+export type McpTokenSource = "signin" | "token";
+
+/** Which credential the tools run on: the sign-in while it is usable, else the pasted token, else nothing. */
+export async function tokenSource(env: Env): Promise<McpTokenSource | null> {
+  if (await magnificSignIn.isSignedIn(env)) return "signin";
+  return (await getSetting(env, FREEPIK_MCP_TOKEN_SETTING)) ? "token" : null;
+}
+
+/**
+ * The MCP server on whichever credential exists. On the sign-in, a 401 refreshes the access token
+ * once and repeats the same call once (a token refresh, never a job retry: the server refused the
+ * call before running it). A pasted token is not refreshed: its 401 says to sign in instead.
+ */
+export class MagnificMcp {
+  private client: McpClient | null = null;
+  private refreshed = false;
+  private constructor(
+    private readonly env: Env,
+    readonly source: McpTokenSource,
+    private readonly fetchFn: typeof fetch,
+  ) {}
+
+  /** Null when nothing is connected (no call leaves the server). */
+  static async open(env: Env, fetchFn: typeof fetch = fetcher()): Promise<MagnificMcp | null> {
+    const source = await tokenSource(env);
+    return source ? new MagnificMcp(env, source, fetchFn) : null;
+  }
+
+  private async connect(force = false): Promise<McpClient> {
+    const token = this.source === "signin" ? await magnificSignIn.accessToken(this.env, force) : ((await getSetting(this.env, FREEPIK_MCP_TOKEN_SETTING)) ?? "");
+    if (!token) throw new StudioError(MCP_NOT_CONNECTED, 409, false, { connected: false });
+    this.client = new McpClient(token, this.fetchFn, MCP_URL, {
+      label: "Magnific MCP",
+      unauthorizedHint: this.source === "signin" ? "the sign-in may have expired; sign in again under Connection → Freepik → Magnific MCP." : "the pasted token expired: sign in to Magnific under Connection → Freepik → Magnific MCP instead (or paste a fresh token under Advanced).",
+    });
+    return this.client;
+  }
+
+  private async withAuth<T>(fn: (c: McpClient) => Promise<T>): Promise<T> {
+    const c = this.client ?? (await this.connect());
+    try {
+      return await fn(c);
+    } catch (e) {
+      if (this.source === "signin" && e instanceof StudioError && e.status === 401 && e.data?.httpStatus === 401 && !this.refreshed) {
+        this.refreshed = true;
+        return fn(await this.connect(true));
+      }
+      throw e;
+    }
+  }
+
+  listTools(): Promise<McpTool[]> {
+    return this.withAuth((c) => c.listTools());
+  }
+
+  callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult> {
+    return this.withAuth((c) => c.callTool(name, args));
+  }
+}
+
 /* ───────────── Routes: /api/studio/freepik/mcp ───────────── */
 
 type Variables = { user: User };
 export const freepikMcpRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-let fetchForTests: typeof fetch | null = null;
-export function useMcpFetch(fn: typeof fetch | null): void {
-  fetchForTests = fn;
-}
-const fetcher = () => fetchForTests ?? fetch;
 
 async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
   const u = requireIntegrationAdmin(c, "freepik");
@@ -207,22 +275,63 @@ async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
   return u;
 }
 
-async function client(env: Env): Promise<McpClient | null> {
-  const token = await getSetting(env, FREEPIK_MCP_TOKEN_SETTING);
-  return token ? new McpClient(token, fetcher(), MCP_URL) : null;
-}
-
-/** The tools, with what each costs; the demo list when no token is saved. */
-freepikMcpRoutes.get("/tools", async (c) => {
-  const user = await gate(c);
-  const mcp = await client(c.env);
-  if (!mcp) return c.json({ connected: false, demo: true, reason: MCP_NOT_CONNECTED, url: MCP_URL, tools: DEMO_TOOLS });
-  const tools = await mcp.listTools();
-  await recordIntegrationOp(c.env, { provider: "freepik", kind: "mcp:tools/list", user: user.id, estimate: 0, reported: 0, status: "done", note: `${tools.length} tools` });
-  return c.json({ connected: true, demo: false, reason: "", url: MCP_URL, tools: tools.map((t) => ({ ...t, cost: classifyTool(t.name), demo: false })) });
+/** Signed in?, the account, until when, whether the sign-in renews itself, whether a pasted token exists too. Every member. */
+freepikMcpRoutes.get("/status", async (c) => {
+  const user = c.get("user");
+  const signin = await magnificSignIn.status(c.env, user);
+  const token = !!(await getSetting(c.env, FREEPIK_MCP_TOKEN_SETTING));
+  const access = await integrationAccess(c.env, user, "freepik");
+  return c.json({
+    ...signin,
+    token,
+    source: signin.signedIn ? "signin" : token ? "token" : null,
+    admin: user.role === "admin",
+    switch: { enabled: access.enabled },
+    access,
+    url: MCP_URL,
+    callback: MAGNIFIC_CALLBACK_PATH,
+  });
 });
 
-/** The token is kept only after the server accepted it on initialize + tools/list (no credits). */
+/**
+ * Starts the sign-in (server/oauth-signin.ts): the authorize link for a new tab, or, when the
+ * redirect registration is refused, the device flow's user code with what was refused. Admins.
+ */
+freepikMcpRoutes.post("/signin/start", async (c) => {
+  const user = await gate(c);
+  return c.json({ ok: true, ...(await magnificSignIn.start(c.env, user)) });
+});
+
+/** The device flow's poll: one token request per call; the page calls it every `interval` seconds. Admins. */
+freepikMcpRoutes.post("/signin/poll", async (c) => {
+  const user = await gate(c);
+  return c.json({ ok: true, ...(await magnificSignIn.poll(c.env, user)) });
+});
+
+/** Where the browser lands after Magnific: the code is exchanged, the tokens kept, back to the studio (`/?magnific=connected|error`). */
+freepikMcpRoutes.get("/callback", async (c) => {
+  const result = await magnificSignIn.callback(c.env, c.get("user"), c.req.query());
+  return c.redirect(magnificSignIn.returnPath(result), 302);
+});
+
+/** The sign-in's tokens are dropped (the registered client and any pasted token stay); a ledger row says who. Admins. */
+freepikMcpRoutes.post("/signout", async (c) => {
+  const user = requireIntegrationAdmin(c, "freepik");
+  await magnificSignIn.signOut(c.env, user);
+  return c.json({ ok: true });
+});
+
+/** The tools, with what each costs; the demo list when nothing is connected. */
+freepikMcpRoutes.get("/tools", async (c) => {
+  const user = await gate(c);
+  const mcp = await MagnificMcp.open(c.env);
+  if (!mcp) return c.json({ connected: false, demo: true, reason: MCP_NOT_CONNECTED, url: MCP_URL, source: null, tools: DEMO_TOOLS });
+  const tools = await mcp.listTools();
+  await recordIntegrationOp(c.env, { provider: "freepik", kind: "mcp:tools/list", user: user.id, estimate: 0, reported: 0, status: "done", note: `${tools.length} tools` });
+  return c.json({ connected: true, demo: false, reason: "", url: MCP_URL, source: mcp.source, tools: tools.map((t) => ({ ...t, cost: classifyTool(t.name), demo: false })) });
+});
+
+/** The advanced path: a pasted token is kept only after the server accepted it on initialize + tools/list (no credits). */
 freepikMcpRoutes.post("/token", async (c) => {
   await gate(c);
   const { token } = await (async () => {
@@ -262,7 +371,7 @@ freepikMcpRoutes.post("/call", async (c) => {
   const parsed = callSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError(`Invalid request: ${parsed.error.issues[0]?.path.join(".") || "body"} ${parsed.error.issues[0]?.message ?? "is invalid"}.`);
   const d = parsed.data;
-  const mcp = await client(c.env);
+  const mcp = await MagnificMcp.open(c.env);
   if (!mcp) throw new StudioError(MCP_NOT_CONNECTED, 409, false, { connected: false });
   const cost = classifyTool(d.tool);
   const base = { provider: "freepik" as const, kind: `mcp:${d.tool}`, user: user.id, batch: d.batch ?? null, post: d.post ?? null };
@@ -297,7 +406,7 @@ freepikMcpRoutes.post("/call", async (c) => {
     const result = await mcp.callTool(d.tool, d.arguments);
     const assets = await normaliseAssets(c.env, user, d.tool, d.arguments, result, fetcher(), d.client ?? null);
     if (cost !== "free") await updateIntegrationOp(c.env, opId, { status: result.isError ? "failed" : "done", reported: estimate, note: resultText(result).slice(0, 300) });
-    return c.json({ ok: !result.isError, tool: d.tool, cost, estimate, opId, result, assets });
+    return c.json({ ok: !result.isError, tool: d.tool, cost, estimate, opId, source: mcp.source, result, assets });
   } catch (e) {
     if (cost !== "free") await updateIntegrationOp(c.env, opId, { status: "failed", note: errorMessage(e) });
     throw e;

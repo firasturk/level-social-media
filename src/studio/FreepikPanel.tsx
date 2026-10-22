@@ -28,7 +28,8 @@ export interface FreepikStatus {
   planLabel: string;
   downloadEstimate: number | null;
   entitlements: Record<string, unknown>;
-  mcp: { connected: boolean; url: string };
+  /** Connected through the Magnific sign-in or, the advanced path, a pasted token. */
+  mcp: { connected: boolean; signedIn?: boolean; token?: boolean; url: string };
   switch: { enabled: boolean; reason: string };
 }
 

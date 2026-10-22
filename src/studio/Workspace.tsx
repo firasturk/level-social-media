@@ -166,17 +166,22 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
-  // Back from the Higgsfield sign-in (`?higgsfield=connected|error`): say so, open Connection → Higgsfield, clean the address.
+  // Back from the Higgsfield or the Magnific sign-in (`?higgsfield=connected|error`, `?magnific=connected|error`): say so, open Connection, clean the address.
   useEffect(() => {
-    const outcome = urlParam("higgsfield", /^(connected|error)$/);
-    if (!outcome) return;
+    const returns = [
+      { param: "higgsfield", done: "Signed in to Higgsfield: videos can use the subscription credits. Check the billing choice under Connection → Higgsfield.", failed: "The Higgsfield sign-in did not finish" },
+      { param: "magnific", done: "Signed in to Magnific: the MCP tools under Connection → Freepik run on that account.", failed: "The Magnific sign-in did not finish" },
+    ];
+    const back = returns.find((r) => urlParam(r.param, /^(connected|error)$/));
+    if (!back) return;
+    const outcome = urlParam(back.param, /^(connected|error)$/);
     const reason = urlParam("reason", /^[\s\S]{1,300}$/);
-    if (outcome === "connected") toast.success("Signed in to Higgsfield: videos can use the subscription credits. Check the billing choice under Connection → Higgsfield.");
-    else toast.error(`The Higgsfield sign-in did not finish: ${reason || "unknown reason"}`);
+    if (outcome === "connected") toast.success(back.done);
+    else toast.error(`${back.failed}: ${reason || "unknown reason"}`);
     if (user.role === "admin") setConnection(true);
     try {
       const u = new URL(window.location.href);
-      u.searchParams.delete("higgsfield");
+      u.searchParams.delete(back.param);
       u.searchParams.delete("reason");
       window.history.replaceState(null, "", u.toString());
     } catch {

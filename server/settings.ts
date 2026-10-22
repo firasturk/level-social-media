@@ -195,8 +195,14 @@ export const RESEND_KEY_SETTING = "resend_api_key";
 export const NOTIFY_FROM_SETTING = "notify_from";
 /** Freepik (Magnific) API key for the Photo lab, saved from Connection → Freepik. */
 export const FREEPIK_KEY_SETTING = "freepik_api_key";
-/** Bearer token for the Magnific MCP server (mcp.magnific.com), saved from Connection → Freepik; see docs/freepik.md. */
+/** A pasted bearer token for the Magnific MCP server (mcp.magnific.com): the advanced path, honoured as a fallback to the sign-in for one release; see docs/freepik.md. */
 export const FREEPIK_MCP_TOKEN_SETTING = "freepik_mcp_token";
+/** Magnific MCP sign-in (server/magnific-signin.ts): the OAuth client the studio registered once at auth.magnific.com, as JSON. */
+export const FREEPIK_MCP_CLIENT_SETTING = "freepik_mcp_client";
+/** Magnific MCP sign-in: the access and refresh tokens of the signed-in Magnific account, as JSON. */
+export const FREEPIK_MCP_TOKENS_SETTING = "freepik_mcp_tokens";
+/** Magnific MCP sign-in: a sign-in in progress (PKCE state and verifier, or a device code), short-lived. */
+export const FREEPIK_MCP_PENDING_SETTING = "freepik_mcp_pending";
 /** The Freepik API plan family, which decides whether a stock download is in the plan or billed in credits. */
 export const FREEPIK_PLAN_SETTING = "freepik_plan";
 /** Higgsfield MCP (mcp.higgsfield.ai, the subscription credits): the OAuth client the studio registered once, as JSON. */

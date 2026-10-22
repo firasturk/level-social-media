@@ -85,6 +85,26 @@ Integrations gates every call that reaches Higgsfield):
 
 Nobody is ever asked to paste a token.
 
+## Sign-in: the shared helper
+
+The seven steps above are not Higgsfield code any more: they live in `server/oauth-signin.ts` as
+`OAuthSignIn`, configured per provider with `{label, ledgerProvider, resource,
+protectedResourceUrl, scopes, optionalScopes?, redirectPath, settingsPrefix, clientName: "Level
+Studio", returnParam, signInHint, notSignedIn, onReset?}` and offering `start(env, user)`,
+`poll(env, user)`, `callback(env, user, query)` + `returnPath(result)`, `accessToken(env, force?)`
+(refresh when due or on a 401), `isSignedIn(env)`, `status(env, user)`, `signOut(env, user, also?)`,
+`storedTokens(env)`, `useFetch(fn)` for tests. `server/higgsfield-mcp.ts` exports its instance as
+`higgsfieldSignIn` with `settingsPrefix: "higgsfield_mcp"`, so the settings keys of the first
+release (`higgsfield_mcp_client`, `higgsfield_mcp_tokens`, `higgsfield_mcp_pending`) are unchanged
+and an existing sign-in is kept. The Magnific MCP (`server/magnific-signin.ts`, docs/freepik.md)
+runs on the same helper with `settingsPrefix: "freepik_mcp"`, the scopes its resource demands and
+`optionalScopes: ["offline_access"]` (added only when the realm lists it in `scopes_supported`;
+Higgsfield's scopes already include it). Two things the helper does that the first release did
+not: it checks the `iss` of the callback when the server sends one (RFC 9207), and it reads the
+e-mail from `userinfo` when the id token carries none. `GET /status` now also carries `expired`,
+`expiresAt` and `refresh` (whether a refresh token exists); a sign-in without one ends at
+`expiresAt` and the status says so instead of returning a stale token.
+
 ## Credits vs Cloud API: the billing choice
 
 Setting `higgsfield_billing` = `"credits"` (the subscription through the sign-in) or `"cloud"`
