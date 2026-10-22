@@ -116,11 +116,14 @@ function DriveThumb({
   return (
     <button
       type="button"
-      className={`journey-thumb pick ${on ? "on" : ""}`}
+      className={`journey-thumb drive-thumb pick ${on ? "on" : ""}`}
       onClick={onClick}
       title={title}
     >
-      <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
+      {/* A square frame of its own: the picture fills it whether or not it has loaded yet. */}
+      <span className="drive-thumb-pic">
+        <img src={photoUrl(p.id, 320)} alt="" loading="lazy" />
+      </span>
       <figcaption>{caption || p.name}</figcaption>
       <span className="drive-thumb-kind">
         {[p.kind ? DRIVE_KIND_LABELS[p.kind] : "Not read yet", p.note].filter(Boolean).join(" · ")}
@@ -141,12 +144,12 @@ function DriveThumb({
 function MissingThumb({ p }: { p: DrivePhoto }) {
   return (
     <div
-      className="journey-thumb drive-thumb-missing"
+      className="journey-thumb drive-thumb drive-thumb-missing"
       title={`${p.reason ?? "Not available in Drive."}\n${p.folder ? `${p.folder} / ` : ""}${p.file}`}
     >
-      <div className="drive-thumb-blank">
+      <span className="drive-thumb-pic drive-thumb-blank">
         <FolderOpen size={18} />
-      </div>
+      </span>
       <figcaption>{p.name}</figcaption>
       <span className="drive-thumb-kind">{p.kind ? DRIVE_KIND_LABELS[p.kind] : ""}</span>
       <span className="journey-tag drive-unavailable">Not available in Drive</span>
@@ -557,10 +560,8 @@ export default function DrivePicker({
                   onClick={() => switchTab(r)}
                 >
                   {DRIVE_ROLE_LABELS[r]}
-                  <small>
-                    {state.groups[r].length +
-                      (state.missing.filter((p) => (p.role ?? "product") === r).length || 0)}
-                  </small>
+                  {/* The photos Drive gives today; the ones it no longer gives are counted in the note under the grid. */}
+                  <small>{state.groups[r].length}</small>
                 </button>
               ))}
             </div>
@@ -671,9 +672,9 @@ export default function DrivePicker({
             )}
             {missingInTab.length > 0 && !top && !kind && (
               <p className="drive-missing-note">
-                {missingInTab.length} photo{missingInTab.length === 1 ? " is" : "s are"} not
-                available in Drive any more (deleted, in the bin, moved or unshared). What a month
-                already used is kept.
+                {inTab.length} photo{inTab.length === 1 ? "" : "s"} in Drive · +{missingInTab.length} no
+                longer in Drive (deleted, in the bin, moved or unshared), kept for the months that
+                used {missingInTab.length === 1 ? "it" : "them"}.
               </p>
             )}
             {list.length > shown && (

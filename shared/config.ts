@@ -134,8 +134,12 @@ export interface Config {
   plannedAt?: number;
   /** This month's colours, when they differ from the theme's: the brief's, the grid's or the designer's. They win over the theme's palette for this month only. */
   palette?: { name: string; hex: string }[];
-  /** Where the month's colours came from. */
-  paletteFrom?: "brief" | "grid" | "designer";
+  /**
+   * Where the month's colours came from: the brand kit ("brand"), the followed grid's reading
+   * ("grid"), both, or set by hand ("manual"). "brief" and "designer" are older markers that read
+   * as set by hand; a month with no palette of its own uses the brand colours.
+   */
+  paletteFrom?: "brand" | "grid" | "both" | "manual" | "brief" | "designer";
   /** false: the engine never retakes a picture by itself after the review this month. */
   autoRetakes?: boolean;
   /** Brand ambassadors (ambassadors.id, at most 3) this month's posts may cast. */

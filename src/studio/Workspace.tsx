@@ -2134,6 +2134,8 @@ export default function Workspace({
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
           ambassadors={ambassadors}
+          onCast={(ids) => void updateSettings({ ambassadors: ids })}
+          onAmbassadorsChanged={setAmbassadors}
           themeRefs={themeRefs}
           previewMode={previewMode}
           theme={theme}

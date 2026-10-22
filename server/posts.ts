@@ -17,6 +17,7 @@ import { exactCallsCost } from "./exact";
 import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
+import { PALETTE_SOURCES, type PaletteSource } from "@shared/palette-source";
 import { ambassadorRows, type AmbassadorRow } from "./ambassadors";
 import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
@@ -289,8 +290,9 @@ function monthPalette(config: Pick<Config, "palette"> | null | undefined, theme:
 }
 
 /**
- * This month's colours, chosen by the designer. The shared theme is only updated when asked for
- * explicitly, and the answer says how many months follow that theme.
+ * This month's colours and where they come from (the brand kit, the followed grid's reading, both,
+ * or set by hand), saved on the month alone. A month's colours never change a theme: the theme
+ * palette is no longer a source, and nothing here writes to one.
  */
 postRoutes.post("/palette", async (c) => {
   const d = await body(
@@ -298,22 +300,17 @@ postRoutes.post("/palette", async (c) => {
     z.object({
       batch: z.string().min(1),
       palette: z.array(z.object({ name: z.string().max(40), hex: z.string().regex(/^#[0-9a-fA-F]{6}$/) })).max(8),
-      /** Also write these colours to the month's theme (every month on it follows). */
-      theme: z.boolean().optional(),
+      /** The source the colours were taken from; "manual" when left out (the designer set them). */
+      from: z.enum(PALETTE_SOURCES as [PaletteSource, ...PaletteSource[]]).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   const config = JSON.parse(b.config) as Config;
   const palette = parsePalette(d.palette);
   config.palette = palette.length ? palette : undefined;
-  config.paletteFrom = palette.length ? "designer" : undefined;
+  config.paletteFrom = palette.length ? (d.from ?? "manual") : undefined;
   await saveConfig(c.env, b, config);
-  let months = 0;
-  if (d.theme && config.theme) {
-    await run(c.env.DB, "UPDATE skills SET palette = ?, palette_auto = 0, updated = ? WHERE id = ?", JSON.stringify(palette), now(), config.theme);
-    months = (await first<{ n: number }>(c.env.DB, "SELECT COUNT(*) AS n FROM batches WHERE theme = ? AND deleted IS NULL", config.theme))?.n ?? 0;
-  }
-  return c.json({ ok: true, palette: config.palette ?? [], theme: d.theme ? { updated: true, months } : undefined });
+  return c.json({ ok: true, palette: config.palette ?? [], from: config.paletteFrom ?? null });
 });
 
 /** The theme's shots changed: months that rewrote the old ones write them again. */

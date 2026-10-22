@@ -31,6 +31,8 @@ export interface GridTilePreview {
   background: string;
   /** Where the tile's words sit ("words at the bottom, large" / "no words"). */
   words: string;
+  /** The lettering's colour as read (#rrggbb), or "" when the tile has no words or none was read. */
+  colour: string;
   /** A text tile is drawn in the studio, free; every other tile is a picture from the engine. */
   free: boolean;
 }
@@ -61,6 +63,7 @@ export function gridTiles(read: Pick<GridRead, "tiles"> | null | undefined): { t
       items: String(t.items ?? "").slice(0, 120),
       background: String(t.background ?? "").slice(0, 80),
       words,
+      colour: text && text.position !== "none" ? (/#[0-9a-f]{6}\b/i.exec(text.color ?? "")?.[0]?.toLowerCase() ?? "") : "",
       free: kind === "text",
     });
   }

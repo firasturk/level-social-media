@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, Wand2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, UserRound, Wand2, X } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
 import { FreepikDialog } from "./FreepikPanel";
@@ -44,6 +44,9 @@ import ProductChoice, { PostProductCell, productOf } from "./ProductChoice";
 import ProductSwap from "./ProductSwap";
 import { askInput } from "@/lib/confirm";
 import type { OverlaySpec } from "@shared/overlay";
+import Ambassadors, { MAX_CAST } from "./Ambassadors";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { defaultPaletteSource, gridColours, PALETTE_SOURCE_LABELS, PALETTE_SOURCES, paletteSourceLine, resolvePalette, savedPaletteSource, type PaletteSource } from "@shared/palette-source";
 
 type Way = "brief" | "grid" | "refs" | "style";
 type Stage = 0 | 1 | 2;
@@ -113,9 +116,12 @@ export interface FlowPreview {
 export interface FlowProps {
   /** The stage to open on (a rail button in the Studio); otherwise where the month is. */
   initialStage?: Stage;
-  /** The month's cast (the chosen ambassadors), and the client's whole roster (for the brand chip). */
+  /** The month's cast (the chosen ambassadors), and the client's whole roster (for the brand chip and the Models row). */
   cast: Ambassador[];
   ambassadors: Ambassador[];
+  /** The cast saved on the month (config.ambassadors, the same route as the classic journey), and the roster after an add, edit or removal. */
+  onCast: (ids: string[]) => void;
+  onAmbassadorsChanged: (list: Ambassador[]) => void;
   /** Opens the brand kit (the Studio's brand panel), outside the flow. */
   onBrandKit: () => void;
   /** The theme's references (for the card pictures), the preview flag, and a fresh grid in the month. */
@@ -625,32 +631,76 @@ export default function Flow(p: FlowProps) {
   const taskOf = (index: number) => p.tasks.find((t) => t.post === index) ?? null;
 
   /* ── Direction: colours ── */
-  const palette = p.config?.palette?.length ? p.config.palette : (theme?.palette ?? []);
-  const paletteFrom = p.config?.palette?.length ? (p.config.paletteFrom === "brief" ? "from the brief" : p.config.paletteFrom === "grid" ? "from the grid" : "set by you") : theme ? `the theme "${theme.title}"` : "the brand colours";
+  /** The sources: the brand kit's colours, the followed grid's reading (null until read), and what the month saved. */
+  const brandColours = useMemo(() => client?.colors ?? [], [client]);
+  const gridFollowed = !!currentGridId;
+  const monthGridInfo = currentGridId ? gridInfo[currentGridId] : null;
+  const gridPalette = useMemo(() => (monthGridInfo?.read ? gridColours(monthGridInfo.tileList, monthGridInfo.world) : null), [monthGridInfo]);
+  /** What the saved month says: a source, "theme" for a month saved on a theme palette before sources existed, or null. */
+  const savedSource = savedPaletteSource(p.config, theme?.palette);
+  /** A source picked but not saved yet (the grid still to be read, or no month yet). */
+  const [sourceDraft, setSourceDraft] = useState<PaletteSource | null>(null);
+  useEffect(() => setSourceDraft(null), [p.batchId]);
+  const colourSource: PaletteSource = sourceDraft ?? (savedSource && savedSource !== "theme" ? savedSource : defaultPaletteSource(brandColours, gridFollowed));
+  const manualColours = useMemo(() => p.config?.palette ?? [], [p.config?.palette]);
+  const resolved = resolvePalette({ source: colourSource, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
+  /** The colours the posts get now: the month's saved ones; an older theme's until a source is chosen; else the brand's. */
+  const palette = p.config?.palette?.length ? p.config.palette : savedSource === "theme" ? (theme?.palette ?? []) : brandColours;
+  const paletteFrom = paletteSourceLine(savedSource, p.config);
+  /** The saved colours fell behind their source (the brand kit or the grid's reading changed). */
+  const paletteStale = !!p.config?.palette?.length && savedSource === colourSource && colourSource !== "manual" && !resolved.needsGridRead && resolved.palette.length > 0 && JSON.stringify(resolved.palette.map((c) => c.hex)) !== JSON.stringify(p.config.palette.map((c) => c.hex));
   const [editColours, setEditColours] = useState(false);
   const [colourDraft, setColourDraft] = useState<{ name: string; hex: string }[]>([]);
-  const [alsoTheme, setAlsoTheme] = useState(false);
   const [savingColours, setSavingColours] = useState(false);
   const [refsOpen, setRefsOpen] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
-  async function saveColours() {
-    if (!p.batchId) return;
+  /** The month's colours saved with their source; a month's colours never touch a theme. */
+  async function saveColours(from: PaletteSource, colours: { name: string; hex: string }[]) {
     setSavingColours(true);
     try {
-      const r = await post<{ palette: { name: string; hex: string }[]; theme?: { updated: boolean; months: number } }>("/api/studio/posts/palette", {
-        batch: p.batchId,
-        palette: colourDraft.filter((c) => /^#[0-9a-fA-F]{6}$/.test(c.hex)),
-        theme: alsoTheme || undefined,
+      const id = await p.ensurePlan();
+      await post<{ palette: { name: string; hex: string }[]; from: string | null }>("/api/studio/posts/palette", {
+        batch: id,
+        palette: colours.filter((c) => /^#[0-9a-fA-F]{6}$/.test(c.hex)),
+        from,
       });
       await p.refresh();
+      setSourceDraft(null);
       setEditColours(false);
-      toast.success(r.theme?.updated ? `Colours saved for this month and the theme (${r.theme.months} month${r.theme.months === 1 ? "" : "s"} follow it).` : "Colours saved for this month only.");
+      toast.success(from === "manual" ? "Colours saved for this month." : `Colours for this month: ${paletteSourceLine(from)}.`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setSavingColours(false);
     }
   }
+  /** A source chosen on the card: saved at once when its colours are at hand; kept as a draft while the grid is still to be read. */
+  async function chooseSource(src: PaletteSource) {
+    if (src === "manual") {
+      setSourceDraft("manual");
+      setColourDraft(palette.length ? palette.map((c) => ({ ...c })) : [{ name: "", hex: "#888888" }]);
+      setEditColours(true);
+      return;
+    }
+    setEditColours(false);
+    const r = resolvePalette({ source: src, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
+    if (r.needsGridRead || !r.palette.length) {
+      setSourceDraft(src);
+      return;
+    }
+    await saveColours(src, r.palette);
+  }
+  // The grid's reading arrived while its colours were the chosen source: the choice is saved now.
+  useEffect(() => {
+    if (!sourceDraft || sourceDraft === "manual" || !gridPalette?.length || savingColours) return;
+    const r = resolvePalette({ source: sourceDraft, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
+    if (r.palette.length) void saveColours(sourceDraft, r.palette);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridPalette]);
+  /** The Models picker (the classic journey's ambassadors step, in a dialog). */
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const castIds = p.cast.map((a) => a.id);
+  const portrait = (a: Ambassador) => (a.image ? `/api/studio/ambassadors/${a.id}/image?v=${a.updated}` : null);
   const pinned = p.plan.filter((x) => x.reference?.key).length;
   /** Products the plan names that have no photo this month, and the posts waiting on them. */
   const missingProducts = useMemo(() => {
@@ -1362,9 +1412,80 @@ export default function Flow(p: FlowProps) {
                         <li className="flow-input-wide">
                           <ProductChoice batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} />
                         </li>
+                        <li className="flow-models-row">
+                          <span className="flow-input-art flow-models-art">
+                            {p.cast.length ? (
+                              p.cast.slice(0, 3).map((a) =>
+                                portrait(a) ? (
+                                  <img key={a.id} src={portrait(a)!} alt="" />
+                                ) : (
+                                  <i key={a.id} className="flow-model-blank" aria-hidden>
+                                    <UserRound size={16} />
+                                  </i>
+                                ),
+                              )
+                            ) : (
+                              <i className="flow-model-blank" aria-hidden>
+                                <UserRound size={16} />
+                              </i>
+                            )}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>Models · {p.cast.length ? p.cast.length : "none"}</b>
+                            <span>
+                              {p.cast.length
+                                ? "The brand's ambassadors in this month's pictures: the ideas cast them by name, and their portraits keep the same faces in every post."
+                                : p.ambassadors.length
+                                  ? "No one is cast this month. Choose up to three of the brand's ambassadors; a post that shows a person then shows one of them."
+                                  : "No models on this brand yet. Add one with a name, a look and a portrait, so the same face appears in every post."}
+                            </span>
+                            {p.cast.length > 0 && (
+                              <span className="flow-model-chips">
+                                {p.cast.map((a) => (
+                                  <span key={a.id} className="flow-model-chip">
+                                    {portrait(a) ? (
+                                      <img src={portrait(a)!} alt="" />
+                                    ) : (
+                                      <i className="flow-model-blank" aria-hidden>
+                                        <UserRound size={12} />
+                                      </i>
+                                    )}
+                                    {a.name}
+                                    <button type="button" aria-label={`Take ${a.name} out of this month`} title="Take out of this month" onClick={() => p.onCast(castIds.filter((id) => id !== a.id))}>
+                                      <X size={11} />
+                                    </button>
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </div>
+                          <span className="flow-input-actions">
+                            <button type="button" className="text-button" disabled={!client} onClick={() => setModelsOpen(true)}>
+                              {p.cast.length ? "Change models" : p.ambassadors.length ? "Choose models" : "Add a model"}
+                            </button>
+                          </span>
+                        </li>
                       </ul>
                     );
                   })()}
+                  {client && (
+                    <Dialog open={modelsOpen} onOpenChange={(o) => !o && setModelsOpen(false)}>
+                      <DialogContent className="flow-models-dialog">
+                        <DialogHeader>
+                          <DialogTitle>Models for {monthLabel(p.month)}</DialogTitle>
+                          <DialogDescription>
+                            The brand's ambassadors, the same roster as the brand kit. Tick “In this month” on up to {MAX_CAST} of them; add a new one with a name, then describe the look and give it a portrait. The month's choice is saved as you tick.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <Ambassadors client={client} ambassadors={p.ambassadors} onChanged={p.onAmbassadorsChanged} cast={castIds} onCast={p.onCast} locked={false} />
+                        <div className="flow-pick-row">
+                          <button type="button" className="primary btn-pill" onClick={() => setModelsOpen(false)}>
+                            <Check size={14} /> Done
+                          </button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  )}
                   <div className="flow-precedence-strip">
                     <div className="flow-precedence">
                       <b>When inputs meet on one post, this wins</b>
@@ -1394,24 +1515,63 @@ export default function Flow(p: FlowProps) {
                   )}
                 </section>
                 <div className="flow-stack">
-                  <section className="journey-box flow-box">
+                  <section className="journey-box flow-box flow-colours">
                     <span className="flow-eyebrow">Colours</span>
+                    <div className="flow-colour-sources" role="radiogroup" aria-label="Where this month's colours come from">
+                      {PALETTE_SOURCES.map((src) => {
+                        const r = resolvePalette({ source: src, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
+                        const on = colourSource === src;
+                        const swatches = src === "manual" ? (on ? palette : manualColours) : r.palette;
+                        return (
+                          <button key={src} type="button" role="radio" aria-checked={on} className={`flow-colour-source ${on ? "on" : ""}`} disabled={savingColours} onClick={() => void chooseSource(src)}>
+                            <span className="flow-source-check" aria-hidden>
+                              {on && <Check size={11} />}
+                            </span>
+                            <b>{PALETTE_SOURCE_LABELS[src].title}</b>
+                            <small>{PALETTE_SOURCE_LABELS[src].note}</small>
+                            {swatches.length > 0 && (
+                              <span className="flow-source-swatches" aria-hidden>
+                                {swatches.slice(0, 8).map((c, i) => (
+                                  <i key={i} style={{ background: c.hex }} />
+                                ))}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                     {!editColours ? (
                       <>
                         <div className="flow-swatches">
-                          {palette.map((c, i) => (
+                          {(sourceDraft && sourceDraft !== "manual" ? resolved.palette : palette).map((c, i) => (
                             <span key={i} className="flow-swatch" style={{ background: c.hex }} title={`${c.name} ${c.hex}`} />
                           ))}
-                          {!palette.length && <small className="flow-muted">No colours yet: the brand colours are used.</small>}
+                          {!(sourceDraft && sourceDraft !== "manual" ? resolved.palette : palette).length && <small className="flow-muted">No colours yet.</small>}
                         </div>
+                        {resolved.warning && (sourceDraft || !p.config?.palette?.length) ? (
+                          <span className="flow-colour-warn" role="status">
+                            <TriangleAlert size={13} /> {resolved.warning}
+                            {resolved.needsGridRead && currentGridId && (
+                              <button type="button" className="text-button" disabled={gridReading === currentGridId} onClick={() => void analyseGrid(currentGridId, true)}>
+                                {gridReading === currentGridId ? <Orb size={12} /> : null} Read the grid
+                              </button>
+                            )}
+                          </span>
+                        ) : null}
                         <small className="flow-muted">
-                          {p.config?.palette?.length ? `This month only, ${paletteFrom}. The theme keeps its own palette.` : `From ${paletteFrom}, shared by every month on it.`}
+                          {p.config?.palette?.length ? `This month only, ${paletteFrom}. The first colour is the background of every post.` : savedSource === "theme" ? `Colours ${paletteFrom}.` : `Not saved yet: the posts use the client's brand colours until a source is chosen.`}
                         </small>
+                        {paletteStale && (
+                          <button type="button" className="text-button" disabled={savingColours} onClick={() => void saveColours(colourSource, resolved.palette)}>
+                            {savingColours ? <Orb size={12} /> : null} The {colourSource === "grid" ? "grid's reading" : "brand kit"} changed: update this month's colours
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="text-button"
                           onClick={() => {
-                            setColourDraft(palette.length ? palette.map((c) => ({ ...c })) : [{ name: "", hex: "#" }]);
+                            setColourDraft(palette.length ? palette.map((c) => ({ ...c })) : [{ name: "", hex: "#888888" }]);
+                            setSourceDraft("manual");
                             setEditColours(true);
                           }}
                         >
@@ -1434,17 +1594,19 @@ export default function Flow(p: FlowProps) {
                             + colour
                           </button>
                         )}
-                        <label className="check-row">
-                          <input type="checkbox" checked={alsoTheme} onChange={(e) => setAlsoTheme(e.target.checked)} disabled={!theme} />
-                          <span>
-                            Also update the theme {theme ? `"${theme.title}"` : ""} {theme?.months ? `(${theme.months} month${theme.months === 1 ? "" : "s"} follow it)` : ""}. Off: this month only.
-                          </span>
-                        </label>
+                        <small className="flow-muted">Saved for this month only; the first colour is the background of every post. A month's colours never change a theme.</small>
                         <div className="flow-pick-row">
-                          <button type="button" className="primary btn-pill" disabled={savingColours} onClick={() => void saveColours()}>
+                          <button type="button" className="primary btn-pill" disabled={savingColours} onClick={() => void saveColours("manual", colourDraft)}>
                             {savingColours ? <Orb size={14} /> : <Check size={14} />} Save colours
                           </button>
-                          <button type="button" className="text-button" onClick={() => setEditColours(false)}>
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() => {
+                              setEditColours(false);
+                              setSourceDraft(null);
+                            }}
+                          >
                             Keep as they are
                           </button>
                         </div>
@@ -1495,7 +1657,7 @@ export default function Flow(p: FlowProps) {
               </div>
               <footer className="flow-foot">
                 <span className="flow-muted">
-                  {WAYS.find((w) => w.key === way)?.title} leads · {pinned} pinned · colours {p.config?.palette?.length ? "for this month only" : "from the theme"} · {p.products.length} product photo{p.products.length === 1 ? "" : "s"}
+                  {WAYS.find((w) => w.key === way)?.title} leads · {pinned} pinned · colours {paletteFrom} · {p.cast.length ? `${p.cast.length} model${p.cast.length === 1 ? "" : "s"}` : "no models"} · {p.products.length} product photo{p.products.length === 1 ? "" : "s"}
                 </span>
                 <button type="button" className="primary btn-pill" disabled={moving} onClick={() => void toPlan()}>
                   {moving ? <Orb size={14} /> : <ArrowRight size={14} />} {p.plan.length ? "Open the plan" : "Write the plan"}
@@ -1615,8 +1777,38 @@ export default function Flow(p: FlowProps) {
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Visual direction</span>
                   <p>
-                    <b>{WAYS.find((w) => w.key === way)?.title} leads</b> · {monthGrid ? `grid “${monthGrid.title}”` : "no grid"} · {theme ? `theme “${theme.title}”${theme.references ? "" : " (no pins, optional)"}` : "no theme"} · colours {p.config?.palette?.length ? `this month only, ${paletteFrom}` : theme?.palette?.length ? "from the theme" : "the brand's"}
+                    <b>{WAYS.find((w) => w.key === way)?.title} leads</b> · {monthGrid ? `grid “${monthGrid.title}”` : "no grid"} · {theme ? `theme “${theme.title}”${theme.references ? "" : " (no pins, optional)"}` : "no theme"} · colours {p.config?.palette?.length ? `this month only, ${paletteFrom}` : savedSource === "theme" ? paletteFrom : "the client's brand colours"}
                   </p>
+                  <button type="button" className="text-button" onClick={() => setStage(1)}>
+                    Change
+                  </button>
+                </div>
+                <div className="flow-sum-cell">
+                  <span className="flow-eyebrow">Models</span>
+                  {p.cast.length ? (
+                    <div className="flow-model-chips">
+                      {p.cast.map((a) => (
+                        <span key={a.id} className="flow-model-chip" title={a.description || a.name}>
+                          {portrait(a) ? (
+                            <img src={portrait(a)!} alt="" />
+                          ) : (
+                            <i className="flow-model-blank" aria-hidden>
+                              <UserRound size={12} />
+                            </i>
+                          )}
+                          {a.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>No models cast this month: a post that shows a person shows no one in particular.</p>
+                  )}
+                  <small>
+                    {(() => {
+                      const named = p.plan.filter((x) => x.people?.length).length;
+                      return p.cast.length ? `${p.cast.length} cast this month · ${named ? `${named} post${named === 1 ? "" : "s"} name${named === 1 ? "s" : ""} them` : "no post names them yet"}` : "";
+                    })()}
+                  </small>
                   <button type="button" className="text-button" onClick={() => setStage(1)}>
                     Change
                   </button>
@@ -1766,6 +1958,41 @@ export default function Flow(p: FlowProps) {
                             <span className="flow-muted flow-scene" title={x.scene?.trim() ? "The shot written for this post: what the engine is told to show" : "No shot written yet: the picture is made from the idea alone"}>
                               {x.scene?.trim() ? `Shot · ${x.scene.trim().slice(0, 160)}` : `Idea · ${x.brief.slice(0, 160)}`}
                             </span>
+                            {p.cast.length > 0 && (
+                              <span className="flow-post-people">
+                                {(x.people ?? []).map((n) => {
+                                  const a = p.cast.find((y) => y.name === n);
+                                  return (
+                                    <span key={n} className="flow-model-chip small">
+                                      {a && portrait(a) ? <img src={portrait(a)!} alt="" /> : null}
+                                      {n}
+                                      <button type="button" aria-label={`Take ${n} out of post ${x.index}`} title="Take out of this picture" onClick={() => void p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, people: (y.people ?? []).filter((z) => z !== n) } : y)))}>
+                                        <X size={10} />
+                                      </button>
+                                    </span>
+                                  );
+                                })}
+                                {(x.people ?? []).length < MAX_CAST && p.cast.some((a) => !(x.people ?? []).includes(a.name)) && (
+                                  <select
+                                    value=""
+                                    aria-label={`Add a model to post ${x.index}`}
+                                    onChange={(e) => {
+                                      const n = e.target.value;
+                                      if (n) void p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, people: [...new Set([...(y.people ?? []), n])] } : y)));
+                                    }}
+                                  >
+                                    <option value="">{(x.people ?? []).length ? "+ model" : "No one in the picture · + model"}</option>
+                                    {p.cast
+                                      .filter((a) => !(x.people ?? []).includes(a.name))
+                                      .map((a) => (
+                                        <option key={a.id} value={a.name}>
+                                          {a.name}
+                                        </option>
+                                      ))}
+                                  </select>
+                                )}
+                              </span>
+                            )}
                             {older && (
                               <span className="flow-post-flag idea">
                                 Made for an older idea: the idea, product or direction changed after this picture was made. It stays under Versions; make it again when you want, the other posts are untouched.
