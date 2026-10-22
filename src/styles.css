@@ -17340,3 +17340,66 @@ label.cta input {
 .editor-ocr {
   margin: 8px 0;
 }
+
+/* ───────────── Phone width: the boards stack, nothing scrolls sideways ───────────── */
+@media (max-width: 760px) {
+  .flow {
+    overflow-x: hidden;
+  }
+  .flow-two,
+  .flow-two.wide,
+  .flow-glance3,
+  .flow-summary,
+  .flow-draft-cells,
+  .flow-guide-layers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .flow-guide-layers {
+    padding-left: 16px;
+  }
+  .flow-where {
+    flex-wrap: wrap;
+  }
+  .flow-where select,
+  .flow-where input[type="month"] {
+    max-width: 100%;
+  }
+  .flow-posts-head {
+    display: none;
+  }
+  .flow-posts li {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-auto-flow: row dense;
+  }
+  .flow-posts li .flow-post-thumb {
+    grid-column: 1;
+  }
+  .flow-posts li .flow-post-main,
+  .flow-posts li .flow-post-product,
+  .flow-posts li .flow-post-out,
+  .flow-posts li > .text-button {
+    grid-column: 2;
+  }
+  .flow-inputs li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .flow-input-actions {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .flow-precedence-strip .flow-precedence {
+    row-gap: 8px;
+  }
+  .studio-board-head .studio-actions {
+    width: 100%;
+  }
+  .studio-actions .cta {
+    flex: 1 1 auto;
+  }
+  .editor-choices {
+    grid-template-columns: 1fr;
+  }
+}
