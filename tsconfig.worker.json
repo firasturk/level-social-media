@@ -15,5 +15,5 @@
     "paths": { "@shared/*": ["./shared/*"] },
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.worker.tsbuildinfo"
   },
-  "include": ["server", "shared", "tests"]
+  "include": ["server", "shared", "tests", "eval/**/*.ts"]
 }

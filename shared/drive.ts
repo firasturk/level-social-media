@@ -21,6 +21,95 @@ export interface DrivePhoto {
   note?: string;
   /** A video, seen through its frame: used for the client's places, never as a product photo. */
   video?: boolean;
+  /** The role of the approved folder the photo was found under (product photos by default). */
+  role?: DriveRole;
+  /** The id of the approved folder it was found under. */
+  folderId?: string;
+  /** Drive's checksum of the file: two files with one checksum are the same picture. */
+  md5?: string;
+  /** The id of the earlier photo this one is a copy of (same checksum, same client). */
+  duplicateOf?: string;
+  /** Drive no longer gives this file (deleted, in the bin, unshared); `reason` says why. */
+  missing?: boolean;
+  reason?: string;
+}
+
+/**
+ * What a client's approved Drive folder holds. Product photos are the only ones a post is built
+ * from; brand assets are logos and packaging art; references are inspiration pictures the
+ * designer pins to a post (never a product); outputs are finished pictures the team exported.
+ */
+export const DRIVE_ROLES = ["product", "brand", "reference", "output"] as const;
+export type DriveRole = (typeof DRIVE_ROLES)[number];
+
+export const DRIVE_ROLE_LABELS: Record<DriveRole, string> = {
+  product: "Product photos",
+  brand: "Brand assets",
+  reference: "References",
+  output: "Outputs",
+};
+
+export function isDriveRole(x: unknown): x is DriveRole {
+  return typeof x === "string" && (DRIVE_ROLES as readonly string[]).includes(x);
+}
+
+/** An approved (or waiting) Drive folder of a client. */
+export interface DriveFolder {
+  /** The Drive folder id. */
+  id: string;
+  name: string;
+  role: DriveRole;
+  approved: boolean;
+  link: string;
+  /** The folder linked on the client's profile, read as the product folder while none is approved. */
+  default?: boolean;
+  /** A folder of the demo listing (no Drive credential on a preview). */
+  demo?: boolean;
+  addedBy?: string;
+  created?: number;
+}
+
+/** The listing of a client's Drive, as the picker reads it. */
+export interface DriveListing {
+  /** The client's profile folder link (the default product folder). */
+  link: string;
+  /** The service account to share folders with, or null when none is connected. */
+  email: string | null;
+  /** The name of the first product folder, or null when nothing can be read. */
+  folder: string | null;
+  folders: DriveFolder[];
+  /** Every photo Drive gives, with its role. Missing ones are not here. */
+  photos: DrivePhoto[];
+  /** The photos by role, for the picker's tabs. */
+  groups: Record<DriveRole, DrivePhoto[]>;
+  /** Photos the studio knew that Drive no longer gives, with the reason. */
+  missing: DrivePhoto[];
+  skipped?: DriveSkipped[];
+  /** True when the listing is the demo fixture (no Drive credential on a preview). */
+  demo: boolean;
+  error?: string;
+}
+
+/** The photos by role; a photo without one is a product photo. */
+export function groupByRole(photos: DrivePhoto[]): Record<DriveRole, DrivePhoto[]> {
+  const out: Record<DriveRole, DrivePhoto[]> = { product: [], brand: [], reference: [], output: [] };
+  for (const p of photos) out[p.role ?? "product"].push(p);
+  return out;
+}
+
+/**
+ * Two files with one checksum are the same picture: every later copy points at the first (the
+ * oldest by modified time, then by id), so the team sees "same as …" and the picker adds it once.
+ */
+export function markDuplicates(photos: DrivePhoto[]): DrivePhoto[] {
+  const firstOf = new Map<string, DrivePhoto>();
+  const ordered = [...photos].filter((p) => p.md5 && !p.missing).sort((a, b) => a.modified.localeCompare(b.modified) || a.id.localeCompare(b.id));
+  for (const p of ordered) if (!firstOf.has(p.md5!)) firstOf.set(p.md5!, p);
+  return photos.map((p) => {
+    const head = p.md5 && !p.missing ? firstOf.get(p.md5) : undefined;
+    if (!head || head.id === p.id) return p;
+    return { ...p, duplicateOf: head.id };
+  });
 }
 
 /** Files in a client's folder the studio does not read, by top folder ("factory HB": 40 videos). */

@@ -130,6 +130,7 @@ export const configSchema = z.object({
   plannedAt: z.number().int().nonnegative().optional(),
   ambassadors: z.array(z.string().max(80)).max(3).optional(),
   exact: z.boolean().optional(),
+  allow: z.array(z.string().max(20)).max(8).optional(),
   testPost: z.number().int().min(1).max(MAX_POST_COUNT).optional(),
   continuedFrom: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   gridRef: z.string().max(80).optional(),

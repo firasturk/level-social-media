@@ -282,6 +282,8 @@ export interface StateResponse {
   spendThreshold: number;
   /** Admins see the four-stage workflow (Start, Direction, Plan, Studio) instead of the journey. */
   workflowV2?: boolean;
+  /** Prices are shown to admins only, and this user is not one: the amounts read "cost shown to admins". Confirmations still happen. */
+  pricesHidden?: boolean;
   /** Autopilot stops at the plan for a look before paying. */
   autopilotReview?: boolean;
   /** A preview deployment: pictures and videos are never made here. */

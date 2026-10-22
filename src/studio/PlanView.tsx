@@ -3,9 +3,12 @@ import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import { ENHANCE_NOTE, fixNote } from "@shared/qa";
-import { post } from "@/api";
+import { post, postForm } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
 import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
+import { applyStyleToPosts, designFromLegacy, type ApplyRole } from "./text/model";
+import type { Layer, TextDesign } from "@shared/layers";
+import "./text/text-studio.css";
 import {
   Clapperboard,
   Download,
@@ -101,6 +104,7 @@ export default function PlanView({
   onRestorePicture,
   onAccept,
   compact = false,
+  toolbar = true,
   onEdit,
   onDeletePlan,
   paused,
@@ -116,7 +120,10 @@ export default function PlanView({
   batchId = null,
   onRefresh,
   outputThumb,
+  wordsRequest,
 }: {
+  /** Another screen (the review dialog) asks for the Text studio on a post: a new token opens it. */
+  wordsRequest?: { index: number; at: number } | null;
   /** The picture at card size (a smaller copy the server keeps); the full picture opens in the dialogs. */
   outputThumb?: (t: Task) => string;
   /** The month's notes for the ideas writer (kept in the side panel). */
@@ -202,6 +209,8 @@ export default function PlanView({
   onRestorePicture?: (index: number, key: string) => Promise<void>;
   /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
   compact?: boolean;
+  /** False folds the month toolbar away (the Studio board's More menu opens it). */
+  toolbar?: boolean;
   onEdit?: (index: number, group?: EditorGroup) => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
@@ -222,6 +231,9 @@ export default function PlanView({
     else setVideoFor(requested.index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested?.at]);
+  useEffect(() => {
+    if (wordsRequest) setEditing(wordsRequest.index);
+  }, [wordsRequest]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
@@ -439,7 +451,7 @@ export default function PlanView({
         }}
       />
 
-      <div className="plan-toolbar">
+      <div className={`plan-toolbar ${toolbar ? "" : "folded"}`}>
         <div className="plan-month">
           <label htmlFor="month">Month</label>
           <input
@@ -654,9 +666,9 @@ export default function PlanView({
         </div>
       ) : (
         <>
-          <div className="posts-head" id="month-posts">
+          <div className={`posts-head ${toolbar ? "" : "quiet"}`} id="month-posts">
             <strong>Posts</strong>
-            <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
+            <span>{toolbar ? "Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture." : "Every card: the picture, the title and date, one status, one line of caption and the next useful action. A cost appears only on the button that makes a picture."}</span>
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
@@ -731,6 +743,7 @@ export default function PlanView({
                       styleTitle={p.style ? (styleOf(p.style)?.title ?? "Gallery style") : null}
                       dayTitle={occasionOn(p.date) || undefined}
                       onEdit={(g) => onEdit(p.index, g)}
+                      onTextStudio={p.overlay !== false ? () => setEditing(p.index) : undefined}
                       onFixReview={onFix ? () => { setFixing(p.index); void onFix(p.index, fixNote(reviewFlags(t!)!)).finally(() => setFixing(null)); } : undefined}
                       onAccept={onAccept ? () => { setAccepting(p.index); void onAccept(p.index).finally(() => setAccepting(null)); } : undefined}
                       fixing={fixing === p.index}
@@ -920,6 +933,21 @@ export default function PlanView({
                             <span className={`post-state ${state.cls}`}>
                               {state.icon} {state.text}
                             </span>
+                          )}
+                          {t?.output && !inFlight && p.overlay !== false && (
+                            <button
+                              type="button"
+                              className="pc-text-studio"
+                              title="Text studio"
+                              aria-label="Text studio"
+                              style={flags || !state ? { marginLeft: "auto" } : undefined}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditing(p.index);
+                              }}
+                            >
+                              <Type size={13} />
+                            </button>
                           )}
                         </header>
                       );
@@ -1488,14 +1516,46 @@ export default function PlanView({
             onClientsChanged={onClientsChanged}
             onClose={() => setEditing(null)}
             onSave={(r: EditorResult, keepOpen) => {
-              const next = draft.map((x) =>
+              const next = draftRef.current.map((x) =>
                 x.index === p.index
                   ? { ...x, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov }
                   : x,
               );
+              draftRef.current = next;
               setDraft(next);
               onSavePlan(next);
               if (!keepOpen) setEditing(null);
+            }}
+            assets={[
+              ...products.map((s) => ({ name: displayName(s.name), src: sourceUrl(s.id), kind: "product" as const })),
+              ...client.places.map((pl) => ({ name: pl.name, src: `/api/studio/clients/${client.id}/places/${pl.id}/file`, kind: "brand" as const })),
+            ]}
+            onUploadGraphic={
+              batchId
+                ? async (file: File) => {
+                    const form = new FormData();
+                    form.append("file", file);
+                    const r = await postForm<{ url: string }>(`/api/studio/posts/graphic?batch=${encodeURIComponent(batchId)}`, form);
+                    return r.url;
+                  }
+                : undefined
+            }
+            onApplyToAll={async (style: Partial<Layer>, role: ApplyRole) => {
+              // One look for the month: the other posts' same-role layers take it; a post that was
+              // never opened in the studio first gets its design from its own words. Only the
+              // design data changes: no picture is touched and nothing is generated.
+              const H = format === "1:1" ? 1080 : format === "9:16" ? 1920 : 1350;
+              const made = (x: Post): TextDesign | null => {
+                if (!taskOf(x.index)?.output) return null;
+                if (role !== "logo" && !(x.headline || x.subline)) return null;
+                return designFromLegacy(overlay, x.headline ?? "", x.subline ?? "", x.ov, null, 1080, H);
+              };
+              const r = applyStyleToPosts(draftRef.current, p.index, style, role, made);
+              if (!r.changed) return 0;
+              draftRef.current = r.plan;
+              setDraft(r.plan);
+              await onSavePlan(r.plan);
+              return r.changed;
             }}
           />
         );

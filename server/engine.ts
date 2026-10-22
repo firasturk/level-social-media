@@ -8,6 +8,7 @@
 import type { Env } from "./env";
 import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
+import { fingerprint, postReferenceKeys, traceEvent } from "./trace";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
@@ -20,6 +21,13 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
 export const MAX_AUTO_TAKES = 1;
+/** The flags of an automated review that a second take fixes by itself; an OCR flag is a note for the team, never a retake. */
+export function selfFixable(qa: QA): PostFlag[] {
+  return qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind) && !isOcrFlag(f)) : [];
+}
+import { ocrReviewFlags } from "./ocr";
+import { isOcrFlag } from "@shared/ocr-check";
+import type { PostFlag } from "@shared/qa";
 import { holdUncertain, releaseSpend, reserveSpend, spendFits } from "./spend";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { demoAnswer, demoMode } from "./demo";
@@ -537,14 +545,16 @@ async function storeResultBytes(
     task.id,
   );
   if (phash) await run(env.DB, "UPDATE tasks SET phash = ? WHERE id = ?", phash, task.id).catch(() => undefined);
-  await recordTake(env, batch, task, { status: "made", key, cost: await attemptCostOf(env, config, task), note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
+  const attemptCost = await attemptCostOf(env, config, task);
+  await recordTake(env, batch, task, { status: "made", key, cost: attemptCost, note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "stored", output: { picture: key, engineUrl: url ? "[url]" : null }, model: taskConfig(config, task).model ?? null, cost: attemptCost, metadata: { client: batch.client, post: task.post, revision: task.making_for, references: postReferenceKeys(task.brief), engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
 
   let qa: QA;
   if (config.mode === "post") {
     // A post is checked against the real product photo: what changed, writing, bags, drinks, people.
     try {
       qa = await reviewPostImage(env, task, result);
-      // Every finding is kept as a lesson: the client's next prompts forbid it explicitly.
+      // Every finding is proposed as a lesson with its exact words; it waits for the admin before any prompt carries it.
       if (qa.automated) await rememberLessons(env, batch.client, batch.id, qa.flags).catch((e) => console.error("[lessons]", e));
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
       // A picture that looks like one of the client's earlier posts (the same composition) is noticed.
@@ -553,6 +563,7 @@ async function storeResultBytes(
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
     }
+    void traceEvent(env, { kind: "review", traceId: batch.id, spanId: task.id, name: "review", input: { picture: key }, output: { automated: qa.automated, notes: qa.notes, flags: qa.flags ?? [] }, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
     // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
     // from the post's original reference with the idea as the note; the drift stays as a lesson.
     const pb = postBrief(task);
@@ -586,7 +597,7 @@ async function storeResultBytes(
     }
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
-    const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
+    const fixable = selfFixable(qa);
     if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && !budget.ok) qa = { ...qa, notes: `${qa.notes ? `${qa.notes} ` : ""}Not made again by itself: ${budget.why}. Press Fix it to make it again.` };
     if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = { ...pb, retried: true };
@@ -603,6 +614,9 @@ async function storeResultBytes(
       console.log(`[self-fix] task ${task.id} post ${pb.index}: ${fixable.map((f) => f.kind).join(",")}`, done);
       if (done) return;
     }
+    // Writing read by OCR (when Google Vision is connected) is a review note added after the retake
+    // decisions: it never queues a take by itself. A faint reading says "check the writing".
+    qa = await ocrReviewFlags(env, batch, task, qa, result, [pb.product?.split(":")[0] ?? "", ...(pb.productNames ?? []), ...(pb.extraProducts ?? []).map((x) => x.name)]);
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)
     await run(
@@ -654,6 +668,7 @@ async function storeResultBytes(
   } else {
     qa = manualQA();
   }
+  void traceEvent(env, { kind: "review", traceId: batch.id, spanId: task.id, name: "review", input: { picture: key }, output: { automated: qa.automated, notes: qa.notes, productConcern: qa.productConcern, centered: qa.centered, sameFace: qa.sameFace }, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
 
   const wantsCenter = centeringApplies(config, task.card);
   // An off-centre result is flagged for review, never regenerated on its own: each image is
@@ -771,6 +786,7 @@ async function settleFailedAttempt(
   // The failed attempt is listed with what it cost (nothing when the vendor refused the request
   // before working, its recorded cost otherwise, which may be billed).
   await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: message });
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "failed", output: { error: message }, model: config.model ?? null, cost: billing === "none" ? 0 : refund, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: config.model ?? null, attempt: task.attempts, error: message, billing } });
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
@@ -2091,6 +2107,7 @@ async function promptFor(
   if (task.recenter) prompt += `\n\n${RECENTER_SUFFIX}`;
   prompt = sanitizePrompt(prompt);
   await run(env.DB, "UPDATE tasks SET prompt = ? WHERE id = ?", prompt, task.id);
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "submit", input: { prompt, images: Object.entries(roles).filter(([, on]) => on).map(([role]) => role), edit: edit || undefined }, model: config.model ?? null, metadata: { client: batch.client, post: task.post, revision: task.making_for, promptVersion: fingerprint(prompt), references: config.mode === "post" ? postReferenceKeys(task.brief) : [], engine: config.model ?? null, attempt: task.attempts + 1 } });
   return prompt;
 }
 

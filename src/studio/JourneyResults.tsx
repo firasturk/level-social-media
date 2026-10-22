@@ -3,6 +3,7 @@ import TypographyControls, { type TypographyProps } from "./TypographyControls";
 import { createPortal } from "react-dom";
 import { ArrowUpRight, Check, Download, Eye, ImageOff, Maximize2, PenLine, RotateCcw, ScanSearch, Share2, TriangleAlert, Wand2, X } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { postForm } from "@/api";
 import type { Client } from "@shared/types";
 import type { Approval } from "@shared/config";
 import { fixNote, type PostFlag } from "@shared/qa";
@@ -482,6 +483,16 @@ function CaptionCard({
               onSave({ ...post, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov });
               if (!keepOpen) setEditingText(false);
             }}
+            onUploadGraphic={
+              batchId
+                ? async (file: File) => {
+                    const form = new FormData();
+                    form.append("file", file);
+                    const r = await postForm<{ url: string }>(`/api/studio/posts/graphic?batch=${encodeURIComponent(batchId)}`, form);
+                    return r.url;
+                  }
+                : undefined
+            }
           />
         )}
         {check && !checking && (

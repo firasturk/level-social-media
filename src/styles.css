@@ -15683,14 +15683,44 @@ select {
   color: var(--accent-deep, #0e22b0);
 }
 .flow-lead {
-  padding: 12px 14px;
+  display: flex;
+  gap: 14px;
+  padding: 14px;
   border-radius: 12px;
   background: var(--accent-soft, #e9ecfb);
   font-size: 13px;
   line-height: 1.5;
+  margin-bottom: 12px;
 }
 .flow-lead p {
   margin: 0;
+}
+.flow-lead-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent, #1129d3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.flow-lead-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.flow-lead-body > b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.flow-lead-body > small {
+  font-size: 12px;
+}
+.flow-lead-body .text-button {
+  font-size: 12px;
 }
 .flow-inputs {
   list-style: none;
@@ -15699,23 +15729,87 @@ select {
 }
 .flow-inputs li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  padding: 10px 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
   border-top: 1px solid var(--line);
   font-size: 13px;
 }
-.flow-inputs li b {
+.flow-inputs li.flow-input-wide {
+  display: block;
+}
+.flow-input-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.flow-input-text b {
   font-weight: 600;
 }
-.flow-inputs li span {
-  grid-column: 1;
+.flow-input-text span {
   color: var(--ink-500);
+  font-size: 12px;
 }
-.flow-inputs li .text-button {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  align-self: center;
+.flow-input-text strong {
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.flow-input-art {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+.flow-input-art img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.flow-input-art.tall img {
+  width: 26px;
+  border-radius: 4px;
+}
+.flow-input-empty {
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px dashed var(--line-strong, #c9d2cc);
+}
+.flow-input-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.flow-input-actions .text-button {
+  font-size: 12px;
+}
+.flow-precedence-strip {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 12px;
+}
+.flow-precedence-strip .flow-precedence {
+  margin: 0 0 6px;
+  align-items: center;
+}
+.flow-precedence-strip .flow-precedence > b {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.flow-precedence-strip .flow-precedence > i {
+  color: var(--ink-400, #9a9aa0);
+  font-style: normal;
+}
+.flow-precedence-strip p {
+  margin: 0;
 }
 .flow-details summary {
   cursor: pointer;
@@ -15734,8 +15828,8 @@ select {
   flex-wrap: wrap;
 }
 .flow-swatch {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 10px;
   border: 1px solid var(--line);
 }
@@ -15863,8 +15957,20 @@ select {
   font-size: 14px;
 }
 .flow-post-flag {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #fff4e5;
   font-size: 12px;
   color: #8a3b00;
+}
+.flow-post-flag .text-button {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
 }
 .flow-post-product,
 .flow-post-out {
@@ -16388,6 +16494,10 @@ label.cta input {
 .pc-actions .cta.primary {
   flex: 1;
 }
+.pc-actions .cta.secondary:not(.icon) {
+  flex: 1;
+  white-space: nowrap;
+}
 .card-menu {
   position: relative;
 }
@@ -16522,6 +16632,20 @@ label.cta input {
   gap: 10px;
   margin: -4px 0 14px;
 }
+.flow-tools.quiet {
+  gap: 18px;
+  margin: -6px 0 12px;
+  font-size: 12.5px;
+}
+.flow-tools.quiet .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+}
+.flow-sum-cell p b {
+  font-weight: 600;
+}
 .flow-post-changes.reading {
   background: var(--blue-soft);
 }
@@ -16612,4 +16736,675 @@ label.cta input {
 .editor-group input[type="radio"] {
   width: auto;
   flex: none;
+}
+
+/* The workflow's top bar: the client and the month are switchable there; the radio sits at the bottom */
+.flow-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.flow-where select,
+.flow-where input[type="month"] {
+  width: auto;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid transparent;
+}
+.radio.in-flow {
+  /* The workflow owns the bottom-right corner (Continue). The music sits bottom-left, icon only. */
+  bottom: 14px;
+  top: auto;
+  right: auto;
+  left: 14px;
+}
+.radio.in-flow .radio-label {
+  display: none;
+}
+.radio.in-flow .radio-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  justify-content: center;
+  gap: 0;
+}
+.radio.in-flow .radio-pop {
+  left: 0;
+  right: auto;
+}
+
+/* ───────────── Start board, as designed: a picture on each way, three cells at a glance ───────────── */
+.flow-way-art {
+  display: block;
+  height: 140px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.flow-way-art img {
+  display: block;
+}
+.flow-art-brief {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+  background: var(--blue-soft);
+}
+.flow-art-brief .bar {
+  display: block;
+  height: 7px;
+  width: 88%;
+  border-radius: 4px;
+  background: var(--blue-pale);
+}
+.flow-art-brief .bar.long {
+  height: 10px;
+  width: 62%;
+  background: var(--blue);
+}
+.flow-art-brief .bar.short {
+  width: 70%;
+}
+.flow-art-row {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.flow-art-row img,
+.flow-art-plus {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+.flow-art-plus {
+  border: 1px dashed var(--sky);
+  color: var(--sky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+.flow-art-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  height: 100%;
+}
+.flow-art-grid img,
+.flow-art-tile {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  min-height: 0;
+}
+.flow-art-tile.word {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue);
+}
+.flow-art-full {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.flow-art-refs {
+  position: relative;
+  display: block;
+  height: 100%;
+  background: var(--mint);
+}
+.flow-art-refs img {
+  position: absolute;
+  width: 90px;
+  height: 112px;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.18);
+}
+.flow-art-style {
+  position: relative;
+  display: block;
+  height: 100%;
+}
+.flow-art-style img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.flow-art-label {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.flow-glance3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.flow-glance3 .flow-box {
+  gap: 10px;
+}
+.flow-big {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.flow-big b {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink-900);
+  margin-right: 4px;
+}
+.flow-shortcut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink-900);
+  text-align: left;
+}
+.flow-shortcut svg {
+  color: var(--blue);
+}
+.flow-shortcut:hover {
+  color: var(--blue);
+}
+.flow-sample-pill {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a3b00;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--blue-soft);
+  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .flow-glance3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ───────────── Studio board, as designed: tabs, the month in numbers, one action bar ───────────── */
+.studio-rail-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-board {
+  margin: 0 0 18px;
+}
+.studio-board-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.studio-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.studio-tabs button {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-500);
+  cursor: pointer;
+}
+.studio-tabs button.on {
+  background: var(--surface);
+  color: var(--ink-900);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.studio-counts {
+  font-size: 13px;
+  color: var(--ink-500);
+}
+.studio-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.studio-actions .cta {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+.studio-more-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-900);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.studio-more .card-menu-list {
+  top: calc(100% + 6px);
+  bottom: auto;
+  min-width: 300px;
+}
+.studio-hidden {
+  display: none;
+}
+.studio-empty {
+  margin: 20px 0;
+}
+.plan-toolbar.folded {
+  display: none;
+}
+.posts-head.quiet span {
+  font-size: 12px;
+}
+.words-list,
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.words-list li,
+.approval-list li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.words-thumb img,
+.words-thumb .flow-post-blank {
+  display: block;
+  width: 64px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.words-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.words-main > b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.words-main > b small {
+  font-weight: 400;
+  color: var(--ink-500);
+}
+.words-main label {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.words-main label textarea {
+  align-self: start;
+}
+.approval-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.approval-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.approval-head p {
+  margin: 0;
+}
+.approval-head b.warn {
+  color: #8a3b00;
+}
+.approval-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.approval-note {
+  font-size: 13px;
+  quotes: "“" "”";
+}
+@media (max-width: 720px) {
+  .studio-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .words-main label {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ───────────── A planning draft, reviewed before the month changes ───────────── */
+.flow-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--accent, #1129d3);
+  background: var(--surface);
+}
+.flow-draft-cells {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.flow-draft-cell {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.flow-draft-cell > b {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.1;
+}
+.flow-draft-cell.new {
+  background: var(--accent-soft, #e9ecfb);
+}
+.flow-draft-cell.warn {
+  background: #fff4e5;
+  color: #8a3b00;
+}
+.flow-draft-cell ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-900);
+}
+.flow-draft-cell li {
+  font-size: 12px;
+  line-height: 1.4;
+}
+@media (max-width: 760px) {
+  .flow-draft-cells {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ───────────── Conflicts and the guide, per post on the Plan ───────────── */
+.flow-post-changes.conflicts.block {
+  background: #fff4e5;
+  border: 1px solid #f3c48a;
+}
+.flow-post-changes.conflicts em {
+  font-style: normal;
+  color: #1f6b3f;
+}
+.flow-conflict-actions {
+  display: inline-flex;
+  gap: 12px;
+  margin-left: 10px;
+}
+.flow-guide {
+  grid-column: 1 / -1;
+  font-size: 13px;
+}
+.flow-guide summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.flow-guide-layers {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 18px;
+}
+.flow-guide-layers > li > b {
+  font-weight: 600;
+  font-size: 12px;
+}
+.flow-guide-layers ul {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  color: var(--ink-700, #444);
+  font-size: 12px;
+}
+
+/* ───────────── The editor's AI edit: scope, area marking, three actions ───────────── */
+.edit-scope {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--ink-500);
+}
+.edit-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+.edit-actions-row .text-button.on {
+  font-weight: 700;
+}
+.edit-actions-row .revision-note {
+  flex-basis: 100%;
+}
+.mark-area {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  z-index: 3;
+}
+.mark-box {
+  position: absolute;
+  border: 2px dashed var(--accent, #1129d3);
+  background: rgba(17, 41, 211, 0.12);
+  pointer-events: none;
+}
+
+.flow-rules {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.take-line {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  color: var(--ink-500);
+}
+.editor-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+.editor-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--ink-900);
+  background: var(--surface-2);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink-900);
+}
+.editor-choice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.editor-choice b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.editor-choice span {
+  font-size: 12px;
+  color: var(--ink-500);
+  line-height: 1.4;
+}
+.editor-choice em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #1129d3);
+}
+.editor-choice em.free {
+  color: #1f6b3f;
+}
+@media (max-width: 720px) {
+  .editor-choices {
+    grid-template-columns: 1fr;
+  }
+}
+
+.studio-feedback {
+  margin-top: 16px;
+}
+.editor-feedback summary,
+.editor-drive summary,
+.editor-ocr summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.editor-drive,
+.editor-ocr {
+  margin: 8px 0;
+}
+
+/* ───────────── Phone width: the boards stack, nothing scrolls sideways ───────────── */
+@media (max-width: 760px) {
+  .flow {
+    overflow-x: hidden;
+  }
+  .flow-two,
+  .flow-two.wide,
+  .flow-glance3,
+  .flow-summary,
+  .flow-draft-cells,
+  .flow-guide-layers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .flow-guide-layers {
+    padding-left: 16px;
+  }
+  .flow-where {
+    flex-wrap: wrap;
+  }
+  .flow-where select,
+  .flow-where input[type="month"] {
+    max-width: 100%;
+  }
+  .flow-posts-head {
+    display: none;
+  }
+  .flow-posts li {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-auto-flow: row dense;
+  }
+  .flow-posts li .flow-post-thumb {
+    grid-column: 1;
+  }
+  .flow-posts li .flow-post-main,
+  .flow-posts li .flow-post-product,
+  .flow-posts li .flow-post-out,
+  .flow-posts li > .text-button {
+    grid-column: 2;
+  }
+  .flow-inputs li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .flow-input-actions {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .flow-precedence-strip .flow-precedence {
+    row-gap: 8px;
+  }
+  .studio-board-head .studio-actions {
+    width: 100%;
+  }
+  .studio-actions .cta {
+    flex: 1 1 auto;
+  }
+  .editor-choices {
+    grid-template-columns: 1fr;
+  }
+}
+/* The Text studio icon in the card header takes clicks even though the header itself lets them through. */
+.studio-card .post-head .pc-text-studio {
+  pointer-events: auto;
+  margin-left: auto;
 }

@@ -4,7 +4,8 @@
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Ellipsis, Pencil, TriangleAlert, Wand2 } from "lucide-react";
+import { Check, Ellipsis, Pencil, TriangleAlert, Type, Wand2 } from "lucide-react";
+import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -30,6 +31,7 @@ export default function PostCardCompact({
   styleTitle,
   dayTitle,
   onEdit,
+  onTextStudio,
   onFixReview,
   onAccept,
   fixing,
@@ -49,6 +51,8 @@ export default function PostCardCompact({
   styleTitle?: string | null;
   dayTitle?: string;
   onEdit: (group?: EditorGroup) => void;
+  /** Opens the Text studio on this post's words and layers: the icon above the picture. No picture is made. */
+  onTextStudio?: () => void;
   onFixReview?: () => void;
   onAccept?: () => void;
   fixing: boolean;
@@ -102,6 +106,20 @@ export default function PostCardCompact({
               </span>
             )
           )}
+          {onTextStudio && task?.output && !inFlight && (
+            <button
+              type="button"
+              className="pc-text-studio"
+              title="Text studio: the words and layers on this picture"
+              aria-label="Text studio"
+              onClick={(e) => {
+                e.stopPropagation();
+                onTextStudio();
+              }}
+            >
+              <Type size={13} />
+            </button>
+          )}
         </header>
         {media}
       </div>
@@ -144,8 +162,11 @@ export default function PostCardCompact({
         )}
         {extra}
         <div className="pc-actions">
-          <button type="button" className="cta primary small" onClick={() => onEdit()} disabled={inFlight}>
-            <Pencil size={14} /> Edit
+          <button type="button" className="cta primary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "The picture: retake, fix, compare" : "The idea and the shot"}>
+            <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+          </button>
+          <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture">
+            Words &amp; layout
           </button>
           <div className="card-menu" ref={box}>
             <button type="button" className="cta secondary small icon" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>

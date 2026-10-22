@@ -10,6 +10,7 @@ import {
   INVITE_CODE_SETTING,
   SPEND_THRESHOLD_SETTING,
   WORKFLOW_V2_SETTING,
+  PRICING_VISIBILITY_SETTING,
   AUTOPILOT_REVIEW_SETTING,
   RETENTION_DAYS_SETTING,
   NOTIFY_WEBHOOK_SETTING,
@@ -35,6 +36,7 @@ export interface AdminSettings {
   spendThreshold: number;
   /** The four-stage workflow (Start, Direction, Plan, Studio) for admins, instead of the journey. */
   workflowV2: boolean;
+  pricing: "everyone" | "admins";
   /** Autopilot stops at the plan for a person's look before anything is paid. */
   autopilotReview: boolean;
   retentionDays: number;
@@ -48,6 +50,7 @@ export async function readAdminSettings(env: Env): Promise<AdminSettings> {
     inviteCode: (await getSetting(env, INVITE_CODE_SETTING)) || env.INVITE_CODE || "",
     spendThreshold: Number((await getSetting(env, SPEND_THRESHOLD_SETTING)) ?? 20),
     workflowV2: (await getSetting(env, WORKFLOW_V2_SETTING)) === "1",
+    pricing: ((await getSetting(env, PRICING_VISIBILITY_SETTING)) === "admins" ? "admins" : "everyone") as "everyone" | "admins",
     autopilotReview: (await getSetting(env, AUTOPILOT_REVIEW_SETTING)) === "1",
     retentionDays: Number((await getSetting(env, RETENTION_DAYS_SETTING)) ?? 90),
     notifyWebhook: (await getSetting(env, NOTIFY_WEBHOOK_SETTING)) || "",
@@ -102,6 +105,7 @@ const settingsSchema = z.object({
   inviteCode: z.string().trim().max(100).optional(),
   spendThreshold: z.number().min(0).max(100000).optional(),
   workflowV2: z.boolean().optional(),
+  pricing: z.enum(["everyone", "admins"]).optional(),
   autopilotReview: z.boolean().optional(),
   retentionDays: z.number().int().min(0).max(3650).optional(),
   notifyWebhook: z.string().trim().max(500).optional(),
@@ -120,6 +124,7 @@ adminRoutes.post("/settings", async (c) => {
   if (d.spendThreshold !== undefined)
     await setSetting(c.env, SPEND_THRESHOLD_SETTING, String(d.spendThreshold));
   if (d.workflowV2 !== undefined) await setSetting(c.env, WORKFLOW_V2_SETTING, d.workflowV2 ? "1" : "0");
+  if (d.pricing !== undefined) await setSetting(c.env, PRICING_VISIBILITY_SETTING, d.pricing);
   if (d.autopilotReview !== undefined) await setSetting(c.env, AUTOPILOT_REVIEW_SETTING, d.autopilotReview ? "1" : "0");
   if (d.retentionDays !== undefined)
     await setSetting(c.env, RETENTION_DAYS_SETTING, String(d.retentionDays));

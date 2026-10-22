@@ -6,7 +6,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { pickedOccasions } from "@shared/occasions";
+import { referenceThumb } from "./PostTools";
 import LevelLogo from "@/components/LevelLogo";
 import { Orb } from "@/components/Orb";
 import { get, post, postForm } from "@/api";
@@ -19,11 +21,14 @@ import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
 import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
+import { draftLabel, type PlanDraft } from "@shared/draft";
+import { CONFLICT_LABELS, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
 import IdeasChat from "./IdeasChat";
 import BrandChip from "./BrandChip";
+import { RelevantRules } from "./MemoryPanel";
 import Working from "@/components/Working";
 import TestGrid from "./TestGrid";
 import { askInput } from "@/lib/confirm";
@@ -81,6 +86,8 @@ export interface FlowPreview {
     changes?: string[];
     /** The reading made from the Plan for this post, when it still applies. */
     preflight?: { notes: string[]; dropped: boolean; at: number; shot: string } | null;
+    guide?: GuideLayer[];
+    conflicts?: Conflict[];
   }[];
   planned: number;
   paid: number;
@@ -99,8 +106,16 @@ export interface FlowProps {
   ambassadors: Ambassador[];
   /** Opens the brand kit (the Studio's brand panel), outside the flow. */
   onBrandKit: () => void;
+  /** The theme's references (for the card pictures), the preview flag, and a fresh grid in the month. */
+  themeRefs: { id: string }[];
+  previewMode: boolean;
+  onNewGrid: () => Promise<void>;
   user: User;
   client: Client | null;
+  /** Every active client and the month, switchable from the top bar. */
+  clients: { id: string; name: string }[];
+  onClient: (id: string) => void;
+  onMonth: (m: string) => void;
   month: string;
   batchId: string | null;
   config: Config | null;
@@ -115,6 +130,8 @@ export interface FlowProps {
   onThemesChanged: (themes: Theme[]) => void;
   format: Format;
   model: string;
+  /** The engine's display name ("Gemini 3 Pro Image"), when the models list is loaded. */
+  modelName?: string;
   size: string;
   postCount: number;
   previousMonth: string | null;
@@ -187,13 +204,43 @@ export default function Flow(p: FlowProps) {
   const perPicture = rateFor(p.model)?.[(p.size as "1K" | "2K" | "4K") ?? "2K"] ?? 0;
 
   /* ── Start: the brief, the grid, the references, the style ── */
-  const [briefText, setBriefText] = useState(() => p.config?.campaign?.text ?? "");
+  const briefKey = `lsm-brief-draft:${p.batchId ?? "new"}`;
+  const [briefText, setBriefText] = useState(() => {
+    try {
+      return localStorage.getItem(briefKey) ?? p.config?.campaign?.text ?? "";
+    } catch {
+      return p.config?.campaign?.text ?? "";
+    }
+  });
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [planning, setPlanning] = useState(false);
+  /** The planner's draft, reviewed before the month changes; null when there is none open. */
+  const [draft, setDraft] = useState<PlanDraft | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  useEffect(() => {
+    // The words typed are kept in this browser until the draft is applied or the text is cleared.
+    try {
+      if (briefText.trim()) localStorage.setItem(briefKey, briefText);
+      else localStorage.removeItem(briefKey);
+    } catch {
+      /* private mode */
+    }
+  }, [briefText, briefKey]);
+  useEffect(() => {
+    if (!p.batchId) return;
+    let live = true;
+    get<{ draft: PlanDraft | null }>(`/api/studio/posts/drafts?batch=${encodeURIComponent(p.batchId)}`)
+      .then((r) => live && setDraft(r.draft))
+      .catch(() => live && setDraft(null));
+    return () => {
+      live = false;
+    };
+  }, [p.batchId]);
   const [picking, setPicking] = useState<"grid" | "style" | null>(null);
   const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
   /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
-  const [styleTarget, setStyleTarget] = useState<number | "next">(() => p.plan.find((x) => !x.style && x.type !== "greeting")?.index ?? p.plan[0]?.index ?? "next");
+  /** No post is chosen for a style by itself: with posts in the month the team picks one; without, the first post of the plan written next. */
+  const [styleTarget, setStyleTarget] = useState<number | "next" | null>(() => (p.plan.length ? null : "next"));
   const [moving, setMoving] = useState(false);
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== (p.config?.campaign?.text ?? "").trim();
   /** Quick Campaign on a month that has posts: new posts are added, unless the month's posts are to be replaced. */
@@ -264,10 +311,15 @@ export default function Flow(p: FlowProps) {
   /** The picked grid applied: the month planned from it, tile by tile (an existing plan is kept as a version). */
   async function applyGrid(): Promise<boolean> {
     if (!pickedGrid) return true;
-    if (p.plan.length) {
+    {
+      const g = gridInfo[pickedGrid.id];
+      const n = g?.tiles || pickedGrid.tiles;
+      const scope = `The whole grid is planned: ${n ? `${n} tile${n === 1 ? "" : "s"} become ${n} post${n === 1 ? "" : "s"}` : "one post per tile"}${g?.read ? ` (${kindsLine(g)})` : ""}. Single tiles cannot be picked on their own yet; from the Plan, one picture can be made as a test before the rest.`;
       const ok = await askConfirm(
-        `Follow "${pickedGrid.title}"? The month's ${p.plan.length} post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`,
-        { ok: "Follow this grid", danger: false, cancel: "Keep the current posts" },
+        p.plan.length
+          ? `Follow "${pickedGrid.title}"? ${scope} The month's ${p.plan.length} current post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`
+          : `Follow "${pickedGrid.title}"? ${scope} Nothing is made until the plan is confirmed.`,
+        { ok: "Follow this grid", danger: false, cancel: p.plan.length ? "Keep the current posts" : "Not now" },
       );
       if (!ok) return false;
     }
@@ -298,9 +350,10 @@ export default function Flow(p: FlowProps) {
       }
       // A month with posts keeps them and adds the new ones, unless they are to be replaced (kept as a version).
       if (!p.plan.length || briefScope === "replace") form.set("only", "1");
-      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/campaign", form);
-      await p.refresh();
-      toast.success(`${r.added} new post${r.added === 1 ? "" : "s"} planned from your request.`, { duration: 8000 });
+      // The planner writes a draft: the month changes only when the draft is applied below.
+      const r = await postForm<{ draft: PlanDraft }>("/api/studio/posts/campaign/draft", form);
+      setDraft(r.draft);
+      toast.success(`Draft ready: ${r.draft.posts.length} post${r.draft.posts.length === 1 ? "" : "s"} to review. Nothing in the month changed yet.`, { duration: 8000 });
       setBriefFiles([]);
       return true;
     } catch (e) {
@@ -311,11 +364,55 @@ export default function Flow(p: FlowProps) {
     }
   }
 
+  async function applyDraft(): Promise<boolean> {
+    if (!draft) return false;
+    setDraftBusy(true);
+    try {
+      const r = await post<{ added: number }>(`/api/studio/posts/drafts/${encodeURIComponent(draft.id)}/apply`, {});
+      await p.refresh();
+      setDraft(null);
+      try {
+        localStorage.removeItem(briefKey);
+      } catch {
+        /* private mode */
+      }
+      toast.success(draft.mode === "replace" ? `The month is now the draft's ${r.added} post${r.added === 1 ? "" : "s"}; the earlier posts are under Versions.` : `${r.added} new post${r.added === 1 ? "" : "s"} added; the others are untouched.`, { duration: 8000 });
+      return true;
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 10000 });
+      return false;
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function discardDraft() {
+    if (!draft) return;
+    setDraftBusy(true);
+    try {
+      await post(`/api/studio/posts/drafts/${encodeURIComponent(draft.id)}/discard`, {});
+      setDraft(null);
+      toast.message("Draft discarded. The month is as it was.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
   async function toDirection() {
     setMoving(true);
     try {
       await p.ensurePlan();
-      if (way === "brief" && briefUnsent && !(await planBrief())) return;
+      // An open draft is applied only by its own button: moving on never applies it quietly.
+      if (way === "brief" && draft) {
+        toast.message("Apply or discard the draft first; the month does not change until you do.");
+        return;
+      }
+      if (way === "brief" && briefUnsent) {
+        await planBrief();
+        return;
+      }
       if (way === "grid" && gridPending && !(await applyGrid())) return;
       setStage(1);
     } catch (e) {
@@ -338,7 +435,11 @@ export default function Flow(p: FlowProps) {
         }
       }
       if (startStyle) {
-        // The style goes on the post chosen for it; "next" is the first post of the plan just written.
+        // The style goes on the post chosen for it; "next" is the first post of the plan just written. No post is picked quietly.
+        if (styleTarget === null) {
+          toast.error("Choose the post the style goes on first.");
+          return;
+        }
         const index = styleTarget === "next" ? (p.plan[0]?.index ?? 1) : styleTarget;
         await p.onStyles([{ index, style: startStyle.id }]);
         setStyleTarget(index);
@@ -452,10 +553,17 @@ export default function Flow(p: FlowProps) {
     }
   }
   const pinned = p.plan.filter((x) => x.reference?.key).length;
+  /** Products the plan names that have no photo this month, and the posts waiting on them. */
+  const missingProducts = useMemo(() => {
+    const names = p.products.map((s) => displayName(s.name).toLowerCase());
+    const has = (n: string | undefined | null) => !!n && !names.includes(n.toLowerCase());
+    const missing = [...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? [])]).filter((n): n is string => has(n)))];
+    const posts = p.plan.filter((x) => [x.product, ...(x.products ?? [])].some(has)).map((x) => x.index);
+    return { missing, posts };
+  }, [p.products, p.plan]);
   const themeNote = p.config?.brief?.theme;
 
   const lead = LEADS[way];
-  const where = client ? `${client.name} · ${monthLabel(p.month)}` : "";
 
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
@@ -468,8 +576,22 @@ export default function Flow(p: FlowProps) {
             </button>
           ))}
         </nav>
-        <span className="journey-where">{where}</span>
+        <span className="journey-where flow-where">
+          <select value={client?.id ?? ""} onChange={(e) => p.onClient(e.target.value)} aria-label="Client" title="The client you are working on">
+            {!client && <option value="">Pick a client</option>}
+            {p.clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          <input type="month" value={p.month} onChange={(e) => e.target.value && p.onMonth(e.target.value)} aria-label="Month" title="The month you are working on" />
+        </span>
+        {p.previewMode && <span className="flow-sample-pill">Sample data (fictional)</span>}
         {client && <BrandChip client={client} ambassadors={p.ambassadors} onOpen={p.onBrandKit} />}
+        <span className="flow-avatar" title={p.user.name}>
+          {(p.user.name || p.user.email || "?").trim().charAt(0).toUpperCase()}
+        </span>
         <button type="button" className="text-button" onClick={() => p.onDone()}>
           Skip to the Studio
         </button>
@@ -492,7 +614,50 @@ export default function Flow(p: FlowProps) {
                     <span className="flow-way-check" aria-hidden>
                       <Check size={12} />
                     </span>
-                    <span className="flow-way-icon">{w.icon}</span>
+                    <span className="flow-way-art" aria-hidden>
+                      {w.key === "brief" && (
+                        <span className="flow-art-brief">
+                          <i className="bar long" />
+                          <i className="bar" />
+                          <i className="bar" />
+                          <i className="bar short" />
+                          <span className="flow-art-row">
+                            {p.products.slice(0, 2).map((s) => (
+                              <img key={s.id} src={p.sourceUrl(s.id)} alt="" />
+                            ))}
+                            <span className="flow-art-plus">+</span>
+                          </span>
+                        </span>
+                      )}
+                      {w.key === "grid" &&
+                        (shownGrid ? (
+                          <img className="flow-art-full" src={styleThumb(shownGrid)} alt="" />
+                        ) : (
+                          <span className="flow-art-grid">
+                            {Array.from({ length: 9 }, (_, i) => {
+                              const pic = p.products[i % Math.max(1, p.products.length)];
+                              const tile = i === 1 ? "word" : i === 5 || i === 8 ? "colour" : "pic";
+                              const colour = palette[(i === 5 ? 0 : 1) % Math.max(1, palette.length)]?.hex;
+                              if (tile === "word") return <span key={i} className="flow-art-tile word" style={colour ? { background: colour } : undefined}>MENU</span>;
+                              if (tile === "colour" || !pic) return <span key={i} className="flow-art-tile" style={colour ? { background: colour } : undefined} />;
+                              return <img key={i} src={p.sourceUrl(pic.id)} alt="" />;
+                            })}
+                          </span>
+                        ))}
+                      {w.key === "refs" && (
+                        <span className="flow-art-refs">
+                          {(p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => `/api/studio/references/${r.id}/file`) : p.products.slice(0, 3).map((s) => p.sourceUrl(s.id))).map((src, i) => (
+                            <img key={i} src={src} alt="" style={{ left: 14 + i * 70, top: [14, 8, 18][i], transform: `rotate(${[-4, 2, 5][i]}deg)` }} />
+                          ))}
+                        </span>
+                      )}
+                      {w.key === "style" && (
+                        <span className="flow-art-style">
+                          {startStyle ? <img src={styleThumb(startStyle)} alt="" /> : p.products[0] ? <img src={p.sourceUrl(p.products[0].id)} alt="" /> : <span className="flow-art-tile" />}
+                          <span className="flow-art-label">{startStyle?.title ?? "A look from the gallery"}</span>
+                        </span>
+                      )}
+                    </span>
                     <strong>{w.title}</strong>
                     <span className="flow-way-desc">{w.desc}</span>
                     <span className="flow-way-controls">
@@ -540,18 +705,81 @@ export default function Flow(p: FlowProps) {
                         </div>
                       )}
                       <div className="flow-pick-row">
-                        <Cta icon={planning ? <Orb size={15} /> : <Sparkles size={16} />} disabled={planning || briefText.trim().length < 20} onClick={() => void planBrief()}>
-                          {planning ? "Reading your request…" : p.config?.campaign ? "Plan it again" : "Plan it"}
+                        <Cta icon={planning ? <Orb size={15} /> : <Sparkles size={16} />} disabled={planning || draftBusy || briefText.trim().length < 20} onClick={() => void planBrief()}>
+                          {planning ? "Reading your request…" : draft ? "Plan it again" : "Plan it"}
                         </Cta>
-                        <small className="flow-muted">Reads your words and pictures into a plan (a text call, or the demo fixture). No picture is made here.</small>
+                        <small className="flow-muted">Writes a draft you review first (a text call, or the demo fixture). The month changes only when you apply it; no picture is made here.</small>
                       </div>
-                      {planning && <Working label="Reading your request into a plan" />}
+                      {planning && <Working label="Reading your request into a draft" />}
+                      {draft && (
+                        <div className="flow-draft" role="region" aria-label="Draft to review">
+                          <div className="flow-row-head">
+                            <span className="flow-eyebrow">Draft · not applied</span>
+                            <span className={`flow-pill ${draft.mode === "replace" ? "warn" : "ready"}`}>{draft.mode === "replace" ? "Replaces the month's posts" : "Adds to the month"}</span>
+                            <small className="flow-muted">{new Date(draft.created).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+                          </div>
+                          <p className="flow-text">{draft.summary}</p>
+                          <div className="flow-draft-cells">
+                            <div className="flow-draft-cell new">
+                              <b>{draft.diff.added.length}</b>
+                              <span>new post{draft.diff.added.length === 1 ? "" : "s"}</span>
+                              <ul>
+                                {draft.diff.added.slice(0, 8).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}
+                                    {x.group ? ` (${x.group.kind} ${x.group.slide}/${x.group.of})` : ""}
+                                  </li>
+                                ))}
+                                {draft.diff.added.length > 8 && <li>+{draft.diff.added.length - 8} more</li>}
+                              </ul>
+                            </div>
+                            <div className={`flow-draft-cell ${draft.diff.changed.length ? "warn" : ""}`}>
+                              <b>{draft.diff.changed.length}</b>
+                              <span>existing post{draft.diff.changed.length === 1 ? "" : "s"} would change</span>
+                              <ul>
+                                {draft.diff.changed.slice(0, 6).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}: {x.fields.join(", ")}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="flow-draft-cell">
+                              <b>{draft.mode === "replace" ? draft.diff.removed.length : draft.diff.untouched.length}</b>
+                              <span>{draft.mode === "replace" ? "current posts kept under Versions" : "posts stay exactly as they are"}</span>
+                            </div>
+                            <div className={`flow-draft-cell ${draft.diff.olderIdea.length ? "warn" : ""}`}>
+                              <b>{draft.diff.olderIdea.length}</b>
+                              <span>picture{draft.diff.olderIdea.length === 1 ? "" : "s"} would belong to an older idea</span>
+                              <ul>
+                                {draft.diff.olderIdea.slice(0, 6).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}: {x.why}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          <small className="flow-muted">
+                            After applying: {draft.diff.after.posts} post{draft.diff.after.posts === 1 ? "" : "s"} · {draft.diff.after.designs} design{draft.diff.after.designs === 1 ? "" : "s"} · {draft.diff.after.pictures} picture{draft.diff.after.pictures === 1 ? "" : "s"} to make
+                            {draft.diff.after.tiles ? ` · ${draft.diff.after.tiles} text tile${draft.diff.after.tiles === 1 ? "" : "s"} drawn here` : ""}. Closing this screen keeps the draft here, unapplied.
+                          </small>
+                          <div className="flow-pick-row">
+                            <Cta icon={draftBusy ? <Orb size={15} /> : <Check size={16} />} disabled={draftBusy} onClick={() => void applyDraft()}>
+                              {draftLabel(draft.diff)}
+                            </Cta>
+                            <button type="button" className="text-button" disabled={draftBusy} onClick={() => void discardDraft()}>
+                              Discard the draft
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {!p.products.length && !client?.service && (
                         <small className="flow-muted">
                           No product photos this month yet: name the products in your request (the client's Drive is searched for them) or upload photos below.
                         </small>
                       )}
-                      {p.config?.campaign?.summary && p.plan.length > 0 && (
+                      {!draft && p.config?.campaign?.summary && p.plan.length > 0 && (
                         <div className="flow-understood">
                           <div className="flow-row-head">
                             <span className="flow-eyebrow">What was understood</span>
@@ -604,6 +832,7 @@ export default function Flow(p: FlowProps) {
                                   </span>
                                   <span className="flow-muted">{g?.read ? kindsLine(g) : "Its tiles (pictures, text tiles, people) are read when the month is planned from it."}</span>
                                   {g?.world && <span className="flow-muted">{g.world}</span>}
+                                  <span className="flow-muted">The whole grid is planned, one post per tile; a single tile cannot be picked on its own. One picture can be made as a test from the Plan.</span>
                                 </>
                               );
                             })()}
@@ -669,9 +898,9 @@ export default function Flow(p: FlowProps) {
                       )}
                       <label className="flow-target">
                         <span className="flow-eyebrow">For which post</span>
-                        <select value={String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "next" ? "next" : Number(e.target.value))}>
+                        <select value={styleTarget === null ? "" : String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "" ? null : e.target.value === "next" ? "next" : Number(e.target.value))}>
                           {p.plan.length ? (
-                            [...p.plan]
+                            [<option key="" value="">Choose the post…</option>, ...[...p.plan]
                               .sort((a, b) => a.index - b.index)
                               .map((x) => (
                                 <option key={x.index} value={x.index}>
@@ -679,13 +908,15 @@ export default function Flow(p: FlowProps) {
                                   {x.style ? " (has a style)" : ""}
                                   {taskOf(x.index)?.output ? " · picture made" : ""}
                                 </option>
-                              ))
+                              ))]
                           ) : (
                             <option value="next">The first post of the plan written next</option>
                           )}
                         </select>
                         <small className="flow-muted">
-                          {styleTarget === "next"
+                          {styleTarget === null
+                            ? "Pick the one post this style goes on; nothing is chosen for you."
+                            : styleTarget === "next"
                             ? "No posts yet: the plan is written first, and the style goes on its first post."
                             : taskOf(styleTarget as number)?.output
                               ? "This post has a picture: the style rewrites its idea and shot; making another version is a separate step you confirm."
@@ -705,35 +936,73 @@ export default function Flow(p: FlowProps) {
                     ))}
                   </div>
                   <small className="flow-muted">Product photos are always used; they come from the client's Drive folder and this month's uploads, not from a method.</small>
-                  <div className="flow-glance">
-                    <div>
-                      <span className="flow-eyebrow">Product photos</span>
-                      <div className="flow-thumbs">
-                        {p.products.slice(0, 6).map((s) => (
-                          <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} />
-                        ))}
-                        {p.products.length > 6 && <span className="flow-thumb-more">+{p.products.length - 6}</span>}
-                      </div>
-                      <small>
-                        {p.products.length} this month ·{" "}
-                        <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                          upload
-                        </button>
-                      </small>
-                    </div>
-                    <div>
-                      <span className="flow-eyebrow">Plan size</span>
-                      <p className="flow-text">{shape || `${p.postCount} posts planned · ${p.format}`}</p>
-                    </div>
-                    {p.previousMonth && (
-                      <div>
-                        <span className="flow-eyebrow">Shortcut</span>
-                        <button type="button" className="text-button" onClick={() => void p.onContinue()}>
-                          Continue from {monthLabel(p.previousMonth)}
-                        </button>
-                      </div>
-                    )}
+                </section>
+              </div>
+              <div className="flow-glance3">
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Product photos</span>
+                  <div className="flow-thumbs">
+                    {p.products.slice(0, 6).map((s) => (
+                      <img key={s.id} src={p.sourceUrl(s.id)} alt={s.name} />
+                    ))}
+                    {p.products.length > 6 && <span className="flow-thumb-more">+{p.products.length - 6}</span>}
                   </div>
+                  <small>
+                    {(() => {
+                      const names = p.products.map((s) => displayName(s.name).toLowerCase());
+                      const missing = [...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? [])]).filter((n): n is string => !!n && !names.includes(n.toLowerCase())))];
+                      return `${p.products.length} with photos${missing.length ? ` · ${missing.slice(0, 2).join(", ")} ${missing.length === 1 ? "has" : "have"} none yet` : ""} · `;
+                    })()}
+                    <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                      upload
+                    </button>
+                  </small>
+                </section>
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Plan size</span>
+                  {(() => {
+                    const groups = new Map<string, { kind: string; n: number }>();
+                    for (const x of p.plan) if (x.group) groups.set(x.group.id, { kind: x.group.kind, n: (groups.get(x.group.id)?.n ?? 0) + 1 });
+                    const posts = p.plan.filter((x) => !x.group).length + groups.size;
+                    const carousels = [...groups.values()].filter((g) => g.kind === "carousel");
+                    const tiles = p.plan.filter((x) => x.tileSpec?.kind === "text" && !x.product).length;
+                    return (
+                      <>
+                        <div className="flow-big">
+                          <span>
+                            <b>{p.plan.length ? posts : p.postCount}</b> posts
+                          </span>
+                          {carousels.length > 0 && (
+                            <span>
+                              <b>{carousels.length}</b> carousel{carousels.length === 1 ? "" : "s"} · {carousels.reduce((n, g) => n + g.n, 0)} slides
+                            </span>
+                          )}
+                          {p.plan.length > 0 && (
+                            <span>
+                              <b>{p.plan.length}</b> designs
+                            </span>
+                          )}
+                        </div>
+                        <small>
+                          {p.plan.length ? `${p.plan.length - tiles} pictures to make${tiles ? ` · ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here, free` : ""}` : "Planned on the next screens"} · {p.format}
+                        </small>
+                      </>
+                    );
+                  })()}
+                </section>
+                <section className="journey-box flow-box">
+                  <span className="flow-eyebrow">Shortcuts</span>
+                  {p.previousMonth && (
+                    <button type="button" className="flow-shortcut" onClick={() => void p.onContinue()}>
+                      <ArrowRight size={14} /> Continue from {monthLabel(p.previousMonth)}
+                    </button>
+                  )}
+                  <button type="button" className="flow-shortcut" onClick={() => p.onDone()}>
+                    <Grid3x3 size={14} /> Open {monthLabel(p.month)} in the Studio
+                  </button>
+                  <button type="button" className="flow-shortcut" onClick={() => void p.onNewGrid()}>
+                    <ImagePlus size={14} /> Fresh grid in {monthLabel(p.month)}
+                  </button>
                 </section>
               </div>
               <footer className="flow-foot">
@@ -751,7 +1020,7 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>Direction</h2>
-                  <p>What will shape the pictures, in the order it applies. Nothing on this screen spends the picture budget; the AI readings are text calls billed per call by the provider (a few cents each), or answered from demo fixtures when no key is connected.</p>
+                  <p>What will shape the pictures, in the order it applies. Nothing on this screen spends the picture budget.</p>
                 </div>
               </div>
               <div className="flow-two wide">
@@ -763,68 +1032,191 @@ export default function Flow(p: FlowProps) {
                       Start another way
                     </button>
                   </div>
-                  <div className="flow-lead">
-                    {way === "brief" && <p>{p.config?.campaign?.summary || (briefText.trim() ? briefText.trim().slice(0, 400) : "No request yet.")}</p>}
-                    {way === "grid" && <p>{shownGrid ? `The month follows "${shownGrid.title}", tile by tile${gridPending ? " (applied when the plan is written)" : ""}.` : "No grid picked yet."}</p>}
-                    {way === "refs" && <p>{theme ? `Theme "${theme.title}": ${theme.references} reference${theme.references === 1 ? "" : "s"}.` : "No theme yet."}</p>}
-                    {way === "style" && <p>{startStyle ? `"${startStyle.title}" goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.` : "No style picked yet."}</p>}
-                  </div>
+                  {(() => {
+                    const summary = p.config?.campaign?.summary?.trim() ?? "";
+                    const request = briefText.trim();
+                    const firstSentence = (summary || request).split(/(?<=[.!?؟])\s+/)[0] ?? "";
+                    const title =
+                      way === "brief"
+                        ? firstSentence.length <= 90
+                          ? firstSentence.replace(/[.!?؟]$/, "")
+                          : `${(summary || request).slice(0, 80).trim()}…`
+                        : way === "grid"
+                          ? shownGrid?.title ?? "No grid picked yet"
+                          : way === "refs"
+                            ? theme?.title ?? "No theme yet"
+                            : startStyle?.title ?? "No style picked yet";
+                    const body =
+                      way === "brief"
+                        ? summary
+                          ? summary.slice(firstSentence.length <= 90 ? firstSentence.length : 0).trim() || request.slice(0, 400)
+                          : request
+                            ? request.slice(0, 400)
+                            : "No request yet. Write it on the Start screen; the plan comes from it."
+                        : way === "grid"
+                          ? shownGrid
+                            ? `The month follows this grid tile by tile: one tile per post, its order, its text tiles and fonts${gridPending ? " (applied when the plan is written)" : ""}.`
+                            : "Pick a grid from the library; the month follows it tile by tile."
+                          : way === "refs"
+                            ? theme
+                              ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; never their objects.`
+                              : "Pin pictures to a theme; they set the light and palette."
+                            : startStyle
+                              ? `Goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.`
+                              : "Pick a style from the gallery for one post.";
+                    const at = way === "brief" ? p.config?.campaign?.at : way === "refs" ? theme?.analysed : undefined;
+                    const Icon = way === "brief" ? FileText : way === "grid" ? Grid3x3 : way === "refs" ? Images : Sparkles;
+                    return (
+                      <div className="flow-lead">
+                        <span className="flow-lead-icon" aria-hidden>
+                          <Icon size={18} />
+                        </span>
+                        <div className="flow-lead-body">
+                          <b>{title}</b>
+                          <span>{body}</span>
+                          <small className="flow-muted">
+                            {at ? `Read on ${new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · ` : ""}
+                            {pinned ? `${pinned} picture${pinned === 1 ? "" : "s"} pinned to posts` : "no pictures pinned to posts"} ·{" "}
+                            <button type="button" className="text-button" onClick={() => setStage(0)}>
+                              {way === "brief" ? "Edit the brief" : way === "grid" ? "Change the grid" : way === "refs" ? "Change the theme" : "Change the style"}
+                            </button>
+                          </small>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <span className="flow-eyebrow">Supporting inputs</span>
-                  <ul className="flow-inputs">
-                    <li>
-                      <b>{pinned ? `${pinned} picture${pinned === 1 ? "" : "s"} pinned to posts` : "No pictures pinned to posts"}</b>
-                      <span>Each is recreated on its post and sent to the engine; it wins over any grid tile or theme reference there.</span>
-                    </li>
-                    <li>
-                      <b>{theme ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
-                      <span>They set the light and palette for every post, never their objects.</span>
-                      {theme && (
-                        <button type="button" className="text-button" onClick={() => setRefsOpen((o) => !o)}>
-                          {refsOpen ? "Hide" : "Manage"}
-                        </button>
-                      )}
-                      {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
-                        <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
-                          {reading ? <Orb size={12} /> : null} Analyse the pins
-                        </button>
-                      )}
-                    </li>
-                    {refsOpen && theme && (
-                      <ReferenceLibrary
-                        skill={theme.id}
-                        title=""
-                        onChanged={async () => {
-                          await p.refresh();
-                          await p.reloadThemes();
-                        }}
-                      />
-                    )}
-                    <li>
-                      <b>{shownGrid ? `Grid · ${shownGrid.title}${gridPending ? " (not applied yet)" : ""}` : "Grid · none"}</b>
-                      <span>{shownGrid ? "The tile takes over each post's composition; the words stay the request's." : "The request sets each post's layout. A grid would take over the composition and keep the request's words."}</span>
-                      <button type="button" className="text-button" onClick={() => setPicking("grid")}>
-                        {shownGrid ? "Change" : "Add a grid"}
-                      </button>
-                    </li>
-                    <li>
-                      <b>Product photos · {p.products.length}</b>
-                      <span>Always used; the real product is matched to each post.</span>
-                      <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                        Upload
-                      </button>
-                    </li>
-                  </ul>
-                  <details className="flow-details">
-                    <summary>How inputs combine when they meet on one post</summary>
+                  {(() => {
+                    const pinnedPosts = p.plan.filter((x) => x.reference?.key);
+                    const listPosts = (ns: number[]) => (ns.length <= 1 ? ns.join("") : `${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`);
+                    const { missing, posts: missingPosts } = missingProducts;
+                    return (
+                      <ul className="flow-inputs">
+                        <li>
+                          <span className="flow-input-art">
+                            {pinnedPosts.length ? (
+                              pinnedPosts.slice(0, 3).map((x) => <img key={x.index} src={p.batchId ? referenceThumb(p.batchId, x.index, x.reference!.at) : ""} alt="" />)
+                            ) : (
+                              <i className="flow-input-empty" />
+                            )}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>{pinnedPosts.length ? `${pinnedPosts.length} picture${pinnedPosts.length === 1 ? "" : "s"} pinned to post${pinnedPosts.length === 1 ? "" : "s"} ${listPosts(pinnedPosts.map((x) => x.index))}` : "No pictures pinned to posts"}</b>
+                            <span>
+                              Each is <strong>recreated</strong> on its post and sent to the engine; it wins over any grid tile or theme reference there.
+                            </span>
+                          </div>
+                          <span className="flow-input-actions">
+                            {p.plan.length > 0 && (
+                              <button type="button" className="text-button" onClick={() => setStage(2)}>
+                                {pinnedPosts.length ? "Manage" : "Pin on the plan"}
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                        <li>
+                          <span className="flow-input-art">
+                            {p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => <img key={r.id} src={`/api/studio/references/${r.id}/file`} alt="" />) : <i className="flow-input-empty" />}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>{theme && theme.references ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
+                            <span>{theme && theme.references ? "They set the light and palette for every post, never their objects." : "Would set the light and palette for every post, never their objects. Optional."}</span>
+                          </div>
+                          <span className="flow-input-actions">
+                            {theme && (
+                              <button type="button" className="text-button" onClick={() => setRefsOpen((o) => !o)}>
+                                {refsOpen ? "Hide" : theme.references ? "Manage" : "Add"}
+                              </button>
+                            )}
+                            {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
+                              <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
+                                {reading ? <Orb size={12} /> : null} Analyse the pins
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                        {refsOpen && theme && (
+                          <li className="flow-input-wide">
+                            <ReferenceLibrary
+                              skill={theme.id}
+                              title=""
+                              onChanged={async () => {
+                                await p.refresh();
+                                await p.reloadThemes();
+                              }}
+                            />
+                          </li>
+                        )}
+                        <li>
+                          <span className="flow-input-art">{shownGrid ? <img src={styleThumb(shownGrid)} alt="" /> : <i className="flow-input-empty" />}</span>
+                          <div className="flow-input-text">
+                            <b>{shownGrid ? `Grid · ${shownGrid.title}${gridPending ? " (not applied yet)" : ""}` : "Grid · none"}</b>
+                            <span>{shownGrid ? "The tile takes over each post's composition; the words stay the request's." : "The request sets each post's layout. A grid would take over the composition and keep the request's words."}</span>
+                          </div>
+                          <span className="flow-input-actions">
+                            <button type="button" className="text-button" onClick={() => setPicking("grid")}>
+                              {shownGrid ? "Change" : "Add a grid"}
+                            </button>
+                          </span>
+                        </li>
+                        <li>
+                          <span className="flow-input-art tall">
+                            {p.products.length ? p.products.slice(0, 3).map((s) => <img key={s.id} src={p.sourceUrl(s.id)} alt="" />) : <i className="flow-input-empty" />}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>
+                              Product photos · {p.products.length}
+                              {missing.length ? ` of ${p.products.length + missing.length}` : ""}
+                            </b>
+                            <span>
+                              Always used; the real product is matched to each post.
+                              {missing.length ? (
+                                <>
+                                  {" "}
+                                  <strong>
+                                    {missing.slice(0, 2).join(" and ")} {missing.length === 1 ? "has" : "have"} no photo
+                                  </strong>
+                                  , so post{missingPosts.length === 1 ? "" : "s"} {listPosts(missingPosts)} cannot be made yet.
+                                </>
+                              ) : null}
+                            </span>
+                          </div>
+                          <span className="flow-input-actions">
+                            <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                              Upload
+                            </button>
+                          </span>
+                        </li>
+                      </ul>
+                    );
+                  })()}
+                  <div className="flow-precedence-strip">
                     <div className="flow-precedence">
+                      <b>When inputs meet on one post, this wins</b>
                       <span className="flow-pill dark">1 Product photo</span>
+                      <i>›</i>
                       <span className="flow-pill">2 Picture pinned to the post</span>
+                      <i>›</i>
                       <span className="flow-pill">3 Applied style</span>
+                      <i>›</i>
                       <span className="flow-pill">4 Grid tile</span>
+                      <i>›</i>
                       <span className="flow-pill">5 Theme reference</span>
                     </div>
                     <p className="flow-muted">Brand rules and the month's colours apply on top of all of them. {lead.meet}</p>
-                  </details>
+                  </div>
+                  {client && p.batchId && (
+                    <div className="flow-rules">
+                      <span className="flow-eyebrow">Rules that apply this month</span>
+                      <RelevantRules clientId={client.id} batchId={p.batchId} />
+                      <small className="flow-muted">
+                        Approved brand rules and this month's instructions, from the brand kit's memory. Proposed lessons wait there until approved and never reach a prompt before.{" "}
+                        <button type="button" className="text-button" onClick={p.onBrandKit}>
+                          Open the brand memory
+                        </button>
+                      </small>
+                    </div>
+                  )}
                 </section>
                 <div className="flow-stack">
                   <section className="journey-box flow-box">
@@ -893,14 +1285,23 @@ export default function Flow(p: FlowProps) {
                       </dd>
                       <dt>Engine</dt>
                       <dd>
-                        {p.model || "the connected engine"} · {perPicture ? `about ${formatUsd(perPicture)} per picture (list price, an estimate)` : "price not known for this engine"}
+                        {p.modelName || p.model || "the connected engine"} · {perPicture ? `about ${formatUsd(perPicture)} per picture (list price, an estimate)` : "price not known for this engine"}
                       </dd>
-                      <dt>Readings</dt>
-                      <dd>The ideas, shots, captions and reviews are text and vision calls billed per call by the provider, outside the picture budget. Without a key they are answered from demo fixtures and say so.</dd>
+                      <dt>Occasions</dt>
+                      <dd>
+                        {(() => {
+                          const occ = pickedOccasions(p.month, p.config?.occasions);
+                          return occ.length ? occ.map((o) => o.name).join(", ") : "none ticked this month";
+                        })()}
+                      </dd>
+                      <dt>Words</dt>
+                      <dd>Arabic headline, English second line, caption at most 10 words</dd>
                     </dl>
+                    <small className="flow-muted">The ideas, shots, captions and reviews are text calls billed per call by the provider, outside the picture budget; without a key they come from demo fixtures and say so.</small>
                   </section>
                   <section className="journey-box flow-box">
-                    <span className="flow-eyebrow">What the references say</span>
+                    <span className="flow-eyebrow">{theme && theme.references > 0 ? "What the pinned pictures say" : "What the theme's description says"}</span>
+                    {theme && theme.references === 0 && themeNote ? <small className="flow-muted">No reference pictures were read: this comes from the theme's written description alone.</small> : null}
                     {themeNote ? (
                       <>
                         <p className="flow-text">{themeNote.summary}</p>
@@ -909,6 +1310,7 @@ export default function Flow(p: FlowProps) {
                             <li key={i}>{x}</li>
                           ))}
                         </ul>
+                        <small className="flow-muted">Read once and kept with the plan; not read again unless a picture changes.</small>
                       </>
                     ) : (
                       <small className="flow-muted">Not read yet. The reading runs when the plan is written.</small>
@@ -933,22 +1335,19 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>The plan, before anything is made</h2>
-                  <p>Read it and change anything. Making the pictures is the one step charged to the picture budget; you confirm it below with its estimate.</p>
+                  <p>Read it and change anything. Making the pictures is the one step that costs money; you confirm it at the bottom.</p>
                 </div>
-                <button type="button" className="secondary btn-pill journey-head-action" onClick={() => void loadPreview()} disabled={previewBusy}>
-                  {previewBusy ? <Orb size={14} /> : <Wand2 size={14} />} Read again
-                </button>
+                <Cta kind="secondary" icon={<MessageSquareText size={16} />} className="journey-head-action" onClick={() => setChatOpen((o) => !o)}>
+                  {chatOpen ? "Close the planner" : "Talk to the planner"}
+                </Cta>
               </div>
-              <div className="flow-tools">
-                <Cta kind="secondary" icon={reading2 ? <Orb size={15} /> : <BadgeCheck size={16} />} disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
-                  Read the scenes before paying
-                </Cta>
-                <Cta kind="secondary" icon={<MessageSquareText size={16} />} onClick={() => setChatOpen((o) => !o)}>
-                  {chatOpen ? "Close the chat" : "Talk about the ideas"}
-                </Cta>
-                <Cta
-                  kind="secondary"
-                  icon={rewriting ? <Orb size={15} /> : <Sparkles size={16} />}
+              <div className="flow-tools quiet">
+                <button type="button" className="text-button" disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
+                  {reading2 ? <Orb size={12} /> : <BadgeCheck size={14} />} Read the scenes before paying
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
                   disabled={rewriting}
                   onClick={async () => {
                     const ok = await askConfirm(`Write the month's ${p.plan.length} ideas again? The current posts, their words and pictures are kept under Versions; pictures already made are not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
@@ -961,11 +1360,11 @@ export default function Flow(p: FlowProps) {
                     }
                   }}
                 >
-                  Write the ideas again
-                </Cta>
-                <Cta
-                  kind="secondary"
-                  icon={<ImagePlus size={16} />}
+                  {rewriting ? <Orb size={12} /> : <Sparkles size={14} />} Write the ideas again
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
                   disabled={rewriting}
                   onClick={async () => {
                     const n = Number(await askInput("How many posts to add?", "1", { ok: "Add", placeholder: "1" }));
@@ -978,8 +1377,11 @@ export default function Flow(p: FlowProps) {
                     }
                   }}
                 >
-                  Add posts
-                </Cta>
+                  <ImagePlus size={14} /> Add posts
+                </button>
+                <button type="button" className="text-button" onClick={() => void loadPreview()} disabled={previewBusy} title="Reads the plan again: states, estimate and what each post would send to the engine">
+                  {previewBusy ? <Orb size={12} /> : <Wand2 size={14} />} Read again
+                </button>
               </div>
               {reading2 && <Working label="Reading the scenes before paying" count={{ done: 0, of: readyPictures }} className="flow-working" />}
               {rewriting && <Working label="Writing the ideas" className="flow-working" />}
@@ -1006,7 +1408,11 @@ export default function Flow(p: FlowProps) {
               <section className="flow-summary">
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Objective</span>
-                  <p>{p.config?.campaign?.summary || p.config?.notes || theme?.direction?.split(/(?<=\.)\s/)[0] || "The month's posts for the brand."}</p>
+                  <p>
+                    {p.config?.gridRef && monthGrid
+                      ? `The month follows the grid "${monthGrid.title}", tile by tile.${p.config.gridNotes ? ` ${p.config.gridNotes.split(/(?<=\.)\s/)[0]}` : ""}`
+                      : p.config?.campaign?.summary || p.config?.notes || theme?.direction?.split(/(?<=\.)\s/)[0] || "The month's posts for the brand."}
+                  </p>
                 </div>
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Products</span>
@@ -1016,7 +1422,8 @@ export default function Flow(p: FlowProps) {
                     ))}
                   </div>
                   <small>
-                    {p.products.length} with photos{blockedList.length ? `, ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} waiting for one` : ""}
+                    {p.products.length} with photos{missingProducts.missing.length ? `, ${missingProducts.missing.length} without` : ""}
+                    {blockedList.length ? ` · ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} waiting` : ""}
                   </small>
                 </div>
                 <div className="flow-sum-cell">
@@ -1028,7 +1435,7 @@ export default function Flow(p: FlowProps) {
                     Change
                   </button>
                 </div>
-                {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
                   <div className="flow-sum-cell scope">
                     <span className="flow-eyebrow">This operation</span>
                     <p>
@@ -1040,11 +1447,27 @@ export default function Flow(p: FlowProps) {
                   </div>
                 )}
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Output · whole month</span>
-                  <p>{shape}</p>
-                  <small>
-                    {preview ? `${readyPictures} picture${readyPictures === 1 ? "" : "s"} ready to make · ${readyTiles} drawn here, free · ${made} made already · ${blockedList.length} blocked` : "Reading the plan…"}
-                  </small>
+                  <span className="flow-eyebrow">Output</span>
+                  {(() => {
+                    const groups = new Map<string, number>();
+                    for (const x of p.plan) if (x.group) groups.set(x.group.id, (groups.get(x.group.id) ?? 0) + 1);
+                    const posts = p.plan.filter((x) => !x.group).length + groups.size;
+                    const tiles = p.plan.filter((x) => x.tileSpec?.kind === "text" && !x.product).length;
+                    const carousels = [...groups.values()];
+                    const shapeOf = carousels.length ? (carousels.length === 1 ? `, one a ${carousels[0]}-slide carousel` : `, ${carousels.length} carousels (${carousels.join(", ")} slides)`) : "";
+                    return (
+                      <>
+                        <p>
+                          <b>{posts} post{posts === 1 ? "" : "s"}</b>
+                          {shapeOf} = <b>{p.plan.length} design{p.plan.length === 1 ? "" : "s"}</b>
+                        </p>
+                        <small>
+                          {p.plan.length - tiles} picture{p.plan.length - tiles === 1 ? "" : "s"} to make{tiles ? ` · ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here, free` : ""} · {p.format}
+                          {preview && (made || blockedList.length) ? ` · ${made} made already${blockedList.length ? ` · ${blockedList.length} blocked` : ""}` : ""}
+                        </small>
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className={`flow-sum-cell attention ${attention.length || blockedList.length ? "on" : ""}`}>
                   <span className="flow-eyebrow">Needs your attention · {attention.length + blockedList.length}</span>
@@ -1067,9 +1490,10 @@ export default function Flow(p: FlowProps) {
                               </button>
                             </li>
                           )}
-                          {rest.slice(0, 5).map((x, i) => (
+                          {rest.slice(0, 4).map((x, i) => (
                             <li key={i}>{x.text}</li>
                           ))}
+                          {rest.length > 4 && <li className="flow-muted">+{rest.length - 4} more, each on its post below</li>}
                         </>
                       );
                     })()}
@@ -1102,7 +1526,26 @@ export default function Flow(p: FlowProps) {
                           <span className="flow-post-main">
                             <b>{x.title}</b>
                             <span className="flow-muted">{(x.scene?.trim() || x.brief).slice(0, 160)}</span>
-                            {o?.status === "blocked" && <span className="flow-post-flag">{o.why}</span>}
+                            {o?.status === "blocked" && (
+                              <span className="flow-post-flag">
+                                {o.why}
+                                {missingProducts.posts.includes(x.index) && (
+                                  <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                                    Upload a photo
+                                  </button>
+                                )}
+                              </span>
+                            )}
+                            {o?.status !== "blocked" && !isOpen && o?.changes?.[0] && (
+                              <span className="flow-post-flag">
+                                {o.changes[0]}
+                                {o.changes.length > 1 && (
+                                  <button type="button" className="text-button" onClick={() => setOpen(x.index)}>
+                                    +{o.changes.length - 1} more
+                                  </button>
+                                )}
+                              </span>
+                            )}
                           </span>
                           <span className="flow-post-product">{x.product || (x.offer?.products[0] ?? "—")}</span>
                           <span className="flow-post-out">
@@ -1113,7 +1556,7 @@ export default function Flow(p: FlowProps) {
                             </label>
                           </span>
                           <button type="button" className="text-button" onClick={() => setOpen(isOpen ? null : x.index)}>
-                            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {isOpen ? "Hide" : "Details"}
+                            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {isOpen ? "Hide details" : "Details"}
                           </button>
                           {isOpen && (
                             <div className="flow-post-details">
@@ -1135,6 +1578,72 @@ export default function Flow(p: FlowProps) {
                                   {t && lineageUnknown(t) ? " · this picture was made before lineage was kept (unknown lineage)" : ""}
                                 </small>
                               </div>
+                              {o?.conflicts?.length ? (
+                                <div className={`flow-post-changes conflicts ${o.conflicts.some((c) => !c.allowed) ? "block" : ""}`}>
+                                  <span className="flow-eyebrow">{o.conflicts.some((c) => !c.allowed) ? "Inputs disagree · decide before paying" : "Exceptions allowed on this post"}</span>
+                                  <ul>
+                                    {o.conflicts.map((c, k) => (
+                                      <li key={k}>
+                                        {c.text}
+                                        {c.allowed ? <em> · allowed on this post</em> : null}
+                                        {!c.allowed && (
+                                          <span className="flow-conflict-actions">
+                                            {c.source === "style" && x.style && (
+                                              <button type="button" className="text-button" onClick={() => void p.onStyles([{ index: x.index, style: null }]).then(() => loadPreview())} title="Takes the style off this post: its own idea and shot come back">
+                                                Take the style off
+                                              </button>
+                                            )}
+                                            <button
+                                              type="button"
+                                              className="text-button"
+                                              onClick={async () => {
+                                                const ok = await askConfirm(`Allow ${CONFLICT_LABELS[c.kind]} on post ${x.index} only? The brief's rule stays for every other post; nothing becomes a brand rule.`, { ok: `Allow on post ${x.index}`, danger: false, cancel: "Keep the rule" });
+                                                if (!ok) return;
+                                                await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: [...new Set([...(y.allow ?? []), c.kind])] } : y)));
+                                                await loadPreview();
+                                              }}
+                                            >
+                                              Allow on this post
+                                            </button>
+                                          </span>
+                                        )}
+                                        {c.allowed && (
+                                          <button
+                                            type="button"
+                                            className="text-button"
+                                            onClick={async () => {
+                                              await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: (y.allow ?? []).filter((k) => k !== c.kind) } : y)));
+                                              await loadPreview();
+                                            }}
+                                          >
+                                            Withdraw
+                                          </button>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ) : null}
+                              {o?.guide?.length ? (
+                                <details className="flow-guide">
+                                  <summary>What will guide this picture</summary>
+                                  <ol className="flow-guide-layers">
+                                    {o.guide.map((layer) => (
+                                      <li key={layer.id}>
+                                        <b>{layer.label}</b>
+                                        <ul>
+                                          {layer.items.map((it, k) => (
+                                            <li key={k}>
+                                              {it.text} <small className="flow-muted">· {it.from}</small>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </li>
+                                    ))}
+                                  </ol>
+                                  {x.briefBeforeStyle && x.style ? <small className="flow-muted">Idea before the style: {x.briefBeforeStyle}</small> : null}
+                                </details>
+                              ) : null}
                               {(o?.changes?.length || (o?.images && o.highestImage && o.highestImage < o.images.length)) ? (
                                 <div className="flow-post-changes">
                                   <span className="flow-eyebrow">What changed or was excluded</span>
@@ -1181,8 +1690,15 @@ export default function Flow(p: FlowProps) {
               <footer className="flow-confirm">
                 <div className="flow-confirm-text">
                   <b>
-                    {readyPictures} picture{readyPictures === 1 ? "" : "s"} · {estimate?.model ?? p.model} · {estimate?.size ?? p.size} · about {formatUsd(estimate?.perImage ?? perPicture)} each
+                    {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget)
+                      ? `1 picture · post ${styleTarget}${taskOf(styleTarget)?.output ? ", another version of its picture" : ""} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)}`
+                      : preview && !readyPictures && !readyTiles && made > 0
+                        ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
+                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
                   </b>
+                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
+                    <span className="flow-muted">Only post {styleTarget} changes. Its current picture stays under Versions; the month's other posts are untouched. The whole-month figures above are a separate summary.</span>
+                  )}
                   <span className="flow-muted">
                     Estimate {formatUsd(total)}
                     {retakes ? `, at most ${formatUsd(maximum)} if each picture is retaken once by itself after the review` : ", no automatic retakes"}. List prices, an estimate.
@@ -1198,7 +1714,7 @@ export default function Flow(p: FlowProps) {
                   <button type="button" className="secondary btn-pill" onClick={() => p.onDone()}>
                     Save the plan, make nothing
                   </button>
-                  {way === "style" && styleTarget !== "next" && p.plan.some((x) => x.index === styleTarget) && (
+                  {way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) && (
                     <button
                       type="button"
                       className="primary btn-pill"

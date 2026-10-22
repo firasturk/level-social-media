@@ -17,6 +17,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "eval": "node eval/run.mjs",
+    "eval:update": "node eval/run.mjs --update-snapshots",
+    "eval:paid": "node eval/run.mjs --paid",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "check": "node scripts/stub-assets.mjs && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
@@ -46,6 +49,7 @@
     "eslint": "^9.20.0",
     "eslint-plugin-react-hooks": "^5.1.0",
     "prettier": "^3.5.0",
+    "promptfoo": "^0.124.1",
     "tailwindcss": "^4.0.0",
     "tw-animate-css": "^1.2.0",
     "typescript": "^5.7.0",

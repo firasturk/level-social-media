@@ -75,6 +75,8 @@ import { profileRoutes } from "./profile";
 import { driveRoutes } from "./drive";
 import { autopilotRoutes } from "./autopilot";
 import { lessonRoutes } from "./lessons";
+import { ocrRoutes } from "./ocr-routes";
+import { feedbackRoutes } from "./feedback";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -87,6 +89,8 @@ studioRoutes.route("/profiles", profileRoutes);
 studioRoutes.route("/drive", driveRoutes);
 studioRoutes.route("/autopilot", autopilotRoutes);
 studioRoutes.route("/lessons", lessonRoutes);
+studioRoutes.route("/ocr", ocrRoutes);
+studioRoutes.route("/feedback", feedbackRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;
@@ -209,6 +213,7 @@ studioRoutes.get("/state", async (c) => {
     spend,
     spendThreshold: adminSettings.spendThreshold,
     workflowV2: adminSettings.workflowV2,
+    pricesHidden: adminSettings.pricing === "admins" && user.role !== "admin",
     autopilotReview: adminSettings.autopilotReview,
     preview: previewNoImages(c.env) || undefined,
     zaidDirection: (await getSetting(c.env, ZAID_DIRECTION_SETTING)) || "",

@@ -183,6 +183,8 @@ export const INVITE_CODE_SETTING = "invite_code";
 export const SPEND_THRESHOLD_SETTING = "spend_threshold";
 /** "1" when admins use the four-stage workflow instead of the journey. */
 export const WORKFLOW_V2_SETTING = "workflow_v2";
+/** Who sees prices: "everyone" (the default) or "admins". Spend confirmations happen either way. */
+export const PRICING_VISIBILITY_SETTING = "pricing_visibility";
 /** "1" when Autopilot stops at the plan for a look instead of paying by itself. */
 export const AUTOPILOT_REVIEW_SETTING = "autopilot_review";
 export const RETENTION_DAYS_SETTING = "retention_days";

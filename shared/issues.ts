@@ -47,8 +47,9 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
   const plan = config.plan ?? [];
   const month = config.month ?? "";
   // Products
+  // A grid month can be made from the grid's tiles alone (the products are matched to them when they exist).
   if (!i.products.length && !client.service?.trim() && !config.campaign)
-    out.push({ code: "products", text: "No products yet.", how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\"." });
+    out.push({ code: "products", warn: !!config.gridRef, text: config.gridRef ? "No product photos yet: the posts follow the grid's tiles without the real products." : "No products yet.", how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\"." });
   // Count and occasions
   if ((config.postCount ?? 0) < 1 && !plan.length) out.push({ code: "count", text: "Pick how many posts this month has." });
   const sel = config.occasions;

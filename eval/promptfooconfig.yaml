@@ -1,0 +1,317 @@
+# Level Social Media — deterministic prompt-builder evaluation (promptfoo community edition).
+#
+# Nothing here reaches a network: the provider calls the studio's own prompt builders
+# (shared/campaign.ts, shared/posts.ts, shared/brief.ts, shared/styles.ts) and answers every text
+# call from server/demo.ts, the fixture a preview deployment uses. Run with `npm run eval`.
+# Expectations live in each test's vars and are read by eval/asserts.mjs (see docs/eval.md).
+description: Level Social Media · prompt builders on deterministic fixtures (no network)
+
+prompts:
+  - "{{method}} · {{case}}"
+
+providers:
+  - id: file://providers/studio.ts
+    label: studio-fixtures
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: file://asserts.mjs:check
+
+tests:
+  # ── The four creation methods ──────────────────────────────────────────────────────────────────
+  - description: "Quick Campaign · a brief for 2 single posts on a month of 3 → posts 4 and 5"
+    vars:
+      method: brief-plan
+      case: quick-campaign-brief
+      brief: "Plan 2 posts, each a single picture of one shake standing inside a Jordanian road sign under noon sun. Post 1: the pistachio shake, text on design 'ice cold pistachio'. Post 2: the mango shake, text on design 'mango o'clock'. No people in the pictures."
+      existing: 3
+      expect:
+        counts.designs: 2
+        counts.posts: 2
+        counts.firstIndex: 4
+        counts.lastIndex: 5
+        counts.carousels: []
+      expectContains:
+        instruction:
+          - "THE BRIEF:"
+          - "Plan 2 posts, each a single picture"
+          - "The month already has 3 posts; yours come after them."
+          - "NEVER: no people in the pictures"
+          - "- pistachio shake: a tall clear plastic cup"
+
+  - description: "Follow a grid · nine tiles read, one of them a text tile, nine posts planned"
+    vars:
+      method: grid-ideas
+      case: follow-a-grid
+      count: 9
+      expect:
+        counts.tiles: 9
+        counts.textTiles: 1
+        counts.posts: 9
+        counts.picturesIfTextTilesDrawnHere: 8
+      expectContains:
+        instruction:
+          - "read it tile by tile, then plan 9 posts"
+          - "PRODUCTS AVAILABLE AS PHOTOS"
+      # Known gap (see the report): gridIdeasInstruction has no lessons block, so approved memory
+      # does not reach the grid writer; it reaches the shots, the style writer and the image prompt.
+      expectLacks:
+        instruction: ["MISTAKES SEEN IN THIS CLIENT'S EARLIER PICTURES"]
+
+  - description: "Use theme references · Analyse theme reads 3 pins into 3 shots and a palette"
+    vars:
+      method: theme-analyse
+      case: analyse-theme
+      references: 3
+      expect:
+        counts.shots: 3
+      expectMin:
+        counts.palette: 1
+      expectContains:
+        instruction:
+          - "from 3 attached reference images"
+          - "shots: one entry per picture"
+
+  - description: "Use theme references · one shot per planned post over the theme's shots"
+    vars:
+      method: theme-shots
+      case: theme-shots
+      expect:
+        counts.posts: 3
+        counts.shots: 3
+        counts.postsWithShot: 3
+      expectContains:
+        instruction:
+          - "THE REFERENCE SHOTS:"
+          - "1. The product inside a round road sign"
+          - "Post 1 (product"
+          - "Post 3 (product"
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:check
+      - type: javascript
+        value: file://asserts.mjs:memoryCarried
+
+  - description: "One post from a style · the gallery style written for the real product"
+    vars:
+      method: style-scene
+      case: one-post-from-a-style
+      style: sign
+      # A top-level array var would become one test per element in promptfoo: a comma list instead.
+      expectTruthy: "scene,brief"
+      expectContains:
+        instruction:
+          - "THE STYLE \"Sign symbol\""
+          - "THE PRODUCT (as photographed): a tall clear plastic cup of pale green pistachio milkshake"
+          - "KEEP the style's camera angle, composition, set, effects and light"
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:check
+      - type: javascript
+        value: file://asserts.mjs:memoryCarried
+
+  # ── Output counts: posts vs designs vs pictures vs text tiles ──────────────────────────────────
+  - description: "Counts · 7 pictures + 1 text tile + a 5-slide carousel = 9 posts, 13 designs, 12 pictures"
+    vars:
+      method: plan-scope
+      case: counts-full-month
+      plan: full
+      expect:
+        counts.posts: 9
+        counts.designs: 13
+        counts.pictures: 12
+        counts.textTiles: 1
+        counts.carousels: [5]
+        shape: "9 posts, one a 5-slide carousel: 13 designs, 12 pictures to make and 1 text tile drawn here."
+
+  # ── Append vs replace ──────────────────────────────────────────────────────────────────────────
+  - description: "Append · 3 existing posts + a brief for 2 → 5 posts, the first 3 unchanged"
+    vars:
+      method: plan-scope
+      case: append-keeps-existing
+      brief: "Plan 2 posts, each a single picture of one shake inside a road sign under noon sun. Post 1 the pistachio shake, post 2 the mango shake."
+      only: false
+      expect:
+        existing: 3
+        added: 2
+        total: 5
+        indexes: [1, 2, 3, 4, 5]
+        firstUnchanged: true
+        shape: "5 posts: 5 designs, 5 pictures to make."
+      expectContains:
+        instruction: ["The month already has 3 posts; yours come after them."]
+
+  - description: "Replace (only) · the same brief with 'only' → the month is the 2 new posts alone"
+    vars:
+      method: plan-scope
+      case: replace-only
+      brief: "Plan 2 posts, each a single picture of one shake inside a road sign under noon sun. Post 1 the pistachio shake, post 2 the mango shake."
+      only: true
+      expect:
+        existing: 0
+        added: 2
+        total: 2
+        indexes: [1, 2]
+        shape: "2 posts: 2 designs, 2 pictures to make."
+      expectContains:
+        instruction: ["The month already has 0 posts; yours come after them."]
+
+  # ── Input conflicts: a style with a hand against a "no people" brand rule ──────────────────────
+  - description: "Conflict · a hand style on a no-people brand: the constraint reaches the writer; the conflict is named (TODO shared/conflicts.ts)"
+    vars:
+      method: style-scene
+      case: conflict-hand-vs-no-people
+      style: hand
+      expectContains:
+        instruction:
+          - "NEVER: no people in the pictures\nno hands"
+          - "A hand raises the product high"
+          - "PEOPLE: nobody appears"
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:check
+      - type: javascript
+        value: file://asserts.mjs:conflictSurfaced
+
+  - description: "Conflict · the image prompt carries the no-people rule and the people rule"
+    vars:
+      method: post-prompt
+      case: no-people-in-prompt
+      variant: style
+      expectContains:
+        prompt:
+          - "NEVER: no people in the pictures\nno hands"
+          - "PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows."
+
+  # ── Approved memory: approved lessons in, pending and rejected never ───────────────────────────
+  - description: "Memory · approved lessons are in the image prompt; pending and rejected ones are not"
+    vars:
+      method: post-prompt
+      case: approved-memory-in-prompt
+      variant: theme
+      expectContains:
+        prompt: ["MISTAKES SEEN IN EARLIER PICTURES FOR THIS CLIENT"]
+      # The pending and rejected lessons' own words ("price tag" alone also appears in the no-text rule).
+      expectLacks:
+        prompt: ["an earlier picture carried a price tag", "behind the counter"]
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:check
+      - type: javascript
+        value: file://asserts.mjs:memoryCarried
+
+  # ── Reference ordering: image 1 is the product photo, references after it ──────────────────────
+  - description: "References · product photo is image 1, the theme reference is image 2"
+    vars:
+      method: post-prompt
+      case: reference-order-theme
+      variant: theme
+      expect:
+        firstImage.from: 1
+        firstImage.role: "the product photo"
+        highestImage: 2
+        expectedImages: 2
+      expectOrder:
+        prompt: ["Image 1 is the product photo", "Image 2 is a style reference"]
+
+  - description: "References · two products, a portrait, then the style: Images 1 to 2, Image 3, Image 4"
+    vars:
+      method: post-prompt
+      case: reference-order-many
+      variant: style
+      brief:
+        extraProducts: [{ name: "mango shake", note: "a tall clear cup of orange mango shake with a dome lid", key: "u1/b1/src/s2.jpg" }]
+        ambassadors: [{ name: "Lina", description: "woman, 30s", key: "amb/lina.jpg" }]
+      expect:
+        highestImage: 4
+        expectedImages: 4
+      expectOrder:
+        prompt: ["Images 1 to 2 are product photos", "Image 3 is the portrait of the brand's ambassador", "Image 4 is the style the designer picked"]
+
+  # ── Manual edits survive into the prompts ──────────────────────────────────────────────────────
+  - description: "Manual edit · a hand-edited shot is the REFERENCE SHOT the engine gets"
+    vars:
+      method: post-prompt
+      case: hand-edited-shot
+      variant: theme
+      # Product file names never reach the engine (they become "the product"), so the edit says "the cup".
+      brief:
+        shot: "HAND-EDITED SHOT: the cup rests on a yellow kerb at dusk, 50 mm, the street lights just on."
+      expectContains:
+        prompt: ["REFERENCE SHOT: this post recreates", "HAND-EDITED SHOT: the cup rests on a yellow kerb at dusk, 50 mm, the street lights just on."]
+
+  - description: "Manual edit · a hand-edited headline reaches the style writer"
+    vars:
+      method: style-scene
+      case: hand-edited-headline
+      style: sign
+      headline: "Hand-edited headline"
+      expect:
+        headline: "Hand-edited headline"
+      expectContains:
+        instruction: ["headline \"Hand-edited headline\""]
+
+  - description: "Manual edit · a post's hand-written scene is what the shoot list plans from"
+    vars:
+      method: theme-shots
+      case: hand-edited-scene-in-shots
+      plan:
+        - { index: 1, type: product, title: "Pistachio crossing", brief: "The original idea.", caption: "", hashtags: "", product: "pistachio shake", headline: "فستق", scene: "HAND-WRITTEN SCENE: the cup on the kerb, dusk.", handShot: true }
+      expect:
+        counts.posts: 1
+        counts.shots: 1
+      expectContains:
+        instruction: ["idea: HAND-WRITTEN SCENE: the cup on the kerb, dusk."]
+      expectLacks:
+        instruction: ["The original idea."]
+
+  # ── Feedback interpretation (TODO: shared/feedback.ts interpretFeedback) ───────────────────────
+  - description: "Feedback · 'make the logo larger' is a layer edit (TODO until shared/feedback.ts lands)"
+    vars: { method: feedback, case: feedback-layer, text: "make the logo larger", expectKind: layer }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:feedbackKind
+  - description: "Feedback · 'remove the cup' is an image edit (TODO until shared/feedback.ts lands)"
+    vars: { method: feedback, case: feedback-image, text: "remove the cup", expectKind: image }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:feedbackKind
+  - description: "Feedback · 'the second one' is ambiguous (TODO until shared/feedback.ts lands)"
+    vars: { method: feedback, case: feedback-ambiguous, text: "the second one", expectKind: ambiguous }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:feedbackKind
+
+  # ── Prompt snapshots: one regression check on the words, not proof of visual quality ───────────
+  - description: "Snapshot · Quick Campaign brief prompt"
+    vars: { method: post-prompt, case: snapshot-brief, variant: brief, snapshot: post-prompt-brief-campaign }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:matchesSnapshot
+  - description: "Snapshot · grid tile prompt"
+    vars: { method: post-prompt, case: snapshot-grid, variant: grid, snapshot: post-prompt-grid-tile }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:matchesSnapshot
+  - description: "Snapshot · theme reference prompt"
+    vars: { method: post-prompt, case: snapshot-theme, variant: theme, snapshot: post-prompt-theme-reference }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:matchesSnapshot
+  - description: "Snapshot · gallery style prompt"
+    vars: { method: post-prompt, case: snapshot-style, variant: style, snapshot: post-prompt-gallery-style }
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:matchesSnapshot
+  - description: "Snapshot · brief planner instruction"
+    vars:
+      method: brief-plan
+      case: snapshot-brief-plan-instruction
+      brief: "Plan 2 posts, each a single picture of one shake standing inside a Jordanian road sign under noon sun. Post 1: the pistachio shake. Post 2: the mango shake. No people in the pictures."
+      existing: 3
+      snapshot: brief-plan-instruction
+      snapshotPath: instruction
+    assert:
+      - type: javascript
+        value: file://asserts.mjs:matchesSnapshot

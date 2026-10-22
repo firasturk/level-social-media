@@ -94,7 +94,15 @@ export function estimateCost(c: Config, images: number, cards?: number[]): CostE
   };
 }
 
+/** Prices hidden for this viewer (the admins-only setting): every amount reads as a note instead. */
+let pricesHidden = false;
+export function setPricesHidden(hidden: boolean): void {
+  pricesHidden = hidden;
+}
+export const HIDDEN_PRICE = "(cost shown to admins)";
+
 export function formatUsd(n: number): string {
+  if (pricesHidden) return HIDDEN_PRICE;
   if (n >= 100) return `$${Math.round(n)}`;
   if (n >= 10) return `$${n.toFixed(1)}`;
   return `$${n.toFixed(2)}`;

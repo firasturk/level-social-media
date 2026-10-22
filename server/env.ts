@@ -16,6 +16,11 @@ export interface Env {
   MAX_CONCURRENT_GENERATIONS?: string;
   /** "1" on a preview deployment: no picture or video is ever sent to an image engine. */
   PREVIEW_NO_IMAGES?: string;
+  /** Langfuse tracing (server/trace.ts): off unless both keys are set here or in the settings table. */
+  LANGFUSE_PUBLIC_KEY?: string;
+  LANGFUSE_SECRET_KEY?: string;
+  /** The Langfuse host; https://cloud.langfuse.com when unset. */
+  LANGFUSE_HOST?: string;
 }
 
 /** A preview deployment: the plan can be written and read, but no picture or video is made. */

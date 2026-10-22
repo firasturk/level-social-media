@@ -12,8 +12,8 @@ function stored(): Theme | null {
   }
 }
 
-/** Dark is the studio default; the header toggle overrides it per browser. */
-const DEFAULT_THEME: Theme = "dark";
+/** Light is the studio default (the designs are light); the header toggle overrides it per browser. */
+const DEFAULT_THEME: Theme = "light";
 
 export function currentTheme(): Theme {
   return stored() ?? DEFAULT_THEME;
@@ -30,7 +30,7 @@ export function applyTheme(theme: Theme, persist = true) {
   }
 }
 
-/** Apply the saved theme (or the dark default) before first paint. */
+/** Apply the saved theme (or the light default) before first paint. */
 export function initTheme() {
   applyTheme(currentTheme(), false);
 }

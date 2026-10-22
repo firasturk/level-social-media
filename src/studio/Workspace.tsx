@@ -16,7 +16,7 @@ import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext } from "@shared/issues";
-import { formatUsd, rateFor, testSize } from "@shared/pricing";
+import { formatUsd, rateFor, setPricesHidden, testSize } from "@shared/pricing";
 import type {
   Ambassador,
   Batch,
@@ -39,6 +39,11 @@ import Flow from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
+import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import OcrPanel from "./OcrPanel";
+import { DriveReferencePicker } from "./DrivePicker";
+import FeedbackPanel from "./FeedbackPanel";
+import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass, FolderOpen, PanelLeft } from "lucide-react";
@@ -146,6 +151,8 @@ export default function Workspace({
   const [exporting, setExporting] = useState(false);
   const [acting, setActing] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
+  /** The review dialog asks for the Text studio on a post: the plan view opens it. */
+  const [wordsRequest, setWordsRequest] = useState<{ index: number; at: number } | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [showOverlay, setShowOverlay] = useState(true);
   const [themeRefs, setThemeRefs] = useState<{ id: string; name: string | null }[]>([]);
@@ -224,6 +231,7 @@ export default function Workspace({
       setSpend(d.spend ?? []);
       setEngine(d.engine);
       setWorkflowV2(!!d.workflowV2);
+      setPricesHidden(!!d.pricesHidden);
       setAutopilotReview(!!d.autopilotReview);
       setSpendThreshold(Number(d.spendThreshold ?? 20));
       setPreviewMode(!!d.preview);
@@ -359,6 +367,9 @@ export default function Workspace({
   const [flowStage, setFlowStage] = useState<0 | 1 | 2 | null>(null);
   /** The classic journey, opened on purpose from the Studio while the workflow is on. */
   const [classic, setClassic] = useState(false);
+  /** The Studio board's tab and whether the old month toolbar is unfolded under More. */
+  const [studioTab, setStudioTab] = useState<StudioTab>("posts");
+  const [toolsOpen, setToolsOpen] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -692,7 +703,8 @@ export default function Workspace({
     }
   }
 
-  async function gridIdeas(refId: string, notes: string) {
+  /** force: a month planned from a request is planned again over the grid (the workflow confirms this first). */
+  async function gridIdeas(refId: string, notes: string, force = false) {
     if (!googleReady && engine.openai === "none") {
       setConnection(true);
       return;
@@ -705,6 +717,7 @@ export default function Workspace({
         ref: refId,
         notes: notes || undefined,
         count: shownSettings.postCount,
+        force: force || undefined,
       });
       await refresh();
       toast.success(`${r.plan.length} posts planned from the reference grid.`);
@@ -1439,6 +1452,31 @@ export default function Workspace({
             acceptedBy: acceptedBy || undefined,
             takes: postTakes,
             onUseTake: (key) => restorePicture(index, key),
+            ocrPanel:
+              t?.output && config?.client ? (
+                <OcrPanel
+                  batchId={batch.id}
+                  post={index}
+                  task={t.id}
+                  imageUrl={outputUrl(t)}
+                  expected={{ headline: editorPost.headline, subline: editorPost.subline, price: editorPost.offer?.price }}
+                  composeArtwork={async () => {
+                    const canvas = await renderOverlay(outputUrl(t), overlaySpec, { headline: editorPost.headline, subline: editorPost.subline }, editorPost.overlay === false ? null : logoSrc, 1080, { patch: editorPost.ov, faces: facesOf(t.qa) });
+                    return new Promise<Blob>((ok, no) => canvas.toBlob((b) => (b ? ok(b) : no(new Error("The artwork could not be drawn."))), "image/png"));
+                  }}
+                />
+              ) : undefined,
+            drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
+            feedbackPanel: (
+              <FeedbackPanel
+                batchId={batch.id}
+                post={index}
+                posts={plan.map((p) => ({ index: p.index, title: p.title, headline: p.headline, caption: p.caption, hasPicture: tasks.some((x) => x.post === p.index && !!x.output), slides: p.group?.kind === "carousel" ? p.group.of : undefined }))}
+                onApplied={refresh}
+                model={shownSettings.model}
+                size={shownSettings.size}
+              />
+            ),
             onCheckWords: t?.output
               ? async (propose) => {
                   // The post as it will be published, words and logo drawn by the browser, is what the art director sees.
@@ -1599,9 +1637,13 @@ export default function Workspace({
                 >
                   Classic journey
                 </button>
+                <span className="studio-rail-right">
+                  {previewMode && <span className="flow-sample-pill">Sample data (fictional)</span>}
+                  <BrandChip client={client} ambassadors={ambassadors} onOpen={() => setKitOpen(true)} />
+                </span>
               </nav>
             )}
-            {(() => {
+            {!useFlow && (() => {
               /** "Start new journey" begins at the first screen; "Open the journey" resumes where it was left. */
               const startNew = () => {
                 try {
@@ -1648,6 +1690,7 @@ export default function Workspace({
                 </div>
               );
             })()}
+            {!useFlow && (
             <SetupChecklist
               client={client}
               ambassadors={ambassadors}
@@ -1667,7 +1710,8 @@ export default function Workspace({
                 setJourney(true);
               }}
             />
-            {config && (
+            )}
+            {!useFlow && config && (
               <BriefCard
                 config={config}
                 theme={themes.find((t) => t.id === themeId) ?? null}
@@ -1699,6 +1743,81 @@ export default function Workspace({
                 clientChangesBusy={busy === "client"}
               />
             )}
+            {useFlow && (() => {
+              const inFlight = (t: Task) => ["queued", "processing", "finalizing"].includes(t.status);
+              const groups = new Set(plan.filter((x) => x.group).map((x) => x.group!.id));
+              const counts = { posts: plan.filter((x) => !x.group).length + groups.size, designs: plan.length, made: 0, making: 0, look: 0, older: 0, failed: 0, planned: 0 };
+              for (const x of plan) {
+                const t = tasks.find((y) => y.post === x.index && (y.output || inFlight(y))) ?? tasks.find((y) => y.post === x.index) ?? null;
+                if (!t) counts.planned += 1;
+                else if (inFlight(t)) counts.making += 1;
+                else if (!t.output) counts.failed += 1;
+                else if (olderIdea(t, x, config)) counts.older += 1;
+                else if (flagsOf(t).length) counts.look += 1;
+                else counts.made += 1;
+              }
+              const makeCount = counts.planned + counts.failed + counts.older;
+              const perPicture = rateFor(shownSettings.model)?.[shownSettings.size] ?? 0;
+              const changes = Object.values(config?.approvals ?? {}).filter((a) => a.status === "changes").length;
+              const toPlan = () => {
+                setFlowStage(2);
+                setClassic(false);
+                setJourney(true);
+              };
+              return (
+                <StudioBoard
+                  tab={studioTab}
+                  onTab={setStudioTab}
+                  counts={counts}
+                  makeCount={makeCount}
+                  makeCost={makeCount * perPicture}
+                  onMake={toPlan}
+                  onExport={() => void exportMonth()}
+                  exporting={exporting}
+                  onClientLink={() => void shareMonth()}
+                  onFeed={openFeed}
+                  changes={changes}
+                  onClientChanges={() => void doClientChanges()}
+                  clientChangesBusy={busy === "client"}
+                  more={
+                    <>
+                      <button type="button" onClick={() => setToolsOpen((o) => !o)}>
+                        {toolsOpen ? "Hide the month tools" : "Month tools (upload, ideas, grid, overlay, typography, PDF)"}
+                      </button>
+                      <button type="button" onClick={() => void whatsAppMonth()} disabled={!counts.made}>
+                        Send the client link on WhatsApp
+                      </button>
+                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.made || exporting}>
+                        Feed PDF
+                      </button>
+                      <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>
+                        Upload product photos
+                      </button>
+                      <button type="button" onClick={() => setKitOpen(!kitShown)}>
+                        {kitShown ? "Hide the side panel" : "Products, versions and brand kit"}
+                      </button>
+                      <button type="button" onClick={() => void newGrid()} disabled={running}>
+                        New grid in this month
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClassic(true);
+                          setJourney(true);
+                        }}
+                      >
+                        Classic journey
+                      </button>
+                      <button type="button" className="danger" onClick={() => void deletePlan()} disabled={running}>
+                        Delete this month
+                      </button>
+                    </>
+                  }
+                >
+                  {null}
+                </StudioBoard>
+              );
+            })()}
             <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>
               {kitShown ? (
               <div className="kit-column">
@@ -1738,8 +1857,31 @@ export default function Workspace({
                 </button>
               )}
               <div className="plan-column">
+                {useFlow && studioTab === "words" && batch && <WordsView plan={plan} tasks={tasks} outputThumb={outputThumb} onSavePlan={savePlan} />}
+                {useFlow && studioTab === "approval" && <ApprovalView plan={plan} tasks={tasks} approvals={config?.approvals} outputThumb={outputThumb} onClientLink={() => void shareMonth()} onWhatsApp={() => void whatsAppMonth()} onOpen={(i) => openEditor(i)} />}
+                {useFlow && studioTab === "approval" && batch && (
+                  <section className="journey-box flow-box studio-feedback">
+                    <span className="flow-eyebrow">Client feedback · the month</span>
+                    <FeedbackPanel
+                      batchId={batch.id}
+                      posts={plan.map((p) => ({ index: p.index, title: p.title, headline: p.headline, caption: p.caption, hasPicture: tasks.some((t) => t.post === p.index && !!t.output), slides: p.group?.kind === "carousel" ? p.group.of : undefined }))}
+                      onApplied={refresh}
+                      model={shownSettings.model}
+                      size={shownSettings.size}
+                    />
+                  </section>
+                )}
+                {useFlow && studioTab === "versions" && (
+                  <div className="studio-versions">
+                    <p className="flow-muted">Earlier versions of this month: every take of every post, and the plans replaced by a replan. Nothing here is lost when a picture is made again.</p>
+                    {batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : <p className="flow-muted studio-empty">No month yet.</p>}
+                  </div>
+                )}
+                <div className={useFlow && studioTab !== "posts" ? "studio-hidden" : ""}>
                 <PlanView
+                toolbar={!useFlow || toolsOpen}
                 notes={monthNotes}
+                wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
                 onRefresh={refresh}
                 outputThumb={outputThumb}
@@ -1802,6 +1944,7 @@ export default function Workspace({
                 onRefit={refitPosts}
                 rewriting={rewriting}
                 />
+                </div>
               </div>
             </div>
           </>
@@ -1812,18 +1955,26 @@ export default function Workspace({
         </footer>
       </main>
 
-      <Radio className={journey ? "in-journey" : ""} />
+      <Radio className={journey ? (useFlow && !classic ? "in-flow" : "in-journey") : ""} />
       {journey && useFlow && !classic && stateReady && client && (
         <Flow
           initialStage={flowStage ?? undefined}
           cast={ambassadors.filter((a) => castIds.includes(a.id))}
           ambassadors={ambassadors}
+          themeRefs={themeRefs}
+          previewMode={previewMode}
+          onNewGrid={async () => {
+            await newGrid();
+          }}
+          clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
+          onClient={setClientId}
+          onMonth={setMonth}
           onBrandKit={() => {
             finishJourney();
             setKitOpen(true);
             setTimeout(() => document.querySelector(".brand-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
           }}
-          onGridIdeas={(ref, notes) => gridIdeas(ref, notes)}
+          onGridIdeas={(ref, notes) => gridIdeas(ref, notes, true)}
           onStyles={(assign) => assignStyles(assign, false)}
           overlay={overlaySpec}
           logoSrc={logoSrc}
@@ -1851,6 +2002,7 @@ export default function Workspace({
           onThemesChanged={setThemes}
           format={shownSettings.format}
           model={shownSettings.model}
+          modelName={models.find((m) => m.slug === shownSettings.model)?.name}
           size={shownSettings.size}
           postCount={shownSettings.postCount}
           previousMonth={previousMonth}
@@ -1993,6 +2145,15 @@ export default function Workspace({
           onNext={
             selectedIndex >= 0 && selectedIndex < reviewable.length - 1
               ? () => setSelected(reviewable[selectedIndex + 1])
+              : undefined
+          }
+          onTextStudio={
+            selected?.post && selected.output
+              ? () => {
+                  const i = selected.post!;
+                  setSelected(null);
+                  setWordsRequest({ index: i, at: Date.now() });
+                }
               : undefined
           }
         />

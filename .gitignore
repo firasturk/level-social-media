@@ -11,3 +11,7 @@ test-results
 server/generated/assets.ts
 wrangler.deploy.json
 wrangler.preview.json
+.claude/worktrees/
+
+# promptfoo output of `npm run eval`
+eval/results.json
