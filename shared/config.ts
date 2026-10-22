@@ -62,6 +62,15 @@ export interface ReviewAnswer {
   note?: string;
   by?: string;
   at: number;
+  /** The exact version the reviewer looked at: the clip (by id) or the picture (by its stamp), with the label the page showed. */
+  version?: ReviewVersion;
+}
+
+export interface ReviewVersion {
+  kind: "video" | "image";
+  id: string;
+  /** "Video 2 (22 Oct)" or "Picture (22 Oct)", as the approval page showed it. */
+  label?: string;
 }
 
 /**

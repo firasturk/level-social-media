@@ -2,6 +2,7 @@ import { useState } from "react";
 import { askConfirm } from "@/lib/confirm";
 import { Check, KeyRound, Trash2, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import VideoPrices from "./VideoPrices";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -374,6 +375,7 @@ export default function ConnectionDialog({
             )}
           </>
         )}
+        {vendor === "higgsfield" && <VideoPrices />}
         {vendor === "google" && (
           <>
             <div className="qa-heading" style={{ marginTop: 12 }}>

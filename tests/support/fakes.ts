@@ -122,9 +122,17 @@ export class FakeR2 {
       body: null,
     };
   }
-  async get(key: string) {
+  async get(key: string, options?: { range?: { offset?: number; length?: number; suffix?: number } }) {
     const o = this.objects.get(key);
-    return o ? this.wrap(key, o) : null;
+    if (!o) return null;
+    const r = options?.range;
+    if (!r) return this.wrap(key, o);
+    // A slice, as R2 serves one: the object keeps its full size, the bytes are the range.
+    const size = o.bytes.byteLength;
+    const start = r.suffix !== undefined ? Math.max(0, size - r.suffix) : (r.offset ?? 0);
+    const end = r.suffix !== undefined ? size : Math.min(size, start + (r.length ?? size - start));
+    const slice = o.bytes.slice(start, end);
+    return { ...this.wrap(key, o), size, arrayBuffer: async () => slice.slice(0), body: null };
   }
   async head(key: string) {
     const o = this.objects.get(key);

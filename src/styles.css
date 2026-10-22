@@ -17630,3 +17630,239 @@ label.cta input {
   justify-content: center;
   cursor: pointer;
 }
+
+/* ───────────── Video versions: the card, the dialog, the client page ───────────── */
+.video-stage .video-making.failed {
+  color: #fff;
+  background: color-mix(in srgb, var(--warning) 70%, #000);
+}
+.video-idea-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.video-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: flex-end;
+}
+.video-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-600);
+}
+.video-settings select {
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-900);
+}
+.video-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  cursor: pointer;
+}
+.video-check input {
+  margin-top: 3px;
+}
+.video-check span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.video-check small {
+  font-size: 12px;
+  color: var(--ink-600);
+  line-height: 1.4;
+}
+.video-words {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.video-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink-600);
+}
+.field-hint.warn {
+  color: var(--warning);
+}
+.video-versions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.video-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+}
+.video-history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.video-history li.shown {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+.video-history li.client {
+  border-color: color-mix(in srgb, var(--success) 50%, var(--line));
+}
+.video-history-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.video-history-main b {
+  font-size: 12.5px;
+}
+.video-history-main small {
+  font-size: 11.5px;
+  color: var(--ink-600);
+}
+.video-history .text-button.on {
+  color: var(--success);
+}
+.video-fail {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--warning);
+}
+.pc-video-badge {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  background: rgb(0 0 0 / 0.62);
+  cursor: pointer;
+  z-index: 2;
+}
+.pc-video-badge.client {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
+}
+.pc-video-player {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: #000;
+}
+.pc-video-player video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.pc-video-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.6);
+  cursor: pointer;
+}
+.pc-video-state {
+  z-index: 2;
+}
+.video-takes .take-text small.warn {
+  color: var(--warning);
+}
+.video-prices {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.video-prices-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+.video-prices-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.video-prices-list input {
+  font-size: 13px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-900);
+}
+.share-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  background: #000;
+}
+.share-play-mark {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: rgb(0 0 0 / 0.55);
+  pointer-events: none;
+}
+.share-version {
+  font-size: 12px;
+  color: var(--ink-600, #666);
+}

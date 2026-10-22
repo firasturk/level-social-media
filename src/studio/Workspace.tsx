@@ -1,6 +1,7 @@
 import { lazyScreen } from "@/lib/lazy";
 import SetupChecklist from "./SetupChecklist";
 import MonthVersions from "./MonthVersions";
+import VideoVersions from "./VideoVersions";
 import MonthPanel from "./MonthPanel";
 import type { TypoStyle } from "@shared/typography";
 import { askConfirm } from "@/lib/confirm";
@@ -1455,6 +1456,7 @@ export default function Workspace({
             onAnimate: ask("animate"),
             onVideo: ask("video"),
             versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
+            videoVersions: t?.output ? <VideoVersions batchId={batch.id} index={index} onOpenVideo={ask("video")} /> : undefined,
             acceptedBy: acceptedBy || undefined,
             takes: postTakes,
             onUseTake: (key) => restorePicture(index, key),

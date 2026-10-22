@@ -9,7 +9,32 @@ import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, now, run } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
-import { effectiveApproval, type Config, type ReviewAnswer } from "@shared/config";
+import { serveObject } from "./range";
+import { parseSettings, versionNumbers, type VideoRow } from "./video";
+import { effectiveApproval, type Config, type ReviewAnswer, type ReviewVersion } from "@shared/config";
+
+/** "22 Oct", for the version labels the reviewer sees. */
+function shortDay(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/**
+ * The clip the client reviews on each post: only a finished version marked for the client, never
+ * a draft, never the provider's URL. The version numbers count every clip of the post, so the
+ * studio and the client call the same clip "Video 2".
+ */
+async function clientVideos(env: Env, batch: string): Promise<Map<number, { row: VideoRow; version: number }>> {
+  const rows = await all<VideoRow>(env.DB, "SELECT * FROM videos WHERE batch = ? ORDER BY created", batch);
+  const numbers = versionNumbers(rows);
+  const out = new Map<number, { row: VideoRow; version: number }>();
+  for (const r of rows) if (r.for_client === 1 && r.status === "done" && r.key) out.set(r.post, { row: r, version: numbers.get(r.id) ?? 0 });
+  return out;
+}
+
+async function clientVideo(env: Env, batch: string, index: number): Promise<VideoRow | null> {
+  const row = await first<VideoRow>(env.DB, "SELECT * FROM videos WHERE batch = ? AND post = ? AND for_client = 1 AND status = 'done' AND key IS NOT NULL ORDER BY created DESC LIMIT 1", batch, index);
+  return row ?? null;
+}
 
 export const shareRoutes = new Hono<{ Bindings: Env }>();
 
@@ -76,6 +101,8 @@ shareRoutes.get("/:token", async (c) => {
       return [];
     }
   };
+  const videos = await clientVideos(c.env, b.id);
+  const token = c.req.param("token");
   const posts = (config.plan ?? []).map((p) => {
     const t = tasks.find((x) => x.post === p.index && x.output);
     let caption = { text: p.caption, hashtags: p.hashtags };
@@ -84,7 +111,21 @@ shareRoutes.get("/:token", async (c) => {
     } catch {
       /* the plan's caption */
     }
+    const cv = videos.get(p.index);
+    const video = cv
+      ? {
+          id: cv.row.id,
+          url: `/api/share/${token}/video/${p.index}?v=${cv.row.updated}`,
+          poster: cv.row.poster_key ? `/api/share/${token}/video/${p.index}/poster?v=${cv.row.updated}` : null,
+          duration: parseSettings(cv.row).duration ?? null,
+          version: { kind: "video", id: cv.row.id, label: `Video ${cv.version} (${shortDay(cv.row.created)})` } satisfies ReviewVersion,
+        }
+      : null;
+    // What the reviewer is looking at, so their answer is pinned to it.
+    const version: ReviewVersion | null = video ? video.version : t ? { kind: "image", id: String(t.updated), label: `Picture (${shortDay(t.updated)})` } : null;
     return {
+      video,
+      version,
       index: p.index,
       date: p.date ?? null,
       headline: p.headline ?? "",
@@ -193,6 +234,26 @@ shareRoutes.get("/:token/image/:index", async (c) => {
   return res;
 });
 
+/**
+ * The clip the client reviews, from this app's storage with Range and HEAD (seeking, iPhone):
+ * only the version marked for the client, behind the same token as the pictures.
+ */
+shareRoutes.on(["GET", "HEAD"], "/:token/video/:index", async (c) => {
+  const { b } = await sharedBatch(c.env, c.req.param("token"));
+  const index = Number(c.req.param("index")) || 0;
+  const v = await clientVideo(c.env, b.id, index);
+  if (!v?.key) throw new StudioError("Video not found.", 404);
+  return serveObject(c.env.BUCKET, v.key, c.req.raw, { contentType: "video/mp4", cacheControl: "private, max-age=3600", filename: `post-${index}.mp4` });
+});
+
+shareRoutes.get("/:token/video/:index/poster", async (c) => {
+  const { b } = await sharedBatch(c.env, c.req.param("token"));
+  const v = await clientVideo(c.env, b.id, Number(c.req.param("index")) || 0);
+  const obj = v?.poster_key ? await c.env.BUCKET.get(v.poster_key) : null;
+  if (!obj) throw new StudioError("Not found.", 404);
+  return imageResponse(obj);
+});
+
 shareRoutes.get("/:token/subject/:index", async (c) => {
   const { b } = await sharedBatch(c.env, c.req.param("token"));
   const row = await first<{ output: string | null }>(
@@ -253,6 +314,8 @@ shareRoutes.post("/:token/review", async (c) => {
       note: z.string().trim().max(1000).optional(),
       by: z.string().trim().max(80).optional(),
       rid: z.string().trim().min(6).max(64).optional(),
+      // The exact version the reviewer saw: the clip by id, or the picture by its stamp.
+      version: z.object({ kind: z.enum(["video", "image"]), id: z.string().trim().min(1).max(80), label: z.string().trim().max(80).optional() }).optional(),
     })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Invalid review.");
@@ -265,7 +328,7 @@ shareRoutes.post("/:token/review", async (c) => {
   // One answer per reviewer (the id their device keeps); a reviewer answering again replaces their own answer only.
   const rid = parsed.data.rid ?? `anon-${crypto.randomUUID()}`;
   const key = String(parsed.data.index);
-  const mine: ReviewAnswer = { rid, status: parsed.data.status, note: parsed.data.note || undefined, by: parsed.data.by || undefined, at: now() };
+  const mine: ReviewAnswer = { rid, status: parsed.data.status, note: parsed.data.note || undefined, by: parsed.data.by || undefined, at: now(), version: parsed.data.version };
   const answers = [...(cfg.approvals?.[key]?.answers ?? []).filter((a) => a.rid !== rid), mine];
   cfg.approvals = { ...(cfg.approvals ?? {}), [key]: effectiveApproval(answers)! };
   await run(c.env.DB, "UPDATE batches SET config = ?, updated = ? WHERE id = ?", JSON.stringify(cfg), now(), b.id);

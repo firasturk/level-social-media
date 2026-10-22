@@ -206,12 +206,27 @@ export class HiggsfieldClient {
    * A short video from one finished picture (Seedance, Kling): the model's path on the Cloud API,
    * the first frame by public URL and the motion written as a prompt. Returns the request id.
    */
-  async submitVideo(job: { model: string; prompt: string; imageUrl: string; duration: number; resolution?: string }): Promise<string> {
-    const input: Record<string, unknown> = { prompt: job.prompt, image_url: job.imageUrl, duration: job.duration };
+  async submitVideo(job: {
+    model: string;
+    prompt: string;
+    imageUrl: string;
+    duration: number;
+    resolution?: string;
+    aspectRatio?: string;
+    /** Fields the model's docs name beyond these (generate_audio, sound...), sent as they are. */
+    extra?: Record<string, unknown>;
+    /** Sent as Idempotency-Key: the same key never starts a second generation (docs/concepts/idempotency). */
+    idempotencyKey?: string;
+  }): Promise<string> {
+    const input: Record<string, unknown> = { ...(job.extra ?? {}), image_url: job.imageUrl, duration: job.duration };
+    if (job.prompt) input.prompt = job.prompt;
     if (job.resolution) input.resolution = job.resolution;
+    if (job.aspectRatio) input.aspect_ratio = job.aspectRatio;
+    const headers = this.headers();
+    if (job.idempotencyKey) headers["Idempotency-Key"] = job.idempotencyKey;
     const r = await this.fetchImpl(this.url(job.model), {
       method: "POST",
-      headers: this.headers(),
+      headers,
       body: JSON.stringify(input),
       signal: AbortSignal.timeout(60_000),
     });
@@ -219,6 +234,25 @@ export class HiggsfieldClient {
     const d = (await r.json()) as { request_id?: string };
     if (!d.request_id) throw new StudioError("Higgsfield did not return a request id.", 502);
     return d.request_id;
+  }
+
+  /**
+   * What a request would cost, from `POST /estimate/<model>` with the same body (docs: Billing and
+   * retention). Nothing is generated. Null when the API gives no figure.
+   */
+  async estimate(model: string, input: Record<string, unknown>): Promise<{ credits: number | null; usd: number | null } | null> {
+    const r = await this.fetchImpl(this.url(`estimate/${model}`), {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) return null;
+    const d = (await r.json().catch(() => ({}))) as { credits?: unknown; usd?: unknown };
+    const num = (x: unknown) => (x === undefined || x === null || x === "" ? null : Number.isFinite(Number(x)) ? Number(x) : null);
+    const credits = num(d.credits);
+    const usd = num(d.usd);
+    return credits === null && usd === null ? null : { credits, usd };
   }
 
   /** The state of a video request: pending, the video's URL, or why it failed. */

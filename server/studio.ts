@@ -68,6 +68,8 @@ import { signObjectUrl } from "./signed";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
+import { videoRoutes } from "./video";
+import { VIDEO_MODELS, videoPriceSetting } from "@shared/video-models";
 import { styleRoutes } from "./styles";
 import { ambassadorRoutes } from "./ambassadors";
 import { metaRoutes } from "./meta";
@@ -82,6 +84,8 @@ type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
+// The video versions of a post, under the posts' own path (mounted here so posts.ts and video.ts do not import each other in a loop).
+studioRoutes.route("/posts/video", videoRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);
@@ -247,6 +251,27 @@ export function requireEngineAdmin(user: User): void {
 studioRoutes.use("/engine/*", async (c, next) => {
   if (c.req.method !== "GET" && c.req.method !== "HEAD") requireEngineAdmin(c.get("user"));
   await next();
+});
+
+/** The fallback price per video clip for each model, when Higgsfield gives no estimate (Connection → Higgsfield). */
+studioRoutes.get("/engine/video-prices", async (c) => {
+  const prices: Record<string, number | null> = {};
+  for (const m of VIDEO_MODELS) {
+    const s = Number((await getSetting(c.env, videoPriceSetting(m.slug))) ?? "");
+    prices[m.slug] = typeof m.price === "number" ? m.price : Number.isFinite(s) && s > 0 ? s : null;
+  }
+  return c.json({ ok: true, prices, models: VIDEO_MODELS.map((m) => ({ slug: m.slug, name: m.name, catalog: m.price })) });
+});
+
+/** An admin sets (or clears) the fallback price of one video model, in USD per clip. */
+studioRoutes.post("/engine/video-price", async (c) => {
+  const parsed = z.object({ model: z.string().min(1), usd: z.number().min(0).max(500).nullable() }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throw new StudioError("Send the model and its price in USD, or null to clear it.");
+  if (!VIDEO_MODELS.some((m) => m.slug === parsed.data.model)) throw new StudioError("Unknown video engine.", 404);
+  const key = videoPriceSetting(parsed.data.model);
+  if (parsed.data.usd === null || parsed.data.usd === 0) await deleteSetting(c.env, key);
+  else await setSetting(c.env, key, String(parsed.data.usd));
+  return c.json({ ok: true, model: parsed.data.model, usd: parsed.data.usd || null });
 });
 
 /** Save an OpenAI key from the app after checking it against the Models endpoint. */

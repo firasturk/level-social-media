@@ -250,7 +250,10 @@ export function ApprovalView({
                           <li key={r.rid} className={r.status}>
                             <b dir="auto">{r.by?.trim() || "Someone"}</b> {r.status === "approved" ? "approved" : "asked for a change"}
                             {r.note ? <q dir="auto">{r.note}</q> : null}
-                            <small className="flow-muted">{new Date(r.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+                            <small className="flow-muted">
+                              {new Date(r.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                              {r.version ? ` · on ${r.version.label ?? (r.version.kind === "video" ? "a video" : "the picture")}` : ""}
+                            </small>
                           </li>
                         ))}
                     </ul>

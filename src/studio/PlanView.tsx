@@ -44,7 +44,9 @@ import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
 import OverlayPreview from "./OverlayPreview";
-import { facesOf } from "@/lib/overlay";
+import { facesOf, renderOverlay } from "@/lib/overlay";
+import VideoOnCard from "./VideoOnCard";
+import { inFlight, videoSummary, type VideoSummary } from "./videoApi";
 import {
   decodeEntities,
   MAX_POST_COUNT,
@@ -236,6 +238,22 @@ export default function PlanView({
   }, [wordsRequest]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
+  // The month's video versions, one line per post (the client's version, the newest clip): read with
+  // the month, when the video dialog changes something, and every few seconds while a clip is being made.
+  const [videos, setVideos] = useState<VideoSummary["posts"]>({});
+  const loadVideos = () => (batchId ? videoSummary(batchId).then((r) => setVideos(r.posts)).catch(() => undefined) : Promise.resolve());
+  useEffect(() => {
+    setVideos({});
+    void loadVideos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchId]);
+  const videosPending = Object.values(videos).some((v) => inFlight(v.latest));
+  useEffect(() => {
+    if (!videosPending) return;
+    const t = setInterval(() => void loadVideos(), 8000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videosPending]);
   // The plan arrives as a new array on every refresh tick while images generate; the draft only
   // follows it when its content actually changed, so typing is never wiped mid-edit.
   const planKey = JSON.stringify(plan);
@@ -766,6 +784,7 @@ export default function PlanView({
                             </span>
                           )}
                           {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
+                          {img && !inFlight && videos[String(p.index)] && <VideoOnCard summary={videos[String(p.index)]} />}
                           {product && !img && <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />}
                         </>
                       }
@@ -1564,7 +1583,25 @@ export default function PlanView({
         const p = videoFor !== null ? draft.find((x) => x.index === videoFor) : null;
         const t = p ? taskOf(p.index) : null;
         if (!p || !t?.output || !batchId) return null;
-        return <VideoDialog open batchId={batchId} post={p} src={outputUrl(t)} fileBase={fileBase} onClose={() => setVideoFor(null)} />;
+        return (
+          <VideoDialog
+            open
+            batchId={batchId}
+            post={p}
+            src={outputUrl(t)}
+            fileBase={fileBase}
+            // The post as it will be published, words and logo drawn by the browser: the clip's first frame when asked.
+            composeArtwork={async () => {
+              const canvas = await renderOverlay(outputUrl(t), overlay, { headline: p.headline, subline: p.subline }, p.overlay === false ? null : logoSrc, 1080, { patch: p.ov, faces: facesOf(t.qa) });
+              return canvas.toDataURL("image/jpeg", 0.92);
+            }}
+            onChanged={() => void loadVideos()}
+            onClose={() => {
+              setVideoFor(null);
+              void loadVideos();
+            }}
+          />
+        );
       })()}
       {(() => {
         const p = animating !== null ? draft.find((x) => x.index === animating) : null;
