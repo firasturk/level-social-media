@@ -17265,3 +17265,11 @@ label.cta input {
   background: rgba(17, 41, 211, 0.12);
   pointer-events: none;
 }
+
+.flow-rules {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}

@@ -28,6 +28,7 @@ import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
 import IdeasChat from "./IdeasChat";
 import BrandChip from "./BrandChip";
+import { RelevantRules } from "./MemoryPanel";
 import Working from "@/components/Working";
 import TestGrid from "./TestGrid";
 import { askInput } from "@/lib/confirm";
@@ -1198,6 +1199,18 @@ export default function Flow(p: FlowProps) {
                     </div>
                     <p className="flow-muted">Brand rules and the month's colours apply on top of all of them. {lead.meet}</p>
                   </div>
+                  {client && p.batchId && (
+                    <div className="flow-rules">
+                      <span className="flow-eyebrow">Rules that apply this month</span>
+                      <RelevantRules clientId={client.id} batchId={p.batchId} />
+                      <small className="flow-muted">
+                        Approved brand rules and this month's instructions, from the brand kit's memory. Proposed lessons wait there until approved and never reach a prompt before.{" "}
+                        <button type="button" className="text-button" onClick={p.onBrandKit}>
+                          Open the brand memory
+                        </button>
+                      </small>
+                    </div>
+                  )}
                 </section>
                 <div className="flow-stack">
                   <section className="journey-box flow-box">
