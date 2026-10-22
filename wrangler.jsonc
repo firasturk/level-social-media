@@ -48,6 +48,7 @@
     "@shared/drive": "./shared/drive.ts",
     "@shared/testgrid": "./shared/testgrid.ts",
     "@shared/issues": "./shared/issues.ts",
+    "@shared/ocr-check": "./shared/ocr-check.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

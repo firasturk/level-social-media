@@ -20,6 +20,13 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
 export const MAX_AUTO_TAKES = 1;
+/** The flags of an automated review that a second take fixes by itself; an OCR flag is a note for the team, never a retake. */
+export function selfFixable(qa: QA): PostFlag[] {
+  return qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind) && !isOcrFlag(f)) : [];
+}
+import { ocrReviewFlags } from "./ocr";
+import { isOcrFlag } from "@shared/ocr-check";
+import type { PostFlag } from "@shared/qa";
 import { holdUncertain, releaseSpend, reserveSpend, spendFits } from "./spend";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { demoAnswer, demoMode } from "./demo";
@@ -586,7 +593,7 @@ async function storeResultBytes(
     }
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
-    const fixable = qa.automated ? (qa.flags ?? []).filter((f) => SELF_FIX.has(f.kind)) : [];
+    const fixable = selfFixable(qa);
     if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && !budget.ok) qa = { ...qa, notes: `${qa.notes ? `${qa.notes} ` : ""}Not made again by itself: ${budget.why}. Press Fix it to make it again.` };
     if (fixable.length && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
       const retry: PostBrief = { ...pb, retried: true };
@@ -603,6 +610,9 @@ async function storeResultBytes(
       console.log(`[self-fix] task ${task.id} post ${pb.index}: ${fixable.map((f) => f.kind).join(",")}`, done);
       if (done) return;
     }
+    // Writing read by OCR (when Google Vision is connected) is a review note added after the retake
+    // decisions: it never queues a take by itself. A faint reading says "check the writing".
+    qa = await ocrReviewFlags(env, batch, task, qa, result, [pb.product?.split(":")[0] ?? "", ...(pb.productNames ?? []), ...(pb.extraProducts ?? []).map((x) => x.name)]);
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)
     await run(

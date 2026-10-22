@@ -807,7 +807,7 @@ interface BatchRow {
 }
 
 /** A member's own months; an admin opens every month of the team (the maker stays its owner). */
-async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
+export async function ownedPlan(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
   if (!id) throw new StudioError("Plan id is required.");
   const b =
     user.role === "admin"
