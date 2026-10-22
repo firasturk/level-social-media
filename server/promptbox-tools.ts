@@ -1,24 +1,24 @@
 /**
  * The Prompt Box's hands: the one place the box calls a provider. Every tool the box can run
- * (Freepik search and use, a Higgsfield video, a Photo Lab edit) goes through this adapter, so the
- * sibling integrations plug in here at merge and nowhere else:
+ * (Freepik search and use, a Higgsfield video, a Photo lab edit) goes through this adapter:
  *
- * - Freepik (int/freepik): `GET /api/studio/freepik/search`, `POST /api/studio/freepik/use` → the
- *   functions behind them replace `freepikSearch` and `freepikUse` (today: a fixture).
- * - Video (int/video): `POST /api/studio/posts/video` {batch, index, model, prompt, duration,
- *   aspect, source, artwork?} → replaces `videoGenerate` (today: the engine's image-to-video call
- *   this build already has, which ignores aspect and source).
- * - Photo Lab: not in this build; `photolabRun` refuses until it is wired.
+ * - Freepik: the same search and library functions as /api/studio/freepik (server/freepik.ts).
+ * - Video: the same submission as POST /api/studio/posts/video (server/video.ts).
+ * - Photo lab: the same propose → confirm → run as /api/studio/photolab/run (server/photolab.ts).
  *
- * Tests and the merge swap a tool with `setPromptboxTools`; the routes only ever call `promptboxTools`.
+ * The routes in server/promptbox.ts have already checked the admin, the switch and the person's
+ * confirmation; each function here records the provider's own ledger row as the dialogs do.
+ * Tests swap a tool with `setPromptboxTools`; the routes only ever call `promptboxTools`.
  */
 import type { Env } from "./env";
-import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError } from "./errors";
-import { all, first, now, run, uuid } from "./db";
-import { makeClient } from "./engine";
-import { signObjectUrl } from "./signed";
-import { VIDEO_MODELS } from "@shared/qa";
+import { all, first } from "./db";
+import { downloadAsset, resolveFreepik, useAsset } from "./freepik";
+import { submitVideoRequest } from "./video";
+import { videoModel } from "@shared/video-models";
+import { PHOTO_LAB_OPS, proposePhotoLab, runPhotoLabJob } from "./photolab";
+import { confirmSpend } from "./integrations";
+import { PHOTO_LAB_PRICES, type PhotoLabOp } from "@shared/pricing";
 import type { User } from "@shared/types";
 
 export interface FreepikAsset {
@@ -101,36 +101,64 @@ export function fixtureSearch(q: SearchQuery): SearchResult {
   return { results, page: q.page, more: q.page < 3, fixture: true };
 }
 
+/** The Photo lab operation a sentence named: the four the lab offers, or a clear refusal. */
+export function photoLabOp(operation: string): PhotoLabOp {
+  const o = operation.toLowerCase();
+  if (/upscal|enhance|sharpen|bigger/.test(o)) return "upscale";
+  if (/remove|cut/.test(o)) return "remove-bg";
+  if (/relight|light/.test(o)) return "relight";
+  if (/background|replace|scene/.test(o)) return "background";
+  throw new StudioError(`The Photo lab does not do "${operation}". It offers: ${PHOTO_LAB_OPS.join(", ")}.`, 400);
+}
+
 const defaults: PromptboxTools = {
-  async freepikSearch(_env, _user, q) {
-    // At merge: the search function behind GET /api/studio/freepik/search (int/freepik).
-    return fixtureSearch(q);
+  async freepikSearch(env, _user, q) {
+    const fp = await resolveFreepik(env);
+    const type = q.type === "photo" || q.type === "vector" || q.type === "psd" || q.type === "template" ? q.type : "";
+    const orientation = q.orientation === "landscape" || q.orientation === "portrait" || q.orientation === "square" || q.orientation === "panoramic" ? q.orientation : "";
+    // The box's route has already recorded this search in the ledger (estimate 0); only the provider is asked here.
+    const r = await fp.provider.search({ q: q.q, type, orientation, page: q.page });
+    return {
+      results: r.items.map((it) => ({ id: it.id, source: "freepik" as const, title: `${r.demo ? "Demo · " : ""}${it.title}`, url: it.preview, type: it.kind, premium: it.license.type === "premium" })),
+      page: r.page,
+      more: r.page < r.lastPage,
+      fixture: r.demo,
+    };
   },
-  async freepikUse(_env, _user, r) {
-    // At merge: the function behind POST /api/studio/freepik/use (int/freepik): the asset is downloaded
-    // (confirmed there), stored, and set on the post as a reference or a design layer.
-    return { ok: true, note: `${DEMO}: asset ${r.asset.id} noted for post ${r.post} as ${r.role === "design" ? "a design layer" : "a reference"}; the Freepik route stores it once wired.`, fixture: true };
+  async freepikUse(env, user, r) {
+    const b = await first<{ client: string | null }>(env.DB, "SELECT client FROM batches WHERE id = ?", r.batch);
+    const fp = await resolveFreepik(env);
+    // The person confirmed the card; a download the plan does not include is still refused here (cost not known).
+    const got = await downloadAsset(env, user, r.asset.id, { confirm: true, client: b?.client ?? null, batch: r.batch, post: r.post });
+    const out = await useAsset(env, user, { asset: got.asset.id, batch: r.batch, post: r.post, slide: r.slide ?? null, role: r.role });
+    const where = r.role === "design" ? "added to the design as a layer" : "set as the reference for the next take";
+    return { ok: true, note: `${got.asset.title}: ${where} on post ${r.post}${got.reused ? " (already in the library)" : ""}.${out.layer?.flattened ? " It is a flattened picture, not editable layers." : ""}`, fixture: !fp.connected };
   },
   async videoGenerate(env, user, v) {
-    // At merge: the function behind POST /api/studio/posts/video (int/video), which also takes aspect,
-    // source and artwork. Until then: this build's image-to-video call, the same one the Video dialog makes.
-    const model = VIDEO_MODELS.find((m) => m.slug === v.model);
+    // The box confirmed the clip (with the admin's estimate when the catalog has none), so an unknown cost is not asked about twice.
+    const model = videoModel(v.model);
     if (!model) throw new StudioError("Unknown video engine.", 400);
-    const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", v.batch, v.index);
-    if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
-    if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
-    const engine = await makeClient(env);
-    const id = uuid();
-    const requestId = await engine.submitVideo({ model: model.slug, prompt: v.prompt, imageUrl: await signObjectUrl(env, t.output, 6 * 60 * 60 * 1000), duration: v.duration, resolution: model.resolution });
-    await run(env.DB, "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)", id, v.batch, v.index, t.id, user.id, model.slug, v.prompt, requestId, now(), now());
-    return { ok: true, video: { id, status: "queued" }, note: `The clip is queued on ${model.name}; it appears under the post's videos when done.` };
+    // An engine without a frame choice follows the picture's own frame; the card's default frame is not forced on it.
+    const aspect = model.aspect ? v.aspect : undefined;
+    const item = await submitVideoRequest(env, user, { batch: v.batch, index: v.index, model: v.model, prompt: v.prompt, duration: v.duration, aspect, source: v.source, artwork: v.artwork, confirm: true, note: "from the Prompt Box" });
+    return { ok: true, video: { id: item.id, status: item.status }, note: `Video ${item.version} is being made on ${model.name}${model.aspect ? "" : " (it follows the picture's own frame)"}; it appears on the card and under Versions when done.` };
   },
   async videoList(env, _user, q) {
     const rows = await all<{ id: string; post: number; status: string }>(env.DB, "SELECT id, post, status FROM videos WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 12", q.batch, q.index);
     return { videos: rows };
   },
-  async photolabRun() {
-    throw new StudioError("Photo Lab is not connected in this build yet.", 503);
+  async photolabRun(env, user, p) {
+    const b = await first<{ client: string | null }>(env.DB, "SELECT client FROM batches WHERE id = ?", p.batch);
+    if (!b?.client) throw new StudioError("This month has no client, so the Photo lab cannot file its result.", 409);
+    const t = await first<{ id: string }>(env.DB, "SELECT id FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", p.batch, p.post);
+    if (!t) throw new StudioError("That post has no picture yet.", 409);
+    const op = photoLabOp(p.operation);
+    const d = { client: b.client, source: { kind: "task" as const, batch: p.batch, id: t.id }, op, prompt: p.prompt };
+    const proposal = await proposePhotoLab(env, user, d);
+    const confirmed = await confirmSpend(env, { provider: "freepik", user, opId: proposal.opId, confirm: true });
+    const job = await runPhotoLabJob(env, d, proposal.picked, proposal.lab, proposal.lab.connected ? PHOTO_LAB_PRICES[op] : 0, confirmed.id);
+    const state = job.status === "failed" ? `failed: ${job.error ?? "the provider refused the picture"}` : job.status === "done" ? "done; open the editor's Photo lab to compare and use it" : "running; it appears in the editor's Photo lab when done";
+    return { ok: true, note: `${op} on post ${p.post}: ${state}.`, fixture: !proposal.lab.connected };
   },
 };
 

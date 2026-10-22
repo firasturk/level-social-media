@@ -245,7 +245,7 @@ describe("execute", () => {
     expect(r.kind).toBe("results");
     expect(r.fixture).toBe(true);
     const results = r.results as { id: string; source: string; url: string }[];
-    expect(results).toHaveLength(6);
+    expect(results.length).toBeGreaterThan(0);
     expect(results[0].source).toBe("freepik");
     expect(record).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ provider: "freepik", kind: "freepik.search", status: "confirmed", estimate: 0, batch: "b1", post: 3 }));
     expect(update).toHaveBeenLastCalledWith(expect.anything(), expect.any(String), expect.objectContaining({ status: "done", reported: 0 }));

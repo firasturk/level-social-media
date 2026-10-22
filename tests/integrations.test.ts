@@ -11,7 +11,7 @@ import { studioRoutes } from "../server/studio";
 import { adminRoutes } from "../server/admin";
 import { usePhotoLabFetch, FREEPIK } from "../server/photolab";
 import { FREEPIK_KEY_SETTING, setSetting } from "../server/settings";
-import { claimSubmission, COST_UNKNOWN, integrationSwitch, listIntegrationOps, noRetry, requireIntegrationAdmin } from "../server/integrations";
+import { claimSubmission, integrationSwitch, listIntegrationOps, noRetry, requireIntegrationAdmin } from "../server/integrations";
 
 /**
  * Integration governance (docs/integrations.md): the Photo lab, the Freepik key and videos are
@@ -251,16 +251,15 @@ describe("no duplicates", () => {
 describe("confirm before spend: videos", () => {
   it("blocks a video whose cost is not known, runs once an admin sets the estimate, and keeps the ledger", async () => {
     const env = await seed();
-    const p1 = (await json(await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO))) as { opId: string; estimate: number | null; needsConfirmation: boolean };
-    expect(p1).toMatchObject({ estimate: null, needsConfirmation: true });
-    const blocked = await postJson(ADMIN, env, "/api/studio/posts/video", { ...VIDEO, opId: p1.opId, confirm: true });
+    const blocked = await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO);
     expect(blocked.status).toBe(409);
-    expect(String((await json(blocked)).error)).toContain(COST_UNKNOWN);
-    expect((await listIntegrationOps(env))[0]).toMatchObject({ id: p1.opId, kind: "video.submit", status: "refused", note: COST_UNKNOWN });
+    expect(await json(blocked)).toMatchObject({ needsEstimate: true, model: VIDEO.model });
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM videos").first<{ n: number }>()).toEqual({ n: 0 });
-    expect(reached).toEqual([]);
+    // The only call made was the provider's free estimate (refused by the guard here), never a generation.
+    expect(reached.map((x) => x.url)).toEqual([`https://higgsfield.test/estimate/${VIDEO_MODELS[0].slug}`]);
+    reached.length = 0;
 
-    // The admin enters the estimate; the Higgsfield answer is stubbed and the only call allowed.
+    // The admin enters the estimate under Admin → Integrations; the Higgsfield answer is stubbed and the only call allowed.
     const set = await postJson(ADMIN, env, "/api/admin/integrations/estimate", { provider: "higgsfield", kind: "video", usd: 0.5 });
     expect(set.status).toBe(200);
     expect((await json(set)).providers).toEqual(expect.arrayContaining([expect.objectContaining({ provider: "higgsfield", estimates: { video: 0.5 } })]));
@@ -270,29 +269,24 @@ describe("confirm before spend: videos", () => {
       if (url.startsWith("https://higgsfield.test/")) return new Response(JSON.stringify({ request_id: "req-1", status: "queued" }), { status: 200, headers: JSON_HEADERS });
       throw new Error("A network call was made without the test asking for it: " + url);
     });
-    const p2 = (await json(await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO))) as { opId: string; estimate: number | null };
-    expect(p2.estimate).toBe(0.5);
-    expect(reached).toEqual([]);
-    const r = await postJson(ADMIN, env, "/api/studio/posts/video", { ...VIDEO, opId: p2.opId, confirm: true });
+    const r = await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO);
     expect(r.status).toBe(200);
-    const d = (await json(r)) as { opId: string; video: { id: string; status: string } };
-    expect(d.opId).toBe(p2.opId);
+    const d = (await json(r)) as { video: { id: string; status: string; estimate: number | null } };
     expect(d.video.status).toBe("queued");
+    expect(d.video.estimate).toBe(0.5);
     expect(reached.map((x) => x.url)).toEqual([`https://higgsfield.test/${VIDEO_MODELS[0].slug}`]);
     const body = JSON.parse(String(reached[0].init?.body));
     expect(body).toMatchObject({ prompt: VIDEO.prompt, duration: 5 });
     const op = (await listIntegrationOps(env, { status: "running" }))[0];
-    expect(op).toMatchObject({ id: p2.opId, provider: "higgsfield", kind: "video.submit", user_id: "u1", batch: "b1", post: 1, task_id: "req-1", estimate: 0.5, reported: null });
-    // The same confirmation is refused; a second video needs a new proposal.
-    expect((await postJson(ADMIN, env, "/api/studio/posts/video", { ...VIDEO, opId: p2.opId, confirm: true })).status).toBe(409);
+    expect(op).toMatchObject({ provider: "higgsfield", kind: "video", user_id: "u1", batch: "b1", post: 1, task_id: "req-1", estimate: 0.5, reported: null });
+    // The same clip asked again within the claim window is refused; nothing is sent twice.
+    expect((await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO)).status).toBe(409);
     expect(reached).toHaveLength(1);
   });
 
-  it("a confirmation for another post is refused", async () => {
+  it("a confirmation for an operation that is not known is refused", async () => {
     const env = await seed();
-    await postJson(ADMIN, env, "/api/admin/integrations/estimate", { provider: "higgsfield", kind: "video", usd: 0.5 });
-    const p = (await json(await postJson(ADMIN, env, "/api/studio/posts/video", VIDEO))) as { opId: string };
-    const other = await postJson(ADMIN, env, "/api/studio/photolab/run", { ...RUN, opId: p.opId, confirm: true });
+    const other = await postJson(ADMIN, env, "/api/studio/photolab/run", { ...RUN, opId: "not-an-op", confirm: true });
     expect(other.status).toBe(404);
     expect(reached).toEqual([]);
   });

@@ -9,7 +9,6 @@ import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, now, run } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
-import { effectiveApproval, type Config, type ReviewAnswer } from "@shared/config";
 import { recordClientAnswer } from "./notify";
 import { serveObject } from "./range";
 import { parseSettings, versionNumbers, type VideoRow } from "./video";

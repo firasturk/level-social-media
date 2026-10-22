@@ -358,11 +358,12 @@ export class DemoStockProvider implements StockProvider {
       if (p.type && !(p.type === f.kind || (p.type === "template" && f.kind === "psd"))) return false;
       if (p.orientation && p.orientation !== f.orientation) return false;
       if (p.color && p.color !== f.color) return false;
-      if (!words.length) return true;
-      const hay = [f.title.toLowerCase(), ...f.words];
-      return words.every((w) => hay.some((h) => h.includes(w)));
-    }).map(fromFixture);
-    return { items, page: 1, lastPage: 1, total: items.length, demo: true };
+      return true;
+    });
+    const matched = words.length ? items.filter((f) => words.every((w) => [f.title.toLowerCase(), ...f.words].some((h) => h.includes(w)))) : items;
+    // The demo catalogue is six cards: when the words match none of them, all six are shown (labelled demo) so the flow can be tried.
+    const shown = (matched.length ? matched : items).map(fromFixture);
+    return { items: shown, page: 1, lastPage: 1, total: shown.length, demo: true };
   }
   async detail(id: string): Promise<StockItem> {
     const f = DEMO_CATALOGUE.find((x) => x.id === id);

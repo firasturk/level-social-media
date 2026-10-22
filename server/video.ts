@@ -26,7 +26,7 @@ import { getSetting } from "./settings";
 import { ownedPlan } from "./posts";
 import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
-import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
@@ -186,6 +186,9 @@ export async function clipEstimate(
   if (typeof model.price === "number") return { usd: model.price, credits: null, source: "catalog" };
   const setting = Number((await getSetting(env, videoPriceSetting(model.slug))) ?? "");
   if (Number.isFinite(setting) && setting > 0) return { usd: setting, credits: null, source: "setting" };
+  // The one figure an admin entered under Admin → Integrations ("estimated cost per video clip") covers every engine.
+  const general = await integrationEstimate(env, "higgsfield", "video");
+  if (general !== null && general > 0) return { usd: general, credits: null, source: "setting" };
   if (engine) {
     try {
       const e = await engine.estimate(model.slug, input);
@@ -365,15 +368,18 @@ const submitSchema = z.object({
   note: z.string().trim().max(200).optional(),
 });
 
-/** Makes the video: the post's picture (or its artwork) is the first frame, the idea is the motion. */
-videoRoutes.post("/", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
-  await assertIntegrationEnabled(c.env, "higgsfield");
-  const d = await parseBody(c, submitSchema);
-  const b = await ownedPlan(c.env, user, d.batch);
-  const t = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+export type SubmitInput = z.infer<typeof submitSchema>;
+
+/**
+ * Makes the video: the post's picture (or its artwork) is the first frame, the idea is the motion.
+ * The caller has checked the admin and the switch; the Prompt Box calls this too.
+ */
+export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): Promise<VideoItem> {
+  const b = await ownedPlan(env, user, d.batch);
+  const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
-  const model = videoModel(d.model)!;
+  const model = videoModel(d.model);
+  if (!model) throw new StudioError("Unknown video engine.");
   if (model.promptRequired && d.prompt.trim().length < 5) throw new StudioError(`${model.name} needs a motion idea of a few words.`);
   const checked = checkVideoSettings(model, { duration: d.duration, aspect: d.aspect, resolution: d.resolution, audio: d.audio });
   if (!checked.ok) throw new StudioError(checked.reason);
@@ -382,12 +388,19 @@ videoRoutes.post("/", async (c) => {
     if (!d.artwork) throw new StudioError("Send the artwork (the post with its words and logo) to make the clip from it.");
     const art = dataUrlBytes(d.artwork);
     posterKey = `${b.owner}/${b.id}/video/${t.id}/${uuid()}.artwork.${art.mime === "image/png" ? "png" : art.mime === "image/webp" ? "webp" : "jpg"}`;
-    await c.env.BUCKET.put(posterKey, art.bytes, { httpMetadata: { contentType: art.mime } });
+    await env.BUCKET.put(posterKey, art.bytes, { httpMetadata: { contentType: art.mime } });
   }
-  const row = await submitClip(c.env, user, b, t, d.index, { model, prompt: d.prompt.trim(), settings: checked.settings, source: d.source, posterKey, confirm: !!d.confirm, note: d.note });
-  const rows = await postRows(c.env, b.id, d.index);
+  const row = await submitClip(env, user, b, t, d.index, { model, prompt: d.prompt.trim(), settings: checked.settings, source: d.source, posterKey, confirm: !!d.confirm, note: d.note });
+  const rows = await postRows(env, b.id, d.index);
   const numbers = versionNumbers(rows);
-  return c.json({ ok: true, video: videoItem(row, numbers.get(row.id) ?? rows.length) });
+  return videoItem(row, numbers.get(row.id) ?? rows.length);
+}
+
+videoRoutes.post("/", async (c) => {
+  const user = requireIntegrationAdmin(c, "higgsfield");
+  await assertIntegrationEnabled(c.env, "higgsfield");
+  const d = await parseBody(c, submitSchema);
+  return c.json({ ok: true, video: await submitVideoRequest(c.env, user, d) });
 });
 
 /** A failed clip asked for again: a new job, a new op, the same idea and settings. */
@@ -427,7 +440,8 @@ videoRoutes.get("/list", async (c) => {
     const s = Number((await getSetting(c.env, videoPriceSetting(m.slug))) ?? "");
     prices[m.slug] = typeof m.price === "number" ? m.price : Number.isFinite(s) && s > 0 ? s : null;
   }
-  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0)), engines: VIDEO_MODELS, prices, admin: c.get("user").role === "admin" });
+  const user = c.get("user");
+  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield") });
 });
 
 /** One line per post of the month: the version the client sees, and the newest clip (its progress or failure). */

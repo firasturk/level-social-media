@@ -408,7 +408,7 @@ const runSchema = z.object({
   prompt: z.string().max(1000).optional(),
 });
 
-interface Picked {
+export interface Picked {
   image: ImageBytes;
   label: string;
   batch: string | null;
@@ -457,36 +457,56 @@ async function pickInput(env: Env, user: User, client: string, s: Source): Promi
  * with nothing sent to Freepik. The second carries {opId, confirm: true} and runs it once. Both
  * are admins-only and refused while the Freepik switch is off.
  */
+export type PhotoLabRun = z.infer<typeof runSchema>;
+
+/** The run's estimate and ledger note, the same for the dialog and the Prompt Box. */
+export async function proposePhotoLab(env: Env, user: User, d: PhotoLabRun): Promise<{ opId: string; estimate: number | null; needsConfirmation: true; picked: Picked; lab: ResolvedPhotoLab; kind: string }> {
+  const prompt = (d.prompt ?? "").trim();
+  if (d.op === "background" && !prompt) throw new StudioError("Describe the new background first.");
+  const picked = await pickInput(env, user, d.client, d.source);
+  const lab = await resolvePhotoLab(env, fetcher());
+  const cost = lab.connected ? PHOTO_LAB_PRICES[d.op] : 0;
+  const kind = `photolab.${d.op}`;
+  const proposal = await proposeOp(env, {
+    provider: "freepik",
+    kind,
+    user: user.id,
+    batch: picked.batch,
+    post: picked.post,
+    estimate: cost,
+    note: `${OP_LABELS[d.op]} on ${picked.label.slice(0, 120)}${lab.connected ? "" : " (demo: nothing is sent)"}`,
+  });
+  return { ...proposal, picked, lab, kind };
+}
+
 photoLabRoutes.post("/run", async (c) => {
   const user = requireIntegrationAdmin(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   const d = await body(c, runSchema.merge(confirmSchema));
+  if (!d.opId) {
+    const p = await proposePhotoLab(c.env, user, d);
+    return c.json({ opId: p.opId, estimate: p.estimate, needsConfirmation: true, approximate: true, connected: p.lab.connected, provider: p.lab.provider.name, reason: p.lab.reason });
+  }
+  const op = await confirmSpend(c.env, { provider: "freepik", user, opId: d.opId, confirm: d.confirm });
+  if (op.kind !== `photolab.${d.op}`) throw new StudioError("This confirmation is for another tool: propose the run again.", 409);
   const prompt = (d.prompt ?? "").trim();
   if (d.op === "background" && !prompt) throw new StudioError("Describe the new background first.");
   const picked = await pickInput(c.env, user, d.client, d.source);
   const lab = await resolvePhotoLab(c.env, fetcher());
   const cost = lab.connected ? PHOTO_LAB_PRICES[d.op] : 0;
-  const kind = `photolab.${d.op}`;
-  if (!d.opId) {
-    const proposal = await proposeOp(c.env, {
-      provider: "freepik",
-      kind,
-      user: user.id,
-      batch: picked.batch,
-      post: picked.post,
-      estimate: cost,
-      note: `${OP_LABELS[d.op]} on ${picked.label.slice(0, 120)}${lab.connected ? "" : " (demo: nothing is sent)"}`,
-    });
-    return c.json({ ...proposal, approximate: true, connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
-  }
-  const op = await confirmSpend(c.env, { provider: "freepik", user, opId: d.opId, confirm: d.confirm });
-  if (op.kind !== kind) throw new StudioError("This confirmation is for another tool: propose the run again.", 409);
+  const out = await runPhotoLabJob(c.env, d, picked, lab, cost, op.id);
+  return c.json({ opId: op.id, job: jobJson(out), connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
+});
+
+/** A confirmed Photo lab run: the input stored, the job row written, one submission, the ledger closed on refusal. */
+export async function runPhotoLabJob(env: Env, d: PhotoLabRun, picked: Picked, lab: ResolvedPhotoLab, cost: number, opId: string): Promise<JobRow> {
+  const prompt = (d.prompt ?? "").trim();
   const id = uuid();
   const inputKey = `photolab/${id}-in.${extOf(picked.image.mime)}`;
-  await c.env.BUCKET.put(inputKey, picked.image.bytes, { httpMetadata: { contentType: picked.image.mime } });
+  await env.BUCKET.put(inputKey, picked.image.bytes, { httpMetadata: { contentType: picked.image.mime } });
   const t = now();
   await run(
-    c.env.DB,
+    env.DB,
     "INSERT INTO photolab_jobs (id, client, batch, post, op, prompt, input_key, input_label, status, provider, cost, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)",
     id,
     d.client,
@@ -501,22 +521,22 @@ photoLabRoutes.post("/run", async (c) => {
     t,
     t,
   );
-  let job = await jobById(c.env, id);
+  let job = await jobById(env, id);
   try {
-    const url = lab.connected ? await signObjectUrl(c.env, inputKey, 2 * 60 * 60 * 1000) : "";
+    const url = lab.connected ? await signObjectUrl(env, inputKey, 2 * 60 * 60 * 1000) : "";
     // One submission: a failure stands (no retry pays twice, no other provider stands in).
     const task = await noRetry(() => lab.provider.submit(d.op, { url, bytes: picked.image.bytes, mime: picked.image.mime }, prompt));
-    await run(c.env.DB, "UPDATE photolab_jobs SET status = 'running', provider_task = ?, updated = ? WHERE id = ?", task.taskId, now(), id);
-    await updateIntegrationOp(c.env, op.id, { status: "running", taskId: task.taskId, note: `Job ${id}` });
-    job = await jobById(c.env, id);
-    if (task.state === "done") job = await finish(c.env, job, task, fetcher());
-    else if (task.state === "failed") job = await fail(c.env, job, task.error ?? "The provider refused the picture.");
+    await run(env.DB, "UPDATE photolab_jobs SET status = 'running', provider_task = ?, updated = ? WHERE id = ?", task.taskId, now(), id);
+    await updateIntegrationOp(env, opId, { status: "running", taskId: task.taskId, note: `Job ${id}` });
+    job = await jobById(env, id);
+    if (task.state === "done") job = await finish(env, job, task, fetcher());
+    else if (task.state === "failed") job = await fail(env, job, task.error ?? "The provider refused the picture.");
   } catch (e) {
-    job = await fail(c.env, job, errorMessage(e));
-    if (!job.provider_task) await updateIntegrationOp(c.env, op.id, { status: "failed", note: errorMessage(e) });
+    job = await fail(env, job, errorMessage(e));
+    if (!job.provider_task) await updateIntegrationOp(env, opId, { status: "failed", note: errorMessage(e) });
   }
-  return c.json({ opId: op.id, job: jobJson(job), connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
-});
+  return job;
+}
 
 photoLabRoutes.get("/jobs", async (c) => {
   const client = c.req.query("client");
