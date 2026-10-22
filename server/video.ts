@@ -27,6 +27,7 @@ import { ownedPlan } from "./posts";
 import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { CREDITS_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
@@ -79,7 +80,7 @@ interface StoredSettings extends Partial<VideoSettings> {
 const MAX_UPLOAD = 60 * 1024 * 1024;
 const MAX_ARTWORK = 12 * 1024 * 1024;
 /** A clip the engine has not finished after this long is marked failed; nothing is retried by itself. */
-const GIVE_UP_MS = 30 * 60 * 1000;
+export const GIVE_UP_MS = 30 * 60 * 1000;
 /** The same clip (post, prompt, settings, source) is not submitted twice within this window. */
 const CLAIM_TTL_MS = 10 * 60 * 1000;
 /** How many in-flight clips one list call asks the provider about. */
@@ -177,12 +178,12 @@ async function parseBody<T extends z.ZodTypeAny>(c: { req: { json: () => Promise
   return parsed.data;
 }
 
-async function sha256(s: string): Promise<string> {
+export async function sha256(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function dataUrlBytes(dataUrl: string): { bytes: ArrayBuffer; mime: string } {
+export function dataUrlBytes(dataUrl: string): { bytes: ArrayBuffer; mime: string } {
   const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
   if (!m) throw new StudioError("The artwork must be a PNG or JPEG picture.");
   const bin = atob(m[2]);
@@ -307,12 +308,52 @@ async function submitClip(env: Env, user: User, b: { id: string; owner: string }
   return (await first<VideoRow>(env.DB, "SELECT * FROM videos WHERE id = ?", id))!;
 }
 
+export type PendingSettler = (env: Env, b: { id: string; owner: string }, rows: VideoRow[]) => Promise<void>;
+const pendingSettlers = new Map<string, PendingSettler>();
+
+/**
+ * Another provider's way of asking about its in-flight clips (the Higgsfield MCP adapter registers
+ * `higgsfield-mcp`): `settlePending` hands it the rows of that provider that are still queued or
+ * generating. Nothing here submits anything.
+ */
+export function registerPendingSettler(provider: string, fn: PendingSettler): void {
+  pendingSettlers.set(provider, fn);
+}
+
+/**
+ * A finished clip fetched from the provider's URL into R2 and marked done, with what the mp4's
+ * boxes say (faststart, codecs, size) kept in the version's settings. The op is left to the caller,
+ * which knows what the provider reported.
+ */
+export async function storeFinishedClip(env: Env, b: { id: string; owner: string }, v: VideoRow, url: string, fetchFn: typeof fetch = fetch): Promise<void> {
+  const r = await fetchFn(url, { signal: AbortSignal.timeout(120_000) });
+  if (!r.ok) throw new StudioError(`The video could not be fetched (${r.status}).`, 502);
+  const key = `${b.owner}/${b.id}/video/${v.task}/${v.id}.mp4`;
+  const bytes = await r.arrayBuffer();
+  const info = readMp4(bytes);
+  const s = parseSettings(v);
+  s.faststart = info.faststart;
+  s.codecs = info.codecs;
+  s.width = info.width;
+  s.height = info.height;
+  if (info.duration) s.duration = s.duration ?? Math.round(info.duration);
+  await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
+  await run(env.DB, "UPDATE videos SET status = 'done', key = ?, error = NULL, settings = ?, updated = ? WHERE id = ?", key, JSON.stringify(s), now(), v.id);
+  v.status = "done";
+  v.key = key;
+  v.settings = JSON.stringify(s);
+}
+
 /**
  * The in-flight clips asked about, bounded: a finished one is downloaded into R2 and marked done,
  * a failed one keeps the provider's message, one older than half an hour is given up. Nothing is
  * submitted again here.
  */
 export async function settlePending(env: Env, b: { id: string; owner: string }, rows: VideoRow[]): Promise<void> {
+  for (const [provider, settle] of pendingSettlers) {
+    const mine = rows.filter((v) => (v.status === "queued" || v.status === "generating") && v.provider === provider);
+    if (mine.length) await settle(env, b, mine).catch((e) => console.error("[video] settle", provider, errorMessage(e)));
+  }
   const pending = rows.filter((v) => (v.status === "queued" || v.status === "generating") && v.provider === "higgsfield").slice(0, POLL_LIMIT);
   if (!pending.length) return;
   const engine = await makeClient(env).catch(() => null);
@@ -334,22 +375,7 @@ export async function settlePending(env: Env, b: { id: string; owner: string }, 
       }
       const st = await engine.videoStatus(v.request_id);
       if (st.state === "done") {
-        const r = await fetch(st.url, { signal: AbortSignal.timeout(120_000) });
-        if (!r.ok) throw new StudioError(`The video could not be fetched (${r.status}).`, 502);
-        const key = `${b.owner}/${b.id}/video/${v.task}/${v.id}.mp4`;
-        const bytes = await r.arrayBuffer();
-        const info = readMp4(bytes);
-        const s = parseSettings(v);
-        s.faststart = info.faststart;
-        s.codecs = info.codecs;
-        s.width = info.width;
-        s.height = info.height;
-        if (info.duration) s.duration = s.duration ?? Math.round(info.duration);
-        await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
-        await run(env.DB, "UPDATE videos SET status = 'done', key = ?, error = NULL, settings = ?, updated = ? WHERE id = ?", key, JSON.stringify(s), now(), v.id);
-        v.status = "done";
-        v.key = key;
-        v.settings = JSON.stringify(s);
+        await storeFinishedClip(env, b, v, st.url);
         if (v.op_id) await updateIntegrationOp(env, v.op_id, { status: "done" });
       } else if (st.state === "failed") {
         await fail(st.message);
@@ -365,7 +391,7 @@ export async function settlePending(env: Env, b: { id: string; owner: string }, 
   }
 }
 
-async function postRows(env: Env, batch: string, index: number): Promise<VideoRow[]> {
+export async function postRows(env: Env, batch: string, index: number): Promise<VideoRow[]> {
   return all<VideoRow>(env.DB, "SELECT * FROM videos WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 30", batch, index);
 }
 
@@ -415,9 +441,15 @@ export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): 
   return videoItem(row, numbers.get(row.id) ?? rows.length);
 }
 
+/** The Cloud API path is refused while the admin chose the subscription credits (the MCP adapter takes those clips). */
+async function assertCloudBilling(env: Env): Promise<void> {
+  if ((await higgsfieldBilling(env)) === "credits") throw new StudioError(CREDITS_CHOSEN, 409, false, { billing: "credits" });
+}
+
 videoRoutes.post("/", async (c) => {
   const user = requireIntegrationAdmin(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
+  await assertCloudBilling(c.env);
   const d = await parseBody(c, submitSchema);
   return c.json({ ok: true, video: await submitVideoRequest(c.env, user, d) });
 });
@@ -426,6 +458,7 @@ videoRoutes.post("/", async (c) => {
 videoRoutes.post("/retry", async (c) => {
   const user = requireIntegrationAdmin(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
+  await assertCloudBilling(c.env);
   const d = await parseBody(c, z.object({ batch: z.string().min(1), id: z.string().min(1), confirm: z.boolean().optional() }));
   const b = await ownedPlan(c.env, user, d.batch);
   const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", d.id, b.id);
@@ -461,7 +494,7 @@ videoRoutes.get("/list", async (c) => {
   }
   const user = c.get("user");
   const names = await audioNamesFor(c.env, b.id, index);
-  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield") });
+  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield"), billing: await higgsfieldBilling(c.env) });
 });
 
 /** One line per post of the month: the version the client sees, and the newest clip (its progress or failure). */

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Clapperboard, Download, Lightbulb, RefreshCw, TriangleAlert, Users } from "lucide-react";
+import { Check, Clapperboard, Coins, Download, Lightbulb, RefreshCw, TriangleAlert, Users } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -7,7 +7,7 @@ import { ApiError, post } from "@/api";
 import { DEFAULT_VIDEO_MODEL, durationChoices, VIDEO_MODELS, videoModel } from "@shared/video-models";
 import type { Post } from "@shared/posts";
 import type { AudioChoice } from "@shared/video-audio";
-import { audioLine, chooseAudio, inFlight, listVideos, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type VideoItem, type VideoList } from "./videoApi";
+import { audioLine, chooseAudio, costLabel, engineLabel, inFlight, listVideos, MCP_PROVIDER, mcpEstimate, mcpGenerate, mcpModels as fetchMcpModels, mcpStatus, retryVideo, selectForClient, STATUS_TEXT, versionLabel, type HiggsfieldBilling, type HiggsfieldMcpStatus, type McpAsk, type McpVideoModel, type VideoItem, type VideoList } from "./videoApi";
 import VideoAudio from "./VideoAudio";
 
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
@@ -17,6 +17,10 @@ const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
  * designer edits it, picks the engine and its settings, and Higgsfield makes a short clip from
  * the picture (or from the composed artwork, words and logo included) as its first frame. Every
  * clip stays with the post as a version; one of them can go to the client for review.
+ *
+ * Two ways to pay, chosen under Connection → Higgsfield: the subscription credits (the Higgsfield
+ * sign-in; the engines come from the subscription's catalog, the cost is asked in credits before
+ * the run) or the Cloud API key (pay per clip; the engines come from shared/video-models.ts).
  */
 export default function VideoDialog({
   open,
@@ -65,6 +69,23 @@ export default function VideoDialog({
   const m = videoModel(model) ?? VIDEO_MODELS[0];
   const price = prices[model] ?? null;
 
+  /* The subscription credits (Connection → Higgsfield → sign-in): its own engines, a cost step in credits before the run. */
+  const [billing, setBilling] = useState<HiggsfieldBilling>("cloud");
+  const [mcp, setMcp] = useState<HiggsfieldMcpStatus | null>(null);
+  const [mcpModels, setMcpModels] = useState<McpVideoModel[]>([]);
+  const [mcpModel, setMcpModel] = useState("");
+  const [mcpDuration, setMcpDuration] = useState<number | "">("");
+  const [mcpAspect, setMcpAspect] = useState("");
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpError, setMcpError] = useState("");
+  const [cost, setCost] = useState<null | { credits: number | null; balance: number | null }>(null);
+  const [costing, setCosting] = useState(false);
+  /** Higgsfield asked whether to use the unlimited allowance for this engine or pay credits; the admin answers with one of two buttons. */
+  const [unlim, setUnlim] = useState<unknown>(null);
+  const artworkRef = useRef<string | null>(null);
+  const credits = billing === "credits";
+  const engine = mcpModels.find((x) => x.id === mcpModel) ?? null;
+
   function pickModel(slug: string) {
     const next = videoModel(slug);
     if (!next) return;
@@ -73,6 +94,20 @@ export default function VideoDialog({
     setAspect(next.aspect?.includes(aspect) ? aspect : "");
     setResolution(next.resolution?.includes(resolution) ? resolution : next.resolution ? (next.resolution.includes("720p") ? "720p" : next.resolution[0]) : "");
     if (!next.audio && audioChoice === "provider") setAudioChoice("none");
+  }
+  /** A changed ask has no cost yet: the credits are asked again before the run. */
+  function resetCost() {
+    setCost(null);
+    setUnlim(null);
+  }
+  function pickMcpModel(id: string) {
+    const next = mcpModels.find((x) => x.id === id);
+    if (!next) return;
+    setMcpModel(id);
+    setMcpDuration(next.durations.length ? (typeof mcpDuration === "number" && next.durations.includes(mcpDuration) ? mcpDuration : next.durations.includes(5) ? 5 : next.durations[0]) : mcpDuration);
+    setMcpAspect(next.aspects.includes(mcpAspect) ? mcpAspect : "");
+    if (audioChoice === "provider") setAudioChoice("none");
+    resetCost();
   }
   /** The choice is written on the shown version at once (admins); otherwise it waits for the next clip. */
   async function pickAudio(choice: AudioChoice, id: string | null) {
@@ -89,12 +124,34 @@ export default function VideoDialog({
     }
   }
 
+  async function loadMcp(refresh = false, lastModel?: string | null) {
+    setMcpLoading(true);
+    setMcpError("");
+    try {
+      const s = await mcpStatus();
+      setMcp(s);
+      if (!s.signedIn || !s.admin) return;
+      const r = await fetchMcpModels(refresh);
+      setMcpModels(r.models);
+      const pick = (lastModel && r.models.find((x) => x.id === lastModel)) || r.models.find((x) => x.id === mcpModel) || r.models[0];
+      if (pick) {
+        setMcpModel(pick.id);
+        setMcpDuration(pick.durations.length ? (pick.durations.includes(5) ? 5 : pick.durations[0]) : "");
+        setMcpAspect("");
+      }
+    } catch (e) {
+      setMcpError((e as Error).message);
+    } finally {
+      setMcpLoading(false);
+    }
+  }
   async function load(): Promise<VideoList | null> {
     try {
       const r = await listVideos(batchId, p.index);
       setVideos(r.videos);
       setPrices(r.prices);
       setAdmin(r.admin);
+      setBilling(r.billing ?? "cloud");
       return r;
     } catch (e) {
       setError((e as Error).message);
@@ -107,6 +164,7 @@ export default function VideoDialog({
     try {
       const r = await post<{ idea: string }>("/api/studio/posts/video/idea", { batch: batchId, index: p.index });
       setIdea(r.idea);
+      resetCost();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -133,20 +191,71 @@ export default function VideoDialog({
         artwork,
         confirm,
       });
-      setVideos((v) => [r.video, ...v]);
-      setShown(r.video.id);
-      if (audioChoice === "upload" || audioChoice === "instagram") {
-        // A track or the Instagram note belongs to the version, not to the engine: written as soon as the row exists.
-        await chooseAudio(batchId, p.index, r.video.id, audioChoice, audioId ?? undefined)
-          .then((x) => setVideos(x.videos))
-          .catch((e: Error) => setError(e.message));
-      }
-      toast.success("The video is being made; it takes a minute or two.");
-      onChanged?.();
+      await afterSubmit(r.video);
     } catch (e) {
       if (e instanceof ApiError && e.data.needsEstimate) setNeedsConfirm({});
       setError((e as Error).message);
       void load();
+    } finally {
+      setMaking(false);
+    }
+  }
+  async function afterSubmit(video: VideoItem) {
+    setVideos((v) => [video, ...v]);
+    setShown(video.id);
+    if (audioChoice === "upload" || audioChoice === "instagram") {
+      // A track or the Instagram note belongs to the version, not to the engine: written as soon as the row exists.
+      await chooseAudio(batchId, p.index, video.id, audioChoice, audioId ?? undefined)
+        .then((x) => setVideos(x.videos))
+        .catch((e: Error) => setError(e.message));
+    }
+    toast.success("The video is being made; it takes a minute or two.");
+    onChanged?.();
+  }
+  /** The ask the cost and the run share; the artwork composed once per cost step. */
+  async function mcpAsk(): Promise<McpAsk> {
+    if (withWords && composeArtwork && !artworkRef.current) artworkRef.current = await composeArtwork();
+    return {
+      batch: batchId,
+      index: p.index,
+      model: mcpModel,
+      prompt: idea.trim(),
+      duration: typeof mcpDuration === "number" ? mcpDuration : undefined,
+      aspect: mcpAspect || undefined,
+      source: withWords ? "artwork" : "picture",
+      artwork: withWords ? (artworkRef.current ?? undefined) : undefined,
+    };
+  }
+  /** The cost in credits of exactly this clip; nothing is submitted. */
+  async function getCost(useUnlim?: boolean) {
+    setCosting(true);
+    setError("");
+    setUnlim(null);
+    try {
+      const r = await mcpEstimate({ ...(await mcpAsk()), useUnlim });
+      setCost({ credits: r.credits, balance: r.balance });
+      if (r.unlimChoice && useUnlim === undefined) setUnlim(r.unlimChoice);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCosting(false);
+    }
+  }
+  /** The run, confirmed with the credits shown; `useUnlim` answers Higgsfield's question when it asked one. */
+  async function makeCredits(useUnlim?: boolean) {
+    setMaking(true);
+    setError("");
+    try {
+      const r = await mcpGenerate({ ...(await mcpAsk()), useUnlim, confirm: true });
+      resetCost();
+      await afterSubmit(r.video);
+      void mcpStatus(true)
+        .then(setMcp)
+        .catch(() => undefined);
+    } catch (e) {
+      if (e instanceof ApiError && e.data.unlimChoice) setUnlim(e.data.unlimChoice);
+      else if (e instanceof ApiError && e.data.outcomeUnknown) void load();
+      setError((e as Error).message);
     } finally {
       setMaking(false);
     }
@@ -183,14 +292,25 @@ export default function VideoDialog({
     setError("");
     setNeedsConfirm(null);
     setShown(null);
+    resetCost();
+    artworkRef.current = null;
     void load().then((r) => {
-      const last = r?.videos.find((v) => v.provider === "higgsfield") ?? null;
+      const last = r?.videos.find((v) => v.provider === "higgsfield" || v.provider === MCP_PROVIDER) ?? null;
+      if (r?.billing === "credits") void loadMcp(false, last?.provider === MCP_PROVIDER ? last.model : null);
       if (last) {
         setIdea(last.prompt);
-        pickModel(videoModel(last.model) ? last.model : DEFAULT_VIDEO_MODEL);
-        if (last.duration) setDuration(last.duration);
-        if (last.aspect) setAspect(last.aspect);
-        if (last.resolution) setResolution(last.resolution);
+        if (last.provider === "higgsfield") {
+          pickModel(videoModel(last.model) ? last.model : DEFAULT_VIDEO_MODEL);
+          if (last.resolution) setResolution(last.resolution);
+        }
+        if (last.duration) {
+          setDuration(last.duration);
+          setMcpDuration(last.duration);
+        }
+        if (last.aspect) {
+          setAspect(last.aspect);
+          setMcpAspect(last.aspect);
+        }
         setWithWords(last.source === "artwork");
         if (last.audioChoice) {
           setAudioChoice(last.audioChoice);
@@ -220,8 +340,10 @@ export default function VideoDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latest?.id]);
   const clientVersion = videos.find((v) => v.forClient) ?? null;
-  const ideaTooLong = m.promptMax !== null && idea.length > m.promptMax;
-  const canMake = !making && !writing && !pending && admin && (!m.promptRequired || idea.trim().length >= 5) && !ideaTooLong;
+  const ideaTooLong = !credits && m.promptMax !== null && idea.length > m.promptMax;
+  const canMake = !making && !writing && !pending && admin && (credits || !m.promptRequired || idea.trim().length >= 5) && !ideaTooLong;
+  const canAskCost = canMake && !costing && !!mcp?.signedIn && !!engine;
+  const cloudName = (slug: string) => videoModel(slug)?.name;
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="animate-dialog video-dialog">
@@ -229,7 +351,9 @@ export default function VideoDialog({
           <DialogTitle>
             <Clapperboard size={18} /> Video of post {String(p.index).padStart(2, "0")}
           </DialogTitle>
-          <DialogDescription>The picture becomes a short ad clip on Higgsfield: the first frame is the post, the motion is the idea below. The product stays exactly as it is.</DialogDescription>
+          <DialogDescription>
+            The picture becomes a short ad clip on Higgsfield{credits ? ", paid from the subscription credits" : ""}: the first frame is the post, the motion is the idea below. The product stays exactly as it is.
+          </DialogDescription>
         </DialogHeader>
         <div className="overlay-editor-body">
           <div className="video-stage">
@@ -253,91 +377,231 @@ export default function VideoDialog({
             <label className="field-label">
               <Lightbulb size={13} /> The motion idea
             </label>
-            <textarea rows={5} value={idea} placeholder={writing ? "Writing an idea from the picture…" : "What moves, and how"} onChange={(e) => setIdea(e.target.value)} disabled={writing} />
+            <textarea
+              rows={5}
+              value={idea}
+              placeholder={writing ? "Writing an idea from the picture…" : "What moves, and how"}
+              onChange={(e) => {
+                setIdea(e.target.value);
+                resetCost();
+              }}
+              disabled={writing}
+            />
             <div className="video-idea-row">
               <button type="button" className="text-button" onClick={() => void writeIdea()} disabled={writing || making}>
                 {writing ? <Orb size={13} /> : <RefreshCw size={13} />} Another idea
               </button>
-              {m.promptMax !== null && (
+              {!credits && m.promptMax !== null && (
                 <small className={`field-hint ${ideaTooLong ? "warn" : ""}`}>
                   {idea.length}/{m.promptMax}
                 </small>
               )}
             </div>
-            <label className="field-label">Engine</label>
-            <div className="preset-row">
-              {VIDEO_MODELS.map((x) => (
-                <button key={x.slug} type="button" className={`format-chip ${model === x.slug ? "active" : ""}`} onClick={() => pickModel(x.slug)} title={`${x.family} · ${x.note}`}>
-                  {x.name}
-                </button>
-              ))}
-            </div>
-            <small className="field-hint">
-              {m.note}.{" "}
-              <a href={m.docs} target="_blank" rel="noreferrer" className="text-link">
-                Model page
-              </a>
-            </small>
-            <div className="video-settings">
-              <label>
-                <span>Length</span>
-                <select value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
-                  {durationChoices(m).map((s) => (
-                    <option key={s} value={s}>
-                      {s} s
-                    </option>
+            {credits ? (
+              <>
+                <label className="field-label">
+                  <Coins size={13} /> Engine · subscription catalog
+                  {admin && mcp?.signedIn && (
+                    <button type="button" className="text-button" style={{ marginLeft: "auto" }} onClick={() => void loadMcp(true, mcpModel)} disabled={mcpLoading} title="Ask Higgsfield for the current list of engines">
+                      {mcpLoading ? <Orb size={12} /> : <RefreshCw size={12} />} Refresh list
+                    </button>
+                  )}
+                </label>
+                {mcp && !mcp.signedIn ? (
+                  <p className="video-error">
+                    <TriangleAlert size={14} /> Not signed in: Connection → Higgsfield → Sign in. Videos on the subscription credits run on that sign-in (or switch the billing to the Cloud API there).
+                  </p>
+                ) : mcpModels.length ? (
+                  <div className="preset-row">
+                    {mcpModels.map((x) => (
+                      <button key={x.id} type="button" className={`format-chip ${mcpModel === x.id ? "active" : ""}`} onClick={() => pickMcpModel(x.id)} title={x.description || x.id}>
+                        {x.name}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <small className="field-hint">{mcpLoading ? "Reading the subscription's engines…" : mcpError || (admin ? "No engine list yet." : "Admins only for now.")}</small>
+                )}
+                {engine && (
+                  <small className="field-hint">
+                    {engine.description || engine.id}
+                    {engine.supportsUnlim ? " · has an unlimited allowance on this plan (Higgsfield asks which to use)" : ""}
+                  </small>
+                )}
+                <div className="video-settings">
+                  <label>
+                    <span>Length</span>
+                    {engine?.durations.length ? (
+                      <select
+                        value={mcpDuration}
+                        onChange={(e) => {
+                          setMcpDuration(Number(e.target.value));
+                          resetCost();
+                        }}
+                      >
+                        {engine.durations.map((s) => (
+                          <option key={s} value={s}>
+                            {s} s
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="number"
+                        min={1}
+                        max={60}
+                        placeholder="engine default"
+                        value={mcpDuration}
+                        onChange={(e) => {
+                          setMcpDuration(e.target.value === "" ? "" : Number(e.target.value));
+                          resetCost();
+                        }}
+                      />
+                    )}
+                  </label>
+                  {engine && engine.aspects.length > 0 && (
+                    <label>
+                      <span>Frame</span>
+                      <select
+                        value={mcpAspect}
+                        onChange={(e) => {
+                          setMcpAspect(e.target.value);
+                          resetCost();
+                        }}
+                      >
+                        <option value="">As the picture</option>
+                        {engine.aspects.map((a) => (
+                          <option key={a} value={a}>
+                            {a}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="field-label">Engine</label>
+                <div className="preset-row">
+                  {VIDEO_MODELS.map((x) => (
+                    <button key={x.slug} type="button" className={`format-chip ${model === x.slug ? "active" : ""}`} onClick={() => pickModel(x.slug)} title={`${x.family} · ${x.note}`}>
+                      {x.name}
+                    </button>
                   ))}
-                </select>
-              </label>
-              {m.aspect && (
-                <label>
-                  <span>Frame</span>
-                  <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
-                    <option value="">As the picture</option>
-                    {m.aspect.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {m.resolution && (
-                <label>
-                  <span>Resolution</span>
-                  <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-                    {m.resolution.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </div>
+                </div>
+                <small className="field-hint">
+                  {m.note}.{" "}
+                  <a href={m.docs} target="_blank" rel="noreferrer" className="text-link">
+                    Model page
+                  </a>
+                </small>
+                <div className="video-settings">
+                  <label>
+                    <span>Length</span>
+                    <select value={duration} onChange={(e) => setDuration(Number(e.target.value))}>
+                      {durationChoices(m).map((s) => (
+                        <option key={s} value={s}>
+                          {s} s
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {m.aspect && (
+                    <label>
+                      <span>Frame</span>
+                      <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
+                        <option value="">As the picture</option>
+                        {m.aspect.map((a) => (
+                          <option key={a} value={a}>
+                            {a}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {m.resolution && (
+                    <label>
+                      <span>Resolution</span>
+                      <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+                        {m.resolution.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </>
+            )}
             <label className="video-check video-words">
-              <input type="checkbox" checked={withWords} disabled={!composeArtwork} onChange={(e) => setWithWords(e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={withWords}
+                disabled={!composeArtwork}
+                onChange={(e) => {
+                  setWithWords(e.target.checked);
+                  artworkRef.current = null;
+                  resetCost();
+                }}
+              />
               <span>
                 <b>Include the words and logo in the video input</b>
                 <small>The clip is made from the post as it will be published, words and logo drawn in. Nothing is overlaid after generation: the words move with the picture and cannot be changed later. Off, the clip is made from the bare picture.</small>
               </span>
             </label>
-            <VideoAudio batchId={batchId} index={p.index} engineSound={m.audio !== null} engineName={m.name} admin={admin} version={latest && !inFlight(latest) ? latest : null} choice={audioChoice} audioId={audioId} onChange={(c, id) => void pickAudio(c, id)} />
-            <small className="field-hint">
-              {price !== null ? (
-                <>About {usd(price)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.</>
-              ) : (
-                <>Cost not known yet: Higgsfield is asked for an estimate when the clip is made. If it gives none, an admin sets a price in Connection → Higgsfield, or confirms the clip at an unknown cost. Billed in credits, outside the month's picture budget.</>
-              )}
-            </small>
+            <VideoAudio batchId={batchId} index={p.index} engineSound={credits ? false : m.audio !== null} engineName={credits ? (engine?.name ?? "the engine") : m.name} admin={admin} version={latest && !inFlight(latest) ? latest : null} choice={audioChoice} audioId={audioId} onChange={(c, id) => void pickAudio(c, id)} />
+            {credits ? (
+              <div className="hf-cost">
+                {cost ? (
+                  <small className="field-hint">
+                    {cost.credits !== null ? (
+                      <>
+                        <b>About {cost.credits} credits</b>
+                        {cost.balance !== null ? ` · balance ${cost.balance.toLocaleString("en-GB")}` : ""}. From the subscription, outside the month's picture budget.
+                      </>
+                    ) : (
+                      <>Higgsfield gave no figure for this clip. You can make it at an unknown cost, or pick another engine.</>
+                    )}
+                  </small>
+                ) : (
+                  <small className="field-hint">
+                    {mcp?.credits !== null && mcp?.credits !== undefined ? `Credits: ${mcp.credits.toLocaleString("en-GB")}${mcp.plan ? ` · ${mcp.plan}` : ""}. ` : ""}
+                    The cost of exactly this clip is asked in credits before it runs; nothing is made by "Get the cost".
+                  </small>
+                )}
+                {unlim != null && admin && (
+                  <div className="video-confirm hf-unlim">
+                    <small>Higgsfield asks: this engine has an unlimited allowance on your plan. Use it, or pay credits?</small>
+                    <div className="footer-actions">
+                      <button type="button" className="secondary" disabled={making} onClick={() => void makeCredits(true)}>
+                        Use the unlimited allowance
+                      </button>
+                      <button type="button" className="secondary" disabled={making} onClick={() => void makeCredits(false)}>
+                        Pay credits{cost?.credits !== null && cost?.credits !== undefined ? ` (${cost.credits})` : ""}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <small className="field-hint">
+                {price !== null ? (
+                  <>About {usd(price)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.</>
+                ) : (
+                  <>Cost not known yet: Higgsfield is asked for an estimate when the clip is made. If it gives none, an admin sets a price in Connection → Higgsfield, or confirms the clip at an unknown cost. Billed in credits, outside the month's picture budget.</>
+                )}
+              </small>
+            )}
             {!admin && <small className="field-hint warn">Admins only for now: Higgsfield video is restricted until wider access is approved.</small>}
             {error && (
               <p className="video-error">
                 <TriangleAlert size={14} /> {error}
-                {/not connected/i.test(error) && <span> Add the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu.</span>}
+                {!credits && /not connected/i.test(error) && <span> Add the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu.</span>}
               </p>
             )}
-            {needsConfirm && admin && (
+            {needsConfirm && admin && !credits && (
               <div className="video-confirm">
                 <button type="button" className="secondary" disabled={making} onClick={() => (needsConfirm.retryOf ? void retry(needsConfirm.retryOf, true) : void make(true))}>
                   Make it anyway, cost unknown
@@ -346,10 +610,26 @@ export default function VideoDialog({
               </div>
             )}
             <div className="footer-actions">
-              <button type="button" className="primary" onClick={() => void make()} disabled={!canMake} title={!admin ? "Admins only for now" : undefined}>
-                {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
-              </button>
-              {latest?.status === "failed" && admin && (
+              {credits ? (
+                !cost ? (
+                  <button type="button" className="primary" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "Sign in under Connection → Higgsfield first" : undefined}>
+                    {costing ? <Orb size={14} /> : <Coins size={14} />} Get the cost
+                  </button>
+                ) : cost.credits !== null ? (
+                  <button type="button" className="primary" onClick={() => void makeCredits()} disabled={!canMake || unlim != null} title={unlim != null ? "Answer Higgsfield's question above first" : undefined}>
+                    {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video · {cost.credits} credits
+                  </button>
+                ) : (
+                  <button type="button" className="secondary" onClick={() => void makeCredits()} disabled={!canMake}>
+                    {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make it anyway, cost unknown
+                  </button>
+                )
+              ) : (
+                <button type="button" className="primary" onClick={() => void make()} disabled={!canMake} title={!admin ? "Admins only for now" : undefined}>
+                  {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
+                </button>
+              )}
+              {latest?.status === "failed" && admin && latest.provider === "higgsfield" && !credits && (
                 <button type="button" className="secondary" disabled={making || pending} onClick={() => void retry(latest.id)} title="The same idea and settings submitted again as a new job">
                   <RefreshCw size={14} /> Try again
                 </button>
@@ -372,10 +652,10 @@ export default function VideoDialog({
                         <span className={`pill ${v.status === "done" ? "ready" : v.status === "failed" ? "failed" : "queued"}`}>{STATUS_TEXT[v.status]}</span>
                         <b>{versionLabel(v)}</b>
                         <small>
-                          {v.provider === "upload" ? "Uploaded" : videoModel(v.model)?.name ?? v.model}
+                          {engineLabel(v, cloudName)}
                           {v.duration ? ` · ${v.duration}s` : ""}
                           {v.source === "artwork" ? " · with words" : v.source === "picture" ? " · bare picture" : ""}
-                          {v.estimate !== null && v.estimate > 0 ? ` · ${usd(v.estimate)}` : ""}
+                          {costLabel(v) ? ` · ${costLabel(v)}` : ""}
                           {audioLine(v) ? ` · ${audioLine(v)}` : ""}
                         </small>
                       </button>

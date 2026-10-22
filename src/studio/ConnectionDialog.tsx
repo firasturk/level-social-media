@@ -15,6 +15,7 @@ import { del, get, post } from "@/api";
 import MetaConnection, { useMetaStatus } from "./MetaConnection";
 import NotifyConnection, { useNotifyStatus } from "./Notify";
 import FreepikTab, { useFreepikStatus } from "./FreepikConnection";
+import HiggsfieldSignIn, { useHiggsfieldMcpStatus } from "./HiggsfieldSignIn";
 
 export interface EngineInfo {
   model: string;
@@ -51,6 +52,7 @@ export default function ConnectionDialog({
   const [meta, refreshMeta] = useMetaStatus(open);
   const [notifyStatus, refreshNotify] = useNotifyStatus(open);
   const [freepik, refreshFreepik] = useFreepikStatus(open);
+  const [higgsfieldMcp, refreshHiggsfieldMcp] = useHiggsfieldMcpStatus(open);
 
   async function saveVertex() {
     setSavingVertex(true);
@@ -306,6 +308,11 @@ export default function ConnectionDialog({
         </div>
         {vendor === "higgsfield" && (
           <>
+            <HiggsfieldSignIn status={higgsfieldMcp} onChanged={(fresh) => refreshHiggsfieldMcp(fresh)} />
+            <div className="qa-heading" style={{ marginTop: 16 }}>
+              <KeyRound size={18} />
+              <strong>Cloud API · pay per clip</strong>
+            </div>
             {engine.configured ? (
               <div className="success-note">
                 <Check size={19} />

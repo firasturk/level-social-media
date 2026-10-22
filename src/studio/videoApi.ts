@@ -60,6 +60,74 @@ export interface VideoList {
   /** The known price per clip of each engine (catalog or the admin's setting), null when unknown. */
   prices: Record<string, number | null>;
   admin: boolean;
+  /** Which Higgsfield account pays: the subscription credits (sign-in) or the Cloud API key. */
+  billing: HiggsfieldBilling;
+}
+
+/* ───────────── Higgsfield subscription credits (the MCP sign-in, docs/higgsfield-mcp.md) ───────────── */
+
+export type HiggsfieldBilling = "credits" | "cloud";
+/** The `provider` of a clip made on the subscription credits. */
+export const MCP_PROVIDER = "higgsfield-mcp";
+
+export interface HiggsfieldMcpStatus {
+  signedIn: boolean;
+  email: string | null;
+  signedInAt: number | null;
+  plan: string | null;
+  credits: number | null;
+  creditsAt: number | null;
+  balanceError: string;
+  billing: HiggsfieldBilling;
+  /** False while the admin has not chosen: the choice shown is the default (credits once signed in). */
+  billingChosen: boolean;
+  cloudConfigured: boolean;
+  admin: boolean;
+  switch: { enabled: boolean };
+  access: { admin: boolean; enabled: boolean; reason: string };
+  url: string;
+  /** A device-flow sign-in in progress (the fallback when the redirect registration is refused). */
+  device: { userCode: string; verificationUri: string; verificationUriComplete: string | null; interval: number; expires: number; refused: string } | null;
+}
+
+export interface McpVideoModel {
+  id: string;
+  name: string;
+  description: string;
+  durations: number[];
+  aspects: string[];
+  supportsUnlim: boolean;
+}
+
+export interface McpAsk {
+  batch: string;
+  index: number;
+  model: string;
+  prompt: string;
+  duration?: number;
+  aspect?: string;
+  source: "picture" | "artwork";
+  artwork?: string;
+  useUnlim?: boolean;
+}
+
+export const mcpStatus = (fresh = false) => get<HiggsfieldMcpStatus>(`/api/studio/higgsfield/mcp/status${fresh ? "?fresh=1" : ""}`);
+export const mcpModels = (refresh = false) => get<{ models: McpVideoModel[]; at: number }>(`/api/studio/higgsfield/mcp/models${refresh ? "?refresh=1" : ""}`);
+export const mcpEstimate = (ask: McpAsk) => post<{ credits: number | null; balance: number | null; plan: string | null; unlimChoice: unknown }>("/api/studio/higgsfield/mcp/estimate", ask);
+export const mcpGenerate = (ask: McpAsk & { confirm: boolean; note?: string }) => post<{ video: VideoItem }>("/api/studio/higgsfield/mcp/generate", ask);
+
+/** "Uploaded", "Higgsfield (credits) · seedance_2_5", or the Cloud engine's name. */
+export function engineLabel(v: VideoItem, cloudName: (slug: string) => string | undefined): string {
+  if (v.provider === "upload") return "Uploaded";
+  if (v.provider === MCP_PROVIDER) return `Higgsfield (credits) · ${v.model}`;
+  return cloudName(v.model) ?? v.model;
+}
+
+/** The clip's estimate as the list shows it: "12 credits" on the subscription, "$0.094" on the Cloud API, "" when none. */
+export function costLabel(v: VideoItem): string {
+  if (v.estimate === null || v.estimate <= 0) return "";
+  if (v.provider === MCP_PROVIDER) return `${v.estimate} credits`;
+  return `$${v.estimate.toFixed(v.estimate < 1 ? 3 : 2)}`;
 }
 
 export interface VideoSummary {

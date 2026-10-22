@@ -199,3 +199,13 @@ export const FREEPIK_KEY_SETTING = "freepik_api_key";
 export const FREEPIK_MCP_TOKEN_SETTING = "freepik_mcp_token";
 /** The Freepik API plan family, which decides whether a stock download is in the plan or billed in credits. */
 export const FREEPIK_PLAN_SETTING = "freepik_plan";
+/** Higgsfield MCP (mcp.higgsfield.ai, the subscription credits): the OAuth client the studio registered once, as JSON. */
+export const HIGGSFIELD_MCP_CLIENT_SETTING = "higgsfield_mcp_client";
+/** Higgsfield MCP: the access and refresh tokens of the signed-in Higgsfield account, as JSON. */
+export const HIGGSFIELD_MCP_TOKENS_SETTING = "higgsfield_mcp_tokens";
+/** Higgsfield MCP: a sign-in in progress (PKCE state and verifier, or a device code), short-lived. */
+export const HIGGSFIELD_MCP_PENDING_SETTING = "higgsfield_mcp_pending";
+/** Higgsfield MCP: the engine catalog read from `models_explore`, cached per sign-in, as JSON. */
+export const HIGGSFIELD_MCP_MODELS_SETTING = "higgsfield_mcp_models";
+/** Which Higgsfield account pays for videos: "credits" (the subscription, through the MCP sign-in) or "cloud" (the Cloud API key). */
+export const HIGGSFIELD_BILLING_SETTING = "higgsfield_billing";
