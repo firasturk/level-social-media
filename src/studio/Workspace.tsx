@@ -1871,7 +1871,12 @@ export default function Workspace({
                     />
                   </section>
                 )}
-                {useFlow && studioTab === "versions" && (batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : <p className="flow-muted studio-empty">No month yet.</p>)}
+                {useFlow && studioTab === "versions" && (
+                  <div className="studio-versions">
+                    <p className="flow-muted">Earlier versions of this month: every take of every post, and the plans replaced by a replan. Nothing here is lost when a picture is made again.</p>
+                    {batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : <p className="flow-muted studio-empty">No month yet.</p>}
+                  </div>
+                )}
                 <div className={useFlow && studioTab !== "posts" ? "studio-hidden" : ""}>
                 <PlanView
                 toolbar={!useFlow || toolsOpen}

@@ -95,6 +95,18 @@
   height: 30px;
   font-size: 12.5px;
   white-space: nowrap;
+  margin-right: 6px;
+}
+@media (max-width: 1280px) {
+  .ts-apply-all {
+    font-size: 0;
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+  .ts-apply-all svg {
+    font-size: 13px;
+  }
 }
 .ts-apply-all:disabled {
   opacity: 0.6;

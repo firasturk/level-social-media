@@ -1075,16 +1075,13 @@ export default function TextStudio(p: Props) {
               <input type="range" min={0} max={100} value={Math.round((primary.opacity ?? 1) * 100)} onChange={(e) => updateSel({ opacity: Number(e.target.value) === 100 ? undefined : Number(e.target.value) / 100 })} />
             </label>
           )}
-          {p.onApplyToAll && applyTarget && (
-            <>
-              <span className="ts-sep" />
-              <button type="button" className="ts-btn ts-apply-all" onClick={() => void applyToAll()} disabled={applying} title={applyTarget.role === "logo" ? "Put the logo in this place and size on every post of the month" : "Give every post's same line this look; their words stay"}>
-                {applying ? <Orb size={13} /> : <Wand2 size={13} />} Apply this style to all posts
-              </button>
-            </>
-          )}
         </div>
         <div className="ts-top-right">
+          {p.onApplyToAll && applyTarget && (
+            <button type="button" className="ts-btn ts-apply-all" onClick={() => void applyToAll()} disabled={applying} title={applyTarget.role === "logo" ? "Apply this style to all posts: the logo in this place and size on every post of the month" : "Apply this style to all posts: every post's same line gets this look; their words stay"}>
+              {applying ? <Orb size={13} /> : <Wand2 size={13} />} Apply this style to all posts
+            </button>
+          )}
           <div className="ts-zoom">
             <button type="button" className="ts-icon" onClick={() => setZoom((z) => Math.max(0.2, z / 1.2))} title="Zoom out (⌘−)"><Minus size={14} /></button>
             <button type="button" className="ts-zoom-value" onClick={() => setZoom(1)} title="Fit (⌘0)">{Math.round(scale * 100)}%</button>
