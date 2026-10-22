@@ -40,8 +40,12 @@ export async function feedback(vars: Record<string, unknown>) {
   const mod = await optionalModule("../../shared/feedback.ts");
   const fn = mod?.interpretFeedback;
   if (typeof fn !== "function") return { method: "feedback", text, todo: true, note: "shared/feedback.ts interpretFeedback is not in this branch yet; the case passes as a TODO." };
-  const answer = await (fn as (t: string) => unknown)(text);
-  return { method: "feedback", text, todo: false, answer, kind: kindOf(answer) };
+  // The real signature: interpretFeedback(text, { posts, post?, constraints? }); a three-post month with pictures.
+  const ctx = { post: 1, posts: [1, 2, 3].map((index) => ({ index, title: `Post ${index}`, headline: `Headline ${index}`, caption: `Caption ${index}`, hasPicture: true })) };
+  const answer = await (fn as (t: string, c: unknown) => unknown)(text, ctx);
+  const kinds = Array.isArray(answer) ? (answer as { kind?: string }[]).map((a) => a.kind) : [];
+  const kind: FeedbackKind | null = kinds.includes("unclear") ? "ambiguous" : kinds.includes("image") ? "image" : kinds.includes("layer") || kinds.includes("words") ? "layer" : kindOf(answer);
+  return { method: "feedback", text, todo: false, answer, kind };
 }
 
 export interface ConflictInputs {
@@ -55,7 +59,8 @@ export async function conflictsBetween(inputs: ConflictInputs): Promise<{ todo: 
   const mod = await optionalModule("../../shared/conflicts.ts");
   const fn = mod?.detectConflicts;
   if (typeof fn !== "function") return { todo: true, notes: [] };
-  const out = await (fn as (i: unknown) => unknown)({ brief: inputs.brief, never: inputs.never, donts: inputs.never, style: inputs.stylePrompt, stylePrompt: inputs.stylePrompt });
+  // The real signature: detectConflicts({ brand: { donts }, campaign: { text }, post: { brief }, style: { prompt } }).
+  const out = await (fn as (i: unknown) => unknown)({ brand: { donts: inputs.never }, campaign: { text: inputs.brief }, post: { brief: inputs.brief }, style: { title: "style", prompt: inputs.stylePrompt } });
   const notes = Array.isArray(out) ? out.map((x) => (typeof x === "string" ? x : JSON.stringify(x))) : out && typeof out === "object" ? Object.values(out as Record<string, unknown>).flat().map((x) => (typeof x === "string" ? x : JSON.stringify(x))) : [String(out ?? "")].filter(Boolean);
   return { todo: false, notes };
 }

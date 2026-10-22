@@ -6,7 +6,7 @@
  */
 import { previewNoImages, type Env } from "./env";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
-import { feedbackFromInstruction, interpretFeedback } from "@shared/feedback";
+import { feedbackFromInstruction, interpretFeedback } from "../shared/feedback";
 
 export async function demoMode(env: Env): Promise<boolean> {
   if (!previewNoImages(env)) return false;
