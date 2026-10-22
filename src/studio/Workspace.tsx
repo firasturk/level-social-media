@@ -39,6 +39,8 @@ import Flow from "./Flow";
 import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
+import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import BrandChip from "./BrandChip";
 import StyleScreen from "./StyleGallery";
 import { askNotifications, chime, notify } from "@/lib/celebrate";
 import { Compass, FolderOpen, PanelLeft } from "lucide-react";
@@ -359,6 +361,9 @@ export default function Workspace({
   const [flowStage, setFlowStage] = useState<0 | 1 | 2 | null>(null);
   /** The classic journey, opened on purpose from the Studio while the workflow is on. */
   const [classic, setClassic] = useState(false);
+  /** The Studio board's tab and whether the old month toolbar is unfolded under More. */
+  const [studioTab, setStudioTab] = useState<StudioTab>("posts");
+  const [toolsOpen, setToolsOpen] = useState(false);
   const themeId = config?.theme ?? (draftSettings as { theme?: string }).theme ?? themes[0]?.id ?? "";
   // The month's cast: ambassadors that still exist, in the order picked.
   const castIds = (
@@ -1601,9 +1606,13 @@ export default function Workspace({
                 >
                   Classic journey
                 </button>
+                <span className="studio-rail-right">
+                  {previewMode && <span className="flow-sample-pill">Sample data (fictional)</span>}
+                  <BrandChip client={client} ambassadors={ambassadors} onOpen={() => setKitOpen(true)} />
+                </span>
               </nav>
             )}
-            {(() => {
+            {!useFlow && (() => {
               /** "Start new journey" begins at the first screen; "Open the journey" resumes where it was left. */
               const startNew = () => {
                 try {
@@ -1650,6 +1659,7 @@ export default function Workspace({
                 </div>
               );
             })()}
+            {!useFlow && (
             <SetupChecklist
               client={client}
               ambassadors={ambassadors}
@@ -1669,7 +1679,8 @@ export default function Workspace({
                 setJourney(true);
               }}
             />
-            {config && (
+            )}
+            {!useFlow && config && (
               <BriefCard
                 config={config}
                 theme={themes.find((t) => t.id === themeId) ?? null}
@@ -1701,6 +1712,81 @@ export default function Workspace({
                 clientChangesBusy={busy === "client"}
               />
             )}
+            {useFlow && (() => {
+              const inFlight = (t: Task) => ["queued", "processing", "finalizing"].includes(t.status);
+              const groups = new Set(plan.filter((x) => x.group).map((x) => x.group!.id));
+              const counts = { posts: plan.filter((x) => !x.group).length + groups.size, designs: plan.length, made: 0, making: 0, look: 0, older: 0, failed: 0, planned: 0 };
+              for (const x of plan) {
+                const t = tasks.find((y) => y.post === x.index && (y.output || inFlight(y))) ?? tasks.find((y) => y.post === x.index) ?? null;
+                if (!t) counts.planned += 1;
+                else if (inFlight(t)) counts.making += 1;
+                else if (!t.output) counts.failed += 1;
+                else if (olderIdea(t, x, config)) counts.older += 1;
+                else if (flagsOf(t).length) counts.look += 1;
+                else counts.made += 1;
+              }
+              const makeCount = counts.planned + counts.failed + counts.older;
+              const perPicture = rateFor(shownSettings.model)?.[shownSettings.size] ?? 0;
+              const changes = Object.values(config?.approvals ?? {}).filter((a) => a.status === "changes").length;
+              const toPlan = () => {
+                setFlowStage(2);
+                setClassic(false);
+                setJourney(true);
+              };
+              return (
+                <StudioBoard
+                  tab={studioTab}
+                  onTab={setStudioTab}
+                  counts={counts}
+                  makeCount={makeCount}
+                  makeCost={makeCount * perPicture}
+                  onMake={toPlan}
+                  onExport={() => void exportMonth()}
+                  exporting={exporting}
+                  onClientLink={() => void shareMonth()}
+                  onFeed={openFeed}
+                  changes={changes}
+                  onClientChanges={() => void doClientChanges()}
+                  clientChangesBusy={busy === "client"}
+                  more={
+                    <>
+                      <button type="button" onClick={() => setToolsOpen((o) => !o)}>
+                        {toolsOpen ? "Hide the month tools" : "Month tools (upload, ideas, grid, overlay, typography, PDF)"}
+                      </button>
+                      <button type="button" onClick={() => void whatsAppMonth()} disabled={!counts.made}>
+                        Send the client link on WhatsApp
+                      </button>
+                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.made || exporting}>
+                        Feed PDF
+                      </button>
+                      <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>
+                        Upload product photos
+                      </button>
+                      <button type="button" onClick={() => setKitOpen(!kitShown)}>
+                        {kitShown ? "Hide the side panel" : "Products, versions and brand kit"}
+                      </button>
+                      <button type="button" onClick={() => void newGrid()} disabled={running}>
+                        New grid in this month
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClassic(true);
+                          setJourney(true);
+                        }}
+                      >
+                        Classic journey
+                      </button>
+                      <button type="button" className="danger" onClick={() => void deletePlan()} disabled={running}>
+                        Delete this month
+                      </button>
+                    </>
+                  }
+                >
+                  {null}
+                </StudioBoard>
+              );
+            })()}
             <div className={`workbench posts-workbench ${kitShown ? "" : "kit-closed"}`}>
               {kitShown ? (
               <div className="kit-column">
@@ -1740,7 +1826,12 @@ export default function Workspace({
                 </button>
               )}
               <div className="plan-column">
+                {useFlow && studioTab === "words" && batch && <WordsView plan={plan} tasks={tasks} outputThumb={outputThumb} onSavePlan={savePlan} />}
+                {useFlow && studioTab === "approval" && <ApprovalView plan={plan} tasks={tasks} approvals={config?.approvals} outputThumb={outputThumb} onClientLink={() => void shareMonth()} onWhatsApp={() => void whatsAppMonth()} onOpen={(i) => openEditor(i)} />}
+                {useFlow && studioTab === "versions" && (batch ? <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} /> : <p className="flow-muted studio-empty">No month yet.</p>)}
+                <div className={useFlow && studioTab !== "posts" ? "studio-hidden" : ""}>
                 <PlanView
+                toolbar={!useFlow || toolsOpen}
                 notes={monthNotes}
                 batchId={batch?.id ?? null}
                 onRefresh={refresh}
@@ -1804,6 +1895,7 @@ export default function Workspace({
                 onRefit={refitPosts}
                 rewriting={rewriting}
                 />
+                </div>
               </div>
             </div>
           </>
@@ -1861,6 +1953,7 @@ export default function Workspace({
           onThemesChanged={setThemes}
           format={shownSettings.format}
           model={shownSettings.model}
+          modelName={models.find((m) => m.slug === shownSettings.model)?.name}
           size={shownSettings.size}
           postCount={shownSettings.postCount}
           previousMonth={previousMonth}

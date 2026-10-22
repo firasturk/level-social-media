@@ -6,7 +6,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Sparkles, TriangleAlert, Wand2 } from "lucide-react";
+import { pickedOccasions } from "@shared/occasions";
+import { referenceThumb } from "./PostTools";
 import LevelLogo from "@/components/LevelLogo";
 import { Orb } from "@/components/Orb";
 import { get, post, postForm } from "@/api";
@@ -123,6 +125,8 @@ export interface FlowProps {
   onThemesChanged: (themes: Theme[]) => void;
   format: Format;
   model: string;
+  /** The engine's display name ("Gemini 3 Pro Image"), when the models list is loaded. */
+  modelName?: string;
   size: string;
   postCount: number;
   previousMonth: string | null;
@@ -460,6 +464,14 @@ export default function Flow(p: FlowProps) {
     }
   }
   const pinned = p.plan.filter((x) => x.reference?.key).length;
+  /** Products the plan names that have no photo this month, and the posts waiting on them. */
+  const missingProducts = useMemo(() => {
+    const names = p.products.map((s) => displayName(s.name).toLowerCase());
+    const has = (n: string | undefined | null) => !!n && !names.includes(n.toLowerCase());
+    const missing = [...new Set(p.plan.flatMap((x) => [x.product, ...(x.products ?? [])]).filter((n): n is string => has(n)))];
+    const posts = p.plan.filter((x) => [x.product, ...(x.products ?? [])].some(has)).map((x) => x.index);
+    return { missing, posts };
+  }, [p.products, p.plan]);
   const themeNote = p.config?.brief?.theme;
 
   const lead = LEADS[way];
@@ -853,7 +865,7 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>Direction</h2>
-                  <p>What will shape the pictures, in the order it applies. Nothing on this screen spends the picture budget; the AI readings are text calls billed per call by the provider (a few cents each), or answered from demo fixtures when no key is connected.</p>
+                  <p>What will shape the pictures, in the order it applies. Nothing on this screen spends the picture budget.</p>
                 </div>
               </div>
               <div className="flow-two wide">
@@ -865,68 +877,179 @@ export default function Flow(p: FlowProps) {
                       Start another way
                     </button>
                   </div>
-                  <div className="flow-lead">
-                    {way === "brief" && <p>{p.config?.campaign?.summary || (briefText.trim() ? briefText.trim().slice(0, 400) : "No request yet.")}</p>}
-                    {way === "grid" && <p>{shownGrid ? `The month follows "${shownGrid.title}", tile by tile${gridPending ? " (applied when the plan is written)" : ""}.` : "No grid picked yet."}</p>}
-                    {way === "refs" && <p>{theme ? `Theme "${theme.title}": ${theme.references} reference${theme.references === 1 ? "" : "s"}.` : "No theme yet."}</p>}
-                    {way === "style" && <p>{startStyle ? `"${startStyle.title}" goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.` : "No style picked yet."}</p>}
-                  </div>
+                  {(() => {
+                    const summary = p.config?.campaign?.summary?.trim() ?? "";
+                    const request = briefText.trim();
+                    const firstSentence = (summary || request).split(/(?<=[.!?؟])\s+/)[0] ?? "";
+                    const title =
+                      way === "brief"
+                        ? firstSentence.length <= 90
+                          ? firstSentence.replace(/[.!?؟]$/, "")
+                          : `${(summary || request).slice(0, 80).trim()}…`
+                        : way === "grid"
+                          ? shownGrid?.title ?? "No grid picked yet"
+                          : way === "refs"
+                            ? theme?.title ?? "No theme yet"
+                            : startStyle?.title ?? "No style picked yet";
+                    const body =
+                      way === "brief"
+                        ? summary
+                          ? summary.slice(firstSentence.length <= 90 ? firstSentence.length : 0).trim() || request.slice(0, 400)
+                          : request
+                            ? request.slice(0, 400)
+                            : "No request yet. Write it on the Start screen; the plan comes from it."
+                        : way === "grid"
+                          ? shownGrid
+                            ? `The month follows this grid tile by tile: one tile per post, its order, its text tiles and fonts${gridPending ? " (applied when the plan is written)" : ""}.`
+                            : "Pick a grid from the library; the month follows it tile by tile."
+                          : way === "refs"
+                            ? theme
+                              ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; never their objects.`
+                              : "Pin pictures to a theme; they set the light and palette."
+                            : startStyle
+                              ? `Goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.`
+                              : "Pick a style from the gallery for one post.";
+                    const at = way === "brief" ? p.config?.campaign?.at : way === "refs" ? theme?.analysed : undefined;
+                    const Icon = way === "brief" ? FileText : way === "grid" ? Grid3x3 : way === "refs" ? Images : Sparkles;
+                    return (
+                      <div className="flow-lead">
+                        <span className="flow-lead-icon" aria-hidden>
+                          <Icon size={18} />
+                        </span>
+                        <div className="flow-lead-body">
+                          <b>{title}</b>
+                          <span>{body}</span>
+                          <small className="flow-muted">
+                            {at ? `Read on ${new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · ` : ""}
+                            {pinned ? `${pinned} picture${pinned === 1 ? "" : "s"} pinned to posts` : "no pictures pinned to posts"} ·{" "}
+                            <button type="button" className="text-button" onClick={() => setStage(0)}>
+                              {way === "brief" ? "Edit the brief" : way === "grid" ? "Change the grid" : way === "refs" ? "Change the theme" : "Change the style"}
+                            </button>
+                          </small>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   <span className="flow-eyebrow">Supporting inputs</span>
-                  <ul className="flow-inputs">
-                    <li>
-                      <b>{pinned ? `${pinned} picture${pinned === 1 ? "" : "s"} pinned to posts` : "No pictures pinned to posts"}</b>
-                      <span>Each is recreated on its post and sent to the engine; it wins over any grid tile or theme reference there.</span>
-                    </li>
-                    <li>
-                      <b>{theme ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
-                      <span>They set the light and palette for every post, never their objects.</span>
-                      {theme && (
-                        <button type="button" className="text-button" onClick={() => setRefsOpen((o) => !o)}>
-                          {refsOpen ? "Hide" : "Manage"}
-                        </button>
-                      )}
-                      {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
-                        <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
-                          {reading ? <Orb size={12} /> : null} Analyse the pins
-                        </button>
-                      )}
-                    </li>
-                    {refsOpen && theme && (
-                      <ReferenceLibrary
-                        skill={theme.id}
-                        title=""
-                        onChanged={async () => {
-                          await p.refresh();
-                          await p.reloadThemes();
-                        }}
-                      />
-                    )}
-                    <li>
-                      <b>{shownGrid ? `Grid · ${shownGrid.title}${gridPending ? " (not applied yet)" : ""}` : "Grid · none"}</b>
-                      <span>{shownGrid ? "The tile takes over each post's composition; the words stay the request's." : "The request sets each post's layout. A grid would take over the composition and keep the request's words."}</span>
-                      <button type="button" className="text-button" onClick={() => setPicking("grid")}>
-                        {shownGrid ? "Change" : "Add a grid"}
-                      </button>
-                    </li>
-                    <li>
-                      <b>Product photos · {p.products.length}</b>
-                      <span>Always used; the real product is matched to each post.</span>
-                      <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
-                        Upload
-                      </button>
-                    </li>
-                  </ul>
-                  <details className="flow-details">
-                    <summary>How inputs combine when they meet on one post</summary>
+                  {(() => {
+                    const pinnedPosts = p.plan.filter((x) => x.reference?.key);
+                    const listPosts = (ns: number[]) => (ns.length <= 1 ? ns.join("") : `${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`);
+                    const { missing, posts: missingPosts } = missingProducts;
+                    return (
+                      <ul className="flow-inputs">
+                        <li>
+                          <span className="flow-input-art">
+                            {pinnedPosts.length ? (
+                              pinnedPosts.slice(0, 3).map((x) => <img key={x.index} src={p.batchId ? referenceThumb(p.batchId, x.index, x.reference!.at) : ""} alt="" />)
+                            ) : (
+                              <i className="flow-input-empty" />
+                            )}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>{pinnedPosts.length ? `${pinnedPosts.length} picture${pinnedPosts.length === 1 ? "" : "s"} pinned to post${pinnedPosts.length === 1 ? "" : "s"} ${listPosts(pinnedPosts.map((x) => x.index))}` : "No pictures pinned to posts"}</b>
+                            <span>
+                              Each is <strong>recreated</strong> on its post and sent to the engine; it wins over any grid tile or theme reference there.
+                            </span>
+                          </div>
+                          <span className="flow-input-actions">
+                            {p.plan.length > 0 && (
+                              <button type="button" className="text-button" onClick={() => setStage(2)}>
+                                {pinnedPosts.length ? "Manage" : "Pin on the plan"}
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                        <li>
+                          <span className="flow-input-art">
+                            {p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => <img key={r.id} src={`/api/studio/references/${r.id}/file`} alt="" />) : <i className="flow-input-empty" />}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>{theme && theme.references ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
+                            <span>{theme && theme.references ? "They set the light and palette for every post, never their objects." : "Would set the light and palette for every post, never their objects. Optional."}</span>
+                          </div>
+                          <span className="flow-input-actions">
+                            {theme && (
+                              <button type="button" className="text-button" onClick={() => setRefsOpen((o) => !o)}>
+                                {refsOpen ? "Hide" : theme.references ? "Manage" : "Add"}
+                              </button>
+                            )}
+                            {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
+                              <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
+                                {reading ? <Orb size={12} /> : null} Analyse the pins
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                        {refsOpen && theme && (
+                          <li className="flow-input-wide">
+                            <ReferenceLibrary
+                              skill={theme.id}
+                              title=""
+                              onChanged={async () => {
+                                await p.refresh();
+                                await p.reloadThemes();
+                              }}
+                            />
+                          </li>
+                        )}
+                        <li>
+                          <span className="flow-input-art">{shownGrid ? <img src={styleThumb(shownGrid)} alt="" /> : <i className="flow-input-empty" />}</span>
+                          <div className="flow-input-text">
+                            <b>{shownGrid ? `Grid · ${shownGrid.title}${gridPending ? " (not applied yet)" : ""}` : "Grid · none"}</b>
+                            <span>{shownGrid ? "The tile takes over each post's composition; the words stay the request's." : "The request sets each post's layout. A grid would take over the composition and keep the request's words."}</span>
+                          </div>
+                          <span className="flow-input-actions">
+                            <button type="button" className="text-button" onClick={() => setPicking("grid")}>
+                              {shownGrid ? "Change" : "Add a grid"}
+                            </button>
+                          </span>
+                        </li>
+                        <li>
+                          <span className="flow-input-art tall">
+                            {p.products.length ? p.products.slice(0, 3).map((s) => <img key={s.id} src={p.sourceUrl(s.id)} alt="" />) : <i className="flow-input-empty" />}
+                          </span>
+                          <div className="flow-input-text">
+                            <b>
+                              Product photos · {p.products.length}
+                              {missing.length ? ` of ${p.products.length + missing.length}` : ""}
+                            </b>
+                            <span>
+                              Always used; the real product is matched to each post.
+                              {missing.length ? (
+                                <>
+                                  {" "}
+                                  <strong>
+                                    {missing.slice(0, 2).join(" and ")} {missing.length === 1 ? "has" : "have"} no photo
+                                  </strong>
+                                  , so post{missingPosts.length === 1 ? "" : "s"} {listPosts(missingPosts)} cannot be made yet.
+                                </>
+                              ) : null}
+                            </span>
+                          </div>
+                          <span className="flow-input-actions">
+                            <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                              Upload
+                            </button>
+                          </span>
+                        </li>
+                      </ul>
+                    );
+                  })()}
+                  <div className="flow-precedence-strip">
                     <div className="flow-precedence">
+                      <b>When inputs meet on one post, this wins</b>
                       <span className="flow-pill dark">1 Product photo</span>
+                      <i>›</i>
                       <span className="flow-pill">2 Picture pinned to the post</span>
+                      <i>›</i>
                       <span className="flow-pill">3 Applied style</span>
+                      <i>›</i>
                       <span className="flow-pill">4 Grid tile</span>
+                      <i>›</i>
                       <span className="flow-pill">5 Theme reference</span>
                     </div>
                     <p className="flow-muted">Brand rules and the month's colours apply on top of all of them. {lead.meet}</p>
-                  </details>
+                  </div>
                 </section>
                 <div className="flow-stack">
                   <section className="journey-box flow-box">
@@ -995,14 +1118,22 @@ export default function Flow(p: FlowProps) {
                       </dd>
                       <dt>Engine</dt>
                       <dd>
-                        {p.model || "the connected engine"} · {perPicture ? `about ${formatUsd(perPicture)} per picture (list price, an estimate)` : "price not known for this engine"}
+                        {p.modelName || p.model || "the connected engine"} · {perPicture ? `about ${formatUsd(perPicture)} per picture (list price, an estimate)` : "price not known for this engine"}
                       </dd>
-                      <dt>Readings</dt>
-                      <dd>The ideas, shots, captions and reviews are text and vision calls billed per call by the provider, outside the picture budget. Without a key they are answered from demo fixtures and say so.</dd>
+                      <dt>Occasions</dt>
+                      <dd>
+                        {(() => {
+                          const occ = pickedOccasions(p.month, p.config?.occasions);
+                          return occ.length ? occ.map((o) => o.name).join(", ") : "none ticked this month";
+                        })()}
+                      </dd>
+                      <dt>Words</dt>
+                      <dd>Arabic headline, English second line, caption at most 10 words</dd>
                     </dl>
+                    <small className="flow-muted">The ideas, shots, captions and reviews are text calls billed per call by the provider, outside the picture budget; without a key they come from demo fixtures and say so.</small>
                   </section>
                   <section className="journey-box flow-box">
-                    <span className="flow-eyebrow">What the references say</span>
+                    <span className="flow-eyebrow">What the pinned pictures say</span>
                     {themeNote ? (
                       <>
                         <p className="flow-text">{themeNote.summary}</p>
@@ -1011,6 +1142,7 @@ export default function Flow(p: FlowProps) {
                             <li key={i}>{x}</li>
                           ))}
                         </ul>
+                        <small className="flow-muted">Read once and kept with the plan; not read again unless a picture changes.</small>
                       </>
                     ) : (
                       <small className="flow-muted">Not read yet. The reading runs when the plan is written.</small>
@@ -1035,22 +1167,19 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>The plan, before anything is made</h2>
-                  <p>Read it and change anything. Making the pictures is the one step charged to the picture budget; you confirm it below with its estimate.</p>
+                  <p>Read it and change anything. Making the pictures is the one step that costs money; you confirm it at the bottom.</p>
                 </div>
-                <button type="button" className="secondary btn-pill journey-head-action" onClick={() => void loadPreview()} disabled={previewBusy}>
-                  {previewBusy ? <Orb size={14} /> : <Wand2 size={14} />} Read again
-                </button>
+                <Cta kind="secondary" icon={<MessageSquareText size={16} />} className="journey-head-action" onClick={() => setChatOpen((o) => !o)}>
+                  {chatOpen ? "Close the planner" : "Talk to the planner"}
+                </Cta>
               </div>
-              <div className="flow-tools">
-                <Cta kind="secondary" icon={reading2 ? <Orb size={15} /> : <BadgeCheck size={16} />} disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
-                  Read the scenes before paying
-                </Cta>
-                <Cta kind="secondary" icon={<MessageSquareText size={16} />} onClick={() => setChatOpen((o) => !o)}>
-                  {chatOpen ? "Close the chat" : "Talk about the ideas"}
-                </Cta>
-                <Cta
-                  kind="secondary"
-                  icon={rewriting ? <Orb size={15} /> : <Sparkles size={16} />}
+              <div className="flow-tools quiet">
+                <button type="button" className="text-button" disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
+                  {reading2 ? <Orb size={12} /> : <BadgeCheck size={14} />} Read the scenes before paying
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
                   disabled={rewriting}
                   onClick={async () => {
                     const ok = await askConfirm(`Write the month's ${p.plan.length} ideas again? The current posts, their words and pictures are kept under Versions; pictures already made are not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
@@ -1063,11 +1192,11 @@ export default function Flow(p: FlowProps) {
                     }
                   }}
                 >
-                  Write the ideas again
-                </Cta>
-                <Cta
-                  kind="secondary"
-                  icon={<ImagePlus size={16} />}
+                  {rewriting ? <Orb size={12} /> : <Sparkles size={14} />} Write the ideas again
+                </button>
+                <button
+                  type="button"
+                  className="text-button"
                   disabled={rewriting}
                   onClick={async () => {
                     const n = Number(await askInput("How many posts to add?", "1", { ok: "Add", placeholder: "1" }));
@@ -1080,8 +1209,11 @@ export default function Flow(p: FlowProps) {
                     }
                   }}
                 >
-                  Add posts
-                </Cta>
+                  <ImagePlus size={14} /> Add posts
+                </button>
+                <button type="button" className="text-button" onClick={() => void loadPreview()} disabled={previewBusy} title="Reads the plan again: states, estimate and what each post would send to the engine">
+                  {previewBusy ? <Orb size={12} /> : <Wand2 size={14} />} Read again
+                </button>
               </div>
               {reading2 && <Working label="Reading the scenes before paying" count={{ done: 0, of: readyPictures }} className="flow-working" />}
               {rewriting && <Working label="Writing the ideas" className="flow-working" />}
@@ -1122,7 +1254,8 @@ export default function Flow(p: FlowProps) {
                     ))}
                   </div>
                   <small>
-                    {p.products.length} with photos{blockedList.length ? `, ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} waiting for one` : ""}
+                    {p.products.length} with photos{missingProducts.missing.length ? `, ${missingProducts.missing.length} without` : ""}
+                    {blockedList.length ? ` · ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} waiting` : ""}
                   </small>
                 </div>
                 <div className="flow-sum-cell">
@@ -1146,11 +1279,27 @@ export default function Flow(p: FlowProps) {
                   </div>
                 )}
                 <div className="flow-sum-cell">
-                  <span className="flow-eyebrow">Output · whole month</span>
-                  <p>{shape}</p>
-                  <small>
-                    {preview ? `${readyPictures} picture${readyPictures === 1 ? "" : "s"} ready to make · ${readyTiles} drawn here, free · ${made} made already · ${blockedList.length} blocked` : "Reading the plan…"}
-                  </small>
+                  <span className="flow-eyebrow">Output</span>
+                  {(() => {
+                    const groups = new Map<string, number>();
+                    for (const x of p.plan) if (x.group) groups.set(x.group.id, (groups.get(x.group.id) ?? 0) + 1);
+                    const posts = p.plan.filter((x) => !x.group).length + groups.size;
+                    const tiles = p.plan.filter((x) => x.tileSpec?.kind === "text" && !x.product).length;
+                    const carousels = [...groups.values()];
+                    const shapeOf = carousels.length ? (carousels.length === 1 ? `, one a ${carousels[0]}-slide carousel` : `, ${carousels.length} carousels (${carousels.join(", ")} slides)`) : "";
+                    return (
+                      <>
+                        <p>
+                          <b>{posts} post{posts === 1 ? "" : "s"}</b>
+                          {shapeOf} = <b>{p.plan.length} design{p.plan.length === 1 ? "" : "s"}</b>
+                        </p>
+                        <small>
+                          {p.plan.length - tiles} picture{p.plan.length - tiles === 1 ? "" : "s"} to make{tiles ? ` · ${tiles} text tile${tiles === 1 ? "" : "s"} drawn here, free` : ""} · {p.format}
+                          {preview && (made || blockedList.length) ? ` · ${made} made already${blockedList.length ? ` · ${blockedList.length} blocked` : ""}` : ""}
+                        </small>
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className={`flow-sum-cell attention ${attention.length || blockedList.length ? "on" : ""}`}>
                   <span className="flow-eyebrow">Needs your attention · {attention.length + blockedList.length}</span>
@@ -1173,9 +1322,10 @@ export default function Flow(p: FlowProps) {
                               </button>
                             </li>
                           )}
-                          {rest.slice(0, 5).map((x, i) => (
+                          {rest.slice(0, 4).map((x, i) => (
                             <li key={i}>{x.text}</li>
                           ))}
+                          {rest.length > 4 && <li className="flow-muted">+{rest.length - 4} more, each on its post below</li>}
                         </>
                       );
                     })()}
@@ -1208,7 +1358,26 @@ export default function Flow(p: FlowProps) {
                           <span className="flow-post-main">
                             <b>{x.title}</b>
                             <span className="flow-muted">{(x.scene?.trim() || x.brief).slice(0, 160)}</span>
-                            {o?.status === "blocked" && <span className="flow-post-flag">{o.why}</span>}
+                            {o?.status === "blocked" && (
+                              <span className="flow-post-flag">
+                                {o.why}
+                                {missingProducts.posts.includes(x.index) && (
+                                  <button type="button" className="text-button" onClick={() => uploadInput.current?.click()}>
+                                    Upload a photo
+                                  </button>
+                                )}
+                              </span>
+                            )}
+                            {o?.status !== "blocked" && !isOpen && o?.changes?.[0] && (
+                              <span className="flow-post-flag">
+                                {o.changes[0]}
+                                {o.changes.length > 1 && (
+                                  <button type="button" className="text-button" onClick={() => setOpen(x.index)}>
+                                    +{o.changes.length - 1} more
+                                  </button>
+                                )}
+                              </span>
+                            )}
                           </span>
                           <span className="flow-post-product">{x.product || (x.offer?.products[0] ?? "—")}</span>
                           <span className="flow-post-out">
@@ -1219,7 +1388,7 @@ export default function Flow(p: FlowProps) {
                             </label>
                           </span>
                           <button type="button" className="text-button" onClick={() => setOpen(isOpen ? null : x.index)}>
-                            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {isOpen ? "Hide" : "Details"}
+                            {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {isOpen ? "Hide details" : "Details"}
                           </button>
                           {isOpen && (
                             <div className="flow-post-details">
@@ -1289,7 +1458,7 @@ export default function Flow(p: FlowProps) {
                   <b>
                     {preview && !readyPictures && !readyTiles && made > 0
                       ? `Every post is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
-                      : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
+                      : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
                   </b>
                   <span className="flow-muted">
                     Estimate {formatUsd(total)}

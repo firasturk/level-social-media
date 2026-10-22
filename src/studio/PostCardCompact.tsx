@@ -144,8 +144,11 @@ export default function PostCardCompact({
         )}
         {extra}
         <div className="pc-actions">
-          <button type="button" className="cta primary small" onClick={() => onEdit()} disabled={inFlight}>
-            <Pencil size={14} /> Edit
+          <button type="button" className="cta primary small" onClick={() => onEdit(task?.output ? "image" : "idea")} disabled={inFlight} title={task?.output ? "The picture: retake, fix, compare" : "The idea and the shot"}>
+            <Pencil size={14} /> {task?.output ? "Edit picture" : "Edit the idea"}
+          </button>
+          <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture">
+            Words &amp; layout
           </button>
           <div className="card-menu" ref={box}>
             <button type="button" className="cta secondary small icon" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>

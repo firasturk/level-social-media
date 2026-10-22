@@ -101,6 +101,7 @@ export default function PlanView({
   onRestorePicture,
   onAccept,
   compact = false,
+  toolbar = true,
   onEdit,
   onDeletePlan,
   paused,
@@ -202,6 +203,8 @@ export default function PlanView({
   onRestorePicture?: (index: number, key: string) => Promise<void>;
   /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
   compact?: boolean;
+  /** False folds the month toolbar away (the Studio board's More menu opens it). */
+  toolbar?: boolean;
   onEdit?: (index: number, group?: EditorGroup) => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
@@ -439,7 +442,7 @@ export default function PlanView({
         }}
       />
 
-      <div className="plan-toolbar">
+      <div className={`plan-toolbar ${toolbar ? "" : "folded"}`}>
         <div className="plan-month">
           <label htmlFor="month">Month</label>
           <input
@@ -654,9 +657,9 @@ export default function PlanView({
         </div>
       ) : (
         <>
-          <div className="posts-head" id="month-posts">
+          <div className={`posts-head ${toolbar ? "" : "quiet"}`} id="month-posts">
             <strong>Posts</strong>
-            <span>Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture.</span>
+            <span>{toolbar ? "Four posts a row. Edit any text; it saves when you click out. Pick a style, then Apply style; Generate makes the picture." : "Every card: the picture, the title and date, one status, one line of caption and the next useful action. A cost appears only on the button that makes a picture."}</span>
             {dirty && (
               <span className="posts-save">
                 <button className="primary" onClick={() => void saveDraft().then(() => refitPending())}>
