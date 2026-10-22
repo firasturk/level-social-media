@@ -5,6 +5,7 @@
 import { BAGS, EDIBLE, FRESH_TAKE, LETTERED, decodeEntities, offerReady, type Post, withoutWordsSentences } from "./posts";
 import { FOREIGN_ITEMS, foreignItemIn } from "./brief";
 import { AI_LOOK_CHECK, AI_LOOK_FIX } from "./realism";
+import { VIDEO_MODELS, VIDEO_SECONDS } from "./video-models";
 
 export type FixKind = "shot" | "post" | "unbag" | "include" | "noplace" | "blank" | "product" | "words";
 
@@ -441,12 +442,8 @@ export function parseTextCheck(raw: unknown): TextCheck | null {
 
 /* ───────────── Video: a finished post set in motion ───────────── */
 
-/** The image-to-video engines on Higgsfield Cloud, by their API paths. */
-export const VIDEO_MODELS: { slug: string; name: string; note: string; resolution?: string }[] = [
-  { slug: "bytedance/seedance-2.5/image-to-video", name: "Seedance 2.5", note: "Natural motion, keeps the product exact; the default", resolution: "720p" },
-  { slug: "kling-video/v3.0/std/image-to-video", name: "Kling 3.0", note: "Cinematic camera moves and people" },
-];
-export const VIDEO_SECONDS = 5;
+/** The image-to-video engines on Higgsfield Cloud, by their API paths (the catalog lives in video-models.ts). */
+export { VIDEO_MODELS, VIDEO_SECONDS };
 
 export const VIDEO_IDEA_SCHEMA = {
   type: "object",

@@ -1,0 +1,87 @@
+# Video versions of a post (Higgsfield image-to-video)
+
+A finished post becomes a short clip: the picture (or the composed artwork, words and logo drawn
+in) is the first frame, the motion idea is the prompt. Every clip is a *version* of the post, kept
+with it; one version can be selected for the client's approval link. Nothing is drawn over a clip
+after generation.
+
+## What is live and what is mocked
+
+| Piece | State |
+| - | - |
+| Model catalog (`shared/video-models.ts`) | Built from the Higgsfield docs (below); every price is `null` because the docs give none |
+| Submission, status polling, download into R2 | Written against the documented API; exercised only against a fetch stub in `tests/video.test.ts`. No paid call was made |
+| Provider estimate (`POST /estimate/<slug>`) | Called before each submission; mocked in tests. Not verified live |
+| Governance (`server/integrations.ts`) | The verbatim stub: `requireIntegrationAdmin` (403 for members) is real; `assertIntegrationEnabled`, `recordIntegrationOp`, `updateIntegrationOp` and `claimSubmission` are no-ops until the governance branch replaces the file. The tests mock them to observe the calls |
+| Range/HEAD serving, upload, share route, review versions | Real code, tested with the checked-in sample mp4 |
+| Studio and client UI | Built; typechecked and linted, not opened in a browser here |
+
+## Routes
+
+Studio, under `/api/studio/posts/video` (`server/video.ts`, mounted from `server/studio.ts`):
+
+- `POST /api/studio/posts/video` — `{batch, index, model, prompt, duration?, aspect?, resolution?, audio?, source: "picture"|"artwork", artwork?: dataURL, confirm?}`. Admins only (`requireIntegrationAdmin(c, "higgsfield")` + `assertIntegrationEnabled`). The cost is settled first: the catalog price, else the admin's `video_price_<slug>` setting, else the provider's estimate; with none of them the route answers 409 `{needsEstimate: true, model}` until `confirm: true`. `claimSubmission` on `video:<batch>:<post>:<sha256 of model+prompt+settings+source+poster>` refuses the same ask within ten minutes. `recordIntegrationOp` gets the estimate; the request id goes to `updateIntegrationOp`. The submission carries an `Idempotency-Key` (the clip's id). A provider rejection is kept as a `failed` version with its message; nothing retries by itself.
+- `POST /api/studio/posts/video/retry` — `{batch, id, confirm?}`: a failed clip submitted again as a new job and a new op.
+- `GET /api/studio/posts/video/list?batch=&index=` — the post's clips, newest first, with `engines`, `prices` and `admin`. In-flight clips (`queued`, `generating`) are asked about here (six per call at most): a finished one is downloaded into R2 and marked `done`, a failed one keeps the provider's message, one older than thirty minutes is given up. This is how a refreshed studio reconnects to a running job; the dialog and the cards poll it. The cron never submits or polls.
+- `GET /api/studio/posts/video/summary?batch=` — one line per post: the client's version, the newest finished clip, the newest clip of all (for the cards).
+- `POST /api/studio/posts/video/select` — `{batch, index, id|null}`: the version the client sees (`for_client`, at most one per post).
+- `POST /api/studio/posts/video/upload` — multipart `batch`, `index`, `file` (mp4, 60 MB at most), `note`. Admins only. Stored as a `done` version with `provider = 'upload'`, `source = 'upload'`.
+- `GET|HEAD /api/studio/posts/video/file?batch=&id=` — the mp4 with Range.
+- `GET /api/studio/posts/video/poster?batch=&id=` — the still the clip started from.
+- `GET /api/studio/engine/video-prices`, `POST /api/studio/engine/video-price {model, usd|null}` — the fallback prices (Connection → Higgsfield, admins write).
+
+Client link (`server/share.ts`):
+
+- `GET /api/share/:token` — each post carries `video: {id, url, poster, duration, version}` when a `for_client` finished clip exists, and `version: {kind: "video"|"image", id, label}` for whatever is shown ("Video 2 (22 Oct)" or "Picture (22 Oct)"). Drafts are never listed.
+- `GET|HEAD /api/share/:token/video/:index` — the selected clip with Range, behind the same token as the pictures; the provider's URL never leaves the server.
+- `GET /api/share/:token/video/:index/poster`.
+- `POST /api/share/:token/review` — now takes `version: {kind, id, label?}` and stores it on the reviewer's answer (`config.approvals[index].answers[].version`). Earlier answers on earlier versions stay; the studio's Approval view shows "on Video 1 (22 Oct)" next to each answer, and the client page says "you answered on … this one is newer" when the version moved on.
+
+## Storage
+
+Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `upload` | `editor`), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`), `for_client`, `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
+
+Keys: the mp4 at `<owner>/<batch>/video/<task>/<video id>.mp4`; an artwork first frame at `<owner>/<batch>/video/<task>/<uuid>.artwork.(jpg|png|webp)`. For a `picture` clip the poster is the task's own output key (no copy).
+
+## The model catalog and its source
+
+`shared/video-models.ts` was written from the per-model pages of <https://docs.higgsfield.ai> on 22 Oct 2026 (`/docs/models/<family>/<workflow>.md`, "Input schema"), not from memory. Included: Seedance 2.5, Kling 3.0 Standard / Pro / Turbo, Kling 2.6 Pro, Kling 2.5 Turbo Standard, Hailuo 2.3 Standard, LTX-2.5 Fast, Wan 2.6, Wan 2.7 (image-to-video workflows). Each entry carries the duration options or range, the `aspect_ratio` and `resolution` values when the model has them, the prompt limit where the docs state one (Kling 3.0: 2,500 characters, truncated beyond; LTX-2.5: 2–5,000), and the field that turns generated sound off (`generate_audio` or `sound`). The two slugs that worked before (`bytedance/seedance-2.5/image-to-video`, `kling-video/v3.0/std/image-to-video`) are unchanged; `shared/qa.ts` re-exports the catalog so earlier imports still work.
+
+Prices: the docs give none. "Billing and retention" says to call `POST https://api.higgsfield.ai/estimate/<slug>` with the same body (answer `{credits, usd}`) and that the estimate for the authenticated account is authoritative; failed and `nsfw` requests are not charged; outputs stay at least seven days, so the mp4 is downloaded into R2 as soon as it is done. The OpenAPI document at `/docs/openapi.json` lists only a handful of endpoints (Soul, Kling 2.5 Turbo, Hailuo 2.3 and the request routes) and no prices.
+
+## Range and MIME verification
+
+`server/range.ts` serves a stored object: `Accept-Ranges: bytes`, `Content-Type: video/mp4`, `Cache-Control: private, …`, `X-Content-Type-Options: nosniff`; HEAD answers the size; `Range: bytes=a-b`, `bytes=a-` and `bytes=-n` answer 206 with `Content-Range: bytes a-b/size` and the exact slice (read from R2 with `{range: {offset, length}}`); a range past the end answers 416 with `Content-Range: bytes */size`. Verified in `tests/video.test.ts` ("the stored file") against the sample: a 100-byte slice is byte-equal to the file's bytes 100–199, HEAD carries the full length, 416 on a bad range, and the share route answers the same way.
+
+## iPhone notes
+
+Safari on iPhone plays an inline `<video playsInline controls preload="metadata">` from an MP4 with **H.264 (AVC, baseline/main/high) video and AAC audio**, and it needs the server to answer **Range requests with 206** (it probes the file with a range first; a 200-only server shows a broken player). Playback before the whole file arrives needs the **`moov` atom in front of `mdat`** (faststart).
+
+- What the provider delivers: the docs say only that the completed response carries `video.url` to an mp4; codec, audio and atom order are not stated. The studio reads the downloaded file's boxes (`server/mp4.ts`) and stores `codecs`, `faststart`, `width`, `height` in `settings` for each clip, so the first live clip will say what Higgsfield actually sends. Nothing is re-muxed here (no ffmpeg on the Worker).
+- What the upload route checks: an `ftyp` box at the start (else 400), an `avc1`/`avc3` sample entry somewhere in `moov` (else 400 "must be H.264"); it notes a warning when the audio is not `mp4a` (AAC) or when `moov` sits after `mdat`. Duration comes from `mvhd`.
+- The sample `tests/fixtures/sample-1s.mp4` (3 KB) was made with ffmpeg: a one-second 64×80 H.264 Constrained Baseline level 3.0 `yuv420p` clip with silent AAC audio and `-movflags +faststart`, checked with ffprobe. It plays on iPhone and is what the Range and upload tests use.
+
+Command used:
+
+```
+ffmpeg -f lavfi -i "color=c=0x1a1a2e:s=64x80:d=1:r=24" -f lavfi -i "anullsrc=r=44100:cl=mono" -t 1 \
+  -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p -c:a aac -b:a 32k -shortest \
+  -movflags +faststart tests/fixtures/sample-1s.mp4
+```
+
+The client page never autoplays and never mutes by itself: the viewer taps play, with sound as the clip carries it.
+
+## Studio
+
+- Card: a "Video · 5s" badge over the poster when the post has a finished clip (the client's version when one is selected, else the newest finished one); tapping it opens the inline player (the browser's own seek, mute and fullscreen controls); "Making the video…" and "Video failed · …" come from the newest clip.
+- Dialog ("Video from this picture"): the motion idea, the engine, length / frame / resolution / sound as the model allows, "Include the words and logo in the video input" (the browser composes the artwork and sends it as the first frame), the cost line, "Make the video", "Try again" on a failed clip, the versions list with "Select for client review". It reconnects to a running clip when opened.
+- Editor → Versions: the picture (shown to the client when no clip is selected), each video version with its state, "Select for client review" / "Show the picture to the client".
+- Approval view: each answer says which version it referred to.
+
+## Limitations
+
+- No overlays after generation: a clip made from the bare picture has no words; a clip made from the artwork has the words baked into every frame and cannot be edited later.
+- No automatic retry, ever; a failed clip is a version with its message and a manual "Try again" (a new op).
+- The estimate is per request and may differ from the provider's final charge; `reported` is left to the governance branch (the op is updated to `done`/`failed` without an amount).
+- The catalog is a snapshot of the docs; models, limits and availability change on the provider's side, and the account may not have every model enabled.
+- No transcoding on the Worker: what the provider sends is what is stored and served.

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Check, MessageSquare } from "lucide-react";
+import { Check, MessageSquare, Play } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { applyTheme } from "@/theme";
 import { loadFont } from "@/lib/overlay";
@@ -8,9 +8,22 @@ import OverlayPreview from "@/studio/OverlayPreview";
 import { resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { monthLabel } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
-import type { ReviewAnswer as Approval } from "@shared/config";
+import type { ReviewAnswer as Approval, ReviewVersion } from "@shared/config";
+
+/** The clip the team selected for the client: served through this link, never the provider's URL. */
+interface SharedVideo {
+  id: string;
+  url: string;
+  poster: string | null;
+  duration: number | null;
+  version: ReviewVersion;
+}
 
 interface SharedPost {
+  /** The version the client reviews when it is a clip. */
+  video: SharedVideo | null;
+  /** What is shown on this post right now (the clip, or the picture by its stamp): every answer is pinned to it. */
+  version: ReviewVersion | null;
   index: number;
   date: string | null;
   headline: string;
@@ -233,7 +246,14 @@ export default function SharePage({ token }: { token: string }) {
             const src = p.image ? `${base}/image/${p.index}?v=${p.image}&w=1080` : null;
             return (
               <a key={i} href={`#post-${i}`} className={`share-feed-cell ${p.approval?.status ?? ""}`} title={`Post ${i}`}>
-                {src ? (
+                {p.video ? (
+                  <>
+                    <img src={p.video.poster ?? src ?? undefined} alt="" loading="lazy" />
+                    <span className="share-play-mark" aria-hidden>
+                      <Play size={14} />
+                    </span>
+                  </>
+                ) : src ? (
                   p.overlay && spec.template !== "none" ? (
                     <OverlayPreview src={src} spec={spec} text={{ headline: p.headline, subline: p.subline }} logoSrc={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null} patch={p.ov ?? undefined} faces={p.faces} width={420} />
                   ) : (
@@ -311,7 +331,8 @@ function SharedCard({
       const r = await fetch(`${base}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim(), rid }),
+        // The answer is pinned to the exact version on screen: the clip by id, or the picture by its stamp.
+        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim(), rid, version: post.version ?? undefined }),
       });
       const d = (await r.json()) as { approval?: Approval; error?: string };
       if (!r.ok || !d.approval) throw new Error(d.error || "Could not send.");
@@ -327,7 +348,10 @@ function SharedCard({
   return (
     <article id={`post-${post.index}`} className={`design-card share-card ${post.approval?.status === "approved" ? "text-ok" : post.approval?.status === "changes" ? "text-warn" : ""}`}>
       <div className="design-card-picture share-media">
-        {src ? (
+        {post.video ? (
+          // The clip plays here, inline on iPhone too; the words are already in it (or not): nothing is drawn over it.
+          <video src={post.video.url} poster={post.video.poster ?? src ?? undefined} controls playsInline preload="metadata" />
+        ) : src ? (
           post.overlay && spec.template !== "none" ? (
             <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} />
           ) : (
@@ -354,6 +378,12 @@ function SharedCard({
         )}
       </div>
       <div className="design-card-body">
+        {post.version && (
+          <small className="share-version">
+            Version currently shown: <b>{post.version.label ?? (post.version.kind === "video" ? "Video" : "Picture")}</b>
+            {post.approval?.version && post.approval.version.id !== post.version.id ? <> · you answered on {post.approval.version.label ?? "an earlier version"}; this one is newer.</> : null}
+          </small>
+        )}
         {(post.headline || post.subline) && (
           <div className="design-card-title">
             <strong dir="auto">{post.headline || post.subline}</strong>

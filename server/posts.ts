@@ -11,7 +11,7 @@ import { all, first, run, now, uuid } from "./db";
 import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
-import { advanceBatch, makeClient, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
+import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
 import { approveSpend, reserveOrAsk, reserveSpend, spendFits, spendStatus } from "./spend";
 import { exactCallsCost } from "./exact";
 import { signObjectUrl } from "./signed";
@@ -46,7 +46,7 @@ import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
 import { clientDrivePhotos, clientPlacePhotos, drivePlaceKey, importDrivePhoto } from "./drive";
 import { freeName, PRODUCT_KINDS, productRank, wantsFactory } from "@shared/drive";
-import { renameProduct, SHOP_INSIDE, FACES_ASK, FACES_SCHEMA, facesIn, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, VIDEO_MODELS, VIDEO_SECONDS, videoIdeaInstruction } from "@shared/qa";
+import { renameProduct, SHOP_INSIDE, FACES_ASK, FACES_SCHEMA, facesIn, parseTextCheck, TEXT_CHECK_SCHEMA, textCheckInstruction, VIDEO_IDEA_SCHEMA, videoIdeaInstruction } from "@shared/qa";
 import {
   NO_PRODUCT_TILES,
   PRODUCT_MATCH_SCHEMA,
@@ -4051,27 +4051,7 @@ postRoutes.post("/text-assist", async (c) => {
   return c.json(answer);
 });
 
-/* ───────────── Video: a finished post set in motion on Higgsfield ───────────── */
-
-interface VideoRow {
-  id: string;
-  batch: string;
-  post: number;
-  task: string;
-  owner: string;
-  model: string;
-  prompt: string;
-  status: string;
-  request_id: string | null;
-  key: string | null;
-  error: string | null;
-  created: number;
-  updated: number;
-}
-
-function videoItem(v: VideoRow) {
-  return { id: v.id, post: v.post, model: v.model, prompt: v.prompt, status: v.status, error: v.error, created: v.created, url: v.key ? `/api/studio/posts/video/file?batch=${encodeURIComponent(v.batch)}&id=${encodeURIComponent(v.id)}` : null };
-}
+/* ───────────── Video: a finished post set in motion on Higgsfield (the clips themselves live in video.ts) ───────────── */
 
 /**
  * The motion idea for one finished post, written from its picture and its brief. Admins only and
@@ -4115,125 +4095,7 @@ postRoutes.post("/video/idea", async (c) => {
   return c.json({ ok: true, idea });
 });
 
-const videoSchema = z.object({
-  batch: z.string().min(1),
-  index: z.number().int().min(1).max(MAX_POST_COUNT),
-  prompt: z.string().trim().min(5).max(1500),
-  model: z.string().refine((m) => VIDEO_MODELS.some((x) => x.slug === m), "Unknown video engine."),
-});
-
-/**
- * Makes the video: the post's picture is the first frame, the idea is the motion. Two requests:
- * the first, without an op id, proposes the clip with the estimate an admin entered under Admin →
- * Integrations (none: the run is blocked, "cost not known") and answers {opId, estimate,
- * needsConfirmation: true}; the second carries {opId, confirm: true} and submits once. Admins
- * only, refused while the Higgsfield switch is off, never retried and never sent elsewhere.
- */
-postRoutes.post("/video", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
-  await assertIntegrationEnabled(c.env, "higgsfield");
-  const d = await body(c, videoSchema.merge(confirmSchema));
-  const b = await ownedPlan(c.env, user, d.batch);
-  const t = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
-  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
-  if (previewNoImages(c.env)) throw new StudioError(PREVIEW_MESSAGE, 403);
-  const model = VIDEO_MODELS.find((x) => x.slug === d.model)!;
-  if (!d.opId) {
-    const estimate = await integrationEstimate(c.env, "higgsfield", "video");
-    const proposal = await proposeOp(c.env, { provider: "higgsfield", kind: "video.submit", user: user.id, batch: b.id, post: d.index, estimate, note: estimate == null ? undefined : `${model.name}, ${VIDEO_SECONDS} s, from post ${d.index}'s picture` });
-    return c.json({ ...proposal, model: model.slug });
-  }
-  const op = await confirmSpend(c.env, { provider: "higgsfield", user, opId: d.opId, confirm: d.confirm });
-  if (op.kind !== "video.submit" || op.batch !== b.id || op.post !== d.index) throw new StudioError("This confirmation is for another post: propose the video again.", 409);
-  const engine = await makeClient(c.env);
-  const id = uuid();
-  let requestId: string;
-  try {
-    // One submission: a failure is the answer (no retry pays twice, no other engine stands in).
-    const imageUrl = await signObjectUrl(c.env, t.output, 6 * 60 * 60 * 1000);
-    requestId = await noRetry(() => engine.submitVideo({ model: model.slug, prompt: d.prompt, imageUrl, duration: VIDEO_SECONDS, resolution: model.resolution }));
-  } catch (e) {
-    await updateIntegrationOp(c.env, op.id, { status: "failed", note: errorMessage(e) });
-    throw e;
-  }
-  await run(
-    c.env.DB,
-    "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)",
-    id,
-    b.id,
-    d.index,
-    t.id,
-    user.id,
-    model.slug,
-    d.prompt,
-    requestId,
-    now(),
-    now(),
-  );
-  await updateIntegrationOp(c.env, op.id, { status: "running", taskId: requestId, note: `${model.name}, ${VIDEO_SECONDS} s; video ${id}` });
-  const row = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ?", id);
-  return c.json({ ok: true, opId: op.id, video: videoItem(row!) });
-});
-
-/**
- * A post's videos, newest first; the ones still running are asked about and stored when done.
- * Open to every member who can see the month (viewing is not gated); `access` says whether the
- * viewer may make one.
- */
-postRoutes.get("/video/list", async (c) => {
-  const user = c.get("user");
-  const b = await ownedPlan(c.env, user, c.req.query("batch"));
-  const index = Number(c.req.query("index"));
-  const rows = await all<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE batch = ? AND post = ? ORDER BY created DESC LIMIT 12", b.id, index);
-  const pending = rows.filter((v) => v.status === "queued" && v.request_id);
-  if (pending.length) {
-    const engine = await makeClient(c.env).catch(() => null);
-    if (engine)
-      for (const v of pending) {
-        try {
-          const st = await engine.videoStatus(v.request_id!);
-          if (st.state === "done") {
-            const r = await fetch(st.url, { signal: AbortSignal.timeout(120_000) });
-            if (!r.ok) throw new StudioError(`The video could not be fetched (${r.status}).`, 502);
-            const key = `${b.owner}/${b.id}/video/${v.task}/${v.id}.mp4`;
-            await c.env.BUCKET.put(key, await r.arrayBuffer(), { httpMetadata: { contentType: r.headers.get("content-type")?.split(";")[0] || "video/mp4" } });
-            await run(c.env.DB, "UPDATE videos SET status = 'done', key = ?, error = NULL, updated = ? WHERE id = ?", key, now(), v.id);
-            await finishIntegrationOpByTask(c.env, "higgsfield", v.request_id!, "done");
-            v.status = "done";
-            v.key = key;
-          } else if (st.state === "failed") {
-            await run(c.env.DB, "UPDATE videos SET status = 'failed', error = ?, updated = ? WHERE id = ?", st.message.slice(0, 400), now(), v.id);
-            await finishIntegrationOpByTask(c.env, "higgsfield", v.request_id!, "failed", { note: st.message.slice(0, 400) });
-            v.status = "failed";
-            v.error = st.message;
-          } else if (now() - v.created > 30 * 60 * 1000) {
-            await run(c.env.DB, "UPDATE videos SET status = 'failed', error = 'The engine did not finish in half an hour.', updated = ? WHERE id = ?", now(), v.id);
-            await finishIntegrationOpByTask(c.env, "higgsfield", v.request_id!, "failed", { note: "The engine did not finish in half an hour." });
-            v.status = "failed";
-            v.error = "The engine did not finish in half an hour.";
-          }
-        } catch (e) {
-          console.error("[video] status", v.id, errorMessage(e));
-        }
-      }
-  }
-  return c.json({ ok: true, videos: rows.map(videoItem), engines: VIDEO_MODELS, access: await integrationAccess(c.env, user, "higgsfield") });
-});
-
-/** The stored video. */
-postRoutes.get("/video/file", async (c) => {
-  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
-  const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", c.req.query("id") ?? "", b.id);
-  const obj = v?.key ? await c.env.BUCKET.get(v.key) : null;
-  if (!obj) throw new StudioError("Video not found.", 404);
-  return new Response(obj.body, {
-    headers: {
-      "Content-Type": obj.httpMetadata?.contentType || "video/mp4",
-      "Cache-Control": "private, max-age=86400",
-      "Content-Disposition": `inline; filename="post-${v!.post}.mp4"`,
-    },
-  });
-});
+// POST /video, GET /video/list, GET /video/file and the other clip routes: server/video.ts (mounted at /posts/video in studio.ts).
 
 /** The outline of a post's product, read for its current picture; 404 once the picture changed. */
 postRoutes.get("/subject/:batch/:index", async (c) => {

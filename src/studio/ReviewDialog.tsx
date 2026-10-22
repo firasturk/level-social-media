@@ -167,6 +167,8 @@ export interface PostEditorTools {
   onVideo?: () => void;
   /** The month's earlier versions (the MonthVersions panel). */
   versions?: ReactNode;
+  /** This post's video versions, with the one the client reviews (the VideoVersions panel). */
+  videoVersions?: ReactNode;
   /** This post's takes, newest first, from the server. */
   takes?: Take[];
   /** The art director looks at the post as it will be published (words drawn on): its finding, and the moves it proposes. */
@@ -683,6 +685,7 @@ export default function ReviewDialog({
                 </ul>
               </div>
             )}
+            {editor.videoVersions}
             {editor.versions}
           </div>
         )}
