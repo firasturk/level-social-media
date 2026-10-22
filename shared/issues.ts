@@ -37,6 +37,23 @@ export interface MonthIssueInput {
    * only the offer and product checks run.
    */
   scene?: { needsScene: boolean; sellsDrinks?: boolean; hasPlaces?: boolean };
+  /**
+   * Whether the theme is optional this month: a theme without pins is then no issue at all. Left
+   * out, it is read from the month (see `themeOptional`).
+   */
+  themeOptional?: boolean;
+}
+
+/**
+ * The theme is optional when something else leads the month: a brief (the request sets the look),
+ * a grid (its tiles set the composition) or styles on every post. Only a month that leads with the
+ * theme's references needs pins on it.
+ */
+export function themeOptional(config: Pick<Config, "campaign" | "gridRef" | "plan"> | null | undefined): boolean {
+  if (!config) return true;
+  if (config.campaign || config.gridRef) return true;
+  const plan = config.plan ?? [];
+  return plan.length > 0 && plan.every((p) => !!p.style || (p.tileSpec?.kind === "text" && !p.product));
 }
 
 export function monthIssues(i: MonthIssueInput): MonthIssue[] {
@@ -66,8 +83,9 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
     if (!a.gender) out.push({ code: "gender", text: `Choose whether ${a.name} is a man or a woman.` });
     if (!a.image) out.push({ code: "portrait-missing", text: `${a.name} has no portrait yet.`, how: "Create the portrait, or take them out of this month." });
   }
-  // Theme
-  if (theme && !theme.references && !config.gridRef) out.push({ code: "pins", text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
+  // Theme: pins are asked for only when the theme leads the month; a brief, a grid or styled posts make it optional.
+  const optional = i.themeOptional ?? themeOptional(config);
+  if (theme && !theme.references && !optional) out.push({ code: "pins", text: "The theme has no pins or photos.", how: "Add photos, or paste Pinterest links and import them." });
   else if (theme && theme.references && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed))
     out.push({ code: "pins-unread", warn: true, text: "The pins were not read since the last change: the month would follow the old theme.", how: "Analyse the pins." });
   if (theme && !theme.palette.length && !config.palette?.length) out.push({ code: "palette", warn: true, text: "No colours for this month.", how: "Add the colours, or let the pins or the grid suggest them." });
