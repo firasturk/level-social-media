@@ -17312,6 +17312,27 @@ label.cta input {
   display: flex;
   gap: 8px;
 }
+/* Every reviewer's answer on a post, newest first. */
+.approval-answers {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.approval-answers li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.approval-answers li.changes b {
+  color: var(--warning-text, #9a4b00);
+}
+.approval-answers q {
+  font-style: italic;
+}
 .approval-note {
   font-size: 13px;
   quotes: "“" "”";

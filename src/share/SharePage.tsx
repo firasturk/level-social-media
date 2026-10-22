@@ -8,7 +8,7 @@ import OverlayPreview from "@/studio/OverlayPreview";
 import { resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { monthLabel } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
-import type { Approval } from "@shared/config";
+import type { ReviewAnswer as Approval } from "@shared/config";
 
 interface SharedPost {
   index: number;
@@ -50,6 +50,18 @@ export default function SharePage({ token }: { token: string }) {
   const [data, setData] = useState<Shared | null>(null);
   const [error, setError] = useState("");
   const base = `/api/share/${token}`;
+  // This device's reviewer id: the page shows only this reviewer's own answers, and an answer sent again replaces only theirs.
+  const rid = useMemo(() => {
+    try {
+      const had = localStorage.getItem("lsm-share-rid");
+      if (had) return had;
+      const fresh = crypto.randomUUID();
+      localStorage.setItem("lsm-share-rid", fresh);
+      return fresh;
+    } catch {
+      return `tab-${Math.random().toString(36).slice(2, 14)}`;
+    }
+  }, []);
   // Who is answering: typed once, kept on this device, sent with every approval or change request.
   const [name, setName] = useState(() => {
     try {
@@ -78,7 +90,7 @@ export default function SharePage({ token }: { token: string }) {
 
   useEffect(() => {
     applyTheme("light", false);
-    fetch(base)
+    fetch(`${base}?rid=${encodeURIComponent(rid)}`)
       .then(async (r) => {
         const d = (await r.json()) as Shared & { error?: string };
         if (!r.ok) throw new Error(d.error || "This link is not valid.");
@@ -86,7 +98,7 @@ export default function SharePage({ token }: { token: string }) {
         setData(d);
       })
       .catch((e: Error) => setError(e.message));
-  }, [base]);
+  }, [base, rid]);
 
   const spec = useMemo(() => {
     if (!data) return null;
@@ -246,6 +258,7 @@ export default function SharePage({ token }: { token: string }) {
             spec={spec}
             logo={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null}
             name={name}
+            rid={rid}
             onNeedName={askName}
             onAnswered={(approval) =>
               setData((d) => (d ? { ...d, posts: d.posts.map((x) => (x.index === p.index ? { ...x, approval } : x)) } : d))
@@ -266,6 +279,7 @@ function SharedCard({
   spec,
   logo,
   name,
+  rid,
   onNeedName,
   onAnswered,
 }: {
@@ -275,6 +289,7 @@ function SharedCard({
   logo: string | null;
   /** The reviewer's name, so the team knows who answered. */
   name: string;
+  rid: string;
   /** No name yet: the page asks for it (once) before the answer goes. */
   onNeedName: () => void;
   onAnswered: (a: Approval) => void;
@@ -296,7 +311,7 @@ function SharedCard({
       const r = await fetch(`${base}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim() }),
+        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim(), rid }),
       });
       const d = (await r.json()) as { approval?: Approval; error?: string };
       if (!r.ok || !d.approval) throw new Error(d.error || "Could not send.");
@@ -403,7 +418,7 @@ function SharedCard({
               <MessageSquare size={15} />
             </span>
             <span className="text-finding-text">
-              <b>{post.approval.by ? `${post.approval.by} asked for a change` : "You asked for a change"}</b>
+              <b>You asked for a change</b>
               <span dir="auto">“{post.approval.note}”</span>
             </span>
           </div>
@@ -414,7 +429,7 @@ function SharedCard({
               <Check size={15} />
             </span>
             <span className="text-finding-text">
-              <b>{post.approval.by ? `Approved by ${post.approval.by}` : "Approved"}</b>
+              <b>Approved</b>
               <span>Thank you. This post goes out on its day.</span>
             </span>
           </div>

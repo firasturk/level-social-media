@@ -242,8 +242,24 @@ export function ApprovalView({
                     {a?.status === "approved" ? "Client approved" : a?.status === "changes" ? "Change asked" : t ? "Not seen yet" : "No picture yet"}
                     {a?.by ? ` · by ${a.by}` : ""}
                   </span>
-                  {a?.note && <q className="approval-note">{a.note}</q>}
-                  {a?.at ? <small className="flow-muted">{new Date(a.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small> : null}
+                  {a?.answers?.length ? (
+                    <ul className="approval-answers">
+                      {[...a.answers]
+                        .sort((p, q) => q.at - p.at)
+                        .map((r) => (
+                          <li key={r.rid} className={r.status}>
+                            <b dir="auto">{r.by?.trim() || "Someone"}</b> {r.status === "approved" ? "approved" : "asked for a change"}
+                            {r.note ? <q dir="auto">{r.note}</q> : null}
+                            <small className="flow-muted">{new Date(r.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <>
+                      {a?.note && <q className="approval-note">{a.note}</q>}
+                      {a?.at ? <small className="flow-muted">{new Date(a.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small> : null}
+                    </>
+                  )}
                 </div>
                 <button type="button" className="text-button" onClick={() => onOpen(x.index)}>
                   Open the post
