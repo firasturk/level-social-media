@@ -219,11 +219,45 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
     expect(uses.results).toEqual([{ role: "design", layer_id: "L1", slide: 2 }]);
     expect((await planOf(env)).find((p) => p.index === 1)?.reference).toBeUndefined();
 
+    // A bundle (a vector's ZIP) with no preview picture is refused for both roles.
     await env.BUCKET.put("assets/777.zip", new Uint8Array([80, 75, 3, 4]).buffer, { httpMetadata: { contentType: "application/zip" } });
     await env.DB.prepare("INSERT INTO assets (id, client, source, provider_id, kind, title, author, license, preview_url, file_key, mime, width, height, flattened, added_by, created) VALUES ('a777', 'c1', 'freepik', '777', 'vector', 'Badges', 'V', '{}', '', 'assets/777.zip', 'application/zip', 1, 1, 0, 'u1', ?)").bind(Date.now()).run();
     for (const role of ["design", "reference"]) {
       const z = await app().request("/api/studio/freepik/use", { method: "POST", body: JSON.stringify({ asset: "a777", batch: "b1", post: 1, role }), headers: JSON_HEADERS }, env);
       expect(z.status, role).toBe(415);
+    }
+    expect(reached).toEqual([]);
+  });
+
+  it("a bundle with a preview picture is used through that picture: fetched once, kept next to the bundle, flattened", async () => {
+    const env = await seed();
+    await env.BUCKET.put("assets/778.zip", new Uint8Array([80, 75, 3, 4]).buffer, { httpMetadata: { contentType: "application/zip" } });
+    await env.DB.prepare("INSERT INTO assets (id, client, source, provider_id, kind, title, author, license, preview_url, file_key, mime, width, height, flattened, added_by, created) VALUES ('a778', 'c1', 'freepik', '778', 'vector', 'Halloween word logo', 'V', '{}', 'https://img.freepik.test/preview/778.jpg', 'assets/778.zip', 'application/zip', 1, 1, 0, 'u1', ?)").bind(Date.now()).run();
+    let fetched = 0;
+    useFreepikFetch(async (input) => {
+      const url = String(input);
+      if (url === "https://img.freepik.test/preview/778.jpg") {
+        fetched++;
+        return new Response(PNG, { status: 200, headers: { "Content-Type": "image/png" } });
+      }
+      throw new Error("unexpected " + url);
+    });
+    try {
+      const ref = await app().request("/api/studio/freepik/use", { method: "POST", body: JSON.stringify({ asset: "a778", batch: "b1", post: 1, role: "reference" }), headers: JSON_HEADERS }, env);
+      expect(ref.status).toBe(200);
+      const out = (await json(ref)) as { reference: { name: string; key: string } };
+      expect(out.reference.name).toBe("Halloween word logo (preview picture)");
+      expect(await env.BUCKET.head("assets/778.preview")).toBeTruthy();
+      const design = await app().request("/api/studio/freepik/use", { method: "POST", body: JSON.stringify({ asset: "a778", batch: "b1", post: 1, role: "design", layerId: "L2" }), headers: JSON_HEADERS }, env);
+      expect(design.status).toBe(200);
+      const d = (await json(design)) as { layer: { src: string; flattened: boolean; layerable: boolean } };
+      expect(d.layer).toMatchObject({ src: "/api/studio/freepik/assets/a778/file?preview=1", flattened: true, layerable: true });
+      expect(fetched).toBe(1);
+      const file = await app().request("/api/studio/freepik/assets/a778/file?preview=1", {}, env);
+      expect(file.status).toBe(200);
+      expect(file.headers.get("content-type")).toBe("image/png");
+    } finally {
+      useFreepikFetch(null);
     }
     expect(reached).toEqual([]);
   });

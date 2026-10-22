@@ -611,17 +611,49 @@ export interface UseInput {
   layerId?: string | null;
 }
 
+/** The R2 key of the preview picture kept next to a bundle (a vector's ZIP), once fetched. */
+export const previewKeyOf = (asset: AssetRow): string => `assets/${asset.provider_id}.preview`;
+
+/**
+ * A vector or template downloads as a file bundle (ZIP) that is no picture. Its preview picture
+ * (the one the search shows, from Freepik's CDN) stands in: fetched once, kept next to the bundle
+ * under `assets/<id>.preview`, and used as the reference or the design layer, flattened.
+ */
+export async function previewPicture(env: Env, asset: AssetRow, fetchFn: typeof fetch = fetch): Promise<{ bytes: ArrayBuffer; mime: string; key: string }> {
+  const key = previewKeyOf(asset);
+  const kept = await env.BUCKET.get(key);
+  if (kept) return { bytes: await kept.arrayBuffer(), mime: kept.httpMetadata?.contentType || "image/jpeg", key };
+  if (!asset.preview_url || !/^https?:/.test(asset.preview_url)) throw new StudioError("This asset is a file bundle, not a picture, and it has no preview picture to use instead.", 415);
+  const r = await fetchFn(asset.preview_url, { signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) throw new StudioError(`The asset's preview picture could not be fetched (${r.status}).`, 502);
+  const mime = (r.headers.get("content-type") || "image/jpeg").split(";")[0].trim();
+  if (!/^image\/(jpeg|png|webp)$/i.test(mime)) throw new StudioError("The asset's preview is not a picture the studio can use.", 415);
+  const bytes = await r.arrayBuffer();
+  await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } });
+  return { bytes, mime, key };
+}
+
+const isBundle = (mime: string): boolean => !/^image\//i.test(mime);
+
 /**
  * The stored file as a post's reference picture, through the same storage the reference route
  * uses (a thumbnail is made for a raster picture); the previous reference's files are deleted,
- * as the route does. An SVG is kept as it is; a file bundle (a vector's ZIP) cannot be a picture.
+ * as the route does. An SVG is kept as it is; a file bundle (a vector's ZIP) is replaced by its
+ * preview picture.
  */
-async function attachReference(env: Env, user: User, asset: AssetRow, batch: string, index: number): Promise<PostReference> {
+async function attachReference(env: Env, user: User, asset: AssetRow, batch: string, index: number, fetchFn: typeof fetch = fetch): Promise<PostReference> {
   if (!asset.file_key) throw new StudioError("Download this asset to the library first.", 409);
   const obj = await env.BUCKET.get(asset.file_key);
   if (!obj) throw new StudioError("The asset's file is no longer in storage: download it again.", 404);
-  const bytes = await obj.arrayBuffer();
-  const mime = obj.httpMetadata?.contentType || asset.mime || "application/octet-stream";
+  let bytes = await obj.arrayBuffer();
+  let mime = obj.httpMetadata?.contentType || asset.mime || "application/octet-stream";
+  let fromPreview = false;
+  if (isBundle(mime)) {
+    const p = await previewPicture(env, asset, fetchFn);
+    bytes = p.bytes;
+    mime = p.mime;
+    fromPreview = true;
+  }
   let image: string;
   let thumb: string;
   const id = uuid();
@@ -634,14 +666,14 @@ async function attachReference(env: Env, user: User, asset: AssetRow, batch: str
     thumb = image;
     await env.BUCKET.put(image, bytes, { httpMetadata: { contentType: mime } });
   } else {
-    throw new StudioError("This asset is a file bundle, not a picture: it can't be a reference. Add it to the design instead, or download the picture version.", 415);
+    throw new StudioError("This asset is not a picture the studio can use as a reference.", 415);
   }
   const b = await ownedPlan(env, user, batch);
   const config = JSON.parse(b.config) as Config;
   const post = (config.plan ?? []).find((p) => p.index === index);
   if (!post) throw new StudioError("That post is not in the month.", 404);
   if (post.reference?.key) await env.BUCKET.delete([post.reference.key, post.reference.thumb]).catch(() => undefined);
-  const reference: PostReference = { key: image, thumb, name: asset.title.slice(0, 200), note: post.reference?.note, at: now() };
+  const reference: PostReference = { key: image, thumb, name: `${asset.title.slice(0, 180)}${fromPreview ? " (preview picture)" : ""}`, note: post.reference?.note, at: now() };
   config.plan = (config.plan ?? []).map((p) => (p.index === index ? { ...p, reference } : p));
   await saveConfig(env, b, config);
   return reference;
@@ -655,18 +687,23 @@ export interface UseOutcome {
   layer?: { src: string; name: string; flattened: boolean; layerable: boolean };
 }
 
-export async function useAsset(env: Env, user: User, d: UseInput): Promise<UseOutcome> {
+export async function useAsset(env: Env, user: User, d: UseInput, fetchFn: typeof fetch = fetch): Promise<UseOutcome> {
   const asset = await assetById(env, d.asset);
   if (!asset.file_key) throw new StudioError("Download this asset to the library first.", 409);
   await ownedPlan(env, user, d.batch);
   const out: UseOutcome = { asset, use: { id: uuid(), role: d.role, batch: d.batch, post: d.post, slide: d.slide ?? null, layerId: null } };
   if (d.role === "reference") {
-    out.reference = await attachReference(env, user, asset, d.batch, d.post);
+    out.reference = await attachReference(env, user, asset, d.batch, d.post, fetchFn);
   } else {
     const json = assetJson(asset);
-    if (!json.layerable) throw new StudioError("This asset is a file bundle, not a picture the Text Studio can draw: open it in an editor, or download the picture version.", 415);
     out.use.layerId = d.layerId ?? null;
-    out.layer = { src: assetFileUrl(asset.id), name: asset.title, flattened: asset.flattened === 1, layerable: true };
+    if (json.layerable) {
+      out.layer = { src: assetFileUrl(asset.id), name: asset.title, flattened: asset.flattened === 1, layerable: true };
+    } else {
+      // A bundle (a vector's ZIP) is drawn as its preview picture, flattened; the source files stay in the library.
+      await previewPicture(env, asset, fetchFn);
+      out.layer = { src: `${assetFileUrl(asset.id)}?preview=1`, name: `${asset.title} (preview picture)`, flattened: true, layerable: true };
+    }
   }
   await run(env.DB, "INSERT INTO asset_uses (id, asset, batch, post, slide, role, layer_id, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", out.use.id, asset.id, d.batch, d.post, d.slide ?? null, d.role, out.use.layerId, now());
   await recordIntegrationOp(env, { provider: "freepik", kind: "use", user: user.id, batch: d.batch, post: d.post, estimate: 0, reported: 0, status: "done", note: `${d.role}: ${asset.provider_id}` });
@@ -799,7 +836,7 @@ const useSchema = z.object({
 freepikRoutes.post("/use", async (c) => {
   const user = await gate(c);
   const d = await body(c, useSchema);
-  const out = await useAsset(c.env, user, { asset: d.asset, batch: d.batch, post: d.post, slide: d.slide ?? null, role: d.role, layerId: d.layerId ?? null });
+  const out = await useAsset(c.env, user, { asset: d.asset, batch: d.batch, post: d.post, slide: d.slide ?? null, role: d.role, layerId: d.layerId ?? null }, fetcher());
   return c.json({ ok: true, asset: assetJson(out.asset), use: out.use, ...(out.reference ? { reference: out.reference } : {}), ...(out.layer ? { layer: out.layer } : {}) });
 });
 
@@ -817,7 +854,8 @@ freepikRoutes.get("/assets", async (c) => {
 freepikRoutes.get("/assets/:id/file", async (c) => {
   const a = await assetById(c.env, c.req.param("id"));
   if (!a.file_key) throw new StudioError("Not downloaded yet.", 404);
-  const obj = await c.env.BUCKET.get(a.file_key);
+  // `?preview=1`: the preview picture kept next to a bundle (fetched when the bundle was first used).
+  const obj = c.req.query("preview") ? ((await c.env.BUCKET.get(previewKeyOf(a))) ?? (await previewPicture(c.env, a, fetcher()).then(() => c.env.BUCKET.get(previewKeyOf(a))))) : await c.env.BUCKET.get(a.file_key);
   if (!obj) throw new StudioError("Not found.", 404);
   return new Response(obj.body, {
     headers: { "Content-Type": obj.httpMetadata?.contentType || a.mime || "application/octet-stream", "Cache-Control": "private, max-age=604800", "X-Content-Type-Options": "nosniff" },

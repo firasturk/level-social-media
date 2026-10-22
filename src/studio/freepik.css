@@ -1,8 +1,20 @@
 /* ───────────── Freepik assets: search, library, use as reference or design layer ───────────── */
 .fp-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   font-size: 13px;
+  min-width: 0;
+}
+/* Nothing in the panel widens it past its column: rows wrap, the grid fits the width it has. */
+.fp-panel > * {
+  min-width: 0;
+}
+.fp-panel select,
+.fp-panel input[type="search"],
+.fp-panel input[type="text"] {
+  min-width: 0;
+  max-width: 100%;
 }
 .fp-head {
   display: flex;
@@ -60,9 +72,12 @@
 }
 .fp-search {
   display: grid;
-  grid-template-columns: minmax(160px, 2fr) repeat(3, minmax(100px, 1fr)) auto;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   gap: 6px;
   align-items: center;
+}
+.fp-search input {
+  grid-column: 1 / -1;
 }
 .fp-search input,
 .fp-search select {
