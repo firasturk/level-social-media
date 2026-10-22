@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Check, MessageSquare } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { applyTheme } from "@/theme";
@@ -43,6 +43,22 @@ export default function SharePage({ token }: { token: string }) {
   const [data, setData] = useState<Shared | null>(null);
   const [error, setError] = useState("");
   const base = `/api/share/${token}`;
+  // Who is answering: typed once, kept on this device, sent with every approval or change request.
+  const [name, setName] = useState(() => {
+    try {
+      return localStorage.getItem("lsm-share-name") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const rename = (n: string) => {
+    setName(n);
+    try {
+      localStorage.setItem("lsm-share-name", n);
+    } catch {
+      /* private mode */
+    }
+  };
 
   useEffect(() => {
     applyTheme("light", false);
@@ -154,6 +170,8 @@ export default function SharePage({ token }: { token: string }) {
             base={base}
             spec={spec}
             logo={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null}
+            name={name}
+            onName={rename}
             onAnswered={(approval) =>
               setData((d) => (d ? { ...d, posts: d.posts.map((x) => (x.index === p.index ? { ...x, approval } : x)) } : d))
             }
@@ -172,15 +190,22 @@ function SharedCard({
   base,
   spec,
   logo,
+  name,
+  onName,
   onAnswered,
 }: {
   post: SharedPost;
   base: string;
   spec: ReturnType<typeof resolveOverlay>;
   logo: string | null;
+  /** The reviewer's name, so the team knows who answered. */
+  name: string;
+  onName: (n: string) => void;
   onAnswered: (a: Approval) => void;
 }) {
   const [asking, setAsking] = useState(false);
+  const [needName, setNeedName] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState(post.approval?.note ?? "");
   const reasons = ["Change the words", "Change the picture", "The colours", "The product looks wrong", "Another date"];
   const toggleReason = (r: string) => setNote((n) => (n.includes(r) ? n.replace(new RegExp(`${r}\\.?\\s*`), "").trim() : `${r}. ${n}`.trim()));
@@ -188,12 +213,17 @@ function SharedCard({
   const src = post.image ? `${base}/image/${post.index}?v=${post.image}&w=1440` : null;
 
   async function answer(status: Approval["status"]) {
+    if (!name.trim()) {
+      setNeedName(true);
+      nameRef.current?.focus();
+      return;
+    }
     setSending(true);
     try {
       const r = await fetch(`${base}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined }),
+        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim() }),
       });
       const d = (await r.json()) as { approval?: Approval; error?: string };
       if (!r.ok || !d.approval) throw new Error(d.error || "Could not send.");
@@ -257,6 +287,12 @@ function SharedCard({
             {post.hashtags}
           </p>
         </div>
+        {!name.trim() && (
+          <label className={`share-who ${needName ? "need" : ""}`}>
+            <span>Your name{needName ? " · write it first, so the team knows who answered" : " (so the team knows who answered)"}</span>
+            <input ref={nameRef} type="text" dir="auto" autoComplete="name" placeholder="e.g. Nada" onChange={(e) => onName(e.target.value)} />
+          </label>
+        )}
         {asking ? (
           <div className="design-card-caption share-ask">
             <span className="design-card-label">
@@ -300,7 +336,7 @@ function SharedCard({
               <MessageSquare size={15} />
             </span>
             <span className="text-finding-text">
-              <b>You asked for a change</b>
+              <b>{post.approval.by ? `${post.approval.by} asked for a change` : "You asked for a change"}</b>
               <span dir="auto">“{post.approval.note}”</span>
             </span>
           </div>
@@ -311,7 +347,7 @@ function SharedCard({
               <Check size={15} />
             </span>
             <span className="text-finding-text">
-              <b>Approved</b>
+              <b>{post.approval.by ? `Approved by ${post.approval.by}` : "Approved"}</b>
               <span>Thank you. This post goes out on its day.</span>
             </span>
           </div>

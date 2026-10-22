@@ -47,7 +47,7 @@ export default function PostCardCompact({
   inFlight: boolean;
   state: { cls: string; icon: ReactNode; text: string } | null;
   flags: { text: string }[];
-  approval?: { status: "approved" | "changes"; note?: string };
+  approval?: { status: "approved" | "changes"; note?: string; by?: string };
   styleTitle?: string | null;
   dayTitle?: string;
   onEdit: (group?: EditorGroup) => void;
@@ -129,8 +129,8 @@ export default function PostCardCompact({
             {post.title || POST_TYPE_INFO[post.type]?.label}
           </b>
           {approval && (
-            <span className={`pc-approval ${approval.status}`} title={approval.note || ""}>
-              {approval.status === "approved" ? "Client approved" : "Client asks a change"}
+            <span className={`pc-approval ${approval.status}`} title={[approval.by, approval.note].filter(Boolean).join(": ")}>
+              {approval.status === "approved" ? (approval.by ? `Approved by ${approval.by}` : "Client approved") : approval.by ? `${approval.by} asks a change` : "Client asks a change"}
             </span>
           )}
         </div>

@@ -780,7 +780,7 @@ export default function PlanView({
                           {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
                           {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
                             <small className="pc-meta" dir="auto">
-                              “{approvals[String(p.index)].note}”
+                              “{approvals[String(p.index)].note}”{approvals[String(p.index)].by ? ` · ${approvals[String(p.index)].by}` : ""}
                             </small>
                           )}
                           {cardDirty && (

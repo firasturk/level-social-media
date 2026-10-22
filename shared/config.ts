@@ -58,6 +58,8 @@ export interface BriefNote {
 export interface Approval {
   status: "approved" | "changes";
   note?: string;
+  /** Who answered on the client's side (the name they typed on the approval page). */
+  by?: string;
   at: number;
 }
 
