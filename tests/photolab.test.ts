@@ -27,7 +27,7 @@ const json = (r: Response) => r.json() as Promise<Record<string, unknown>>;
 function app() {
   const a = new Hono<{ Bindings: FakeEnv; Variables: { user: User } }>();
   a.use("*", async (c, next) => {
-    c.set("user", { id: "u1", email: "u@test", name: "U", role: "member" } as User);
+    c.set("user", { id: "u1", email: "u@test", name: "U", role: "admin" } as User);
     await next();
   });
   a.route("/api/studio/photolab", photoLabRoutes);
@@ -53,8 +53,14 @@ async function seed() {
 
 const TASK_SOURCE = { kind: "task", batch: "b1", id: "t1" };
 
+/** A run is two requests: the proposal (nothing sent, the estimate written) and its confirmation. */
 async function runJob(env: FakeEnv, body: Record<string, unknown>): Promise<{ status: number; job: JobJson; connected: boolean; provider: string; reason: string }> {
-  const r = await app().request("/api/studio/photolab/run", { method: "POST", body: JSON.stringify({ client: "c1", source: TASK_SOURCE, ...body }), headers: JSON_HEADERS }, env);
+  const payload = { client: "c1", source: TASK_SOURCE, ...body };
+  const p = await app().request("/api/studio/photolab/run", { method: "POST", body: JSON.stringify(payload), headers: JSON_HEADERS }, env);
+  const proposal = (await json(p)) as { opId?: string; estimate?: number | null; needsConfirmation?: boolean; error?: string };
+  if (!p.ok || !proposal.needsConfirmation) return { status: p.status, ...(proposal as unknown as { job: JobJson; connected: boolean; provider: string; reason: string }) };
+  expect(proposal.estimate).not.toBeNull();
+  const r = await app().request("/api/studio/photolab/run", { method: "POST", body: JSON.stringify({ ...payload, opId: proposal.opId, confirm: true }), headers: JSON_HEADERS }, env);
   const d = (await json(r)) as unknown as { job: JobJson; connected: boolean; provider: string; reason: string; error?: string };
   return { status: r.status, ...d };
 }
@@ -74,7 +80,7 @@ describe("Photo lab with nothing connected (demo)", () => {
     const env = await seed();
     const r = await app().request("/api/studio/photolab/status", {}, env);
     expect(r.status).toBe(200);
-    expect(await json(r)).toEqual({ connected: false, provider: "demo", reason: NOT_CONNECTED, prices: PHOTO_LAB_PRICES, approximate: true });
+    expect(await json(r)).toEqual({ connected: false, provider: "demo", reason: NOT_CONNECTED, prices: PHOTO_LAB_PRICES, approximate: true, access: { admin: true, enabled: true, reason: "" } });
     expect(reached).toEqual([]);
   });
 

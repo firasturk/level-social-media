@@ -9,7 +9,10 @@
  * With no key saved the demo provider answers: the job completes at once with the input copied to
  * the output, provider "demo", cost 0, and nothing leaves the server.
  *
- * Routes mount at /api/studio/photolab (see studio.ts).
+ * Routes mount at /api/studio/photolab (see studio.ts). Running the lab, saving the key and using a
+ * result are admins-only and go through the integration rules in server/integrations.ts (switch,
+ * ledger, confirm before spend, no duplicate, no retry); listing jobs and serving pictures stay
+ * open to every signed-in user.
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -17,6 +20,18 @@ import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { FREEPIK_KEY_SETTING, deleteSetting, getSetting, setSetting } from "./settings";
+import {
+  assertIntegrationEnabled,
+  confirmSchema,
+  confirmSpend,
+  finishIntegrationOpByTask,
+  integrationAccess,
+  noRetry,
+  proposeOp,
+  recordIntegrationOp,
+  requireIntegrationAdmin,
+  updateIntegrationOp,
+} from "./integrations";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
 import { photoBytes } from "./drive";
@@ -301,11 +316,14 @@ async function finish(env: Env, job: JobRow, task: ProviderTask, fetchFn: typeof
   const key = `photolab/${job.id}-out.${extOf(result.mime)}`;
   await env.BUCKET.put(key, result.bytes, { httpMetadata: { contentType: result.mime } });
   await run(env.DB, "UPDATE photolab_jobs SET status = 'done', output_key = ?, error = NULL, updated = ? WHERE id = ?", key, now(), job.id);
+  // The ledger row that carries this provider task ends with the job; Freepik reports no amount, so the estimate stands.
+  if (task.taskId) await finishIntegrationOpByTask(env, "freepik", task.taskId, "done", { reported: job.provider === "demo" ? 0 : null });
   return (await jobById(env, job.id))!;
 }
 
 async function fail(env: Env, job: JobRow, error: string): Promise<JobRow> {
   await run(env.DB, "UPDATE photolab_jobs SET status = 'failed', error = ?, updated = ? WHERE id = ?", error.slice(0, 500), now(), job.id);
+  if (job.provider_task) await finishIntegrationOpByTask(env, "freepik", job.provider_task, "failed", { note: error.slice(0, 500) });
   return (await jobById(env, job.id))!;
 }
 
@@ -345,22 +363,34 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
   return parsed.data;
 }
 
+/** Open to every signed-in user: it says whether the viewer may run the lab (admins, switch on). */
 photoLabRoutes.get("/status", async (c) => {
   const r = await resolvePhotoLab(c.env, fetcher());
-  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true });
+  const access = await integrationAccess(c.env, c.get("user"), "freepik");
+  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true, access });
 });
 
-/** The key is kept only after Freepik accepted it on a no-cost call. */
+/** The key is kept only after Freepik accepted it on a no-cost call. Admins, switch on. */
 photoLabRoutes.post("/key", async (c) => {
+  const user = requireIntegrationAdmin(c, "freepik");
+  await assertIntegrationEnabled(c.env, "freepik");
   const { key } = await body(c, z.object({ key: z.string().trim().min(16).max(400) }));
+  const opId = await recordIntegrationOp(c.env, { provider: "freepik", kind: "key.save", user: user.id, estimate: 0, status: "running", note: "Verifying the key with a no-cost call" });
   const check = await new FreepikClient(key, fetcher()).verify();
-  if (!check.ok) throw new StudioError(`Freepik rejected this key: ${check.message}`, 400);
+  if (!check.ok) {
+    await updateIntegrationOp(c.env, opId, { status: "failed", note: check.message });
+    throw new StudioError(`Freepik rejected this key: ${check.message}`, 400);
+  }
   await setSetting(c.env, FREEPIK_KEY_SETTING, key);
+  await updateIntegrationOp(c.env, opId, { status: "done", reported: 0, note: "Key saved after Freepik accepted it" });
   return c.json({ ok: true, message: check.message });
 });
 
+/** Admins; allowed while the switch is off, so a key can always be taken out. */
 photoLabRoutes.delete("/key", async (c) => {
+  const user = requireIntegrationAdmin(c, "freepik");
   await deleteSetting(c.env, FREEPIK_KEY_SETTING);
+  await recordIntegrationOp(c.env, { provider: "freepik", kind: "key.remove", user: user.id, estimate: 0, reported: 0, status: "done", note: "Key removed: the lab is a demo until a new one is saved" });
   return c.json({ ok: true });
 });
 
@@ -421,16 +451,39 @@ async function pickInput(env: Env, user: User, client: string, s: Source): Promi
   };
 }
 
+/**
+ * Two requests make one run. The first, without an op id, proposes it: the input is checked and
+ * the estimate written to the ledger, and {opId, estimate, needsConfirmation: true} comes back
+ * with nothing sent to Freepik. The second carries {opId, confirm: true} and runs it once. Both
+ * are admins-only and refused while the Freepik switch is off.
+ */
 photoLabRoutes.post("/run", async (c) => {
-  const d = await body(c, runSchema);
+  const user = requireIntegrationAdmin(c, "freepik");
+  await assertIntegrationEnabled(c.env, "freepik");
+  const d = await body(c, runSchema.merge(confirmSchema));
   const prompt = (d.prompt ?? "").trim();
   if (d.op === "background" && !prompt) throw new StudioError("Describe the new background first.");
-  const picked = await pickInput(c.env, c.get("user"), d.client, d.source);
+  const picked = await pickInput(c.env, user, d.client, d.source);
   const lab = await resolvePhotoLab(c.env, fetcher());
+  const cost = lab.connected ? PHOTO_LAB_PRICES[d.op] : 0;
+  const kind = `photolab.${d.op}`;
+  if (!d.opId) {
+    const proposal = await proposeOp(c.env, {
+      provider: "freepik",
+      kind,
+      user: user.id,
+      batch: picked.batch,
+      post: picked.post,
+      estimate: cost,
+      note: `${OP_LABELS[d.op]} on ${picked.label.slice(0, 120)}${lab.connected ? "" : " (demo: nothing is sent)"}`,
+    });
+    return c.json({ ...proposal, approximate: true, connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
+  }
+  const op = await confirmSpend(c.env, { provider: "freepik", user, opId: d.opId, confirm: d.confirm });
+  if (op.kind !== kind) throw new StudioError("This confirmation is for another tool: propose the run again.", 409);
   const id = uuid();
   const inputKey = `photolab/${id}-in.${extOf(picked.image.mime)}`;
   await c.env.BUCKET.put(inputKey, picked.image.bytes, { httpMetadata: { contentType: picked.image.mime } });
-  const cost = lab.connected ? PHOTO_LAB_PRICES[d.op] : 0;
   const t = now();
   await run(
     c.env.DB,
@@ -451,15 +504,18 @@ photoLabRoutes.post("/run", async (c) => {
   let job = await jobById(c.env, id);
   try {
     const url = lab.connected ? await signObjectUrl(c.env, inputKey, 2 * 60 * 60 * 1000) : "";
-    const task = await lab.provider.submit(d.op, { url, bytes: picked.image.bytes, mime: picked.image.mime }, prompt);
+    // One submission: a failure stands (no retry pays twice, no other provider stands in).
+    const task = await noRetry(() => lab.provider.submit(d.op, { url, bytes: picked.image.bytes, mime: picked.image.mime }, prompt));
     await run(c.env.DB, "UPDATE photolab_jobs SET status = 'running', provider_task = ?, updated = ? WHERE id = ?", task.taskId, now(), id);
+    await updateIntegrationOp(c.env, op.id, { status: "running", taskId: task.taskId, note: `Job ${id}` });
     job = await jobById(c.env, id);
     if (task.state === "done") job = await finish(c.env, job, task, fetcher());
     else if (task.state === "failed") job = await fail(c.env, job, task.error ?? "The provider refused the picture.");
   } catch (e) {
     job = await fail(c.env, job, errorMessage(e));
+    if (!job.provider_task) await updateIntegrationOp(c.env, op.id, { status: "failed", note: errorMessage(e) });
   }
-  return c.json({ job: jobJson(job), connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
+  return c.json({ opId: op.id, job: jobJson(job), connected: lab.connected, provider: lab.provider.name, reason: lab.reason });
 });
 
 photoLabRoutes.get("/jobs", async (c) => {
@@ -496,11 +552,14 @@ const useSchema = z.discriminatedUnion("as", [
  * output replaced; the previous picture kept as a take and with the month's earlier pictures).
  */
 photoLabRoutes.post("/jobs/:id/use", async (c) => {
+  const user = requireIntegrationAdmin(c, "freepik");
+  await assertIntegrationEnabled(c.env, "freepik");
   const job = await jobById(c.env, c.req.param("id"));
   if (job.status !== "done" || !job.output_key) throw new StudioError("The result is not ready yet.", 409);
   const d = await body(c, useSchema);
-  const user = c.get("user");
   const b = await ownedPlan(c.env, user, d.batch);
+  // Nothing is sent to Freepik here; the row only says who took the result into the month.
+  await recordIntegrationOp(c.env, { provider: "freepik", kind: `result.${d.as}`, user: user.id, batch: b.id, post: d.as === "picture" ? d.post : job.post, taskId: job.provider_task, estimate: 0, reported: 0, status: "done", note: `Job ${job.id} used as ${d.as === "picture" ? `post ${d.post}'s picture` : "a product photo"}` });
   const config = JSON.parse(b.config) as Config;
   if ((config.client ?? "") !== job.client) throw new StudioError("This month belongs to another client.", 409);
   const obj = await c.env.BUCKET.get(job.output_key);

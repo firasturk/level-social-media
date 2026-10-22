@@ -6,6 +6,9 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { get, post } from "@/api";
 import { VIDEO_MODELS, VIDEO_SECONDS } from "@shared/qa";
 import type { Post } from "@shared/posts";
+import { askConfirm } from "@/lib/confirm";
+import { formatUsd } from "@shared/pricing";
+import type { IntegrationAccess } from "./FreepikConnection";
 
 interface VideoItem {
   id: string;
@@ -22,6 +25,10 @@ interface VideoItem {
  * A finished post set in motion: the motion director writes the idea from the picture, the
  * designer edits it and picks the engine, and Higgsfield makes a five-second clip from the
  * picture as its first frame. The clips stay with the post.
+ *
+ * Admins only for now: a member sees the clips already made and the note, no controls. Making one
+ * is two requests: the server proposes it with the estimate on file (none: it refuses, "cost not
+ * known"), the admin confirms, and the same request goes again with {opId, confirm: true}.
  */
 export default function VideoDialog({
   open,
@@ -45,16 +52,19 @@ export default function VideoDialog({
   const [making, setMaking] = useState(false);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [error, setError] = useState("");
+  const [access, setAccess] = useState<IntegrationAccess | null>(null);
   const polled = useRef<ReturnType<typeof setInterval> | null>(null);
+  const locked = !!access && (!access.admin || !access.enabled);
 
   async function load() {
     try {
-      const r = await get<{ videos: VideoItem[] }>(`/api/studio/posts/video/list?batch=${encodeURIComponent(batchId)}&index=${p.index}`);
+      const r = await get<{ videos: VideoItem[]; access?: IntegrationAccess }>(`/api/studio/posts/video/list?batch=${encodeURIComponent(batchId)}&index=${p.index}`);
       setVideos(r.videos);
-      return r.videos;
+      if (r.access) setAccess(r.access);
+      return { videos: r.videos, access: r.access };
     } catch (e) {
       setError((e as Error).message);
-      return [];
+      return { videos: [] as VideoItem[], access: undefined };
     }
   }
   async function writeIdea() {
@@ -74,7 +84,17 @@ export default function VideoDialog({
     setMaking(true);
     setError("");
     try {
-      const r = await post<{ video: VideoItem }>("/api/studio/posts/video", { batch: batchId, index: p.index, prompt: idea.trim(), model });
+      const payload = { batch: batchId, index: p.index, prompt: idea.trim(), model };
+      // First the proposal: nothing is sent; the server answers with the estimate an admin put on file.
+      const proposal = await post<{ opId: string; estimate: number | null; needsConfirmation: true }>("/api/studio/posts/video", payload);
+      const ok = await askConfirm(
+        proposal.estimate == null
+          ? "The cost of a video clip is not known, so the server will refuse it until an admin enters an estimate under Admin → Integrations."
+          : `A ${VIDEO_SECONDS}-second clip on Higgsfield costs about ${formatUsd(proposal.estimate)} (the estimate on file; Higgsfield bills its own credits). Make it?`,
+        { ok: proposal.estimate == null ? "Try anyway" : `Make it · about ${formatUsd(proposal.estimate)}`, danger: false, cancel: "Not now" },
+      );
+      if (!ok) return;
+      const r = await post<{ video: VideoItem }>("/api/studio/posts/video", { ...payload, opId: proposal.opId, confirm: true });
       setVideos((v) => [r.video, ...v]);
       toast.success("The video is being made; it takes a minute or two.");
     } catch (e) {
@@ -86,12 +106,12 @@ export default function VideoDialog({
   useEffect(() => {
     if (!open) return;
     setError("");
-    void load().then((list) => {
+    void load().then(({ videos: list, access: a }) => {
       const last = list[0];
       if (last) {
         setIdea(last.prompt);
         setModel(VIDEO_MODELS.some((m) => m.slug === last.model) ? last.model : VIDEO_MODELS[0].slug);
-      } else void writeIdea();
+      } else if (a?.admin && a.enabled) void writeIdea(); // as before, for those who may make one
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, batchId, p.index]);
@@ -130,13 +150,27 @@ export default function VideoDialog({
               </span>
             )}
           </div>
+          {locked && access ? (
+            <div className="overlay-editor-controls">
+              <p className="quality-note">
+                <b>{access.admin ? "Switched off" : "Admins only for now"}.</b> {access.reason}
+              </p>
+              {latest?.status === "done" && latest.url && (
+                <div className="footer-actions">
+                  <a className="secondary video-download" href={latest.url} download={`${fileBase}_post${String(p.index).padStart(2, "0")}.mp4`}>
+                    <Download size={14} /> Download
+                  </a>
+                </div>
+              )}
+            </div>
+          ) : (
           <div className="overlay-editor-controls">
             <label className="field-label">
               <Lightbulb size={13} /> The motion idea
             </label>
-            <textarea rows={6} value={idea} placeholder={writing ? "Writing an idea from the picture…" : "What moves, and how"} onChange={(e) => setIdea(e.target.value)} disabled={writing} />
-            <button type="button" className="text-button" onClick={() => void writeIdea()} disabled={writing || making}>
-              {writing ? <Orb size={13} /> : <RefreshCw size={13} />} Another idea
+            <textarea rows={6} value={idea} placeholder={writing ? "Writing an idea from the picture…" : "What moves, and how (or ask for an idea below)"} onChange={(e) => setIdea(e.target.value)} disabled={writing} />
+            <button type="button" className="text-button" onClick={() => void writeIdea()} disabled={writing || making || !access}>
+              {writing ? <Orb size={13} /> : <RefreshCw size={13} />} {idea ? "Another idea" : "Write an idea from the picture"}
             </button>
             <label className="field-label">Engine</label>
             <div className="preset-row">
@@ -186,6 +220,7 @@ export default function VideoDialog({
               </p>
             )}
           </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
