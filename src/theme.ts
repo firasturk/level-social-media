@@ -35,13 +35,25 @@ export function initTheme() {
   applyTheme(currentTheme(), false);
 }
 
-export function useTheme(): [Theme, () => void] {
+/**
+ * `forceLight`: the four-stage workflow is drawn light, as its boards are designed; while it is
+ * on, the studio stays light whatever this browser saved, and the toggle does nothing.
+ */
+export function useTheme(forceLight = false): [Theme, () => void] {
   const [theme, setTheme] = useState<Theme>(() =>
     typeof document === "undefined" ? "light" : currentTheme(),
   );
   useEffect(() => {
+    if (forceLight) {
+      applyTheme("light");
+      setTheme("light");
+      return;
+    }
     applyTheme(theme);
-  }, [theme]);
-  const toggle = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), []);
+  }, [theme, forceLight]);
+  const toggle = useCallback(() => {
+    if (forceLight) return;
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, [forceLight]);
   return [theme, toggle];
 }
