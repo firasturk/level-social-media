@@ -17630,3 +17630,338 @@ label.cta input {
   justify-content: center;
   cursor: pointer;
 }
+
+/* ───────────── Start board: the saved plan, the four ways as one set, the grid preview, the campaign size ───────────── */
+.flow-saved {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px solid var(--blue-pale);
+  border-radius: 14px;
+  background: var(--blue-soft);
+  flex: none;
+}
+.flow-saved > b {
+  font-size: 14px;
+  color: var(--ink-900);
+}
+.flow-saved > .flow-muted {
+  flex: 1 1 280px;
+}
+.flow-saved .cta {
+  margin-left: auto;
+}
+.flow-way-facts {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 3px 8px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.flow-way-facts dt {
+  color: var(--ink-500);
+  font-weight: 600;
+}
+.flow-way-facts dd {
+  margin: 0;
+  color: var(--ink-700);
+}
+.flow-way-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.flow-way-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-900);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.flow-way-action svg {
+  width: 14px;
+  height: 14px;
+}
+.flow-way-action.on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.flow-way-rec {
+  margin: 0;
+}
+.flow-brief-head {
+  flex-wrap: wrap;
+}
+.flow-brief-head .flow-pill {
+  margin-left: auto;
+}
+
+/* The grid before it is applied: its picture with the tiles marked, the numbers, the tiles one by one */
+.grid-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.grid-preview-top {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.grid-preview-picture {
+  position: relative;
+  margin: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.grid-preview-picture img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.grid-preview-cells {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  gap: 1px;
+}
+.grid-preview-cells li {
+  position: relative;
+  border: 1px solid rgb(255 255 255 / 0.55);
+}
+.grid-preview-cells li span {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.grid-preview-cells li.free span {
+  background: var(--blue);
+}
+.grid-preview-cells li.dropped {
+  background: rgb(0 0 0 / 0.55);
+}
+.grid-preview-cells li.dropped span {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+.grid-preview-cells li.again span {
+  background: var(--warning-text);
+}
+.grid-preview-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+.grid-preview-title {
+  font-size: 15px;
+}
+.grid-preview-numbers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ink-700);
+}
+.grid-preview-numbers b {
+  font-size: 18px;
+  margin-right: 4px;
+  color: var(--ink-900);
+}
+.grid-preview-side .flow-pill {
+  align-self: flex-start;
+}
+.grid-preview-side .cta {
+  align-self: flex-start;
+}
+.grid-preview-analysing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.grid-preview-analysing .flow-muted svg {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+.grid-preview-tiles summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.grid-preview-tiles ol {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.grid-preview-tiles li {
+  display: grid;
+  grid-template-columns: 28px 76px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: 13px;
+}
+.grid-preview-tiles li.dropped {
+  opacity: 0.55;
+}
+.grid-tile-n {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--ink-700);
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.grid-preview-tiles li.free .grid-tile-n {
+  background: var(--blue);
+  color: #fff;
+}
+.grid-tile-kind {
+  padding-top: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-500);
+}
+.grid-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.grid-tile-text b {
+  font-weight: 500;
+}
+.grid-preview-tiles > p {
+  margin-top: 8px;
+}
+.grid-mismatch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--blue-pale);
+  background: var(--blue-soft);
+}
+.grid-mismatch-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.grid-mismatch-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-900);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+.grid-mismatch-option b {
+  font-size: 14px;
+}
+.grid-mismatch-option span {
+  color: var(--ink-500);
+}
+.grid-mismatch-option.on {
+  border: 2px solid var(--blue);
+  padding: 11px;
+}
+.grid-mismatch-option.on b {
+  color: var(--blue-deep);
+}
+
+/* The campaign's size: three numbers, and the shape behind them when editing */
+.size-numbers b {
+  min-width: 0;
+}
+.size-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.size-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.size-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.size-field input,
+.size-field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-900);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+}
+.size-field small {
+  font-weight: 400;
+}
+.size-edit .flow-note {
+  margin: 0;
+}
+@media (max-width: 900px) {
+  .grid-preview-top,
+  .grid-mismatch-options,
+  .size-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .grid-preview-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

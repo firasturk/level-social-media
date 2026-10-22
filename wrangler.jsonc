@@ -53,6 +53,8 @@
     "@shared/issues": "./shared/issues.ts",
     "@shared/ocr-check": "./shared/ocr-check.ts",
     "@shared/feedback": "./shared/feedback.ts",
+    "@shared/grid-preview": "./shared/grid-preview.ts",
+    "@shared/campaign-size": "./shared/campaign-size.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

@@ -127,6 +127,11 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
     const actions = fb ? interpretFeedback(fb.text, fb.context) : [];
     out = { actions: actions.map((a) => ({ ...a, change: `${DEMO}: ${a.change}` })) };
   } else if (props.posts && props.tiles) out = gridRead(instruction);
+  else if (props.tiles && props.world) {
+    // The grid read on its own, for the preview: the same tiles, no posts.
+    const { world, tiles, fonts } = gridRead(instruction);
+    out = { world, tiles, fonts };
+  }
   else if (props.posts && (props.posts.items?.properties ?? {}).group) out = briefPlan(instruction);
   else if (props.posts) out = { posts: ideas(instruction) };
   else if (props.shots && props.direction)
