@@ -24,6 +24,7 @@ import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftStatus, type PlanDraft } from "@shared/draft";
 import { blockingConflicts, detectConflicts, guideFor, type Conflict, type GuideLayer } from "@shared/conflicts";
+import { traceEvent } from "./trace";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
@@ -1301,6 +1302,7 @@ postRoutes.post("/ideas", async (c) => {
     config.postCount = wanted;
     await refreshCountNote(c.env, b.id, config);
     await saveConfig(c.env, b, config);
+    void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${now()}`, name: "ideas-append", input: { count, notes: d.notes ?? config.notes ?? "", types: d.types ?? [] }, output: { added: added.length, total: config.plan.length, shape: planShape(config.plan) }, metadata: { client: config.client ?? null, revision: config.plannedAt ?? null } });
     return c.json({ ok: true, plan: config.plan, added: added.length });
   }
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
@@ -1312,6 +1314,7 @@ postRoutes.post("/ideas", async (c) => {
   if (d.notes !== undefined) config.notes = d.notes;
   await keepMonthVersion(c.env, b);
   await saveConfig(c.env, b, config);
+  void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${config.plannedAt}`, name: "ideas", input: { count, notes: d.notes ?? config.notes ?? "", types: d.types ?? [] }, output: { total: config.plan.length, shape: planShape(config.plan) }, metadata: { client: config.client ?? null, revision: config.plannedAt ?? null } });
   return c.json({ ok: true, plan: config.plan });
 });
 
@@ -3730,6 +3733,7 @@ async function applyCampaign(env: Env, user: User, b: BatchRow, plan: CampaignPl
   else for (const p of config.plan) if (added.some((a) => a.index === p.index)) p.ideaAt = stamp;
   config.campaign = { text: plan.text.slice(0, 6000), at: stamp, added: added.length, summary: plan.summary, only: plan.only || undefined, styles: plan.styleIds.length ? plan.styleIds : undefined, colours: plan.briefColours.length ? plan.briefColours : undefined };
   await saveConfig(env, b, config);
+  void traceEvent(env, { kind: "plan", traceId: b.id, spanId: `plan:${stamp}`, name: plan.only ? "campaign-replace" : "campaign-append", input: { brief: plan.text, references: plan.references, existing: existing.length }, output: { added: added.length, summary: plan.summary }, metadata: { client: config.client, revision: stamp } });
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).
   const fresh0 = await ownedPlan(env, user, b.id);

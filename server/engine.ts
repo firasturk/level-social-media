@@ -8,6 +8,7 @@
 import type { Env } from "./env";
 import { concurrency } from "./env";
 import { all, first, run, now, uuid } from "./db";
+import { fingerprint, postReferenceKeys, traceEvent } from "./trace";
 import { HiggsfieldClient, downloadImage, type GenerationJob } from "./higgsfield";
 import { manualQA, reviewWithGoogle, reviewWithOpenAI } from "./review";
 import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, postReviewInstruction, PREFLIGHT_SCHEMA, preflightInstruction, type FlagKind } from "@shared/qa";
@@ -544,7 +545,9 @@ async function storeResultBytes(
     task.id,
   );
   if (phash) await run(env.DB, "UPDATE tasks SET phash = ? WHERE id = ?", phash, task.id).catch(() => undefined);
-  await recordTake(env, batch, task, { status: "made", key, cost: await attemptCostOf(env, config, task), note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
+  const attemptCost = await attemptCostOf(env, config, task);
+  await recordTake(env, batch, task, { status: "made", key, cost: attemptCost, note: task.edit?.trim() ? `Edit: ${task.edit.trim()}` : task.recenter ? "Recentred" : "" });
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "stored", output: { picture: key, engineUrl: url ? "[url]" : null }, model: taskConfig(config, task).model ?? null, cost: attemptCost, metadata: { client: batch.client, post: task.post, revision: task.making_for, references: postReferenceKeys(task.brief), engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
 
   let qa: QA;
   if (config.mode === "post") {
@@ -560,6 +563,7 @@ async function storeResultBytes(
     } catch (e) {
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
     }
+    void traceEvent(env, { kind: "review", traceId: batch.id, spanId: task.id, name: "review", input: { picture: key }, output: { automated: qa.automated, notes: qa.notes, flags: qa.flags ?? [] }, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
     // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
     // from the post's original reference with the idea as the note; the drift stays as a lesson.
     const pb = postBrief(task);
@@ -664,6 +668,7 @@ async function storeResultBytes(
   } else {
     qa = manualQA();
   }
+  void traceEvent(env, { kind: "review", traceId: batch.id, spanId: task.id, name: "review", input: { picture: key }, output: { automated: qa.automated, notes: qa.notes, productConcern: qa.productConcern, centered: qa.centered, sameFace: qa.sameFace }, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
 
   const wantsCenter = centeringApplies(config, task.card);
   // An off-centre result is flagged for review, never regenerated on its own: each image is
@@ -781,6 +786,7 @@ async function settleFailedAttempt(
   // The failed attempt is listed with what it cost (nothing when the vendor refused the request
   // before working, its recorded cost otherwise, which may be billed).
   await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: message });
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "failed", output: { error: message }, model: config.model ?? null, cost: billing === "none" ? 0 : refund, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: config.model ?? null, attempt: task.attempts, error: message, billing } });
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
@@ -2101,6 +2107,7 @@ async function promptFor(
   if (task.recenter) prompt += `\n\n${RECENTER_SUFFIX}`;
   prompt = sanitizePrompt(prompt);
   await run(env.DB, "UPDATE tasks SET prompt = ? WHERE id = ?", prompt, task.id);
+  void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "submit", input: { prompt, images: Object.entries(roles).filter(([, on]) => on).map(([role]) => role), edit: edit || undefined }, model: config.model ?? null, metadata: { client: batch.client, post: task.post, revision: task.making_for, promptVersion: fingerprint(prompt), references: config.mode === "post" ? postReferenceKeys(task.brief) : [], engine: config.model ?? null, attempt: task.attempts + 1 } });
   return prompt;
 }
 
