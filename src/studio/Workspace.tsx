@@ -40,6 +40,7 @@ import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import { NotifyBadge } from "./Notify";
 import OcrPanel from "./OcrPanel";
 import { DriveReferencePicker } from "./DrivePicker";
 import FeedbackPanel from "./FeedbackPanel";
@@ -89,6 +90,15 @@ const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "appr
 function remembered(key: string): string {
   try {
     return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+/** `?client=<id>&month=YYYY-MM` on the address (the links in the notification e-mails) opens that month. */
+function urlParam(name: string, pattern: RegExp): string {
+  try {
+    const v = new URLSearchParams(window.location.search).get(name) ?? "";
+    return pattern.test(v) ? v : "";
   } catch {
     return "";
   }
@@ -144,9 +154,9 @@ export default function Workspace({
   const [theme, toggleTheme] = useTheme(workflowV2);
   const [stateReady, setStateReady] = useState(false);
   const [bootTimedOut, setBootTimedOut] = useState(false);
-  const [clientId, setClientId] = useState<string>(() => remembered(CLIENT_KEY));
+  const [clientId, setClientId] = useState<string>(() => urlParam("client", /^[\w-]{1,80}$/) || remembered(CLIENT_KEY));
   // The studio makes grids for the month we are in: it opens on the current calendar month, never on a later one.
-  const [month, setMonth] = useState<string>(() => currentMonth());
+  const [month, setMonth] = useState<string>(() => urlParam("month", /^\d{4}-\d{2}$/) || currentMonth());
   /** Which grid of a client's month is open, when the month holds several ("client|month" → batch id). */
   const [gridPick, setGridPick] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState("");
@@ -1788,6 +1798,7 @@ export default function Workspace({
                   changes={changes}
                   onClientChanges={() => void doClientChanges()}
                   clientChangesBusy={busy === "client"}
+                  badge={batch ? <NotifyBadge batch={batch.id} stamp={Object.values(config?.approvals ?? {}).reduce((m, a) => Math.max(m, a.at), 0)} onOpen={() => setStudioTab("approval")} /> : null}
                   more={
                     <>
                       <button type="button" onClick={() => setToolsOpen((o) => !o)}>
@@ -1867,7 +1878,7 @@ export default function Workspace({
               )}
               <div className="plan-column">
                 {useFlow && studioTab === "words" && batch && <WordsView plan={plan} tasks={tasks} outputThumb={outputThumb} onSavePlan={savePlan} />}
-                {useFlow && studioTab === "approval" && <ApprovalView plan={plan} tasks={tasks} approvals={config?.approvals} outputThumb={outputThumb} onClientLink={() => void shareMonth()} onWhatsApp={() => void whatsAppMonth()} onOpen={(i) => openEditor(i)} />}
+                {useFlow && studioTab === "approval" && <ApprovalView plan={plan} tasks={tasks} approvals={config?.approvals} outputThumb={outputThumb} onClientLink={() => void shareMonth()} onWhatsApp={() => void whatsAppMonth()} onOpen={(i) => openEditor(i)} client={client} />}
                 {useFlow && studioTab === "approval" && batch && (
                   <section className="journey-box flow-box studio-feedback">
                     <span className="flow-eyebrow">Client feedback · the month</span>

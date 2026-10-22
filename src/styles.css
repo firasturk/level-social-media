@@ -17609,3 +17609,77 @@ label.cta input {
   justify-content: center;
   cursor: pointer;
 }
+
+/* ───────────── Notifications: the badge on the board, the subscription switch, the Connection tab ───────────── */
+.notify-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.notify-badge:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.notify-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-500);
+  cursor: pointer;
+  user-select: none;
+}
+.notify-toggle.on {
+  color: var(--ink-900);
+}
+.notify-toggle input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.notify-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.notify-panel .field-label {
+  margin-top: 4px;
+}
+.notify-panel input[type="text"],
+.notify-panel input[type="password"] {
+  width: 100%;
+}
+.notify-not-connected b {
+  color: var(--ink-900);
+}
+.notify-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.notify-counts b {
+  color: var(--ink-900);
+  font-size: 14px;
+  margin-right: 4px;
+}
+.notify-counts li.warn b {
+  color: var(--danger);
+}
+.notify-actions {
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
