@@ -5,9 +5,11 @@ import {
   ChevronRight,
   Download,
   FolderDown,
+  ImagePlus,
   RefreshCw,
   ScanLine,
   Type,
+  X,
 } from "lucide-react";
 import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
@@ -25,6 +27,9 @@ import CompareSlider from "./CompareSlider";
 import { formatUsd } from "@shared/pricing";
 import { toast } from "sonner";
 import { askConfirm } from "@/lib/confirm";
+import { del, postForm } from "@/api";
+import { rasterize } from "@/lib/image";
+import { referenceThumb } from "./PostTools";
 import VoiceInput from "@/components/VoiceInput";
 import { POST_TYPE_INFO, POST_TYPES, type Post } from "@shared/posts";
 
@@ -134,6 +139,10 @@ export interface PostEditorTools {
   onSavePost: (patch: Partial<Post>) => Promise<void> | void;
   /** "Edit this picture" with a note: the current photo changed, not remade. */
   onEdit: (note: string) => Promise<void>;
+  /** The month, for the reference picture attached to the post for its edits and takes. */
+  batchId?: string;
+  /** The month changed on the server (a reference attached or taken off): read it again. */
+  onMonthChanged?: () => Promise<void> | void;
   /** The team accepts the picture as it is. */
   onAccept?: () => Promise<void>;
   /** A fresh idea written for the post (free), then its picture is made. */
@@ -926,18 +935,29 @@ export default function ReviewDialog({
             <div className="revision-voice">
               <VoiceInput label="Dictate the change" onText={(t) => setEdit((e) => (e.trim() ? `${e.trim()} ${t}` : t))} disabled={busy} />
             </div>
+            {editor?.batchId && <EditReference batchId={editor.batchId} post={editor.post} note={edit} disabled={busy || inFlight} onChanged={() => editor.onMonthChanged?.()} />}
             <button
               className="primary"
               onClick={async () => {
+                const text = edit.trim() || (editor?.post.reference ? "Use the attached reference for this picture." : "");
+                if (!text) return;
                 if (editor) {
                   const ok = await askConfirm(`Edit post ${editor.post.index}'s picture${editor.post.group ? ` (slide ${editor.post.group.slide} of ${editor.post.group.of})` : ""}: one paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Edit this picture${cost}`, danger: false, cancel: "Not now" });
                   if (!ok) return;
+                  // The instruction is also the note on the attached reference, so the engine does with it exactly what was asked.
+                  if (editor.batchId && editor.post.reference && edit.trim()) {
+                    const form = new FormData();
+                    form.set("batch", editor.batchId);
+                    form.set("index", String(editor.post.index));
+                    form.set("note", edit.trim());
+                    await postForm("/api/studio/posts/reference", form).catch(() => undefined);
+                  }
                 }
-                await onRevise(edit);
+                await onRevise(text);
                 setEdit("");
                 setArea(null);
               }}
-              disabled={busy || !edit.trim() || inFlight}
+              disabled={busy || inFlight || !(edit.trim() || editor?.post.reference)}
               title="The current picture is changed as the instruction says: one paid picture"
             >
               {busy ? <Orb size={17} /> : <RefreshCw size={17} />}
@@ -988,5 +1008,83 @@ export default function ReviewDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * A reference picture for the edit: attached under the instruction, it goes to the engine with the
+ * current picture, and the instruction says what to take from it. It stays on the post for its
+ * next takes too, until taken off.
+ */
+function EditReference({ batchId, post, note, disabled, onChanged }: { batchId: string; post: Post; note: string; disabled: boolean; onChanged: () => Promise<void> | void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const ref = post.reference;
+  async function attach(file: File) {
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.set("batch", batchId);
+      form.set("index", String(post.index));
+      form.set("note", note.trim());
+      // The browser redraws the picture first (a phone photo, a huge PNG): the server reads a plain PNG or JPEG.
+      const ready = await rasterize(file);
+      form.set("file", ready, ready.name);
+      await postForm("/api/studio/posts/reference", form);
+      await onChanged();
+      toast.success("Reference attached: the next edit of this picture takes it.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not attach the reference.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove() {
+    setBusy(true);
+    try {
+      await del(`/api/studio/posts/reference?batch=${encodeURIComponent(batchId)}&index=${post.index}`);
+      await onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not take the reference off.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="edit-ref-row">
+      <input
+        ref={input}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void attach(f);
+        }}
+      />
+      {ref ? (
+        <>
+          <img src={referenceThumb(batchId, post.index, ref.at)} alt="" />
+          <span className="edit-ref-text">
+            <strong>Reference attached{ref.name ? ` · ${ref.name}` : ""}</strong>
+            <small>The edit takes from it what the instruction says (a background, a light, a mood). It stays on this post for its next takes until you take it off.</small>
+          </span>
+          <button type="button" className="text-button" disabled={disabled || busy} onClick={() => input.current?.click()}>
+            {busy ? <Orb size={12} /> : <ImagePlus size={13} />} Change
+          </button>
+          <button type="button" className="text-button" disabled={disabled || busy} onClick={() => void remove()}>
+            <X size={13} /> Take off
+          </button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="text-button" disabled={disabled || busy} onClick={() => input.current?.click()} title="A picture the edit takes from: a background, a light, a mood. Say in the instruction what to take from it.">
+            {busy ? <Orb size={12} /> : <ImagePlus size={13} />} Attach a reference for this edit
+          </button>
+          <small className="revision-note">A background, a light or a mood to take from; say in the instruction what to take.</small>
+        </>
+      )}
+    </div>
   );
 }
