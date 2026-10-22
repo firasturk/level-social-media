@@ -16860,6 +16860,8 @@ label.cta input {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* A grid is read from its first rows: the card keeps the top of the picture, edge to edge. */
+  object-position: top center;
 }
 .flow-art-refs {
   position: relative;

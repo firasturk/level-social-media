@@ -652,9 +652,9 @@ export default function Flow(p: FlowProps) {
                       )}
                       {w.key === "grid" &&
                         (shownGrid ? (
-                          <img className="flow-art-full" src={styleThumb(shownGrid)} alt="" />
+                          <img className="flow-art-full" src={styleThumb(shownGrid, true)} alt="" />
                         ) : daily?.grid ? (
-                          <img className="flow-art-full" src={styleThumb(daily.grid)} alt="" />
+                          <img className="flow-art-full" src={styleThumb(daily.grid, true)} alt="" />
                         ) : (
                           <span className="flow-art-grid">
                             {Array.from({ length: 9 }, (_, i) => {
