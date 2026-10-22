@@ -801,6 +801,44 @@ export default function ReviewDialog({
                 The current result stays until it arrives; with Economy mode this can take a while.
               </p>
             )}
+            {editor && task?.output && (() => {
+              const takes = editor.takes ?? [];
+              const made = takes.filter((t) => t.status === "made");
+              const cur = made.find((t) => t.current);
+              const n = cur ? made.length - made.indexOf(cur) : made.length;
+              return (
+                <>
+                  {made.length > 0 && (
+                    <p className="take-line">
+                      Take {n} of {made.length}
+                      {cur?.cost ? ` · ${formatUsd(cur.cost)}` : ""}
+                      {cur?.created ? ` · made ${new Date(cur.created).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}
+                      {cur?.note ? ` · ${cur.note}` : ""}
+                    </p>
+                  )}
+                  <span className="field-label">What do you want to do?</span>
+                  <div className="editor-choices">
+                    <button type="button" className="editor-choice" onClick={() => editRef.current?.focus()}>
+                      <b>Edit this picture</b>
+                      <span>Change something in the current photo from a note: the background, an object, the light.</span>
+                      <em>about {formatUsd(editor.perPicture)}</em>
+                    </button>
+                    {onRemake && (
+                      <button type="button" className="editor-choice" disabled={busy || inFlight} onClick={() => leave(onRemake)}>
+                        <b>Make another version</b>
+                        <span>A fresh picture of the same idea. The current one is kept under Versions.</span>
+                        <em>about {formatUsd(editor.perPicture)}</em>
+                      </button>
+                    )}
+                    <button type="button" className="editor-choice" onClick={() => setGroup("words")}>
+                      <b>Edit words &amp; layout</b>
+                      <span>Headline, caption and where they sit. Drawn over the photo, never remade.</span>
+                      <em className="free">Free</em>
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
             <label className="field-label" htmlFor="revision">
               Edit this picture
             </label>
