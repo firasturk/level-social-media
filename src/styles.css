@@ -17403,3 +17403,8 @@ label.cta input {
     grid-template-columns: 1fr;
   }
 }
+/* The Text studio icon in the card header takes clicks even though the header itself lets them through. */
+.studio-card .post-head .pc-text-studio {
+  pointer-events: auto;
+  margin-left: auto;
+}
