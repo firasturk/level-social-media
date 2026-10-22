@@ -19927,6 +19927,8 @@ a.publish-pill.published:hover {
   margin-top: 6px;
   opacity: 0.85;
   line-height: 1.4;
+}
+
 /* ───────────── Photo studio entry points: the dialog's button and the card's aperture icon ───────────── */
 .editor-open-photo-studio {
   display: flex;
