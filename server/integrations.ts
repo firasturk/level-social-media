@@ -37,7 +37,7 @@ export const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
 export const PROVIDER_SCOPE: Record<IntegrationProvider, string> = {
   freepik: "The Photo lab (remove or replace a background, relight, upscale) and the Freepik key.",
   higgsfield: "Videos made from a post's picture (not the picture engine, which keeps its own settings).",
-  editor: "The video editor, when it arrives. Nothing uses this switch yet.",
+  editor: "The video editor: saving a project and storing an export as a version of the post. Rendering happens in the browser; nothing is sent to a provider or charged. Off, saves and exports are refused; opening the editor to look stays open.",
 };
 
 export type IntegrationOpStatus = "proposed" | "confirmed" | "running" | "done" | "failed" | "refused";

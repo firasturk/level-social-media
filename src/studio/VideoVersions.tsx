@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { videoModel } from "@shared/video-models";
 import { inFlight, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
 
-export default function VideoVersions({ batchId, index, onOpenVideo, onChanged }: { batchId: string; index: number; onOpenVideo?: () => void; onChanged?: () => void }) {
+export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo, onChanged }: { batchId: string; index: number; onOpenVideo?: () => void; /** Opens the Video editor on this version (trims, colour, music; the export becomes a new version). */ onEditVideo?: (id: string) => void; onChanged?: () => void }) {
   const [videos, setVideos] = useState<VideoItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const load = () =>
@@ -94,6 +94,11 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onChanged }
                 <a className="text-button" href={v.url} target="_blank" rel="noreferrer">
                   Open
                 </a>
+              )}
+              {v.status === "done" && v.url && onEditVideo && (
+                <button type="button" className="text-button" onClick={() => onEditVideo(v.id)} title="Trim, colour, music and more; the export becomes a new version">
+                  Edit in the Video editor
+                </button>
               )}
               {v.status === "done" &&
                 (v.forClient ? (

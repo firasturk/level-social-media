@@ -69,6 +69,7 @@ import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
 import { videoRoutes } from "./video";
+import { videoEditorRoutes } from "./video-editor";
 import { VIDEO_MODELS, videoPriceSetting } from "@shared/video-models";
 import { promptboxRoutes } from "./promptbox";
 import { styleRoutes } from "./styles";
@@ -93,6 +94,8 @@ studioRoutes.route("/clients", clientRoutes);
 studioRoutes.route("/posts", postRoutes);
 // The video versions of a post, under the posts' own path (mounted here so posts.ts and video.ts do not import each other in a loop).
 studioRoutes.route("/posts/video", videoRoutes);
+// The video editor's projects and exports, next to the versions they read and produce.
+studioRoutes.route("/posts/video/editor", videoEditorRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);

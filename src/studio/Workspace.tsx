@@ -67,6 +67,7 @@ const ReviewDialog = lazyScreen(() => import("./ReviewDialog"));
 import type { PostEditorTools, Group as EditorGroup } from "./ReviewDialog";
 const ConnectionDialog = lazyScreen(() => import("./ConnectionDialog"));
 const DeliverDialog = lazyScreen(() => import("./DeliverDialog"));
+const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -95,8 +96,11 @@ const atStyles = () => window.location.pathname.replace(/\/$/, "") === STYLES_PA
 /** The admin's Approvals page has its own address too. */
 const APPROVALS_PATH = "/approvals";
 const atApprovals = () => window.location.pathname.replace(/\/$/, "") === APPROVALS_PATH;
-const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : "/");
-const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : null);
+/** The standalone video editor (footage from this computer, the export saved as a file) has its own address too. */
+const VIDEO_EDITOR_PATH = "/video-editor";
+const atVideoEditor = () => window.location.pathname.replace(/\/$/, "") === VIDEO_EDITOR_PATH;
+const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : p === "video-editor" ? VIDEO_EDITOR_PATH : "/");
+const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : atVideoEditor() ? "video-editor" : null);
 
 function remembered(key: string): string {
   try {
@@ -137,7 +141,7 @@ export default function Workspace({
     if (want !== (pageAt() ? pathOf(pageAt()!) : "/")) window.history.pushState(null, "", want);
   }, [page]);
   useEffect(() => {
-    const onPop = () => setPage((p) => pageAt() ?? (p === "styles" || p === "approvals" ? "studio" : p));
+    const onPop = () => setPage((p) => pageAt() ?? (p === "styles" || p === "approvals" || p === "video-editor" ? "studio" : p));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -1407,7 +1411,7 @@ export default function Workspace({
   const reviewable = tasks.filter((t) => !!t.output);
   const selectedIndex = selected ? reviewable.findIndex((t) => t.id === selected.id) : -1;
   /** A tool of the card asked for from the editor: the Text studio, Animate or Video open on that post. */
-  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video"; index: number; at: number } | null>(null);
+  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video" | "edit-video"; index: number; at: number; videoId?: string } | null>(null);
   const prevOutputKey = (t: Task) => `lsm-prev-output:${t.id}`;
   const prevOutputOf = (t: Task): string | null => {
     try {
@@ -1512,7 +1516,17 @@ export default function Workspace({
             onAnimate: ask("animate"),
             onVideo: ask("video"),
             versions: <MonthVersions batchId={batch.id} plannedAt={config?.plannedAt} overlay={overlaySpec} logoSrc={logoSrc} onRestored={refresh} />,
-            videoVersions: t?.output ? <VideoVersions batchId={batch.id} index={index} onOpenVideo={ask("video")} /> : undefined,
+            videoVersions: t?.output ? (
+              <VideoVersions
+                batchId={batch.id}
+                index={index}
+                onOpenVideo={ask("video")}
+                onEditVideo={(videoId) => {
+                  setSelected(null);
+                  setRequested({ kind: "edit-video", index, at: Date.now(), videoId });
+                }}
+              />
+            ) : undefined,
             acceptedBy: acceptedBy || undefined,
             takes: postTakes,
             onUseTake: (key) => restorePicture(index, key),
@@ -1640,6 +1654,19 @@ export default function Workspace({
                 }}
               />
             </section>
+          </>
+        ) : page === "video-editor" ? (
+          <>
+            <div className="workspace-head">
+              <div>
+                <div className="eyebrow">Video</div>
+                <h1>Video editor</h1>
+                <p>Cut, colour and score clips from this computer; the export is saved as a file. To edit a post's video, use the clapperboard on its card in the Studio.</p>
+              </div>
+            </div>
+            <Suspense fallback={null}>
+              <VideoEditor open post={null} fileBase="video" onClose={() => setPage("studio")} />
+            </Suspense>
           </>
         ) : page === "batches" ? (
           <>
