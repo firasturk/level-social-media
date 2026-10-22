@@ -41,7 +41,7 @@ Client link (`server/share.ts`):
 
 ## Storage
 
-Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `upload` | `editor`), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`), `for_client`, `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
+Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `higgsfield-mcp` | `magnific` | `upload` | `editor`; the Video studio's preset runs and Higgsfield clip tools are `higgsfield-mcp` rows with a `model` of `preset:<id>` or `tool:<name>`, Magnific's clips and tools `magnific` rows, docs/video-studio.md), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`), `for_client`, `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
 
 Keys: the mp4 at `<owner>/<batch>/video/<task>/<video id>.mp4`; an artwork first frame at `<owner>/<batch>/video/<task>/<uuid>.artwork.(jpg|png|webp)`. For a `picture` clip the poster is the task's own output key (no copy).
 

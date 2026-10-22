@@ -63,6 +63,7 @@
     "@shared/video-project": "./shared/video-project.ts",
     "@shared/cube-lut": "./shared/cube-lut.ts",
     "@shared/photo-adjust": "./shared/photo-adjust.ts",
+    "@shared/video-presets": "./shared/video-presets.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

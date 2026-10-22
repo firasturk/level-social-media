@@ -75,6 +75,12 @@ interface StoredSettings extends Partial<VideoSettings> {
   height?: number | null;
   warnings?: string[];
   note?: string;
+  /** What made this version, in plain words ("Preset · Hero shot", "Magnific · kling-3", "Upscale (Magnific) of Video 2"). */
+  label?: string;
+  /** The last Check answer on this version (the Video studio's Check panel). */
+  check?: { tool: string; at: number; text: string; credits: number | null } | null;
+  /** A Higgsfield video analysis started on this version, polled by the Check panel. */
+  analysis?: { id: string; status: string; text: string; at: number } | null;
 }
 
 const MAX_UPLOAD = 60 * 1024 * 1024;
@@ -121,6 +127,10 @@ export interface VideoItem {
   audioId: string | null;
   /** The uploaded or generated track's name, when the choice points at one and the caller looked it up. */
   audioName: string | null;
+  /** What made this version, when the maker said ("Preset · Hero shot"); null for the plain engines. */
+  label: string | null;
+  check: { tool: string; at: number; text: string; credits: number | null } | null;
+  analysis: { id: string; status: string; text: string; at: number } | null;
 }
 
 /** The names of a post's tracks by id, for the versions list ("Track: Summer loop"). */
@@ -157,7 +167,77 @@ export function videoItem(v: VideoRow, version: number, audioNames?: Map<string,
     audioChoice,
     audioId: v.audio_id ?? null,
     audioName: v.audio_id ? (audioNames?.get(v.audio_id) ?? null) : null,
+    label: typeof s.label === "string" ? s.label : null,
+    check: s.check ?? null,
+    analysis: s.analysis ?? null,
   };
+}
+
+export interface NewVideoRow {
+  id: string;
+  batch: string;
+  post: number;
+  task: string;
+  owner: string;
+  model: string;
+  prompt: string;
+  status: VideoStatus;
+  requestId: string | null;
+  error: string | null;
+  provider: string;
+  settings: Record<string, unknown>;
+  posterKey: string | null;
+  source: VideoSource;
+  opId: string | null;
+}
+
+/** One `videos` row as a provider adapter writes it (queued with a job id, or failed with the provider's words). */
+export async function insertVideoRow(env: Env, r: NewVideoRow): Promise<void> {
+  const ts = now();
+  await run(
+    env.DB,
+    "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, error, created, updated, provider, settings, poster_key, source, for_client, op_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+    r.id,
+    r.batch,
+    r.post,
+    r.task,
+    r.owner,
+    r.model,
+    r.prompt,
+    r.status,
+    r.requestId,
+    r.error,
+    ts,
+    ts,
+    r.provider,
+    JSON.stringify(r.settings),
+    r.posterKey,
+    r.source,
+    r.opId,
+  );
+}
+
+/** A version's settings changed in place (a creation id learned, a check answer kept). */
+export async function patchVideoSettings(env: Env, v: VideoRow, patch: Record<string, unknown>): Promise<void> {
+  const s = { ...parseSettings(v), ...patch };
+  v.settings = JSON.stringify(s);
+  await run(env.DB, "UPDATE videos SET settings = ?, updated = ? WHERE id = ?", v.settings, now(), v.id);
+}
+
+/** The version a tool works on: finished, stored, on this month and post. */
+export async function finishedVersion(env: Env, batch: string, id: string): Promise<VideoRow> {
+  const v = await first<VideoRow>(env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", id, batch);
+  if (!v) throw new StudioError("Video not found.", 404);
+  if (v.status !== "done" || !v.key) throw new StudioError("Only a finished clip can be worked on.", 409);
+  return v;
+}
+
+/** The version's item with its number among the post's clips, after a change. */
+export async function versionItem(env: Env, batch: string, post: number, id: string): Promise<VideoItem> {
+  const rows = await postRows(env, batch, post);
+  const row = rows.find((v) => v.id === id);
+  if (!row) throw new StudioError("Video not found.", 404);
+  return videoItem(row, versionNumbers(rows).get(id) ?? rows.length, await audioNamesFor(env, batch, post));
 }
 
 /** Each clip's number among its post's clips, oldest first. */

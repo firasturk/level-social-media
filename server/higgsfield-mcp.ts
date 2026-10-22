@@ -35,7 +35,7 @@ import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
-import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
+import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
 import { dataUrlBytes, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, storeFinishedClip, versionNumbers, videoItem, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
 
@@ -63,9 +63,10 @@ export function useHiggsfieldMcpFetch(fn: typeof fetch | null): void {
   fetchForTests = fn;
   higgsfieldSignIn.useFetch(fn);
 }
-const fetcher = (): typeof fetch => fetchForTests ?? ((input, init) => fetch(input, init));
+/** The fetch the adapter uses: the test's stub when one is set, else the real one (always a plain call). */
+export const fetcher = (): typeof fetch => fetchForTests ?? ((input, init) => fetch(input, init));
 
-let toolsCache: { at: number; names: string[] } | null = null;
+let toolsCache: { at: number; tools: McpTool[] } | null = null;
 let balanceCache: { at: number; credits: number | null; plan: string | null } | null = null;
 const mediaCache = new Map<string, { id: string; at: number }>();
 let modelsMemo: { at: number; models: McpVideoModel[] } | null = null;
@@ -141,12 +142,24 @@ export class HiggsfieldMcp {
     }
   }
 
+  /** The tools the live server lists (names, descriptions and input schemas), cached ten minutes. */
+  async tools(fresh = false): Promise<McpTool[]> {
+    if (!fresh && toolsCache && Date.now() - toolsCache.at < TOOLS_TTL_MS) return toolsCache.tools;
+    const tools = await this.withAuth((c) => c.listTools());
+    toolsCache = { at: Date.now(), tools };
+    return tools;
+  }
+
   /** The tool names the live server lists, cached ten minutes. */
   async toolNames(fresh = false): Promise<string[]> {
-    if (!fresh && toolsCache && Date.now() - toolsCache.at < TOOLS_TTL_MS) return toolsCache.names;
-    const tools = await this.withAuth((c) => c.listTools());
-    toolsCache = { at: Date.now(), names: tools.map((t) => t.name) };
-    return toolsCache.names;
+    return (await this.tools(fresh)).map((t) => t.name);
+  }
+
+  /** The property names a tool's input schema declares (empty when the server lists no schema). */
+  async toolParams(name: string): Promise<string[]> {
+    const t = (await this.tools()).find((x) => x.name === name);
+    const props = (t?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
+    return props && typeof props === "object" ? Object.keys(props) : [];
   }
 
   async hasTool(name: string): Promise<boolean> {
@@ -349,15 +362,16 @@ export async function balanceOf(mcp: HiggsfieldMcp, fresh = false): Promise<Bala
   return b;
 }
 
-/** The post's picture (or artwork) as a Higgsfield media id, imported through a short-lived signed link, once an hour per key. */
-export async function mediaFor(env: Env, mcp: HiggsfieldMcp, key: string): Promise<string> {
-  const hit = mediaCache.get(key);
+/** A stored object (the post's picture or artwork, or one of its clips) as a Higgsfield media id, imported through a short-lived signed link, once an hour per key. */
+export async function mediaFor(env: Env, mcp: HiggsfieldMcp, key: string, type: "image" | "video" = "image"): Promise<string> {
+  const cacheKey = `${type}:${key}`;
+  const hit = mediaCache.get(cacheKey);
   if (hit && Date.now() - hit.at < MEDIA_TTL_MS) return hit.id;
   const url = await signObjectUrl(env, key, 2 * 60 * 60 * 1000);
-  const r = await mcp.call("media_import_url", { url, type: "image" });
+  const r = await mcp.call("media_import_url", { url, type });
   const id = r.isError ? null : parseMediaId(r);
-  if (!id) throw new StudioError(`Higgsfield could not import the picture: ${resultText(r).slice(0, 200) || "no media id in the answer"}.`, 502);
-  mediaCache.set(key, { id, at: Date.now() });
+  if (!id) throw new StudioError(`Higgsfield could not import the ${type === "video" ? "clip" : "picture"}: ${resultText(r).slice(0, 200) || "no media id in the answer"}.`, 502);
+  mediaCache.set(cacheKey, { id, at: Date.now() });
   return id;
 }
 
@@ -389,7 +403,7 @@ async function parseBody<T extends z.ZodTypeAny>(c: { req: { json: () => Promise
 }
 
 /** The still the clip starts from: the task's picture, or the artwork stored under a key made from its bytes (so an estimate and its run share one import). */
-async function posterFor(env: Env, b: { id: string; owner: string }, t: { id: string; output: string }, d: McpAsk): Promise<string> {
+export async function posterFor(env: Env, b: { id: string; owner: string }, t: { id: string; output: string }, d: Pick<McpAsk, "source" | "artwork">): Promise<string> {
   if (d.source !== "artwork") return t.output;
   if (!d.artwork) throw new StudioError("Send the artwork (the post with its words and logo) to make the clip from it.");
   const art = dataUrlBytes(d.artwork);

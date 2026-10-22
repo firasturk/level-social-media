@@ -1,24 +1,31 @@
 /**
- * The video editor: a full-screen screen like the Text Studio. Left, the preview (the timeline
- * played on a canvas); below it the timeline; right, the panels (Clips, Auto edit, Music, Colour,
- * Export); on top the post's name, undo and redo, Save project, Export and Close. On a narrow
- * screen one panel shows at a time under the preview, picked from a bottom toolbar.
+ * The Video studio: one full-screen workspace for a post's videos, in the Photo studio's shell: a
+ * top bar (the post, the clip's state, undo/redo for the timeline, Versions, the switches to the
+ * Photo and Text studios, Close), a rail of tools on the left, the stage in the middle, the chosen
+ * tool's panel on the right; on a phone one panel at a time from a bottom toolbar.
  *
- * Opened on a post it reads the post's finished video versions as footage and keeps the project
- * on the server (admins); members see it read-only. Opened with no post it is a standalone
- * editor: footage from this computer only, the export saved as a file.
+ * The rail: Presets (Higgsfield's preset gallery with each preset's own reference video), Generate
+ * (a clip from the picture: Higgsfield on the subscription credits or the Cloud key, or Magnific),
+ * Edit (the browser-side editor that was here before: timeline, auto edit, music, colour, export),
+ * Enhance (the providers' tools on a clip), Audio, Versions and Check. Nothing is made or spent
+ * without the confirm each tool asks; members browse and look, admins run.
+ *
+ * Opened with no post (`/video-editor`) it is the standalone editor as before: footage from this
+ * computer only, the export saved as a file.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Clapperboard, Download, Music, Palette, Pause, Play, Redo2, Save, Scissors, SlidersHorizontal, Undo2, Wand2, X } from "lucide-react";
+import { Aperture, Clapperboard, Download, History, LayoutGrid, Lock, Music, Palette, Pause, Play, Redo2, Save, ScanSearch, Scissors, SlidersHorizontal, Sparkles, Type, Undo2, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { saveBlob } from "@/lib/zip";
 import { Orb } from "@/components/Orb";
+import type { Approval } from "@shared/config";
 import { parseCube, type CubeLut } from "@shared/cube-lut";
 import { moveClip, newClip, newProject, placeClips, planAutoEdit, snapCutsToBeats, splitClip, timelineBeats, totalLength, validateProject, type AutoStyle, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
-import { listVideos, versionLabel, type VideoItem } from "@/studio/videoApi";
+import type { PresetCard } from "@shared/video-presets";
+import { inFlight, listVideos, versionLabel, type VideoItem } from "@/studio/videoApi";
 import { createProject, getProject, listProjects, saveProject, uploadFootage, uploadRender, versionFileUrl, type EditorAccess } from "../api";
 import { checkCapabilities, type Capabilities } from "../engine/capabilities";
 import { beatsOf, decodeAudio } from "../engine/audio";
@@ -28,6 +35,17 @@ import { exportProject, type ExportProgress } from "../engine/export";
 import { useHistory } from "./history";
 import Timeline from "./Timeline";
 import { AutoEditPanel, ClipsPanel, ColourPanel, ExportPanel, MusicPanel, type PanelCtx } from "./Panels";
+import { PresetDetailPanel, PresetsGallery, usePresets } from "./studio/PresetsPanel";
+import GeneratePanel from "./studio/GeneratePanel";
+import EnhancePanel from "./studio/EnhancePanel";
+import AudioPanel from "./studio/AudioPanel";
+import VersionsPanel from "./studio/VersionsPanel";
+import CheckPanel from "./studio/CheckPanel";
+import VersionStage from "./studio/VersionStage";
+import type { GeneratePrefill, StudioPanel, StudioShared } from "./studio/types";
+import "./video-studio.css";
+
+export type { StudioPanel } from "./studio/types";
 
 export interface EditorPost {
   batch: string;
@@ -41,10 +59,24 @@ interface Props {
   post: EditorPost | null;
   /** The version to start from (the client's, else the newest finished clip). */
   initialVideoId?: string | null;
+  /** The panel to open on; a post with no clip opens on Presets. */
+  initialPanel?: StudioPanel;
+  /** The post's picture: the first frame of a clip made here, and the stage before any clip exists. */
+  pictureUrl?: string | null;
+  /** The post as it will be published, words and logo drawn by the browser, as a data URL. */
+  composeArtwork?: () => Promise<string>;
+  /** The client's answers on the approval link for this post. */
+  approval?: Approval | null;
   fileBase: string;
   onClose: () => void;
   /** An export was stored as a new version of the post. */
   onExported?: (video: VideoItem) => void;
+  /** The post's versions changed (a clip made, selected or finished): the cards read them again. */
+  onChanged?: () => void;
+  /** Opens the Photo studio on the same post. */
+  onPhotoStudio?: () => void;
+  /** Opens the Text studio on the same post. */
+  onTextStudio?: () => void;
 }
 
 type Tab = "clips" | "auto" | "music" | "colour" | "export";
@@ -56,10 +88,20 @@ const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "export", label: "Export", icon: <Download size={14} /> },
 ];
 
+const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; paid?: boolean }[] = [
+  { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; running one is admins only)" },
+  { id: "generate", label: "Generate", icon: <Sparkles size={18} />, title: "Generate: a clip from this post's picture (Higgsfield or Magnific; the cost is said first)", paid: true },
+  { id: "edit", label: "Edit", icon: <Scissors size={18} />, title: "Edit: cut, auto edit, music, colour and export, drawn here in the browser" },
+  { id: "enhance", label: "Enhance", icon: <Wand2 size={18} />, title: "Enhance: upscale, colour grade, music, reframe and more on a clip (admins only for now)", paid: true },
+  { id: "audio", label: "Audio", icon: <Music size={18} />, title: "Audio: the sound each version carries" },
+  { id: "versions", label: "Versions", icon: <History size={18} />, title: "Versions: every clip of this post, compared and selected for the client" },
+  { id: "check", label: "Check", icon: <ScanSearch size={18} />, title: "Check: Higgsfield's reading of a clip (admins only for now)", paid: true },
+];
+
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 const MAX_FOOTAGE = 60 * 1024 * 1024;
 
-export default function VideoEditor({ open, post, initialVideoId, fileBase, onClose, onExported }: Props) {
+export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio }: Props) {
   const history = useHistory();
   const { project } = history;
   const projectRef = useRef<VideoProject | null>(null);
@@ -79,7 +121,7 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("clips");
   const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
   const [saving, setSaving] = useState(false);
   const [footageBusy, setFootageBusy] = useState("");
   const [autoBusy, setAutoBusy] = useState("");
@@ -92,8 +134,19 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
   const [exportError, setExportError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  /* The studio around the editor */
+  // A post opens on Generate (or the panel asked for); once its versions are read, a post with no clip opens on Presets instead.
+  const [panel, setPanel] = useState<StudioPanel>(post ? (initialPanel ?? "generate") : "edit");
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [videosLoaded, setVideosLoaded] = useState(false);
+  const [admin, setAdmin] = useState(!post);
+  const [shownId, setShownId] = useState<string | null>(initialVideoId ?? null);
+  const [compareId, setCompareId] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<GeneratePrefill | null>(null);
+
   const readOnly = !access.admin || !access.enabled;
   const standalone = !post;
+  const editing = panel === "edit";
 
   /* ───────────── Narrow screens ───────────── */
   useEffect(() => {
@@ -106,20 +159,40 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
   }, [open]);
 
   /* ───────────── Loading: capabilities, the post's versions, the project ───────────── */
-  const labelOf = useCallback(
-    (clip: Clip): string => {
-      const m = mediaRef.current.get(clip.source);
-      if (m) return m.label;
-      return clip.source.kind === "version" ? "Version" : clip.source.name;
-    },
-    [],
-  );
+  const labelOf = useCallback((clip: Clip): string => {
+    const m = mediaRef.current.get(clip.source);
+    if (m) return m.label;
+    return clip.source.kind === "version" ? "Version" : clip.source.name;
+  }, []);
 
   const addSource = useCallback(async (source: ClipSource, where: { url: string; file?: File; label: string }): Promise<Media> => {
     const m = await mediaRef.current.add(source, where);
     setSources(mediaRef.current.all());
     return m;
   }, []);
+
+  /** The post's versions read again; new finished clips join the footage when this browser can decode them. */
+  const reloadVideos = useCallback(async () => {
+    if (!post) return;
+    try {
+      const list = await listVideos(post.batch, post.index);
+      setVideos(list.videos);
+      setAdmin(list.admin);
+      setVideosLoaded(true);
+      if (caps?.canDecode) {
+        for (const v of list.videos.filter((v) => v.status === "done" && v.url)) {
+          if (mediaRef.current.get({ kind: "version", batch: post.batch, videoId: v.id })) continue;
+          try {
+            await addSource({ kind: "version", batch: post.batch, videoId: v.id }, { url: v.url!, label: versionLabel(v) });
+          } catch (e) {
+            console.warn("[video-studio]", (e as Error).message);
+          }
+        }
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }, [post, caps?.canDecode, addSource]);
 
   useEffect(() => {
     if (!open) return;
@@ -136,8 +209,15 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
           setLoading("Reading the post's versions…");
           const [list, projects] = await Promise.all([listVideos(post.batch, post.index), listProjects(post.batch, post.index)]);
           if (!alive) return;
+          setVideos(list.videos);
+          setAdmin(list.admin);
+          setVideosLoaded(true);
           vids = list.videos.filter((v) => v.status === "done" && v.url);
           setAccess(projects.access);
+          // The stage shows the version asked for, else the client's, else the newest finished clip; a post with no clip opens on Presets.
+          const start = vids.find((v) => v.id === initialVideoId) ?? vids.find((v) => v.forClient) ?? vids[0] ?? null;
+          setShownId(start?.id ?? null);
+          if (!vids.length && !initialPanel) setPanel("presets");
           if (c.canDecode) {
             setLoading("Reading the footage…");
             for (const v of vids) {
@@ -158,7 +238,6 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
             setRev(r.project.rev);
           } else {
             doc = newProject(`${post.title || `Post ${post.index}`} · cut`);
-            const start = vids.find((v) => v.id === initialVideoId) ?? vids.find((v) => v.forClient) ?? vids[0];
             const m = start ? media.get({ kind: "version", batch: post.batch, videoId: start.id }) : null;
             if (m) doc.clips = [newClip(m.source, m.duration)];
           }
@@ -178,6 +257,14 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, post?.batch, post?.index]);
 
+  // While a clip is being made, the versions are read again every few seconds (the server reconnects to the job).
+  const pending = videos.some(inFlight);
+  useEffect(() => {
+    if (!open || !pending) return;
+    const t = setInterval(() => void reloadVideos().then(() => onChanged?.()), 6000);
+    return () => clearInterval(t);
+  }, [open, pending, reloadVideos, onChanged]);
+
   /* ───────────── The player ───────────── */
   useEffect(() => {
     if (!open || !project || !canvasRef.current || playerRef.current) return;
@@ -192,7 +279,7 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
       setFatal((e as Error).message);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, project === null]);
+  }, [open, project === null, editing]);
   useEffect(() => {
     if (project) playerRef.current?.setProject(project);
   }, [project]);
@@ -205,6 +292,12 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
   useEffect(() => {
     if (playerRef.current) playerRef.current.bypass = bypass;
   }, [bypass]);
+  // Leaving the Edit panel unmounts the canvas: the player is disposed and made again on return.
+  useEffect(() => {
+    if (editing) return;
+    playerRef.current?.dispose();
+    playerRef.current = null;
+  }, [editing]);
   useEffect(() => {
     const media = mediaRef.current;
     return () => {
@@ -240,6 +333,7 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
           setFootageBusy(`Reading ${file.name}…`);
           const m = await addSource({ kind: "version", batch: post.batch, videoId: r.video.id }, { url: r.video.url ?? versionFileUrl(post.batch, r.video.id), label: versionLabel(r.video) });
           addClip(m);
+          void reloadVideos();
         } else {
           setFootageBusy(`Reading ${file.name}…`);
           const m = await addSource({ kind: "upload", name: file.name, size: file.size }, { url: URL.createObjectURL(file), file, label: file.name.replace(/\.[^.]+$/, "") });
@@ -400,6 +494,7 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
         const r = await uploadRender({ batch: post.batch, post: post.index, projectId, file: blob, note: `${p.name} · export` });
         setExportResult(`Stored as ${versionLabel(r.video)} of this post (${formatSize(blob.size)}).`);
         onExported?.(r.video);
+        void reloadVideos();
         toast.success(`Stored as ${versionLabel(r.video)}.`);
       } else {
         saveBlob(blob, `${fileBase || "video"}_cut.mp4`);
@@ -415,14 +510,50 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
 
   const close = async () => {
     if (progress) {
-      if (!(await askConfirm("An export is running. Stop it and close the editor?", { ok: "Stop and close", danger: true, cancel: "Keep rendering" }))) return;
+      if (!(await askConfirm("An export is running. Stop it and close the studio?", { ok: "Stop and close", danger: true, cancel: "Keep rendering" }))) return;
       abortRef.current?.abort();
     } else if (history.dirty && !readOnly && post) {
-      const ok = await askConfirm("Save this project before closing?", { ok: "Save and close", danger: false, cancel: "Close without saving" });
+      const ok = await askConfirm("Save this cut before closing?", { ok: "Save and close", danger: false, cancel: "Close without saving" });
       if (ok && !(await save())) return;
     }
     onClose();
   };
+
+  /* ───────────── The studio's shared state and the preset gallery ───────────── */
+  const openPanel = useCallback((p: StudioPanel) => {
+    setPanel(p);
+    setPanelOpen(true);
+  }, []);
+  const usePresetCard = useCallback(
+    (card: PresetCard) => {
+      setPrefill({ prompt: card.prompt ?? [card.title, card.description].filter(Boolean).join(": "), engine: card.engine, presetTitle: card.title, presetCommand: card.command, at: Date.now() });
+      openPanel("generate");
+    },
+    [openPanel],
+  );
+  const shared: StudioShared = {
+    post,
+    pictureUrl: pictureUrl ?? null,
+    fileBase,
+    composeArtwork,
+    approval: approval ?? null,
+    videos,
+    videosLoaded,
+    reloadVideos,
+    shownId,
+    setShownId: (id) => {
+      setShownId(id);
+      setCompareId(null);
+    },
+    compareId,
+    setCompareId,
+    openPanel,
+    usePreset: usePresetCard,
+    prefill,
+    onChanged,
+    admin,
+  };
+  const presets = usePresets(shared, open && !!post && panel === "presets");
 
   /* ───────────── Keys ───────────── */
   useEffect(() => {
@@ -430,19 +561,29 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
     const onKey = (e: KeyboardEvent) => {
       if (isEditable(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
-      if (e.key === " ") {
-        e.preventDefault();
-        togglePlay();
-      } else if (mod && e.key.toLowerCase() === "z") {
+      if (e.key === "Escape") {
+        if (compareId) setCompareId(null);
+        else if (panel === "presets" && presets.selected) presets.select(null);
+        else void close();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
         if (e.shiftKey) history.redo();
         else history.undo();
-      } else if (mod && e.key.toLowerCase() === "s") {
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void save();
+        return;
+      }
+      if (!editing) return;
+      if (e.key === " ") {
+        e.preventDefault();
+        togglePlay();
       } else if (e.key === "s" && !readOnly) split();
       else if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) remove();
-      else if (e.key === "Escape") void close();
       else if (e.key === "ArrowLeft") seek((playerRef.current?.time ?? 0) - (e.shiftKey ? 1 : 1 / 30));
       else if (e.key === "ArrowRight") seek((playerRef.current?.time ?? 0) + (e.shiftKey ? 1 : 1 / 30));
     };
@@ -477,12 +618,33 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
       }
     : null;
 
-  const panelBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? <MusicPanel ctx={ctx} /> : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
+  const editBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? <MusicPanel ctx={ctx} /> : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
+  const sideBody = !post || editing ? (
+    <>
+      <div className="ts-tabs vs-tabs">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="ts-side-body">{editBody}</div>
+    </>
+  ) : (
+    <div className="ts-side-body">{panel === "presets" ? <PresetDetailPanel s={shared} ps={presets} /> : panel === "generate" ? <GeneratePanel s={shared} /> : panel === "enhance" ? <EnhancePanel s={shared} /> : panel === "audio" ? <AudioPanel s={shared} /> : panel === "versions" ? <VersionsPanel s={shared} /> : <CheckPanel s={shared} />}</div>
+  );
   const length = project ? totalLength(project) : 0;
-  const title = post ? post.title || `Post ${post.index}` : "Video editor";
+  const title = post ? `Video studio` : "Video editor";
+  const shown = videos.find((v) => v.id === shownId) ?? null;
+  const compare = videos.find((v) => v.id === compareId) ?? null;
+  const newest = videos[0] ?? null;
+  const state = newest && inFlight(newest) ? "making" : newest?.status === "failed" ? "failed" : videos.some((v) => v.status === "done") ? "ready" : "none";
+  const stateLabel = state === "making" ? "Making…" : state === "failed" ? "Failed" : state === "ready" ? `${videos.filter((v) => v.status === "done").length} clip${videos.filter((v) => v.status === "done").length === 1 ? "" : "s"}` : "No clip yet";
+  const rail = post ? PANELS : PANELS.filter((p) => p.id === "edit");
+  const locked = (id: StudioPanel) => !!PANELS.find((p) => p.id === id)?.paid && videosLoaded && !admin;
 
   const sheet = (
-    <div className={`ts ve ${narrow ? "narrow" : ""}`} role="dialog" aria-label="Video editor">
+    <div className={`ts ve vs ${narrow ? "narrow" : ""} ${editing || !post ? "editing" : ""} ${panel === "presets" && post ? "gallery" : ""}`} role="dialog" aria-label={post ? "Video studio" : "Video editor"}>
       <header className="ts-top">
         <div className="ts-top-left">
           <button type="button" className="ts-icon" onClick={() => void close()} title="Close (Esc)" aria-label="Close">
@@ -490,13 +652,14 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
           </button>
           <span className="ts-title">
             {title}
-            <small> · {project?.name ?? "Video editor"}</small>
+            <small>{post ? ` · post ${post.index} · ${post.title || "post"}` : ` · ${project?.name ?? ""}`}</small>
           </span>
-          {history.dirty && !readOnly && post && <span className="ts-save dirty">Unsaved</span>}
+          {post && <span className={`vs-state ${state}`}>{stateLabel}</span>}
+          {history.dirty && !readOnly && post && <span className="ts-save dirty">Cut not saved</span>}
         </div>
         <div className="ts-tools ve-tools" role="toolbar" aria-label="Edit">
           <span className="ts-tool-group" aria-label="History">
-            <button type="button" className="ts-icon" onClick={history.undo} disabled={!history.canUndo} title="Undo (⌘Z)" aria-label="Undo">
+            <button type="button" className="ts-icon" onClick={history.undo} disabled={!history.canUndo} title="Undo on the timeline (⌘Z)" aria-label="Undo">
               <Undo2 size={15} />
             </button>
             <button type="button" className="ts-icon" onClick={history.redo} disabled={!history.canRedo} title="Redo (⇧⌘Z)" aria-label="Redo">
@@ -504,107 +667,125 @@ export default function VideoEditor({ open, post, initialVideoId, fileBase, onCl
             </button>
           </span>
           <span className="ts-sep" />
-          <button type="button" className="ts-icon" onClick={split} disabled={readOnly || !project?.clips.length} title="Split at the playhead (S)" aria-label="Split at the playhead">
+          <button type="button" className="ts-icon" onClick={split} disabled={!editing || readOnly || !project?.clips.length} title="Split at the playhead (S)" aria-label="Split at the playhead">
             <Scissors size={15} />
           </button>
         </div>
         <div className="ts-top-right">
-          {readOnly ? (
+          {post && (
+            <button type="button" className={`ts-btn ${panel === "versions" ? "on" : ""}`} onClick={() => openPanel("versions")} title="Every clip of this post">
+              <History size={14} /> <span>Versions · {videos.length}</span>
+            </button>
+          )}
+          {onPhotoStudio && (
+            <button type="button" className="ts-btn" onClick={onPhotoStudio} title="The picture, in the Photo studio">
+              <Aperture size={14} /> <span>Photo studio</span>
+            </button>
+          )}
+          {onTextStudio && (
+            <button type="button" className="ts-btn" onClick={onTextStudio} title="The words and layers on the picture, in the Text studio">
+              <Type size={14} /> <span>Text studio</span>
+            </button>
+          )}
+          {editing && post && !readOnly && (
+            <button type="button" className="ts-btn" onClick={() => void save()} disabled={saving || !project} title="Save this cut with the post (⌘S)">
+              {saving ? <Orb size={14} status={null} /> : <Save size={14} />} <span>Save cut</span>
+            </button>
+          )}
+          {readOnly && editing && post && (
             <span className="ve-readonly" title={access.reason}>
               Admins only for now
             </span>
-          ) : (
-            post && (
-              <button type="button" className="ts-btn" onClick={() => void save()} disabled={saving || !project} title="Save this project with the post (⌘S)">
-                {saving ? <Orb size={14} status={null} /> : <Save size={14} />} Save project
-              </button>
-            )
           )}
-          <button type="button" className="ts-btn" onClick={() => { setTab("export"); setPanelOpen(true); }} disabled={!project}>
-            <Download size={14} /> Export
-          </button>
+          {!post && (
+            <button type="button" className="ts-btn" onClick={() => { setTab("export"); setPanelOpen(true); }} disabled={!project}>
+              <Download size={14} /> <span>Export</span>
+            </button>
+          )}
           <button type="button" className="ts-btn primary" onClick={() => void close()}>
             Close
           </button>
         </div>
       </header>
-      <div className="ve-body">
-        <div className="ve-main">
-          <div className="ve-stage">
-            {fatal ? (
-              <div className="ve-stop ve-stage-msg">{fatal}</div>
-            ) : caps && !caps.canDecode ? (
-              <div className="ve-stop ve-stage-msg">
-                <b>{caps.message}</b>
-                <small>{caps.details.join(" ")}</small>
+      <div className="vs-body">
+        {!narrow && post && (
+          <nav className="vs-rail" aria-label="Tools">
+            {rail.map((t) => (
+              <button key={t.id} type="button" className={panel === t.id ? "on" : ""} onClick={() => openPanel(t.id)} title={t.title} aria-pressed={panel === t.id}>
+                {t.icon}
+                <span>{t.label}</span>
+                {locked(t.id) && <Lock size={9} className="vs-rail-lock" aria-label="Admins only for now" />}
+              </button>
+            ))}
+          </nav>
+        )}
+        <div className="ve-main vs-main">
+          {post && panel === "presets" ? (
+            <PresetsGallery s={shared} ps={presets} />
+          ) : post && !editing ? (
+            <VersionStage shown={shown} compare={compare} pictureUrl={pictureUrl ?? null} hint={compare ? "Two versions side by side · Esc to stop" : undefined} />
+          ) : (
+            <>
+              <div className="ve-stage">
+                {fatal ? (
+                  <div className="ve-stop ve-stage-msg">{fatal}</div>
+                ) : caps && !caps.canDecode ? (
+                  <div className="ve-stop ve-stage-msg">
+                    <b>{caps.message}</b>
+                    <small>{caps.details.join(" ")}</small>
+                  </div>
+                ) : loading ? (
+                  <div className="ve-stage-msg">
+                    <Orb size={24} /> {loading}
+                  </div>
+                ) : null}
+                <canvas ref={canvasRef} className="ve-canvas" style={{ aspectRatio: project ? `${project.output.width} / ${project.output.height}` : "9 / 16" }} />
+                {caps && caps.canDecode && !caps.canExport && !loading && <div className="ve-stop ve-stage-note">{caps.message}</div>}
               </div>
-            ) : loading ? (
-              <div className="ve-stage-msg">
-                <Orb size={24} /> {loading}
+              <div className="ve-transport" role="toolbar" aria-label="Playback">
+                <button type="button" className="ts-icon" onClick={togglePlay} disabled={!project?.clips.length} title={playing ? "Pause (space)" : "Play (space)"} aria-label={playing ? "Pause" : "Play"}>
+                  {playing ? <Pause size={16} /> : <Play size={16} />}
+                </button>
+                <span className="ve-time">
+                  {time.toFixed(1)}s <small>/ {length.toFixed(1)}s</small>
+                </span>
+                {selectedClip && <span className="ve-selected">{labelOf(selectedClip)} selected</span>}
+                <span className="ve-grow" />
+                <button type="button" className={`ts-icon ${bypass ? "on" : ""}`} onPointerDown={() => setBypass(true)} onPointerUp={() => setBypass(false)} onPointerLeave={() => setBypass(false)} title="Hold to see the footage before colour" aria-label="Before colour">
+                  <SlidersHorizontal size={15} />
+                </button>
               </div>
-            ) : null}
-            <canvas ref={canvasRef} className="ve-canvas" style={{ aspectRatio: project ? `${project.output.width} / ${project.output.height}` : "9 / 16" }} />
-            {caps && caps.canDecode && !caps.canExport && !loading && <div className="ve-stop ve-stage-note">{caps.message}</div>}
-          </div>
-          <div className="ve-transport" role="toolbar" aria-label="Playback">
-            <button type="button" className="ts-icon" onClick={togglePlay} disabled={!project?.clips.length} title={playing ? "Pause (space)" : "Play (space)"} aria-label={playing ? "Pause" : "Play"}>
-              {playing ? <Pause size={16} /> : <Play size={16} />}
-            </button>
-            <span className="ve-time">
-              {time.toFixed(1)}s <small>/ {length.toFixed(1)}s</small>
-            </span>
-            {selectedClip && (
-              <span className="ve-selected">
-                {labelOf(selectedClip)} selected
-              </span>
-            )}
-            <span className="ve-grow" />
-            <button type="button" className={`ts-icon ${bypass ? "on" : ""}`} onPointerDown={() => setBypass(true)} onPointerUp={() => setBypass(false)} onPointerLeave={() => setBypass(false)} title="Hold to see the footage before colour" aria-label="Before colour">
-              <SlidersHorizontal size={15} />
-            </button>
-          </div>
-          {project && (
-            <Timeline
-              project={project}
-              time={time}
-              beats={beats}
-              selected={selected}
-              readOnly={readOnly}
-              onSelect={setSelected}
-              onSeek={seek}
-              onTrimStart={history.mark}
-              onTrim={(id, patch) => history.patch((p) => ({ ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))}
-              onTrimEnd={() => history.commit((p) => p)}
-              labelOf={labelOf}
-            />
+              {project && (
+                <Timeline
+                  project={project}
+                  time={time}
+                  beats={beats}
+                  selected={selected}
+                  readOnly={readOnly}
+                  onSelect={setSelected}
+                  onSeek={seek}
+                  onTrimStart={history.mark}
+                  onTrim={(id, patch) => history.patch((p) => ({ ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))}
+                  onTrimEnd={() => history.commit((p) => p)}
+                  labelOf={labelOf}
+                />
+              )}
+            </>
           )}
         </div>
-        <aside className={`ts-right ve-side ${narrow && !panelOpen ? "closed" : ""}`}>
-          {!narrow && (
-            <div className="ts-tabs">
-              {TABS.map((t) => (
-                <button key={t.id} type="button" className={tab === t.id ? "on" : ""} onClick={() => setTab(t.id)}>
-                  {t.icon} {t.label}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="ts-side-body">{panelBody}</div>
-        </aside>
+        <aside className={`ts-right ve-side vs-side ${narrow && !panelOpen ? "closed" : ""}`}>{sideBody}</aside>
         {narrow && (
-          <nav className="ve-bottom" aria-label="Panels">
-            {TABS.map((t) => (
+          <nav className="vs-bottom" aria-label="Tools">
+            {rail.map((t) => (
               <button
                 key={t.id}
                 type="button"
-                className={tab === t.id && panelOpen ? "on" : ""}
+                className={panel === t.id && panelOpen ? "on" : ""}
                 onClick={() => {
-                  if (tab === t.id && panelOpen) setPanelOpen(false);
-                  else {
-                    setTab(t.id);
-                    setPanelOpen(true);
-                  }
+                  if (panel === t.id && panelOpen) setPanelOpen(false);
+                  else openPanel(t.id);
                 }}
+                title={t.title}
               >
                 {t.icon}
                 <span>{t.label}</span>

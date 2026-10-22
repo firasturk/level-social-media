@@ -31,7 +31,15 @@ export interface VideoItem {
   audioChoice: AudioChoice | null;
   audioId: string | null;
   audioName: string | null;
+  /** What made this version, when the maker said ("Preset · Hero shot", "Magnific · Kling"); null for the plain engines. */
+  label: string | null;
+  /** The last Check answer kept on this version (the Video studio). */
+  check: { tool: string; at: number; text: string; credits: number | null } | null;
+  analysis: { id: string; status: string; text: string; at: number } | null;
 }
+
+/** The `provider` of a clip made or changed by Magnific. */
+export const MAGNIFIC_PROVIDER = "magnific";
 
 /** A track kept with the post: an upload the team licensed (generated ones come when a provider is connected). */
 export interface AudioTrack {
@@ -119,14 +127,17 @@ export const mcpGenerate = (ask: McpAsk & { confirm: boolean; note?: string }) =
 /** "Uploaded", "Higgsfield (credits) · seedance_2_5", or the Cloud engine's name. */
 export function engineLabel(v: VideoItem, cloudName: (slug: string) => string | undefined): string {
   if (v.provider === "upload") return "Uploaded";
+  if (v.provider === "editor") return "Video studio cut";
+  if (v.label) return `${v.provider === MCP_PROVIDER ? "Higgsfield (credits)" : v.provider === MAGNIFIC_PROVIDER ? "Magnific" : v.provider} · ${v.label}`;
   if (v.provider === MCP_PROVIDER) return `Higgsfield (credits) · ${v.model}`;
+  if (v.provider === MAGNIFIC_PROVIDER) return `Magnific · ${v.model.replace(/^magnific:/, "")}`;
   return cloudName(v.model) ?? v.model;
 }
 
 /** The clip's estimate as the list shows it: "12 credits" on the subscription, "$0.094" on the Cloud API, "" when none. */
 export function costLabel(v: VideoItem): string {
   if (v.estimate === null || v.estimate <= 0) return "";
-  if (v.provider === MCP_PROVIDER) return `${v.estimate} credits`;
+  if (v.provider === MCP_PROVIDER || v.provider === MAGNIFIC_PROVIDER) return `${v.estimate} credits`;
   return `$${v.estimate.toFixed(v.estimate < 1 ? 3 : 2)}`;
 }
 

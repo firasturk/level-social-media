@@ -142,18 +142,21 @@ if (!mounted) {
   const stops = editor.locator(".ve-stop");
   const stopText = (await stops.count()) ? (await stops.first().innerText()).trim() : "";
   const expectStop = !(codecs.h264 && codecs.aac && codecs.h264decode);
-  const bottomTabs = await editor.locator(".ve-bottom button").count();
+  // The standalone editor is the Video studio's Edit tool alone: one tool on the phone's bottom toolbar, the five tabs inside its panel.
+  const bottomTabs = await editor.locator(".vs-bottom button").count();
+  const editTabs = await editor.locator(".vs-tabs button").count();
   const title = (await editor.locator(".ts-title").innerText()).trim();
-  // Open the Export panel from the bottom toolbar: on a phone one panel shows at a time.
-  await editor.locator(".ve-bottom button", { hasText: "Export" }).click();
+  // Open the Export tab: on a phone one panel shows at a time, under the preview.
+  await editor.locator(".vs-tabs button", { hasText: "Export" }).click();
   const exportPanelStop = (await editor.locator(".ts-side-body .ve-stop").count()) > 0;
   const exportButton = await editor.locator(".ts-side-body .ts-btn.primary").count();
-  result = { mounted: true, title, stopMessage: stopText || null, expectedStop: expectStop, narrowToolbarTabs: bottomTabs, exportPanelStop, exportButton };
+  result = { mounted: true, title, stopMessage: stopText || null, expectedStop: expectStop, narrowToolbarTabs: bottomTabs, editTabs, exportPanelStop, exportButton };
   if (expectStop && !/Use Chrome, Edge or Safari on a computer/.test(stopText)) errors.push("The capability message was expected (no H.264/AAC here) and was not shown.");
   if (expectStop && !exportPanelStop) errors.push("The Export panel should show the stop message instead of the Export button.");
   if (!expectStop && stopText) errors.push(`A stop message appeared although the browser has H.264 and AAC: ${stopText}`);
   if (!expectStop && exportButton !== 1) errors.push("The Export panel should show the Export button on a capable browser.");
-  if (bottomTabs !== 5) errors.push(`The 390 px bottom toolbar should show 5 panel tabs, found ${bottomTabs}.`);
+  if (bottomTabs !== 1) errors.push(`The 390 px bottom toolbar should show the one Edit tool with no post open, found ${bottomTabs}.`);
+  if (editTabs !== 5) errors.push(`The Edit panel should show its 5 tabs, found ${editTabs}.`);
 }
 console.log(JSON.stringify(result, null, 2));
 if (outside.length) errors.push(`Network calls outside the test server: ${[...new Set(outside)].join(", ")}`);

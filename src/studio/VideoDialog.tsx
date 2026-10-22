@@ -35,6 +35,7 @@ export default function VideoDialog({
   onClose,
   onChanged,
   onEditVideo,
+  onOpenStudio,
 }: {
   open: boolean;
   batchId: string;
@@ -49,6 +50,8 @@ export default function VideoDialog({
   onChanged?: () => void;
   /** Opens the Video editor on a finished version (trims, colour, music; the export becomes a new version). */
   onEditVideo?: (id: string) => void;
+  /** Opens the Video studio on this post (the preset gallery, Generate, Enhance, Versions); the dialog closes. */
+  onOpenStudio?: () => void;
 }) {
   const [idea, setIdea] = useState("");
   const [model, setModel] = useState(DEFAULT_VIDEO_MODEL);
@@ -360,6 +363,19 @@ export default function VideoDialog({
             The picture becomes a short ad clip on Higgsfield{credits ? ", paid from the subscription credits" : ""}: the first frame is the post, the motion is the idea below. The product stays exactly as it is.
           </DialogDescription>
         </DialogHeader>
+        {onOpenStudio && (
+          <button
+            type="button"
+            className="editor-open-photo-studio"
+            onClick={() => {
+              onClose();
+              onOpenStudio();
+            }}
+            title="The full-screen video workspace: Higgsfield's presets with their reference videos, Generate, Edit, Enhance, Audio, Versions and Check"
+          >
+            <Clapperboard size={15} /> Open the Video studio <small>· presets, generate, edit, enhance, versions</small>
+          </button>
+        )}
         <div className="overlay-editor-body">
           <div className="video-stage">
             {latest?.status === "done" && latest.url ? (

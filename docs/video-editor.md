@@ -5,6 +5,13 @@ coloured and scored in the browser, exported as an H.264 + AAC mp4 and stored as
 the same post. Nothing new on the client page: an export is a version like any other, shown to the
 client only when the person picks it with "Select for client review".
 
+Since the Video studio (docs/video-studio.md) the editor is that studio's **Edit** tool: the same
+component (`src/video-editor/ui/VideoEditor.tsx`) now carries the studio's rail (Presets, Generate,
+Edit, Enhance, Audio, Versions, Check) around it, with the preview, transport and timeline on the
+stage and the five tabs at the top of the Edit panel. Everything below about rendering, the data
+model, auto edit, music sync and the routes is unchanged; "Save project" reads "Save cut" in the
+top bar. Opened with no post (`/video-editor`) the editor shows the Edit tool alone, as before.
+
 ## Architecture
 
 **Where rendering happens.** A Cloudflare Worker cannot decode, render or mux video: there is no
@@ -122,10 +129,11 @@ names, not their files, so they are picked again when a project is reopened for 
   Colour, Export), `history.ts` (undo/redo with mark/patch/commit). Keys: space, ⌘Z/⇧⌘Z, ⌘S, S
   (split), Delete, ←/→ (a frame, ⇧ a second), Esc.
 - Entry points: the clapperboard directly under the T on the Studio card (classic and compact
-  cards; shown only when the post has a finished version; opens on the client's version, else the
-  newest finished clip; the badge refreshes when an export lands); "Edit in the Video editor" per
-  finished version in the Video dialog and in the editor's Versions group; `/video-editor` (the
-  Sidebar's "Video editor") as a standalone screen with uploads only and a file download.
+  cards; now on every post with a picture: it opens the Video studio on Generate, or on Presets
+  when the post has no clip; the badge refreshes when an export lands); "Edit in the Video editor"
+  per finished version in the Video dialog and in the editor's Versions group opens the studio on
+  the Edit tool with that version on the timeline; `/video-editor` (the Sidebar's "Video editor")
+  as a standalone screen with uploads only and a file download.
 - Members: the icon shows, the editor opens read-only (preview and timeline; the panels' controls
   are disabled; "Admins only for now" in the top bar and the Export panel).
 
@@ -179,7 +187,8 @@ ends there (its out point; speed honoured), and stays on so the auto edit cuts o
   on the served origin (WebCodecs exists only in a secure context, which `127.0.0.1` is), and
   checks that the editor mounts, that the stop message appears exactly when H.264/AAC are missing
   (and the Export panel shows it instead of the Export button), that the bottom toolbar shows the
-  five panels, and that there is no uncaught error and no network call outside the server (the
+  one Edit tool with its five tabs inside the panel (the Video studio's layout with no post open),
+  and that there is no uncaught error and no network call outside the server (the
   studio's Google Fonts are the one allowed host). Run here on 22 Oct 2026: the browser reported
   `webcodecs: true, h264: false, aac: false, h264decode: false`; the editor mounted; the stop
   message read "This browser cannot make an H.264 + AAC video. Use Chrome, Edge or Safari on a

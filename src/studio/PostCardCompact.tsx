@@ -152,8 +152,8 @@ export default function PostCardCompact({
                 <button
                   type="button"
                   className="pc-text-studio pc-edit-video"
-                  title="Edit video"
-                  aria-label="Edit video"
+                  title="Video studio: presets with their reference videos, a clip from this picture, edits and versions"
+                  aria-label="Video studio"
                   onClick={(e) => {
                     e.stopPropagation();
                     onEditVideo();

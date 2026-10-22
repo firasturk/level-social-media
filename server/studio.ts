@@ -71,6 +71,9 @@ import { describeUpload, postRoutes } from "./posts";
 import { videoRoutes } from "./video";
 import { videoAudioRoutes } from "./video-audio";
 import { videoEditorRoutes } from "./video-editor";
+import { videoPresetRoutes } from "./video-presets";
+import { videoMagnificRoutes } from "./video-magnific";
+import { videoHiggsfieldRoutes } from "./video-enhance";
 import { VIDEO_MODELS, videoPriceSetting } from "@shared/video-models";
 import { promptboxRoutes } from "./promptbox";
 import { styleRoutes } from "./styles";
@@ -100,6 +103,10 @@ studioRoutes.route("/posts/video/audio", videoAudioRoutes);
 studioRoutes.route("/posts/video", videoRoutes);
 // The video editor's projects and exports, next to the versions they read and produce.
 studioRoutes.route("/posts/video/editor", videoEditorRoutes);
+// The Video studio: the preset gallery (Higgsfield), Magnific's engines and clip tools, Higgsfield's clip tools and checks.
+studioRoutes.route("/video/presets", videoPresetRoutes);
+studioRoutes.route("/video/magnific", videoMagnificRoutes);
+studioRoutes.route("/video/higgsfield", videoHiggsfieldRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);

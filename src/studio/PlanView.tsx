@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { lazyScreen } from "@/lib/lazy";
 const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
+import type { StudioPanel } from "@/video-editor/ui/studio/types";
 import TypographyControls from "./TypographyControls";
 import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
@@ -254,7 +255,7 @@ export default function PlanView({
     if (!requested) return;
     if (requested.kind === "text") setEditing(requested.index);
     else if (requested.kind === "animate") setAnimating(requested.index);
-    else if (requested.kind === "edit-video") setVideoEditing({ index: requested.index, videoId: requested.videoId ?? null });
+    else if (requested.kind === "edit-video") setVideoEditing({ index: requested.index, videoId: requested.videoId ?? null, panel: "edit" });
     else setVideoFor(requested.index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested?.at]);
@@ -263,12 +264,15 @@ export default function PlanView({
   }, [wordsRequest]);
   const [animating, setAnimating] = useState<number | null>(null);
   const [videoFor, setVideoFor] = useState<number | null>(null);
-  /** The Video editor, open on a post and the version it starts from (null: the client's version, else the newest finished clip). */
-  const [videoEditing, setVideoEditing] = useState<{ index: number; videoId: string | null } | null>(null);
-  const openVideoEditor = (index: number, videoId?: string | null) => {
+  /**
+   * The Video studio, open on a post, the version it starts from (null: the client's version, else the
+   * newest finished clip) and the panel (none: Generate when the post has a clip, Presets when it has none).
+   */
+  const [videoEditing, setVideoEditing] = useState<{ index: number; videoId: string | null; panel?: StudioPanel } | null>(null);
+  const openVideoEditor = (index: number, videoId?: string | null, panel?: StudioPanel) => {
     const s = videos[String(index)];
     setVideoFor(null);
-    setVideoEditing({ index, videoId: videoId ?? s?.client?.id ?? s?.done?.id ?? null });
+    setVideoEditing({ index, videoId: videoId ?? s?.client?.id ?? s?.done?.id ?? null, panel: panel ?? (videoId ? "edit" : undefined) });
   };
   // Publishing to Instagram: which post's dialog is open, and the month's publications for the pills.
   const [publishFor, setPublishFor] = useState<number | null>(null);
@@ -804,7 +808,7 @@ export default function PlanView({
                         { label: "Enhance (higher quality)", onClick: () => { setFixing(p.index); void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null)); }, disabled: fixing !== null || running || !!busy, title: `Edits this post's existing picture at a higher quality; the picture before stays under Versions. ${scopeNote(target, plan.length)}` },
                         { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false, title: "The words and layers on this picture; no picture is made" },
                         { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false, title: "A video of this post's words moving over its picture; the picture itself does not change" },
-                        { label: "Video from this picture", onClick: () => setVideoFor(p.index), title: "A new video made from this post's picture; the picture stays as it is" },
+                        { label: "Video from this picture", onClick: () => openVideoEditor(p.index), title: "The Video studio: presets with their reference videos, a clip made from this post's picture, edits and versions; the picture stays as it is" },
                         { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" },
                       ]
                     : []),
@@ -828,7 +832,7 @@ export default function PlanView({
                       onEdit={(g) => onEdit(p.index, g)}
                       onPhotoStudio={onPhotoStudio && t?.output ? () => onPhotoStudio(p.index, "edit") : undefined}
                       onTextStudio={p.overlay !== false ? () => setEditing(p.index) : undefined}
-                      onEditVideo={videos[String(p.index)]?.done ? () => openVideoEditor(p.index) : undefined}
+                      onEditVideo={t?.output ? () => openVideoEditor(p.index) : undefined}
                       onFixReview={onFix ? () => { setFixing(p.index); void onFix(p.index, fixNote(reviewFlags(t!)!)).finally(() => setFixing(null)); } : undefined}
                       onAccept={onAccept ? () => { setAccepting(p.index); void onAccept(p.index).finally(() => setAccepting(null)); } : undefined}
                       fixing={fixing === p.index}
@@ -1022,7 +1026,7 @@ export default function PlanView({
                               {state.icon} {state.text}
                             </span>
                           )}
-                          {t?.output && !inFlight && (p.overlay !== false || videos[String(p.index)]?.done) && (
+                          {t?.output && !inFlight && (
                             <span className="pc-head-tools" style={flags || !state ? { marginLeft: "auto" } : undefined}>
                               {p.overlay !== false && (
                                 <button
@@ -1038,20 +1042,18 @@ export default function PlanView({
                                   <Type size={13} />
                                 </button>
                               )}
-                              {videos[String(p.index)]?.done && (
-                                <button
-                                  type="button"
-                                  className="pc-text-studio pc-edit-video"
-                                  title="Edit video"
-                                  aria-label="Edit video"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openVideoEditor(p.index);
-                                  }}
-                                >
-                                  <Clapperboard size={13} />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                className="pc-text-studio pc-edit-video"
+                                title={videos[String(p.index)]?.done ? "Video studio: this post's clips, presets, edits and versions" : "Video studio: presets with their reference videos, a clip from this picture"}
+                                aria-label="Video studio"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openVideoEditor(p.index);
+                                }}
+                              >
+                                <Clapperboard size={13} />
+                              </button>
                             </span>
                           )}
                         </header>
@@ -1718,6 +1720,7 @@ export default function PlanView({
             }}
             onChanged={() => void loadVideos()}
             onEditVideo={(id) => openVideoEditor(p.index, id)}
+            onOpenStudio={() => openVideoEditor(p.index, null, "generate")}
             onClose={() => {
               setVideoFor(null);
               void loadVideos();
@@ -1727,6 +1730,7 @@ export default function PlanView({
       })()}
       {(() => {
         const p = videoEditing !== null ? draft.find((x) => x.index === videoEditing.index) : null;
+        const t = p ? taskOf(p.index) : null;
         if (!p || !batchId || !videoEditing) return null;
         return (
           <Suspense fallback={null}>
@@ -1734,8 +1738,37 @@ export default function PlanView({
               open
               post={{ batch: batchId, index: p.index, title: p.title }}
               initialVideoId={videoEditing.videoId}
+              initialPanel={videoEditing.panel}
+              pictureUrl={t?.output ? outputUrl(t) : null}
+              // The post as it will be published, words and logo drawn by the browser: the clip's first frame when asked.
+              composeArtwork={
+                t?.output
+                  ? async () => {
+                      const canvas = await renderOverlay(outputUrl(t), overlay, { headline: p.headline, subline: p.subline }, p.overlay === false ? null : logoSrc, 1080, { patch: p.ov, faces: facesOf(t.qa) });
+                      return canvas.toDataURL("image/jpeg", 0.92);
+                    }
+                  : undefined
+              }
+              approval={approvals[String(p.index)] ?? null}
               fileBase={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
               onExported={() => void loadVideos()}
+              onChanged={() => void loadVideos()}
+              onPhotoStudio={
+                onPhotoStudio && t?.output
+                  ? () => {
+                      setVideoEditing(null);
+                      onPhotoStudio(p.index, "edit");
+                    }
+                  : undefined
+              }
+              onTextStudio={
+                p.overlay !== false
+                  ? () => {
+                      setVideoEditing(null);
+                      setEditing(p.index);
+                    }
+                  : undefined
+              }
               onClose={() => {
                 setVideoEditing(null);
                 void loadVideos();

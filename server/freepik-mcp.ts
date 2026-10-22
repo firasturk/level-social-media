@@ -202,7 +202,9 @@ export function useMcpFetch(fn: typeof fetch | null): void {
   fetchForTests = fn;
   magnificSignIn.useFetch(fn);
 }
-const fetcher = () => fetchForTests ?? fetch;
+const fetcher = (): typeof fetch => fetchForTests ?? ((input, init) => fetch(input, init));
+/** The fetch the Magnific adapter uses (the test's stub when set): for the file downloads the video studio makes on its results. */
+export const magnificFetcher = fetcher;
 
 export type McpTokenSource = "signin" | "token";
 

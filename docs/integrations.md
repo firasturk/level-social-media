@@ -76,6 +76,10 @@ keep their own existing rules; nothing here changes them.
 | `POST /api/studio/posts/video/audio/generate` | admin, switch; always 503 "not connected" with a `refused` row (`audio.generate`) until a music provider is wired |
 | `POST /api/studio/posts/video/editor/projects`, `PUT …/projects/:id` | admin, switch (`editor`), ledger (`editor.save`, estimate 0: rendered in the browser, nothing sent out) |
 | `POST /api/studio/posts/video/editor/render` | admin, switch (`editor`), ledger (`editor.render`, estimate 0); the file goes through the upload checks and becomes a version |
+| `GET /api/studio/video/presets`, `GET …/presets/:id` | every member (browsing, free; a fetch from the provider writes a `preset.browse` row at estimate 0; cached a day). docs/video-studio.md |
+| `POST /api/studio/video/presets/run` | admin, switch (`higgsfield`), the credits billing, the detail's price → `confirm: true` (none → 409 `needsEstimate` until confirmed), claim (ten minutes), no retry, ledger (`preset.run`, in credits) |
+| `POST /api/studio/video/magnific/generate`, `…/enhance` | admin, switch (`freepik`), `simulate_cost` → `confirm: true`; an unknown cost blocks (409, a `refused` row); claim, no retry, ledger (`video.generate`, `video.enhance` under provider `freepik`, in credits) |
+| `POST /api/studio/video/higgsfield/tool`, `…/check`, `GET …/check/status` | admin, switch (`higgsfield`), the credits billing, a `get_cost` preflight when the tool offers one → `confirm: true` (else 409 `needsEstimate` until confirmed), claim, no retry, ledger (`video.enhance`, `video.check`) |
 | `GET /api/admin/integrations` | admin: the switches, estimates and recent rows |
 | `POST /api/admin/integrations/switch` | admin: `{provider, enabled}` |
 | `POST /api/admin/integrations/estimate` | admin: `{provider, kind, usd \| null}` |
