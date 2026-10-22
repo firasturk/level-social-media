@@ -4,6 +4,7 @@ import { Orb } from "@/components/Orb";
 import { toast } from "sonner";
 import { askConfirm } from "@/lib/confirm";
 import { del, get, post, put } from "@/api";
+import { PublishReadiness } from "./PublishDialog";
 
 export interface MetaStatus {
   connected: boolean;
@@ -104,8 +105,8 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
             <a className="text-link" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">
               Graph API Explorer
             </a>
-            : pick the app, add the permissions instagram_basic, instagram_manage_insights, pages_show_list, pages_read_engagement, business_management and
-            ads_read, press Generate Access Token and allow the pages and their Instagram accounts.
+            : pick the app, add the permissions instagram_basic, instagram_content_publish (to publish posts), instagram_manage_insights, pages_show_list,
+            pages_read_engagement, business_management and ads_read, press Generate Access Token and allow the pages and their Instagram accounts.
           </li>
           <li>
             <a className="text-link" href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noreferrer">
@@ -115,6 +116,7 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           </li>
         </ol>
       )}
+      <PublishReadiness />
       <div className="footer-actions">
         <input
           type="password"

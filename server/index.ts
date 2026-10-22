@@ -13,6 +13,7 @@ import { serveStatic } from "./static";
 import { readDrivePhotos } from "./drive";
 import { auditRoutes, dailyAudit } from "./audit";
 import { shareRoutes } from "./share";
+import { publishDue } from "./publish";
 
 type Variables = { user: User };
 
@@ -134,6 +135,8 @@ export default {
     ctx.waitUntil(readDrivePhotos(env).catch((e) => console.error("[drive]", errorMessage(e))));
     // The system check runs once a day and tells the admin when something fails.
     ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
+    // Posts scheduled for Instagram go out when their time comes (a few per pass, each claimed first).
+    ctx.waitUntil(publishDue(env).catch((e) => console.error("[publish]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     // Synchronous images run in the background of the cron pass (six at once, refilled as they
     // finish) instead of one after another.
