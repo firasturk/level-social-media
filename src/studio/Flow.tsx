@@ -21,6 +21,7 @@ import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
 import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
+import { draftLabel, type PlanDraft } from "@shared/draft";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
 import ReferenceLibrary from "./ReferenceLibrary";
@@ -199,9 +200,38 @@ export default function Flow(p: FlowProps) {
   const perPicture = rateFor(p.model)?.[(p.size as "1K" | "2K" | "4K") ?? "2K"] ?? 0;
 
   /* ── Start: the brief, the grid, the references, the style ── */
-  const [briefText, setBriefText] = useState(() => p.config?.campaign?.text ?? "");
+  const briefKey = `lsm-brief-draft:${p.batchId ?? "new"}`;
+  const [briefText, setBriefText] = useState(() => {
+    try {
+      return localStorage.getItem(briefKey) ?? p.config?.campaign?.text ?? "";
+    } catch {
+      return p.config?.campaign?.text ?? "";
+    }
+  });
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [planning, setPlanning] = useState(false);
+  /** The planner's draft, reviewed before the month changes; null when there is none open. */
+  const [draft, setDraft] = useState<PlanDraft | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  useEffect(() => {
+    // The words typed are kept in this browser until the draft is applied or the text is cleared.
+    try {
+      if (briefText.trim()) localStorage.setItem(briefKey, briefText);
+      else localStorage.removeItem(briefKey);
+    } catch {
+      /* private mode */
+    }
+  }, [briefText, briefKey]);
+  useEffect(() => {
+    if (!p.batchId) return;
+    let live = true;
+    get<{ draft: PlanDraft | null }>(`/api/studio/posts/drafts?batch=${encodeURIComponent(p.batchId)}`)
+      .then((r) => live && setDraft(r.draft))
+      .catch(() => live && setDraft(null));
+    return () => {
+      live = false;
+    };
+  }, [p.batchId]);
   const [picking, setPicking] = useState<"grid" | "style" | null>(null);
   const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
   /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
@@ -310,9 +340,10 @@ export default function Flow(p: FlowProps) {
       }
       // A month with posts keeps them and adds the new ones, unless they are to be replaced (kept as a version).
       if (!p.plan.length || briefScope === "replace") form.set("only", "1");
-      const r = await postForm<{ added: number; summary: string }>("/api/studio/posts/campaign", form);
-      await p.refresh();
-      toast.success(`${r.added} new post${r.added === 1 ? "" : "s"} planned from your request.`, { duration: 8000 });
+      // The planner writes a draft: the month changes only when the draft is applied below.
+      const r = await postForm<{ draft: PlanDraft }>("/api/studio/posts/campaign/draft", form);
+      setDraft(r.draft);
+      toast.success(`Draft ready: ${r.draft.posts.length} post${r.draft.posts.length === 1 ? "" : "s"} to review. Nothing in the month changed yet.`, { duration: 8000 });
       setBriefFiles([]);
       return true;
     } catch (e) {
@@ -323,11 +354,55 @@ export default function Flow(p: FlowProps) {
     }
   }
 
+  async function applyDraft(): Promise<boolean> {
+    if (!draft) return false;
+    setDraftBusy(true);
+    try {
+      const r = await post<{ added: number }>(`/api/studio/posts/drafts/${encodeURIComponent(draft.id)}/apply`, {});
+      await p.refresh();
+      setDraft(null);
+      try {
+        localStorage.removeItem(briefKey);
+      } catch {
+        /* private mode */
+      }
+      toast.success(draft.mode === "replace" ? `The month is now the draft's ${r.added} post${r.added === 1 ? "" : "s"}; the earlier posts are under Versions.` : `${r.added} new post${r.added === 1 ? "" : "s"} added; the others are untouched.`, { duration: 8000 });
+      return true;
+    } catch (e) {
+      toast.error((e as Error).message, { duration: 10000 });
+      return false;
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  async function discardDraft() {
+    if (!draft) return;
+    setDraftBusy(true);
+    try {
+      await post(`/api/studio/posts/drafts/${encodeURIComponent(draft.id)}/discard`, {});
+      setDraft(null);
+      toast.message("Draft discarded. The month is as it was.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
   async function toDirection() {
     setMoving(true);
     try {
       await p.ensurePlan();
-      if (way === "brief" && briefUnsent && !(await planBrief())) return;
+      // An open draft is applied only by its own button: moving on never applies it quietly.
+      if (way === "brief" && draft) {
+        toast.message("Apply or discard the draft first; the month does not change until you do.");
+        return;
+      }
+      if (way === "brief" && briefUnsent) {
+        await planBrief();
+        return;
+      }
       if (way === "grid" && gridPending && !(await applyGrid())) return;
       setStage(1);
     } catch (e) {
@@ -616,18 +691,81 @@ export default function Flow(p: FlowProps) {
                         </div>
                       )}
                       <div className="flow-pick-row">
-                        <Cta icon={planning ? <Orb size={15} /> : <Sparkles size={16} />} disabled={planning || briefText.trim().length < 20} onClick={() => void planBrief()}>
-                          {planning ? "Reading your request…" : p.config?.campaign ? "Plan it again" : "Plan it"}
+                        <Cta icon={planning ? <Orb size={15} /> : <Sparkles size={16} />} disabled={planning || draftBusy || briefText.trim().length < 20} onClick={() => void planBrief()}>
+                          {planning ? "Reading your request…" : draft ? "Plan it again" : "Plan it"}
                         </Cta>
-                        <small className="flow-muted">Reads your words and pictures into a plan (a text call, or the demo fixture). No picture is made here.</small>
+                        <small className="flow-muted">Writes a draft you review first (a text call, or the demo fixture). The month changes only when you apply it; no picture is made here.</small>
                       </div>
-                      {planning && <Working label="Reading your request into a plan" />}
+                      {planning && <Working label="Reading your request into a draft" />}
+                      {draft && (
+                        <div className="flow-draft" role="region" aria-label="Draft to review">
+                          <div className="flow-row-head">
+                            <span className="flow-eyebrow">Draft · not applied</span>
+                            <span className={`flow-pill ${draft.mode === "replace" ? "warn" : "ready"}`}>{draft.mode === "replace" ? "Replaces the month's posts" : "Adds to the month"}</span>
+                            <small className="flow-muted">{new Date(draft.created).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small>
+                          </div>
+                          <p className="flow-text">{draft.summary}</p>
+                          <div className="flow-draft-cells">
+                            <div className="flow-draft-cell new">
+                              <b>{draft.diff.added.length}</b>
+                              <span>new post{draft.diff.added.length === 1 ? "" : "s"}</span>
+                              <ul>
+                                {draft.diff.added.slice(0, 8).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}
+                                    {x.group ? ` (${x.group.kind} ${x.group.slide}/${x.group.of})` : ""}
+                                  </li>
+                                ))}
+                                {draft.diff.added.length > 8 && <li>+{draft.diff.added.length - 8} more</li>}
+                              </ul>
+                            </div>
+                            <div className={`flow-draft-cell ${draft.diff.changed.length ? "warn" : ""}`}>
+                              <b>{draft.diff.changed.length}</b>
+                              <span>existing post{draft.diff.changed.length === 1 ? "" : "s"} would change</span>
+                              <ul>
+                                {draft.diff.changed.slice(0, 6).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}: {x.fields.join(", ")}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                            <div className="flow-draft-cell">
+                              <b>{draft.mode === "replace" ? draft.diff.removed.length : draft.diff.untouched.length}</b>
+                              <span>{draft.mode === "replace" ? "current posts kept under Versions" : "posts stay exactly as they are"}</span>
+                            </div>
+                            <div className={`flow-draft-cell ${draft.diff.olderIdea.length ? "warn" : ""}`}>
+                              <b>{draft.diff.olderIdea.length}</b>
+                              <span>picture{draft.diff.olderIdea.length === 1 ? "" : "s"} would belong to an older idea</span>
+                              <ul>
+                                {draft.diff.olderIdea.slice(0, 6).map((x) => (
+                                  <li key={x.index}>
+                                    {String(x.index).padStart(2, "0")} · {x.title}: {x.why}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          <small className="flow-muted">
+                            After applying: {draft.diff.after.posts} post{draft.diff.after.posts === 1 ? "" : "s"} · {draft.diff.after.designs} design{draft.diff.after.designs === 1 ? "" : "s"} · {draft.diff.after.pictures} picture{draft.diff.after.pictures === 1 ? "" : "s"} to make
+                            {draft.diff.after.tiles ? ` · ${draft.diff.after.tiles} text tile${draft.diff.after.tiles === 1 ? "" : "s"} drawn here` : ""}. Closing this screen keeps the draft here, unapplied.
+                          </small>
+                          <div className="flow-pick-row">
+                            <Cta icon={draftBusy ? <Orb size={15} /> : <Check size={16} />} disabled={draftBusy} onClick={() => void applyDraft()}>
+                              {draftLabel(draft.diff)}
+                            </Cta>
+                            <button type="button" className="text-button" disabled={draftBusy} onClick={() => void discardDraft()}>
+                              Discard the draft
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {!p.products.length && !client?.service && (
                         <small className="flow-muted">
                           No product photos this month yet: name the products in your request (the client's Drive is searched for them) or upload photos below.
                         </small>
                       )}
-                      {p.config?.campaign?.summary && p.plan.length > 0 && (
+                      {!draft && p.config?.campaign?.summary && p.plan.length > 0 && (
                         <div className="flow-understood">
                           <div className="flow-row-head">
                             <span className="flow-eyebrow">What was understood</span>

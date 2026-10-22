@@ -22,6 +22,7 @@ import { castLook } from "@shared/cast";
 import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
+import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftStatus, type PlanDraft } from "@shared/draft";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
@@ -3410,17 +3411,38 @@ postRoutes.post("/faces", async (c) => {
  * brief into posts after the month's existing ones, and each post's shot is written in its
  * reference's style for the real products.
  */
-postRoutes.post("/campaign", async (c) => {
-  const form = await c.req.formData();
-  const batchId = String(form.get("batch") ?? "");
+/** What the planner wrote from a brief, before it touches the month. */
+interface CampaignPlan {
+  text: string;
+  only: boolean;
+  /** The posts, dated and numbered after the month's last post (replace: from 1). */
+  added: Post[];
+  styleIds: string[];
+  monthColours: { name: string; hex: string }[];
+  briefColours: { name: string; hex: string }[];
+  summary: string;
+  references: number;
+  /** Drive photos the planner named: imported into the month when the plan is applied. */
+  imports: { name: string; photoId: string; note?: string; kind?: string }[];
+}
+
+/** The posts of the month that have a picture (their indexes). */
+async function picturedPosts(env: Env, batchId: string): Promise<Set<number>> {
+  const rows = await all<{ post: number }>(env.DB, "SELECT DISTINCT post FROM tasks WHERE batch = ? AND post IS NOT NULL AND output IS NOT NULL", batchId);
+  return new Set(rows.map((r) => r.post));
+}
+
+/**
+ * Reads a brief (and its pictures) into a plan: the posts, their references as private styles,
+ * the month's colours. Nothing of the month changes here: the caller applies the plan, or keeps
+ * it as a draft for the team to review first.
+ */
+async function planCampaign(env: Env, user: User, b: BatchRow, form: FormData): Promise<CampaignPlan> {
   const text = String(form.get("brief") ?? "").trim();
   // "Only these posts": the month is the brief's posts alone; earlier ideas (and their pictures) are kept as a version.
   const only = form.get("only") === "1";
-  if (!batchId) throw new StudioError("Batch id is required.");
   if (text.length < 20) throw new StudioError("Write the brief first (what the posts are about, how many, the text on each).");
   const files = form.getAll("file").filter((f): f is File => typeof f === "object" && f !== null && "arrayBuffer" in f).slice(0, 12);
-  const user = c.get("user");
-  const b = await ownedPlan(c.env, user, batchId);
   // The references: the attached pictures, and the slides of any Instagram post linked in the brief.
   const refs: { name: string; bytes: ArrayBuffer; mime: string }[] = [];
   for (const file of files) {
@@ -3430,7 +3452,7 @@ postRoutes.post("/campaign", async (c) => {
   const links = [...new Set((text.match(/https?:\/\/(?:www\.)?instagram\.com\/[^\s)]+/gi) ?? []))].slice(0, 2);
   const linkNotes: string[] = [];
   for (const link of links) {
-    const post = await instagramPostSlides(c.env, link);
+    const post = await instagramPostSlides(env, link);
     let n = 0;
     for (const slide of post.slides.slice(0, 6)) {
       if (refs.length >= 12) break;
@@ -3450,17 +3472,17 @@ postRoutes.post("/campaign", async (c) => {
   // The planner reads the slides themselves: the link in the text becomes a plain mention of them.
   const briefText = links.reduce((t, link, i) => t.split(link).join(`(the attached Instagram carousel ${i + 1}: its slides are the reference pictures)`), text);
   const config = JSON.parse(b.config) as Config;
-  const client = await clientRow(c.env, config.client);
+  const client = await clientRow(env, config.client);
   const sources = await all<SourceRow>(
-    c.env.DB,
+    env.DB,
     "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name",
     b.id,
   );
-  await describeProducts(c.env, sources);
+  await describeProducts(env, sources);
   const names = [...new Set(sources.map(productName))];
   // The client's Drive is part of the studio: its product photos are offered to the planner too,
-  // and the ones it picks join the month as its own copies.
-  const drivePhotos = (await clientDrivePhotos(c.env, client.id).catch(() => [] as Awaited<ReturnType<typeof clientDrivePhotos>>)).filter(
+  // and the ones it picks join the month as its own copies when the plan is applied.
+  const drivePhotos = (await clientDrivePhotos(env, client.id).catch(() => [] as Awaited<ReturnType<typeof clientDrivePhotos>>)).filter(
     (p) => !p.video && !!p.kind && PRODUCT_KINDS.has(p.kind) && !names.some((n) => n.toLowerCase() === p.name.toLowerCase()),
   );
   const driveOptions = [...new Map(drivePhotos.map((p) => [p.name.toLowerCase(), p])).values()].slice(0, 60);
@@ -3469,14 +3491,14 @@ postRoutes.post("/campaign", async (c) => {
   const images: ImageBytes[] = [];
   for (const file of refs) {
     const id = uuid();
-    const stored = await storeBytes(c.env, id, file.bytes, file.mime);
+    const stored = await storeBytes(env, id, file.bytes, file.mime);
     images.push({ bytes: stored.bytes, mime: stored.mime });
     let prompt = "Follow the attached reference closely: its composition, light, scale, surfaces and mood, with this brand's product in place of its product.";
     let title = "Brief reference";
     let kind = "product";
     let category = "lifestyle";
     try {
-      const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, "brief reference", false);
+      const st = await readPicture(env, { bytes: stored.bytes, mime: stored.mime }, "brief reference", false);
       if (st.prompt.length > 40) prompt = st.prompt;
       if (st.title) title = st.title;
       kind = st.kind;
@@ -3485,7 +3507,7 @@ postRoutes.post("/campaign", async (c) => {
       console.error("[brief] reference read", errorMessage(e));
     }
     await run(
-      c.env.DB,
+      env.DB,
       "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, source, note, image_key, thumb_key, position, created, updated, client) VALUES (?, ?, 'brief', ?, 9, 0, ?, ?, ?, '', ?, ?, ?, ?, ?, -1, ?, ?, ?)",
       id,
       kind,
@@ -3507,9 +3529,9 @@ postRoutes.post("/campaign", async (c) => {
   // The brief planned again without its pictures: the references it had are used again.
   if (!styleIds.length && config.campaign?.styles?.length) {
     for (const id of config.campaign.styles) {
-      const st = await styleRow(c.env, id);
+      const st = await styleRow(env, id);
       if (!st?.image_key) continue;
-      const obj = await c.env.BUCKET.get(st.image_key);
+      const obj = await env.BUCKET.get(st.image_key);
       if (!obj) continue;
       images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
       styleIds.push(id);
@@ -3518,7 +3540,7 @@ postRoutes.post("/campaign", async (c) => {
   const existing = only ? [] : (config.plan ?? []);
   const raw = parseJson<unknown>(
     await askText(
-      c.env,
+      env,
       briefPlanInstruction({
         client: client.name,
         brief: briefText,
@@ -3543,43 +3565,25 @@ postRoutes.post("/campaign", async (c) => {
   let monthColours = planned.colours;
   if (!monthColours.length && images.length && config.theme) {
     try {
-      const d = parseJson<{ palette?: unknown }>(await askText(c.env, paletteInstruction(images.length), PALETTE_SCHEMA, images));
+      const d = parseJson<{ palette?: unknown }>(await askText(env, paletteInstruction(images.length), PALETTE_SCHEMA, images));
       monthColours = parsePalette(d.palette).slice(0, 6);
     } catch (e) {
       console.error("[brief] reference colours", errorMessage(e));
     }
   }
-  // The brief's colours are this month's: the theme, shared by other months, is left as it is
-  // (the designer can push them to the theme from the Direction screen).
-  if (monthColours.length) {
-    config.palette = monthColours;
-    config.paletteFrom = "brief";
-  }
-  // Drive products the planner picked: imported once into the month, with what vision read in them.
-  const imported = new Map<string, string>();
-  const taken = new Set(sources.map((s) => s.stem));
+  // Drive products the planner named: imported into the month when the plan is applied.
+  const imports: CampaignPlan["imports"] = [];
   for (const { post } of planned.posts)
     for (const n of [post.product, ...(post.products ?? [])]) {
-      if (!n || imported.has(n) || names.includes(n)) continue;
+      if (!n || imports.some((i) => i.name === n) || names.includes(n)) continue;
       const photo = driveOptions.find((p) => p.name === n);
-      if (!photo) continue;
-      try {
-        const row = await importDrivePhoto(c.env, user.id, b.id, photo.id, photo.name, taken);
-        if (photo.note || photo.kind) await run(c.env.DB, "UPDATE sources SET note = ?, category = ? WHERE id = ?", photo.note ?? null, photo.kind ?? null, row.id);
-        imported.set(n, productName(row as unknown as SourceRow));
-      } catch (e) {
-        console.error("[brief] drive import", photo.name, errorMessage(e));
-      }
+      if (photo) imports.push({ name: n, photoId: photo.id, note: photo.note, kind: photo.kind });
     }
-  for (const { post } of planned.posts) {
-    if (post.product && imported.has(post.product)) post.product = imported.get(post.product);
-    if (post.products) post.products = post.products.map((n) => imported.get(n) ?? n);
-  }
   const failed = async (message: string) => {
     // What went wrong stays on the month, so the box can show it after a reload.
-    const cfgNow = JSON.parse((await ownedPlan(c.env, user, b.id)).config) as Config;
+    const cfgNow = JSON.parse((await ownedPlan(env, user, b.id)).config) as Config;
     cfgNow.campaign = { text: text.slice(0, 6000), at: now(), error: message.slice(0, 300) };
-    await saveConfig(c.env, b, cfgNow);
+    await saveConfig(env, b, cfgNow);
     return new StudioError(message, 502);
   };
   if (!planned.posts.length) throw await failed("The planner wrote no posts from this brief. Say what each post or slide shows and the text on it, then try again.");
@@ -3607,32 +3611,83 @@ postRoutes.post("/campaign", async (c) => {
     day = Math.min(lastDay, day + 1);
     return dated;
   });
-  if (only && config.plan?.length) await keepMonthVersion(c.env, b);
-  config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
-  // The month is exactly these posts: the count follows, and the ideas count as freshly written.
-  config.postCount = config.plan.length;
-  // The brief and the plan share one stamp: the month is the brief's posts until the ideas are written again.
-  const stamp = now();
-  config.plannedAt = stamp;
-  // The outcome in the studio's own words: what was planned and what came in from Drive. The
+  // The outcome in the studio's own words: what was planned and what would come in from Drive. The
   // planner's instructions to "the designer" are dropped when the studio already did the work.
   const groups = [...new Map(added.filter((p) => p.group).map((p) => [p.group!.id, p.group!])).values()];
   const shape = groups.length
     ? groups.map((g) => `a ${g.of}-${g.kind === "carousel" ? "slide carousel" : "post series"}`).join(", ")
     : `${added.length} post${added.length === 1 ? "" : "s"}`;
-  const pulled = [...new Set([...imported.values()])];
-  // The planner's sentences addressed to the designer are dropped: the studio did or will do that work.
   const plannerNote = planned.summary
     .split(/(?<=[.!?])\s+/)
     .filter((x) => !/\b(designer|upload|must|needs? to|should|ensure|make sure)\b/i.test(x))
     .join(" ")
     .trim();
-  const summary = [`Planned ${shape}.`, linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "", pulled.length ? `Pulled from Drive into this month: ${pulled.join(", ")}.` : "", monthColours.length ? `${planned.colours.length ? "Colours read from the brief" : "Colours read from the reference pictures"} and set as this month's colours: ${monthColours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "", plannerNote].filter(Boolean).join(" ").slice(0, 600);
-  config.campaign = { text: text.slice(0, 6000), at: stamp, added: added.length, summary, only: only || undefined, styles: styleIds.length ? styleIds : undefined, colours: planned.colours.length ? planned.colours : undefined };
-  await saveConfig(c.env, b, config);
+  const summary = [
+    `Planned ${shape}.`,
+    linkNotes.length ? `Read from Instagram: ${linkNotes.join("; ")}.` : "",
+    imports.length ? `From the client's Drive: ${imports.map((i) => i.name).join(", ")} (imported into the month when applied).` : "",
+    monthColours.length ? `${planned.colours.length ? "Colours read from the brief" : "Colours read from the reference pictures"} and set as this month's colours: ${monthColours.map((x) => `${x.name} ${x.hex}`.trim()).join(", ")}.` : "",
+    plannerNote,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 600);
+  return { text, only, added, styleIds, monthColours, briefColours: planned.colours, summary, references: images.length, imports };
+}
+
+/**
+ * Applies a campaign plan to the month: Drive imports, the earlier posts kept as a version when
+ * the plan replaces them, the posts merged and dated, the brief's colours, the shots written for
+ * the new posts. Existing posts, their words and their pictures are untouched when the plan adds.
+ */
+async function applyCampaign(env: Env, user: User, b: BatchRow, plan: CampaignPlan): Promise<{ added: number; summary: string; plan: Post[] }> {
+  const config = JSON.parse(b.config) as Config;
+  const sources = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product'", b.id);
+  // Drive products the planner picked: imported once into the month, with what vision read in them.
+  const imported = new Map<string, string>();
+  const taken = new Set(sources.map((s) => s.stem));
+  const have = new Set(sources.map(productName));
+  for (const i of plan.imports) {
+    if (have.has(i.name)) continue;
+    try {
+      const row = await importDrivePhoto(env, user.id, b.id, i.photoId, i.name, taken);
+      if (i.note || i.kind) await run(env.DB, "UPDATE sources SET note = ?, category = ? WHERE id = ?", i.note ?? null, i.kind ?? null, row.id);
+      imported.set(i.name, productName(row as unknown as SourceRow));
+    } catch (e) {
+      console.error("[brief] drive import", i.name, errorMessage(e));
+    }
+  }
+  const existing = plan.only ? [] : (config.plan ?? []);
+  // The month may have grown since the draft was written: the new posts take the numbers after its last post.
+  const nextIndex = existing.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+  const firstDraft = plan.added.reduce((m, p) => Math.min(m, p.index), Number.MAX_SAFE_INTEGER);
+  const added = plan.added.map((post) => ({
+    ...post,
+    index: nextIndex + (post.index - firstDraft),
+    product: post.product && imported.has(post.product) ? imported.get(post.product) : post.product,
+    products: post.products ? post.products.map((n) => imported.get(n) ?? n) : post.products,
+  }));
+  if (existing.length + added.length > MAX_POST_COUNT) throw new StudioError(`The month can hold ${MAX_POST_COUNT} posts; this plan adds ${added.length} to ${existing.length}.`, 409);
+  // The brief's colours are this month's: the theme, shared by other months, is left as it is
+  // (the designer can push them to the theme from the Direction screen).
+  if (plan.monthColours.length) {
+    config.palette = plan.monthColours;
+    config.paletteFrom = "brief";
+  }
+  if (plan.only && config.plan?.length) await keepMonthVersion(env, b);
+  const month = config.month ?? "";
+  config.plan = withPortraits(withDates([...existing, ...added], month), config, b.id);
+  // The month is exactly these posts: the count follows, and the ideas count as freshly written.
+  config.postCount = config.plan.length;
+  // The brief and the plan share one stamp: the month is the brief's posts until the ideas are written again.
+  const stamp = now();
+  if (plan.only) config.plannedAt = stamp;
+  else for (const p of config.plan) if (added.some((a) => a.index === p.index)) p.ideaAt = stamp;
+  config.campaign = { text: plan.text.slice(0, 6000), at: stamp, added: added.length, summary: plan.summary, only: plan.only || undefined, styles: plan.styleIds.length ? plan.styleIds : undefined, colours: plan.briefColours.length ? plan.briefColours : undefined };
+  await saveConfig(env, b, config);
   // Each new post's shot, written in its reference's style for its real products (the posts are
   // found again by their words: the dates renumbered the month).
-  const fresh0 = await ownedPlan(c.env, user, b.id);
+  const fresh0 = await ownedPlan(env, user, b.id);
   const cfg0 = JSON.parse(fresh0.config) as Config;
   const sig = (p: Post) => `${p.title}|${p.headline ?? ""}|${p.brief}`;
   const mine = new Set(added.map(sig));
@@ -3641,12 +3696,12 @@ postRoutes.post("/campaign", async (c) => {
     const fresh = fresh0;
     const cfg = cfg0;
     try {
-      const scenes = await writeStyleScenes(c.env, fresh, cfg, assign);
+      const scenes = await writeStyleScenes(env, fresh, cfg, assign);
       // A slide the writer missed is asked for once more on its own.
       for (const a of assign)
         if (!scenes.get(a.index)?.scene) {
           try {
-            const again = await writeStyleScenes(c.env, fresh, cfg, [a]);
+            const again = await writeStyleScenes(env, fresh, cfg, [a]);
             const s = again.get(a.index);
             if (s?.scene) scenes.set(a.index, s);
           } catch (e) {
@@ -3658,13 +3713,122 @@ postRoutes.post("/campaign", async (c) => {
         // The planner's brief is the designer's idea: only the shot comes from the style writer.
         return s?.scene ? { ...p, scene: s.scene } : p;
       });
-      await saveConfig(c.env, fresh, cfg);
+      await saveConfig(env, fresh, cfg);
     } catch (e) {
       console.error("[brief] scenes", errorMessage(e));
     }
   }
-  const done = await ownedPlan(c.env, user, b.id);
-  return c.json({ ok: true, added: added.length, summary, plan: (JSON.parse(done.config) as Config).plan });
+  const done = await ownedPlan(env, user, b.id);
+  return { added: added.length, summary: plan.summary, plan: (JSON.parse(done.config) as Config).plan ?? [] };
+}
+
+/** The classic path: the brief is read and applied at once (the journey before drafts). */
+postRoutes.post("/campaign", async (c) => {
+  const form = await c.req.formData();
+  const batchId = String(form.get("batch") ?? "");
+  if (!batchId) throw new StudioError("Batch id is required.");
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, batchId);
+  const plan = await planCampaign(c.env, user, b, form);
+  const r = await applyCampaign(c.env, user, b, plan);
+  return c.json({ ok: true, ...r });
+});
+
+interface DraftRow {
+  id: string;
+  batch: string;
+  kind: DraftKind;
+  mode: DraftMode;
+  input: string;
+  posts: string;
+  summary: string;
+  diff: string;
+  status: DraftStatus;
+  created: number;
+  applied_at: number | null;
+  by: string | null;
+}
+
+const draftJson = (r: DraftRow): PlanDraft => ({ id: r.id, batch: r.batch, kind: r.kind, mode: r.mode, posts: JSON.parse(r.posts) as Post[], summary: r.summary, diff: JSON.parse(r.diff) as DraftDiff, status: r.status, created: r.created, input: JSON.parse(r.input) as PlanDraft["input"] });
+
+/**
+ * The brief read into a draft: the month is untouched until the draft is applied. The diff tells
+ * what is new, what would change, what stays, and which pictures would belong to an older idea.
+ * One open draft per month: a new one replaces the earlier unapplied draft.
+ */
+postRoutes.post("/campaign/draft", async (c) => {
+  const form = await c.req.formData();
+  const batchId = String(form.get("batch") ?? "");
+  if (!batchId) throw new StudioError("Batch id is required.");
+  const user = c.get("user");
+  const b = await ownedPlan(c.env, user, batchId);
+  const plan = await planCampaign(c.env, user, b, form);
+  const config = JSON.parse(b.config) as Config;
+  const mode: DraftMode = plan.only ? "replace" : "append";
+  const diff = draftDiff(config.plan ?? [], plan.added, mode, await picturedPosts(c.env, b.id));
+  const id = uuid();
+  await run(c.env.DB, "UPDATE plan_drafts SET status = 'discarded' WHERE batch = ? AND status = 'draft'", b.id);
+  await run(
+    c.env.DB,
+    "INSERT INTO plan_drafts (id, batch, kind, mode, input, posts, summary, diff, status, created, by) VALUES (?, ?, 'campaign', ?, ?, ?, ?, ?, 'draft', ?, ?)",
+    id,
+    b.id,
+    mode,
+    JSON.stringify({ text: plan.text, references: plan.references, colours: plan.monthColours, styleIds: plan.styleIds, briefColours: plan.briefColours, imports: plan.imports, summary: plan.summary }),
+    JSON.stringify(plan.added),
+    plan.summary,
+    JSON.stringify(diff),
+    now(),
+    user.id,
+  );
+  const row = await first<DraftRow>(c.env.DB, "SELECT * FROM plan_drafts WHERE id = ?", id);
+  return c.json({ ok: true, draft: draftJson(row!) });
+});
+
+/** The month's open draft, if any (the diff is read again against the month as it is now). */
+postRoutes.get("/drafts", async (c) => {
+  const batchId = c.req.query("batch") ?? "";
+  const b = await ownedPlan(c.env, c.get("user"), batchId);
+  const row = await first<DraftRow>(c.env.DB, "SELECT * FROM plan_drafts WHERE batch = ? AND status = 'draft' ORDER BY created DESC LIMIT 1", b.id);
+  if (!row) return c.json({ ok: true, draft: null });
+  const config = JSON.parse(b.config) as Config;
+  const d = draftJson(row);
+  d.diff = draftDiff(config.plan ?? [], d.posts, d.mode, await picturedPosts(c.env, b.id));
+  return c.json({ ok: true, draft: d });
+});
+
+/** Applies one draft: the one step that changes the month. */
+postRoutes.post("/drafts/:id/apply", async (c) => {
+  const user = c.get("user");
+  const row = await first<DraftRow>(c.env.DB, "SELECT * FROM plan_drafts WHERE id = ?", c.req.param("id"));
+  if (!row) throw new StudioError("No such draft.", 404);
+  const b = await ownedPlan(c.env, user, row.batch);
+  if (row.status !== "draft") throw new StudioError(`This draft was ${row.status} already.`, 409);
+  const d = draftJson(row);
+  const input = JSON.parse(row.input) as { text?: string; references?: number; colours?: { name: string; hex: string }[]; styleIds?: string[]; briefColours?: { name: string; hex: string }[]; imports?: CampaignPlan["imports"]; summary?: string };
+  const plan: CampaignPlan = {
+    text: input.text ?? "",
+    only: d.mode === "replace",
+    added: d.posts,
+    styleIds: input.styleIds ?? [],
+    monthColours: input.colours ?? [],
+    briefColours: input.briefColours ?? [],
+    summary: d.summary,
+    references: input.references ?? 0,
+    imports: input.imports ?? [],
+  };
+  const r = await applyCampaign(c.env, user, b, plan);
+  await run(c.env.DB, "UPDATE plan_drafts SET status = 'applied', applied_at = ? WHERE id = ?", now(), row.id);
+  return c.json({ ok: true, ...r });
+});
+
+/** Discards a draft: nothing of the month changes. */
+postRoutes.post("/drafts/:id/discard", async (c) => {
+  const row = await first<DraftRow>(c.env.DB, "SELECT * FROM plan_drafts WHERE id = ?", c.req.param("id"));
+  if (!row) throw new StudioError("No such draft.", 404);
+  await ownedPlan(c.env, c.get("user"), row.batch);
+  await run(c.env.DB, "UPDATE plan_drafts SET status = 'discarded' WHERE id = ? AND status = 'draft'", row.id);
+  return c.json({ ok: true });
 });
 
 /**

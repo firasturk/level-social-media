@@ -17138,3 +17138,56 @@ label.cta input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ───────────── A planning draft, reviewed before the month changes ───────────── */
+.flow-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--accent, #1129d3);
+  background: var(--surface);
+}
+.flow-draft-cells {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.flow-draft-cell {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--ink-500);
+}
+.flow-draft-cell > b {
+  display: block;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink-900);
+  line-height: 1.1;
+}
+.flow-draft-cell.new {
+  background: var(--accent-soft, #e9ecfb);
+}
+.flow-draft-cell.warn {
+  background: #fff4e5;
+  color: #8a3b00;
+}
+.flow-draft-cell ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-900);
+}
+.flow-draft-cell li {
+  font-size: 12px;
+  line-height: 1.4;
+}
+@media (max-width: 760px) {
+  .flow-draft-cells {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
