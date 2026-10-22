@@ -1467,6 +1467,8 @@ export default function Workspace({
                   }}
                 />
               ) : undefined,
+            batchId: batch.id,
+            onMonthChanged: refresh,
             drivePicker: config?.client ? <DriveReferencePicker clientId={config.client} batchId={batch.id} postIndex={index} onPinned={() => void refresh()} /> : undefined,
             feedbackPanel: (
               <FeedbackPanel
