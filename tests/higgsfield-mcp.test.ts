@@ -277,6 +277,12 @@ describe("the sign-in", () => {
     expect(u.searchParams.get("code_challenge_method")).toBe("S256");
     expect(u.searchParams.get("code_challenge")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(u.searchParams.get("resource")).toBe(HIGGSFIELD_MCP_URL);
+    expect(u.searchParams.get("prompt")).toBeNull();
+    // "Use a different account" asks the provider for its sign-in screen instead of the browser's current session.
+    const fresh = await json(await postJson(app(), env, "/api/studio/higgsfield/mcp/signin/start", { fresh: true }));
+    const fu = new URL(String(fresh.url));
+    expect(fu.searchParams.get("prompt")).toBe("login");
+    expect(fu.searchParams.get("max_age")).toBe("0");
     const state = u.searchParams.get("state")!;
     expect(state).toMatch(/^[A-Za-z0-9_-]{16,}$/);
     stub.state.codeChallenge = u.searchParams.get("code_challenge")!;
@@ -320,7 +326,7 @@ describe("the sign-in", () => {
     expect(stub.rpc.filter((r) => r.name === "balance")).toHaveLength(1);
     expect(stub.rpc.map((r) => r.method).slice(0, 5)).toEqual(["initialize", "notifications/initialized", "tools/list", "tools/list", "tools/call"]);
     const signin = ops().filter((o) => o.kind === "mcp.signin");
-    expect(signin).toHaveLength(2);
+    expect(signin).toHaveLength(3);
     expect(updates().some((u) => u.status === "done" && /signed in \(authorization code \+ PKCE\) as owner@test/.test(u.note ?? ""))).toBe(true);
     expect(reached).toEqual([]);
   });

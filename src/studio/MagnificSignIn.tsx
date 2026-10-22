@@ -136,11 +136,11 @@ export default function MagnificSignIn({ onChanged }: { onChanged: () => void })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [device?.userCode]);
 
-  async function signIn() {
+  async function signIn(fresh = false) {
     setBusy(true);
     setError("");
     try {
-      const r = await post<Start>(`${BASE}/signin/start`);
+      const r = await post<Start>(`${BASE}/signin/start`, fresh ? { fresh: true } : {});
       if (r.mode === "redirect") {
         const tab = window.open(r.url, "_blank", "noopener");
         if (!tab) setError(`The browser blocked the new tab. Open this link to sign in: ${r.url}`);
@@ -163,6 +163,17 @@ export default function MagnificSignIn({ onChanged }: { onChanged: () => void })
     } catch (e) {
       toast.error((e as Error).message);
     }
+  }
+  /** Sign out here, then a sign-in that asks Magnific for its sign-in screen (another account). */
+  async function switchAccount() {
+    try {
+      await post(`${BASE}/signout`);
+      onChanged();
+    } catch (e) {
+      toast.error((e as Error).message);
+      return;
+    }
+    await signIn(true);
   }
   async function saveToken() {
     setSaving(true);
@@ -230,13 +241,23 @@ export default function MagnificSignIn({ onChanged }: { onChanged: () => void })
       {admin && (
         <div className="footer-actions">
           {status?.signedIn ? (
-            <button type="button" className="secondary danger" onClick={() => void signOut()}>
-              <LogOut size={15} /> Sign out
-            </button>
+            <>
+              <button type="button" className="secondary danger" onClick={() => void signOut()}>
+                <LogOut size={15} /> Sign out
+              </button>
+              <button type="button" className="secondary" title="Signs out here and asks Magnific to show its sign-in screen, so another account can be chosen" onClick={() => void switchAccount()} disabled={busy}>
+                <LogIn size={15} /> Use a different account
+              </button>
+            </>
           ) : (
-            <button type="button" className="primary" onClick={() => void signIn()} disabled={busy || !!waiting || !!device || status?.switch.enabled === false}>
-              {busy || waiting ? <Orb size={15} /> : <LogIn size={15} />} Sign in to Magnific
-            </button>
+            <>
+              <button type="button" className="primary" onClick={() => void signIn()} disabled={busy || !!waiting || !!device || status?.switch.enabled === false}>
+                {busy || waiting ? <Orb size={15} /> : <LogIn size={15} />} Sign in to Magnific
+              </button>
+              <button type="button" className="text-button" title="Asks Magnific to show its sign-in screen instead of reusing the account already open in this browser" onClick={() => void signIn(true)} disabled={busy || !!waiting || !!device || status?.switch.enabled === false}>
+                Use a different account
+              </button>
+            </>
           )}
           {waiting && (
             <small className="field-hint">

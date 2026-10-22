@@ -688,7 +688,8 @@ higgsfieldMcpRoutes.post("/billing", async (c) => {
  */
 higgsfieldMcpRoutes.post("/signin/start", async (c) => {
   const user = await gate(c);
-  return c.json({ ok: true, ...(await higgsfieldSignIn.start(c.env, user)) });
+  const body = (await c.req.json().catch(() => ({}))) as { fresh?: unknown };
+  return c.json({ ok: true, ...(await higgsfieldSignIn.start(c.env, user, { fresh: body.fresh === true })) });
 });
 
 /** The device flow's poll: one token request per call; the page calls it every `interval` seconds. */

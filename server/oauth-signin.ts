@@ -387,7 +387,7 @@ export class OAuthSignIn {
    * the authorize link comes back for a new tab. When registration with a redirect is refused, the
    * device flow is tried and its user code comes back instead, with what was refused.
    */
-  async start(env: Env, user: User): Promise<SignInStart> {
+  async start(env: Env, user: User, opts: { fresh?: boolean } = {}): Promise<SignInStart> {
     const fetchFn = this.fetcher();
     const { as, resource } = await this.discover(fetchFn);
     const redirect = this.redirectUri(env);
@@ -409,6 +409,12 @@ export class OAuthSignIn {
       u.searchParams.set("code_challenge", challenge);
       u.searchParams.set("code_challenge_method", "S256");
       u.searchParams.set("resource", resource);
+      if (opts.fresh) {
+        // "Use a different account": the provider must show its sign-in screen instead of reusing the
+        // browser's current session (OpenID Connect `prompt=login`; `max_age=0` for servers that honour that one).
+        u.searchParams.set("prompt", "login");
+        u.searchParams.set("max_age", "0");
+      }
       return { mode: "redirect", url: u.toString() };
     } catch (e) {
       if (!(e instanceof RegistrationRefused)) {
