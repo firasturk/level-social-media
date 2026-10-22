@@ -238,7 +238,10 @@ export function ApprovalView({
                   <b>
                     {String(x.index).padStart(2, "0")} · {x.title}
                   </b>
-                  <span className={`flow-pill ${a?.status === "approved" ? "ok" : a?.status === "changes" ? "warn" : ""}`}>{a?.status === "approved" ? "Client approved" : a?.status === "changes" ? "Change asked" : t ? "Not seen yet" : "No picture yet"}</span>
+                  <span className={`flow-pill ${a?.status === "approved" ? "ok" : a?.status === "changes" ? "warn" : ""}`}>
+                    {a?.status === "approved" ? "Client approved" : a?.status === "changes" ? "Change asked" : t ? "Not seen yet" : "No picture yet"}
+                    {a?.by ? ` · by ${a.by}` : ""}
+                  </span>
                   {a?.note && <q className="approval-note">{a.note}</q>}
                   {a?.at ? <small className="flow-muted">{new Date(a.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small> : null}
                 </div>

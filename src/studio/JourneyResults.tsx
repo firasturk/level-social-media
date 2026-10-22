@@ -750,7 +750,7 @@ export function FeedStep({
                     <Eye size={15} />
                   </span>
                   <span className="text-finding-text">
-                    <b>Post {p.index} · the client asks</b>
+                    <b>Post {p.index} · {approvals[String(p.index)].by ? `${approvals[String(p.index)].by} asks` : "the client asks"}</b>
                     <span dir="auto">“{approvals[String(p.index)].note}”</span>
                   <button
                     type="button"

@@ -231,6 +231,7 @@ shareRoutes.post("/:token/review", async (c) => {
       index: z.number().int().min(1).max(200),
       status: z.enum(["approved", "changes"]),
       note: z.string().trim().max(1000).optional(),
+      by: z.string().trim().max(80).optional(),
     })
     .safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Invalid review.");
@@ -245,6 +246,7 @@ shareRoutes.post("/:token/review", async (c) => {
     [String(parsed.data.index)]: {
       status: parsed.data.status,
       note: parsed.data.note || undefined,
+      by: parsed.data.by || undefined,
       at: now(),
     },
   };
