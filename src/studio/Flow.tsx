@@ -571,16 +571,17 @@ export default function Flow(p: FlowProps) {
   /** The pictures on the four cards: the client's saved pins, shuffled once a day on the server. */
   type DailyPick = { id: string; title: string; updated: number; tiles: number };
   const [daily, setDaily] = useState<{ brief: DailyPick[]; refs: DailyPick[]; style: DailyPick | null; grid: DailyPick | null } | null>(null);
+  const clientId = client?.id ?? "";
   useEffect(() => {
-    if (!client) return;
+    if (!clientId) return;
     let live = true;
-    get<{ brief: DailyPick[]; refs: DailyPick[]; style: DailyPick | null; grid: DailyPick | null }>(`/api/studio/styles/start-pictures?client=${encodeURIComponent(client.id)}`)
+    get<{ brief: DailyPick[]; refs: DailyPick[]; style: DailyPick | null; grid: DailyPick | null }>(`/api/studio/styles/start-pictures?client=${encodeURIComponent(clientId)}`)
       .then((r) => live && setDaily(r))
       .catch(() => live && setDaily(null));
     return () => {
       live = false;
     };
-  }, [client?.id]);
+  }, [clientId]);
 
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
