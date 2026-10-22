@@ -77,6 +77,7 @@ import { autopilotRoutes } from "./autopilot";
 import { lessonRoutes } from "./lessons";
 import { ocrRoutes } from "./ocr-routes";
 import { feedbackRoutes } from "./feedback";
+import { photoLabRoutes } from "./photolab";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -91,6 +92,7 @@ studioRoutes.route("/autopilot", autopilotRoutes);
 studioRoutes.route("/lessons", lessonRoutes);
 studioRoutes.route("/ocr", ocrRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
+studioRoutes.route("/photolab", photoLabRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

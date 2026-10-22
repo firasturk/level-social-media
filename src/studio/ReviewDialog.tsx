@@ -157,6 +157,8 @@ export interface PostEditorTools {
   /** The OCR check of the picture and the artwork (a panel of its own), and the Drive reference picker. */
   ocrPanel?: ReactNode;
   drivePicker?: ReactNode;
+  /** The Photo lab (Freepik's real-photo tools on the picture or a Drive photo), a panel of its own. */
+  photoLab?: ReactNode;
   /** The client's feedback on this post, read into reviewable changes. */
   feedbackPanel?: ReactNode;
   onAnimate?: () => void;
@@ -826,6 +828,12 @@ export default function ReviewDialog({
               <details className="editor-ocr">
                 <summary>Writing check (OCR)</summary>
                 {editor.ocrPanel}
+              </details>
+            )}
+            {editor?.photoLab && (
+              <details className="editor-photolab">
+                <summary>Photo lab (Freepik)</summary>
+                {editor.photoLab}
               </details>
             )}
             {task?.prompt && (

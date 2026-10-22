@@ -191,3 +191,5 @@ export const RETENTION_DAYS_SETTING = "retention_days";
 export const NOTIFY_WEBHOOK_SETTING = "notify_webhook";
 export const NOTIFY_EMAIL_SETTING = "notify_email";
 export const RESEND_KEY_SETTING = "resend_api_key";
+/** Freepik (Magnific) API key for the Photo lab, saved from Connection → Freepik. */
+export const FREEPIK_KEY_SETTING = "freepik_api_key";

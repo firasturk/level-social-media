@@ -117,3 +117,19 @@ export function testSize(model: string | undefined, size: "1K" | "2K" | "4K"): "
   if (!r) return "1K";
   return r["1K"] < r[size] ? "1K" : size;
 }
+
+/**
+ * Photo lab (Freepik / Magnific) tools, approximate USD per picture (October 2026). Freepik bills
+ * credits per call and publishes the credit rates on its pricing page, which change; these are
+ * rounded working figures for the confirmation dialog, not an invoice. Upscale is the 2x creative
+ * upscaler; higher factors cost more.
+ */
+export const PHOTO_LAB_PRICES = {
+  "remove-bg": 0.02,
+  background: 0.1,
+  relight: 0.1,
+  upscale: 0.12,
+} as const;
+export type PhotoLabOp = keyof typeof PHOTO_LAB_PRICES;
+/** Every Photo lab price is an estimate: the UI says "about". */
+export const PHOTO_LAB_PRICES_APPROXIMATE = true;

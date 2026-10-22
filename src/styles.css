@@ -17609,3 +17609,206 @@ label.cta input {
   justify-content: center;
   cursor: pointer;
 }
+
+/* ───────────── Photo lab: Freepik's real-photo tools in the editor and on a Drive photo ───────────── */
+.editor-photolab {
+  margin: 8px 0;
+}
+.editor-photolab summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.photolab-dialog {
+  max-width: min(960px, 96vw);
+}
+.photolab-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--ink-700);
+}
+.photolab-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.photolab-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-900);
+}
+.photolab-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-700);
+  white-space: nowrap;
+}
+.photolab-chip.on {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.photolab-chip.off {
+  background: #fff4d6;
+  color: #8a5a00;
+  border: 1px solid #f2d58a;
+}
+.photolab-section {
+  display: grid;
+  gap: 8px;
+}
+.photolab-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.photolab-tabs button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-700);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.photolab-tabs button.on {
+  background: var(--ink-900);
+  color: var(--surface);
+  border-color: var(--ink-900);
+}
+.photolab-current,
+.photolab-chain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.photolab-current img,
+.photolab-chain img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-3);
+}
+.photolab-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  max-height: 36dvh;
+  overflow-y: auto;
+  padding: 2px;
+}
+.photolab-ops {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.photolab-op {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  row-gap: 4px;
+  align-items: start;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink-700);
+  cursor: pointer;
+}
+.photolab-op > svg {
+  margin-top: 2px;
+  color: var(--ink-500);
+}
+.photolab-op span {
+  display: grid;
+  gap: 2px;
+}
+.photolab-op b {
+  font-size: 13px;
+  color: var(--ink-900);
+}
+.photolab-op small {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-500);
+}
+.photolab-op em {
+  grid-column: 2;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+.photolab-op.on {
+  border-color: var(--ink-900);
+  box-shadow: var(--ring);
+}
+.photolab-op.on > svg {
+  color: var(--ink-900);
+}
+.photolab-prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.photolab-prompt textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink-900);
+}
+.photolab-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.photolab-actions .button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.photolab-result {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.photolab-result .compare {
+  max-height: 60dvh;
+}
+.photolab-history summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.photolab-history .photolab-thumbs {
+  margin-top: 8px;
+  max-height: 24dvh;
+}
+@media (max-width: 720px) {
+  .photolab-ops {
+    grid-template-columns: 1fr;
+  }
+}
