@@ -207,11 +207,15 @@ export function searchQuery(p: SearchParams): URLSearchParams {
 /** Freepik over fetch; `fetchFn` is injected so a test never reaches the real host. */
 export class FreepikStockClient implements StockProvider {
   readonly name = "freepik" as const;
+  /** Always a plain call: Workers refuse the global `fetch` invoked as a method of another object ("Illegal invocation"). */
+  private readonly fetchFn: typeof fetch;
   constructor(
     private readonly key: string,
-    private readonly fetchFn: typeof fetch = fetch,
+    fetchFn: typeof fetch = fetch,
     private readonly base: string = FREEPIK_STOCK.base,
-  ) {}
+  ) {
+    this.fetchFn = (input, init) => fetchFn(input, init);
+  }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = { Accept: "application/json", "Accept-Language": "en-US" };

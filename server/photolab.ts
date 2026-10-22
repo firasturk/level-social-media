@@ -120,11 +120,15 @@ interface TaskAnswer {
 /** Freepik over fetch; `fetchFn` is injected so a test never reaches the real host. */
 export class FreepikClient implements PhotoProvider {
   readonly name = "freepik" as const;
+  /** Always a plain call: Workers refuse the global `fetch` invoked as a method of another object ("Illegal invocation"). */
+  private readonly fetchFn: typeof fetch;
   constructor(
     private readonly key: string,
-    private readonly fetchFn: typeof fetch = fetch,
+    fetchFn: typeof fetch = fetch,
     private readonly base: string = FREEPIK.base,
-  ) {}
+  ) {
+    this.fetchFn = (input, init) => fetchFn(input, init);
+  }
 
   private headers(extra: Record<string, string> = {}): Record<string, string> {
     const h: Record<string, string> = { Accept: "application/json", ...extra };

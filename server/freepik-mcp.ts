@@ -80,11 +80,15 @@ export class McpClient {
   private session: string | null = null;
   private nextId = 1;
   private initialised = false;
+  /** Always a plain call: Workers refuse the global `fetch` invoked as a method of another object ("Illegal invocation"). */
+  private readonly fetchFn: typeof fetch;
   constructor(
     private readonly token: string,
-    private readonly fetchFn: typeof fetch = fetch,
+    fetchFn: typeof fetch = fetch,
     private readonly url: string = MCP_URL,
-  ) {}
+  ) {
+    this.fetchFn = (input, init) => fetchFn(input, init);
+  }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = {
