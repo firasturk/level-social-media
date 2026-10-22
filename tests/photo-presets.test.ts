@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { guardFetch, type Reached } from "./support/paid-guard";
 import { app, HERO, higgsfieldStub, json, magnificStub, MAGNIFIC_TOKEN, ops, postJson, PRODUCT_SHOTS, seed, signedInHiggsfield, SOUL_STYLES, type FakeEnv } from "./support/photo-mcp";
 import { PHOTO_PRESET_CATEGORIES } from "../shared/photo-presets";
-import { NOT_SIGNED_IN, resetHiggsfieldMcpCaches, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
+import { resetHiggsfieldMcpCaches, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
 import { MCP_NOT_CONNECTED, useMcpFetch } from "../server/freepik-mcp";
 import { resetPresetCaches } from "../server/video-presets";
 import { isRealEntry, parseMagnificLooks, parsePhotoRecipes, parseProductShots, parseSoulStyles, photoCacheKey, resetPhotoPresetCaches, saysVideo } from "../server/photo-presets";
@@ -82,7 +82,7 @@ describe("browsing the gallery", () => {
   it("says Not signed in with no call before the sign-in, lists the four categories, refuses an unknown one", async () => {
     const env = await seed();
     const r = await json(await browse(env, "category=styles"));
-    expect(r).toMatchObject({ signedIn: false, items: [], reason: NOT_SIGNED_IN, admin: false, provider: "higgsfield" });
+    expect(r).toMatchObject({ signedIn: false, items: [], reason: expect.stringMatching(/^Not signed in: Connection → Higgsfield/), admin: false, provider: "higgsfield" });
     expect((r.categories as unknown[]).length).toBe(PHOTO_PRESET_CATEGORIES.length);
     const looks = await json(await browse(env, "category=magnific-looks"));
     expect(looks).toMatchObject({ signedIn: false, items: [], reason: MCP_NOT_CONNECTED, provider: "magnific" });

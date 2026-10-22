@@ -39,7 +39,9 @@ import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
 import { signObjectUrl } from "./signed";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
-import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, NOT_SIGNED_IN, parseCost, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
+import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
+/** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
+const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to Higgsfield. The picture styles and tools run on that sign-in, paid from the subscription credits.";
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
 import { parseCreations, parseIdentifiers } from "./video-magnific";
 import { findNumber, findString, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
