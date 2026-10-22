@@ -28,7 +28,7 @@ interface SharedPost {
 }
 
 interface Shared {
-  client: { name: string; overlay: Partial<OverlaySpec> | null; logo: boolean; badge: boolean; fonts: { id: string; name: string }[]; updated: number };
+  client: { name: string; overlay: Partial<OverlaySpec> | null; logo: boolean; badge: boolean; fonts: { id: string; name: string }[]; updated: number; instagram?: { username: string; followers: number | null } | null };
   month: string;
   /** A grid month: no dark fade behind the words. */
   grid?: boolean;
@@ -36,6 +36,13 @@ interface Shared {
   order?: number[];
   monthFonts?: { headline: string; body: string } | null;
   posts: SharedPost[];
+}
+
+/** A follower count the way Instagram shows it: 84,429 → 84.4K, 1,250,000 → 1.3M. */
+function compactCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, "")}M`;
+  if (n >= 10_000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1).replace(/\.0$/, "")}K`;
+  return n.toLocaleString("en");
 }
 
 /** The client's view of a month: every post as it will go out, to approve or to send back. */
@@ -174,6 +181,39 @@ export default function SharePage({ token }: { token: string }) {
       <section className="share-feed" aria-label="The month's feed">
         <h2>The feed</h2>
         <p>How the profile will look at the end of the month. Tap a post to approve it or ask for a change.</p>
+        <div className="share-phone">
+          <div className="share-phone-top">
+            <b dir="auto">{data.client.instagram?.username || data.client.name.toLowerCase().replace(/\s+/g, ".")}</b>
+            <span aria-hidden>+ ≡</span>
+          </div>
+          <div className="share-profile">
+            <span className="share-avatar">{data.client.logo ? <img src={`${base}/logo?v=${data.client.updated}`} alt="" /> : data.client.name.slice(0, 1)}</span>
+            <dl className="share-stats">
+              <div>
+                <dt>{ready.length}</dt>
+                <dd>posts</dd>
+              </div>
+              <div>
+                <dt>{data.client.instagram?.followers ? compactCount(data.client.instagram.followers) : "—"}</dt>
+                <dd>followers</dd>
+              </div>
+              <div>
+                <dt>—</dt>
+                <dd>following</dd>
+              </div>
+            </dl>
+          </div>
+          <div className="share-bio">
+            <b dir="auto">{data.client.name}</b>
+            <span>{monthLabel(data.month)} · content calendar</span>
+          </div>
+          <div className="share-profile-buttons" aria-hidden>
+            <span className="follow">Follow</span>
+            <span>Message</span>
+          </div>
+          <div className="share-grid-tab" aria-hidden>
+            <span />
+          </div>
         <div className="share-feed-grid">
           {(data.order ?? data.posts.map((p) => p.index)).map((i) => {
             const p = data.posts.find((x) => x.index === i);
@@ -194,6 +234,7 @@ export default function SharePage({ token }: { token: string }) {
               </a>
             );
           })}
+        </div>
         </div>
       </section>
       <main className="share-grid">

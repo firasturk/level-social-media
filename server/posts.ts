@@ -5467,7 +5467,8 @@ postRoutes.post("/share", async (c) => {
     await saveConfig(c.env, b, config);
   }
   const origin = c.env.CANONICAL_ORIGIN || new URL(c.req.url).origin;
-  return c.json({ ok: true, url: `${origin}/share/${config.shareToken}` });
+  // The version on the link makes WhatsApp and the like fetch the preview card afresh when the link is sent again.
+  return c.json({ ok: true, url: `${origin}/share/${config.shareToken}?v=${Math.floor(now() / 60000).toString(36)}` });
 });
 
 export type { Post };
