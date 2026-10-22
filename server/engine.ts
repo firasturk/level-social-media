@@ -544,7 +544,7 @@ async function storeResultBytes(
     // A post is checked against the real product photo: what changed, writing, bags, drinks, people.
     try {
       qa = await reviewPostImage(env, task, result);
-      // Every finding is kept as a lesson: the client's next prompts forbid it explicitly.
+      // Every finding is proposed as a lesson with its exact words; it waits for the admin before any prompt carries it.
       if (qa.automated) await rememberLessons(env, batch.client, batch.id, qa.flags).catch((e) => console.error("[lessons]", e));
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
       // A picture that looks like one of the client's earlier posts (the same composition) is noticed.

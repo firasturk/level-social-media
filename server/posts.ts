@@ -1178,7 +1178,7 @@ async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: num
   const others = plan.filter((p) => p.index !== index).map((p) => p.title);
   const cast = await monthAmbassadors(env, config);
   const instruction = singleIdeaInstruction(
-    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id).catch(() => [])), count: 1 },
+    { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id, { batch: b.id, post: index }).catch(() => [])), count: 1 },
     current,
     others,
     wish,
@@ -1276,7 +1276,7 @@ postRoutes.post("/ideas", async (c) => {
   // The posts already in the month count as earlier ideas: the new ones never repeat them.
   const thisMonth: EarlierPost[] = kept.map((p) => ({ label: `this month · post ${p.index}`, title: p.title, brief: p.brief }));
   const instruction = ideasInstruction({
-    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id).catch(() => []), {
+    ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(c.env, client.id), await lessonsFor(c.env, client.id, { batch: b.id }).catch(() => []), {
       earlier: earlierLines([...thisMonth, ...earlier]),
       trends: await trendingLooks(c.env).catch(() => []),
     }),
@@ -1351,7 +1351,7 @@ async function ensureOccasionPosts(
       scene: undefined,
     };
     const instruction = singleIdeaInstruction(
-      { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id).catch(() => [])), count: 1 },
+      { ...ideasContext(client, theme, config, products, productNotes, cast, await profileOf(env, client.id), await lessonsFor(env, client.id, { batch: batchId, post: target.index }).catch(() => [])), count: 1 },
       draft,
       plan.filter((p) => p.index !== target.index).map((p) => p.title),
       `This post is now the greeting for ${o.name} on ${o.date}: a greeting headline and a caption for the day, in the client's tone.`,
@@ -2178,9 +2178,10 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
   const skipped: number[] = [];
   const missingProduct: { index: number; product: string }[] = [];
   const monthOccasions = pickedOccasions(config.month ?? "", config.occasions);
-  // What went wrong in this client's earlier pictures: the prompt forbids it by name.
-  const lessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   for (const post of plan) {
+    // The brand's rules, this month's and this post's instructions, and what went wrong in this
+    // client's earlier pictures: the prompt carries them by name.
+    const lessons = await lessonsFor(env, client.id, { batch: b.id, post: post.index }).catch(() => [] as string[]);
     /** What changed or was excluded for this post, said once each, for the plan to show before paying. */
     const changes: string[] = [];
     // The gate before paying: what the review would flag and the words already show is taken out
@@ -4952,7 +4953,7 @@ postRoutes.post("/shots", async (c) => {
   const tileRule = tileImages.length
     ? `\n\nTILE PICTURES: ${[...tileFor].map(([post, img]) => `image ${img} is the grid tile post ${post} recreates`).join("; ")}. Write each of these posts' shot from its tile picture, not only from its words: the same composition (how the items are arranged, stacked, tilted or scattered, how many and where), camera angle and distance, surface and set, light direction and shadows, with the client's own product in place of the tile's items (several pieces or copies of it when the tile shows several). Never its brand, packaging, bags, cups, cards, text or logos.`
     : "";
-  const shotLessons = await lessonsFor(c.env, client.id).catch(() => [] as string[]);
+  const shotLessons = await lessonsFor(c.env, client.id, { batch: b.id }).catch(() => [] as string[]);
   const ask = async (strict: boolean | string) => {
     const raw = parseJson<{ shots?: unknown }>(
       await askText(
@@ -5031,11 +5032,11 @@ async function writeStyleScenes(
   const cast = await monthAmbassadors(env, config);
   const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
   const scenes = new Map<number, { style?: string; scene?: string; brief?: string }>();
-  const styleLessons = await lessonsFor(env, client.id).catch(() => [] as string[]);
   await Promise.all(
     assign.map(async (a) => {
       const post = plan.find((p) => p.index === a.index);
       if (!post) return;
+      const styleLessons = await lessonsFor(env, client.id, { batch: b.id, post: a.index }).catch(() => [] as string[]);
       if (!a.style) return scenes.set(a.index, {});
       const style = await styleRow(env, a.style);
       if (!style || !style.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
