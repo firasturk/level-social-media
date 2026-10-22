@@ -51,6 +51,15 @@ export default function SharePage({ token }: { token: string }) {
       return "";
     }
   });
+  const [needName, setNeedName] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const askName = () => {
+    setNeedName(true);
+    setEditingName(true);
+    nameRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => nameRef.current?.focus(), 350);
+  };
   const rename = (n: string) => {
     setName(n);
     try {
@@ -137,6 +146,31 @@ export default function SharePage({ token }: { token: string }) {
           </p>
         </div>
       </header>
+      <section className={`share-who ${needName && !name.trim() ? "need" : ""}`} aria-label="Who is reviewing">
+        {name.trim() && !editingName ? (
+          <p>
+            Reviewing as <b dir="auto">{name.trim()}</b> ·{" "}
+            <button type="button" className="text-button" onClick={() => setEditingName(true)}>
+              change
+            </button>
+          </p>
+        ) : (
+          <label>
+            <span>{needName && !name.trim() ? "Write your name first, so the team knows who answered" : "Your name, once: it goes with every answer so the team knows who approved or asked"}</span>
+            <input
+              ref={nameRef}
+              type="text"
+              dir="auto"
+              autoComplete="name"
+              placeholder="e.g. Nada"
+              value={name}
+              onChange={(e) => rename(e.target.value)}
+              onBlur={() => name.trim() && setEditingName(false)}
+              onKeyDown={(e) => e.key === "Enter" && name.trim() && setEditingName(false)}
+            />
+          </label>
+        )}
+      </section>
       <section className="share-feed" aria-label="The month's feed">
         <h2>The feed</h2>
         <p>How the profile will look at the end of the month. Tap a post to approve it or ask for a change.</p>
@@ -171,7 +205,7 @@ export default function SharePage({ token }: { token: string }) {
             spec={spec}
             logo={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null}
             name={name}
-            onName={rename}
+            onNeedName={askName}
             onAnswered={(approval) =>
               setData((d) => (d ? { ...d, posts: d.posts.map((x) => (x.index === p.index ? { ...x, approval } : x)) } : d))
             }
@@ -191,7 +225,7 @@ function SharedCard({
   spec,
   logo,
   name,
-  onName,
+  onNeedName,
   onAnswered,
 }: {
   post: SharedPost;
@@ -200,12 +234,11 @@ function SharedCard({
   logo: string | null;
   /** The reviewer's name, so the team knows who answered. */
   name: string;
-  onName: (n: string) => void;
+  /** No name yet: the page asks for it (once) before the answer goes. */
+  onNeedName: () => void;
   onAnswered: (a: Approval) => void;
 }) {
   const [asking, setAsking] = useState(false);
-  const [needName, setNeedName] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState(post.approval?.note ?? "");
   const reasons = ["Change the words", "Change the picture", "The colours", "The product looks wrong", "Another date"];
   const toggleReason = (r: string) => setNote((n) => (n.includes(r) ? n.replace(new RegExp(`${r}\\.?\\s*`), "").trim() : `${r}. ${n}`.trim()));
@@ -214,8 +247,7 @@ function SharedCard({
 
   async function answer(status: Approval["status"]) {
     if (!name.trim()) {
-      setNeedName(true);
-      nameRef.current?.focus();
+      onNeedName();
       return;
     }
     setSending(true);
@@ -287,12 +319,6 @@ function SharedCard({
             {post.hashtags}
           </p>
         </div>
-        {!name.trim() && (
-          <label className={`share-who ${needName ? "need" : ""}`}>
-            <span>Your name{needName ? " · write it first, so the team knows who answered" : " (so the team knows who answered)"}</span>
-            <input ref={nameRef} type="text" dir="auto" autoComplete="name" placeholder="e.g. Nada" onChange={(e) => onName(e.target.value)} />
-          </label>
-        )}
         {asking ? (
           <div className="design-card-caption share-ask">
             <span className="design-card-label">
