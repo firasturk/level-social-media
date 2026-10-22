@@ -55,12 +55,43 @@ export interface BriefNote {
   sig?: string;
 }
 
+/** One reviewer's answer on a post. The reviewer is known by a random id kept on their device (`rid`) and the name they typed. */
+export interface ReviewAnswer {
+  rid: string;
+  status: "approved" | "changes";
+  note?: string;
+  by?: string;
+  at: number;
+}
+
+/**
+ * A post's standing with the client: the effective status (a change asked by anyone wins over
+ * approvals), the notes and names joined, and every reviewer's own answer under `answers`.
+ * The approval page shows each reviewer only their own answer; the studio sees them all.
+ */
 export interface Approval {
   status: "approved" | "changes";
   note?: string;
   /** Who answered on the client's side (the name they typed on the approval page). */
   by?: string;
   at: number;
+  answers?: ReviewAnswer[];
+}
+
+/** The post's standing from every reviewer's answer: a change asked by anyone wins; names and notes are joined. */
+export function effectiveApproval(answers: ReviewAnswer[]): Approval | null {
+  if (!answers.length) return null;
+  const asks = answers.filter((a) => a.status === "changes");
+  const pick = asks.length ? asks : answers;
+  const names = [...new Set(pick.map((a) => a.by?.trim()).filter(Boolean))] as string[];
+  const notes = asks.map((a) => (a.note?.trim() ? (a.by?.trim() && asks.length > 1 ? `${a.by.trim()}: ${a.note.trim()}` : a.note.trim()) : "")).filter(Boolean);
+  return {
+    status: asks.length ? "changes" : "approved",
+    note: notes.length ? notes.join(" · ") : undefined,
+    by: names.length ? names.join(", ") : undefined,
+    at: Math.max(...pick.map((a) => a.at)),
+    answers,
+  };
 }
 
 /** Batch configuration. Validated on the server by configSchema in config-schema.ts; kept zod-free here so the client bundle stays small. */
