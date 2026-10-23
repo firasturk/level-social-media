@@ -2,6 +2,7 @@
 import { get, post } from "@/api";
 import type { PhotoPresetCard, PhotoPresetCategory, PhotoPresetCategoryId, PhotoPresetDetail } from "@shared/photo-presets";
 import type { PhotoToolJob, ToolCatalog } from "@shared/photo-tools";
+import type { HoldReason } from "@shared/client-hold";
 
 export interface Access {
   admin: boolean;
@@ -64,7 +65,10 @@ export interface ToolEstimate {
 export const toolEstimate = (ask: ToolAsk) => post<ToolEstimate>("/api/studio/photo/tools/estimate", ask);
 export const toolRun = (ask: ToolAsk & { confirm?: boolean }) => post<{ job: PhotoToolJob }>("/api/studio/photo/tools/run", ask);
 export const toolJobs = (batch: string, index: number) => get<{ jobs: PhotoToolJob[] }>(`/api/studio/photo/tools/jobs?batch=${encodeURIComponent(batch)}&index=${index}`);
-export const applyToolResult = (id: string, body: { as: "picture" | "product"; batch: string; post?: number }) => post<{ ok: true; key?: string; source?: { name: string } }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/use`, body);
+/** `held`: the client answered the post, so the result was kept as a new version beside the client's (Send it for review makes it theirs). */
+export const applyToolResult = (id: string, body: { as: "picture" | "product"; batch: string; post?: number }) => post<{ ok: true; key?: string; source?: { name: string }; held?: HoldReason | null; message?: string }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/use`, body);
+/** "Check again" on a job recorded as failed: the provider is asked for its status (free; nothing is run again). Admins. */
+export const recheckToolJob = (id: string) => post<{ ok: true; outcome: "done" | "running" | "failed" | "unknown"; message: string; job: PhotoToolJob }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/check`);
 
 /** A 409 answer that asks for a confirm, says the cost is not known, or says the run is blocked. */
 export interface ConfirmAsk {

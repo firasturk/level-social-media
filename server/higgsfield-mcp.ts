@@ -280,7 +280,8 @@ export interface JobEntry {
 }
 
 const DONE = /^(completed|complete|succeeded|success|successful|done|finished|ready)$/i;
-const FAILED = /^(failed|failure|error|errored|cancelled|canceled|nsfw|rejected|moderated|timeout|timed_out)$/i;
+/** A job that ended badly. Not "timeout": a one-second `jobs_wait` that ran out says nothing about the job (see server/provider-status.ts). */
+const FAILED = /^(failed|failure|error|errored|cancelled|canceled|nsfw|rejected|moderated)$/i;
 
 /** The jobs an answer (`generate_video_batch`, `jobs_wait`, `show_generation_by_ids`) names, with what each says. */
 export function parseJobs(r: McpCallResult): JobEntry[] {

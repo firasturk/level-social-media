@@ -161,7 +161,8 @@ export interface CreationEntry {
 }
 
 const DONE = /^(completed|complete|succeeded|success|done|finished|ready)$/i;
-const FAILED = /^(failed|failure|error|errored|cancelled|canceled|rejected|moderated|timeout|timed_out)$/i;
+/** A creation that ended badly. Not "timeout": a one-second `creations_wait` that ran out says nothing about it (see server/provider-status.ts). */
+const FAILED = /^(failed|failure|error|errored|cancelled|canceled|rejected|moderated)$/i;
 
 /** What `creations_wait` says about each creation. */
 export function parseCreations(r: McpCallResult): CreationEntry[] {
