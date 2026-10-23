@@ -102,7 +102,7 @@ async function renderInBrowser(env: FakeEnv, c: Campaign, step: string) {
   await env.DB.prepare("INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, key, created, updated, provider, settings, source, for_client) VALUES (?, 'b1', ?, 'x', 'u1', 'editor', 'render', 'done', ?, ?, ?, 'editor', '{}', 'editor', 0)").bind(videoId, s.post, key, t, t).run();
   const renderId = `render-${videoId}`;
   await env.DB.prepare("INSERT INTO video_renders (id, project, batch, post, project_rev, document, status, progress, video_id, outcome, created, updated, finished, created_by) VALUES (?, ?, 'b1', ?, 1, '{}', 'done', 1, ?, 'card', ?, ?, ?, 'u1')").bind(renderId, s.ref!.id, s.post, videoId, t, t, t).run();
-  return call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent(step)}/rendered`, { renderId });
+  return call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent(step)}/rendered`, { videoId });
 }
 const spendRows = (env: FakeEnv) => env.DB.prepare("SELECT scope, approved, reserved FROM spend ORDER BY scope").all<{ scope: string; approved: number; reserved: number }>().then((r) => r.results);
 

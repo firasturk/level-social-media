@@ -21,7 +21,7 @@
  *   POST   /:id/tick                one pass of the runner (the page calls it while open; the cron too)
  *   POST   /:id/pause | /:id/resume
  *   POST   /:id/steps/:step/retry   {extra?}: a failed step again (one more attempt approved when asked)
- *   POST   /:id/steps/:step/rendered {renderId}: the browser stored the Reel on its card
+ *   POST   /:id/steps/:step/rendered {videoId}: the browser stored the Reel on its card
  *   POST   /:id/discard
  *   GET    /:id/file?step=          a step's picture (start images, simulated pictures)
  */
@@ -465,8 +465,11 @@ campaignRoutes.get("/sources", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
   const { products, media } = await planSources(c.env, b);
   const config = JSON.parse(b.config) as Config;
-  const tracks = config.client ? await all<{ id: string; title: string; artist: string; moods: string; bpm: number | null; licence_name: string }>(c.env.DB, "SELECT id, title, artist, moods, bpm, licence_name FROM music_tracks WHERE client = ? AND archived IS NULL ORDER BY created DESC LIMIT 60", config.client).catch(() => []) : [];
-  return c.json({ ok: true, products, media, looks: LOOKS.filter((l) => l.id !== "none").map((l) => ({ id: l.id, name: l.name })), tracks: tracks.map((t) => ({ id: t.id, title: t.title, artist: t.artist, moods: JSON.parse(t.moods || "[]") as string[], bpm: t.bpm, licence: t.licence_name })) });
+  const { libraryTrack, catalogTrack } = await import("./music");
+  const { CATALOG } = await import("@shared/music-catalog");
+  const lib = config.client ? await all<import("./music").MusicTrackRow>(c.env.DB, "SELECT * FROM music_tracks WHERE client = ? AND archived IS NULL ORDER BY created DESC LIMIT 60", config.client).catch(() => []) : [];
+  const tracks = [...lib.map(libraryTrack), ...CATALOG.filter((e) => !e.test).map((e) => catalogTrack(e))];
+  return c.json({ ok: true, products, media, looks: LOOKS.filter((l) => l.id !== "none").map((l) => ({ id: l.id, name: l.name })), tracks: tracks.map((t) => ({ id: t.id, title: t.title, artist: t.artist, moods: t.moods, bpm: t.bpm, licence: t.licence.name })) });
 });
 
 campaignRoutes.get("/engines", async (c) => {
@@ -765,10 +768,10 @@ campaignRoutes.post("/:id/steps/:step/retry", async (c) => {
 /** The browser rendered a Reel and stored it on its card (the editor's own render job): the step is done. */
 campaignRoutes.post("/:id/steps/:step/rendered", async (c) => {
   const user = c.get("user");
-  const d = await parseBody(c, z.object({ renderId: z.string().min(1).max(80) }));
+  const d = await parseBody(c, z.object({ videoId: z.string().min(1).max(80) }));
   const { row } = await campaignOf(c.env, user, c.req.param("id"));
   const { finishRender } = await import("./campaign-runner");
-  await finishRender(c.env, row, c.req.param("step"), d.renderId);
+  await finishRender(c.env, row, c.req.param("step"), d.videoId);
   await advanceCampaign(c.env, user, row.id, (p) => c.executionCtx.waitUntil(p));
   const next = (await first<CampaignRow>(c.env.DB, "SELECT * FROM campaign_plans WHERE id = ?", row.id))!;
   return c.json({ ok: true, campaign: await campaignJson(c.env, next) });

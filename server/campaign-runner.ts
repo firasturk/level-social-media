@@ -550,14 +550,14 @@ async function assembleStep(ctx: Ctx, s: StepRow, b: BatchRow): Promise<void> {
   if (render) await patchStep(env, render, { ref_kind: "project", ref_id: projectId, post: index, data: JSON.stringify({ stills: stillShots(input) }) });
 }
 
-/** The browser stored a render of the Reel's project on its card: the render step is done. */
-export async function finishRender(env: Env, row: CampaignRow, step: string, renderId: string): Promise<void> {
+/** The browser stored a render of the Reel's project on its card (the editor's own render job): the render step is done. */
+export async function finishRender(env: Env, row: CampaignRow, step: string, videoId: string): Promise<void> {
   const s = await first<StepRow>(env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, step);
   if (!s || s.kind !== "render") throw new StudioError("Step not found.", 404);
-  const r = await first<{ project: string; status: string; video_id: string | null; batch: string; post: number }>(env.DB, "SELECT project, status, video_id, batch, post FROM video_renders WHERE id = ?", renderId);
-  if (!r || r.project !== s.ref_id || r.batch !== row.batch) throw new StudioError("That render is not of this Reel's project.", 409);
-  if (r.status !== "done" || !r.video_id) throw new StudioError("The render has not finished.", 409);
-  await run(env.DB, "UPDATE campaign_steps SET status = 'done', ref_kind = 'render', output_key = (SELECT key FROM videos WHERE id = ?), note = ?, finished = ?, updated = ? WHERE campaign = ? AND step = ? AND status != 'done'", r.video_id, `Rendered in the browser and stored on card ${r.post} (render ${renderId.slice(0, 8)})`, now(), now(), row.id, step);
+  const r = await first<{ id: string; project: string; status: string; post: number }>(env.DB, "SELECT id, project, status, post FROM video_renders WHERE video_id = ? AND batch = ? ORDER BY created DESC LIMIT 1", videoId, row.batch);
+  if (!r || r.project !== s.ref_id) throw new StudioError("That version is not a render of this Reel's project.", 409);
+  if (r.status !== "done") throw new StudioError("The render has not finished.", 409);
+  await run(env.DB, "UPDATE campaign_steps SET status = 'done', ref_kind = 'render', output_key = (SELECT key FROM videos WHERE id = ?), note = ?, finished = ?, updated = ? WHERE campaign = ? AND step = ? AND status != 'done'", videoId, `Rendered in the browser and stored on card ${r.post} (render ${r.id.slice(0, 8)})`, now(), now(), row.id, step);
 }
 
 /** A words-only edit after approval: the card's words follow; the Reel is assembled and rendered again (free). */

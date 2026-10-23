@@ -4,7 +4,7 @@
  * replaces the nine-screen journey for admins when the flag is on, over the same month data and
  * the same server routes; nothing here costs money until the plan's own button is pressed.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, Menu, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
@@ -44,6 +44,7 @@ import BrandChip from "./BrandChip";
 import { RelevantRules } from "./MemoryPanel";
 import Working from "@/components/Working";
 import TestGrid from "./TestGrid";
+const CampaignAutopilot = lazy(() => import("./campaign/CampaignAutopilot"));
 import ProductChoice, { PostProductCell, productOf } from "./ProductChoice";
 import ProductSwap from "./ProductSwap";
 import { askInput } from "@/lib/confirm";
@@ -293,6 +294,8 @@ export default function Flow(p: FlowProps) {
   });
   const [briefFiles, setBriefFiles] = useState<File[]>([]);
   const [planning, setPlanning] = useState(false);
+  /** Campaign Autopilot (admins, testing): the month it opens on. */
+  const [autopilotFor, setAutopilotFor] = useState<string | null>(null);
   /** The planner's draft, reviewed before the month changes; null when there is none open. */
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [draftBusy, setDraftBusy] = useState(false);
@@ -824,6 +827,21 @@ export default function Flow(p: FlowProps) {
 
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
+      {autopilotFor && (
+        <Suspense fallback={null}>
+          <CampaignAutopilot
+            batch={autopilotFor}
+            onClose={() => {
+              setAutopilotFor(null);
+              void p.refresh();
+            }}
+            onOpenCard={(index) => {
+              setAutopilotFor(null);
+              void p.refresh().then(() => p.onDone(index));
+            }}
+          />
+        </Suspense>
+      )}
       <header className="journey-top">
         {p.onMenu && (
           <button type="button" className="flow-menu" onClick={p.onMenu} title="Months, Styles, Video editor, Admin" aria-label="Open the menu">
@@ -1079,6 +1097,26 @@ export default function Flow(p: FlowProps) {
                         </Cta>
                         <small className="flow-muted">Writes a draft you review first (a text call, or the demo fixture). The month changes only when you apply it; no picture is made here.</small>
                       </div>
+                      {p.user.role === "admin" && (
+                        <div className="flow-pick-row">
+                          <Cta
+                            kind="secondary"
+                            icon={<Zap size={16} />}
+                            onClick={() =>
+                              void (async () => {
+                                try {
+                                  setAutopilotFor(p.batchId ?? (await p.ensurePlan()));
+                                } catch (e) {
+                                  toast.error(e instanceof Error ? e.message : String(e));
+                                }
+                              })()
+                            }
+                          >
+                            Campaign Autopilot
+                          </Cta>
+                          <small className="flow-muted">Admins, testing: plan image posts and multishot Reels together, review the storyboards and the cost per provider, then approve automatic production.</small>
+                        </div>
+                      )}
                       {planning && <Working label="Reading your request into a draft" />}
                       {draft && (
                         <div className="flow-draft" role="region" aria-label="Draft to review">
