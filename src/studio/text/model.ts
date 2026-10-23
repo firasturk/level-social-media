@@ -4,7 +4,7 @@
  */
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
-import { contrastRatio, fillColor, luminance, newLogoLayer, newTextLayer, type Layer, type TextDesign, type TextLayer } from "@shared/layers";
+import { contrastRatio, fillColor, logoLayerAt, luminance, newTextLayer, type Layer, type TextDesign, type TextLayer } from "@shared/layers";
 import { layoutBox, luminanceUnder, type LayerBox } from "@/lib/textLayers";
 
 export interface Brand {
@@ -85,7 +85,8 @@ export function designFromLegacy(spec: OverlaySpec, headline: string, subline: s
   }
   const fade = spec.scrim > 0 && p.fade !== false && layers.length;
   // The logo first: the layout draws it under the words.
-  if (logoRect && logoRect.w > 0) layers.unshift(newLogoLayer({ x: logoRect.x / W, y: logoRect.y / H, w: logoRect.w / W }));
+  const logo = logoLayerAt(logoRect, W, H);
+  if (logo) layers.unshift(logo);
   const position = p.position ?? h.position;
   return {
     version: 1,

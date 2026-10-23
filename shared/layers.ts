@@ -425,6 +425,14 @@ export const DEFAULT_SHAPE: Omit<ShapeLayer, "id"> = { type: "shape", shape: "re
 export function newLogoLayer(over: Partial<LogoLayer> = {}): LogoLayer {
   return { type: "logo", id: layerId(), x: 0.4, y: 0.04, w: 0.2, name: "Logo", ...over };
 }
+/**
+ * The logo the client's automatic layout drew, as a logo layer in the same place: `rect` is where
+ * it landed on a W×H canvas. Null when the layout drew no logo.
+ */
+export function logoLayerAt(rect: { x: number; y: number; w: number; h: number } | null | undefined, W: number, H: number): LogoLayer | null {
+  if (!rect || !(rect.w > 0) || !(W > 0) || !(H > 0)) return null;
+  return newLogoLayer({ x: rect.x / W, y: rect.y / H, w: rect.w / W });
+}
 export function newImageLayer(src: string, over: Partial<ImageLayer> = {}): ImageLayer {
   return { type: "image", id: layerId(), src, x: 0.25, y: 0.3, w: 0.5, h: 0.4, fit: "cover", ...over };
 }

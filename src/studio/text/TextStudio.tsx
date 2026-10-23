@@ -9,7 +9,7 @@ import { saveBlob } from "@/lib/zip";
 import { stackedImagesPdf } from "@/lib/pdf";
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import type { Client } from "@shared/types";
-import { editText, isTextLayer, layerId, newImageLayer, newLogoLayer, newShapeLayer, newTextLayer, replaceInLayers, setRunStyle, styleAt, upgradeDesign, wordsOf, type CanvasFx, type ImageLayer, type Layer, type RunStyle, type ShapeKind, type TextDesign, type TextLayer } from "@shared/layers";
+import { editText, isTextLayer, layerId, logoLayerAt, newImageLayer, newLogoLayer, newShapeLayer, newTextLayer, replaceInLayers, setRunStyle, styleAt, upgradeDesign, wordsOf, type CanvasFx, type ImageLayer, type Layer, type RunStyle, type ShapeKind, type TextDesign, type TextLayer } from "@shared/layers";
 import { loadFont, loadImage, paintFrame, renderOverlay, type OverlayLayout } from "@/lib/overlay";
 import { drawBasePicture, renderDesignOnly, type LayerBox } from "@/lib/textLayers";
 import { Orb } from "@/components/Orb";
@@ -238,8 +238,8 @@ export default function TextStudio(p: Props) {
           d = designFromLegacy(spec, p.headline, p.subline, p.patch, layout.text, w, h, layout.logo);
         } else if (logoSrc && !d.layers.some((l) => l.type === "logo")) {
           // A design saved before the logo was a layer: the logo the layout draws becomes one, in place.
-          const at = (await automatic()).logo;
-          if (at) d = { ...d, layers: [newLogoLayer({ x: at.x / w, y: at.y / h, w: at.w / w }), ...d.layers] };
+          const logo = logoLayerAt((await automatic()).logo, w, h);
+          if (logo) d = { ...d, layers: [logo, ...d.layers] };
         }
         // A draft kept in the card's session (a switch to another studio, or held for the client) comes back.
         const kept = getSession(batch, p.index)?.text;
@@ -491,6 +491,16 @@ export default function TextStudio(p: Props) {
     commit({ ...d, layers: [...d.layers, l] });
     setSelected([l.id]);
     return l;
+  };
+  /** A new text from the Add menu or T: it opens for typing with its placeholder selected, so typing replaces it. */
+  const addTextAndType = () => {
+    const l = addLayer();
+    if (!l) return;
+    setEditing(l.id);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.select();
+    }, 0);
   };
   /** Any new layer goes on top and becomes the selection. */
   const addAny = (l: Layer) => {
@@ -995,7 +1005,7 @@ export default function TextStudio(p: Props) {
       }
       if (e.key.toLowerCase() === "t") {
         e.preventDefault();
-        addLayer();
+        addTextAndType();
         return;
       }
       if (e.key === "?") {
@@ -1289,7 +1299,7 @@ export default function TextStudio(p: Props) {
           onReorder={reorder}
           onDuplicate={(id) => duplicate([id])}
           onDelete={(id) => remove([id])}
-          onAdd={() => addLayer()}
+          onAdd={addTextAndType}
           onAddLogo={logoSrc ? addLogo : undefined}
           onAddImage={addImage}
           onAddShape={addShape}
