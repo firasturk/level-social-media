@@ -149,9 +149,8 @@ fallback while no sign-in exists (one release). `GET /api/studio/freepik/status`
   photo or PSD; **Editable vector (SVG)** for a vector); **Use as reference** (the post's reference
   picture, through the same storage as the reference route) and **Download to library**; the
   **Library** tab lists what was brought in for the client.
-- **Text Studio → Layers → Add → Freepik asset**: the same picker in design mode; **Add to
-  design** records the use against the new layer's id and adds the image layer (a flattened
-  picture is said so).
+- **Photo studio → Assets** and **Text studio → Assets tab** (also *Layers › Add › Image… ›
+  Freepik assets…*): one panel, described under "Assets as design elements" below.
 - **Direction board → "pictures pinned to posts" row → Add from Freepik**: the picker with a
   post selector; the asset becomes that post's reference. The theme references row is untouched.
 - Members see every entry with **Admins only for now** (the server refuses them with 403).
@@ -166,7 +165,7 @@ for now"), `GET /assets/:id/file` (members may view a stored file: a design show
 - `GET /status` → `{connected, demo, reason, admin, access, plan, planLabel, downloadEstimate,
   entitlements, mcp: {connected, signedIn, token, url}, switch: {enabled, reason}}`
 - `POST /plan {plan: "premium" | "business" | "unknown"}`
-- `GET /search?q=&type=photo|vector|psd|template&orientation=&color=&page=&client=` →
+- `GET /search?q=&type=photo|vector|psd|template&category=icons|photos|backgrounds|textures|typography&orientation=&color=&page=&client=` →
   `{items[], page, lastPage, total, demo, connected, downloadEstimate}`; each item
   `{id, kind, title, author, license{type, attribution, uses, url}, preview, width, height,
   orientation, flattened, formats, url, demo}`
@@ -175,8 +174,12 @@ for now"), `GET /assets/:id/file` (members may view a stored file: a design show
   `409 {needsConfirm: true, estimate, opId, asset}` until confirmed; `409 {blocked: true, plan}`
   when the cost is not known
 - `POST /use {asset, batch, post, slide?, role: "reference" | "design", layerId?}` →
-  `{asset, use, reference?}` or `{asset, use, layer: {src, name, flattened, layerable}}`
-- `GET /assets?client=` → `{assets[]}` (with `uses` counts); `GET /assets/:id/file`
+  `{asset, use, reference?}` or `{asset, use, layer: {src, name, flattened, layerable, preview,
+  format, editable, colors, note, lettering, kind, aspect}}`
+- `GET /assets?client=` → `{assets[]}` (with `uses` counts, and per asset `format`, `contents`,
+  `editable`, `colors`, `formatNote`, `layerSrc`, `lettering`); `GET /assets/:id/file`
+  (`?layer=1` the file an image layer draws, `?preview=1` the preview picture; every answer carries
+  `Content-Security-Policy: default-src 'none'; … sandbox`)
 - `GET /mcp/status` (every member) → `{signedIn, expired, email, signedInAt, expiresAt, refresh,
   scope, token, source: "signin" | "token" | null, admin, switch, access, url, callback, device}`
 - `POST /mcp/signin/start` → `{ok, mode: "redirect", url}` or `{ok, mode: "device", userCode,
@@ -193,7 +196,89 @@ for now"), `GET /assets/:id/file` (members may view a stored file: a design show
 For the Prompt Box: `GET /api/studio/freepik/search`, `POST /api/studio/freepik/download`,
 `POST /api/studio/freepik/use`.
 
+## Assets as design elements (Photo studio and Text studio)
+
+One panel (`src/studio/FreepikPanel.tsx`) in the Photo studio's Assets panel, the Text studio's
+Assets tab and the dialog: a search box, the filter chips **All · Icons · Photos · Backgrounds ·
+Textures · Typography** (more filters: type, orientation, colour), the results in their own
+scrolling area, and a **sticky footer** with the selected asset's compact preview (title, source
+badge, format, licence, the vector's colours when known, the format note) and its actions:
+
+| Action | What it does | Cost |
+| --- | --- | --- |
+| **Add as layer** | an image layer on top of the design (move, resize, turn, fade, stack, duplicate, hide, delete like any layer) | the download (once, confirmed, in the Premium plan); the layer itself is free |
+| **Set as background** | a full-canvas image layer at the bottom of the stack, drawn **behind the photo**: it shows where the photo is transparent and around it when the photo is made smaller (Properties › Background › Photo size) | as above; the photo is never made again |
+| **Use as reference** | the post's reference picture for its next AI edit | as above (the AI edit itself is asked for separately) |
+| **Save to library** | the download only, kept and reused | as above |
+
+The chips map onto the search filters (`CATEGORY_RULES` in `server/freepik.ts`): Icons = vectors,
+the word *icon*, SVG vectors first (`filters[vector][type][svg]`); Photos = photos; Backgrounds =
+the word *background*; Textures = photos and the word *texture*; Typography = vectors, the word
+*lettering*, SVG first. `filters[vector][type][svg]` is the documented vector-type filter as we
+read it; if the API ignores it, the results are simply not narrowed.
+
+**One search, one import.** In the Photo studio, *Add as layer* and *Set as background* download
+the asset there (once), record the use, hand the layer over (`src/studio/assetHandoff.ts`,
+sessionStorage) and open the Text studio on the same post with the asset already placed. The
+search, its results and the selection are kept for the tab, so the Text studio's Assets tab shows
+the same results and the stored asset without searching again. The library dedupes by provider id
+(`assets` unique on `source, provider_id`): a second save, layer or background reuses the file.
+
+**Sources.** Freepik, the client's Drive, Pinterest and uploads carry their own badge
+(`src/studio/SourceBadge.tsx`) on the Assets tabs, the result footer, the layers list, a layer's
+properties and the post's reference.
+
+### Formats: read from the bytes (`server/asset-format.ts`)
+
+| Downloaded file | What the layer draws | Colours editable? | What the UI says |
+| --- | --- | --- | --- |
+| SVG | the sanitised SVG | yes (per layer) | *Editable vector (SVG): its colours can be changed on the layer.* |
+| ZIP with an SVG (Freepik's vector bundle) | the sanitised SVG (EPS/AI stay in the library) | yes | *Vector bundle with an SVG: …* |
+| ZIP with EPS/AI and a PNG/JPG | that PNG/JPG | no | *This file is EPS/AI: colours cannot be changed here. The PNG/JPG it carries is placed instead.* |
+| ZIP with EPS/AI only, an EPS, an AI | the preview picture (flattened) | no | *This file is EPS/AI: colours cannot be changed here. The preview picture is placed instead.* |
+| PSD | the preview picture (flattened) | no | *This file is PSD: its layers and colours cannot be changed here…* |
+| JPG, PNG, WebP, GIF | the file itself | no | *A picture (JPG/PNG): placed as it is…* |
+| anything else, a broken ZIP or SVG | the preview picture | no | said plainly |
+
+No EPS, AI, PDF or PSD is converted: a Worker has no safe renderer for them and no outside
+converter is used. An SVG is rebuilt from an allow-list (elements, attributes): scripts,
+`foreignObject`, editor data (`i:pgf`, `sodipodi:*`), event handlers, `href` other than `#id` or
+an embedded PNG/JPG/GIF/WebP, `url()` to anything but `#id`, `@import`, DOCTYPE and processing
+instructions are dropped; Illustrator's plain DOCTYPE entities are expanded first; the root gets
+the SVG namespace and a size from its viewBox; a shape with no fill gets the (default) black
+written on the root so that black is a swatch too. The colours are the distinct `fill`, `stroke`,
+`stop-color`, `flood-color`, `lighting-color` and `color` values (attributes, `style`, `<style>`
+rules), up to 24, most used first (`shared/svg-colors.ts`).
+
+**Recolouring** is a per-layer colour map (`ImageLayer.recolor`, original → new #rrggbb, at most
+32) applied when the browser draws the layer: the same scanner rewrites those paint values and the
+SVG is drawn from a data URL (`src/lib/textLayers.ts`, used by the studio, the cards, the exports
+and the share page's preview alike). The library file never changes. Gradients recolour stop by
+stop; colours set through CSS custom properties or `currentColor` are not listed or changed.
+
+**Decorative lettering** (the Typography chip, or a title with lettering, typography,
+calligraphy, word art, slogan, quote) is an image layer labelled *Decorative lettering (not
+editable text)*, never a text box; **Add editable text** next to it adds a normal text layer.
+
+Existing assets stored before this change are read once on their next use (`ensureInspected`).
+Migration `0074_asset_formats.sql` adds `format, contents, layer_key, layer_mime, colors,
+format_note` to `assets`.
+
 ## Tests
+
+`tests/asset-format.test.ts`: format sniffing; the sanitiser against scripts, handlers, split
+tags, outside references, entities, `foreignObject`; a ZIP with an SVG (editable, colours), an
+EPS-only ZIP (refused with the message), EPS+PNG, PNG/JPG, EPS/AI/PSD alone, broken files; colour
+normalising, listing and recolouring. `tests/layer-ops.test.ts`: add, duplicate, remove, reorder,
+bring forward/back, move/resize/rotate/opacity/hide, *Set as background* as the bottom layer (one
+at a time), recolour maps, the layer an asset becomes, the schema keeping the new fields.
+`tests/freepik-assets.test.ts` (paid guard): the chips' query, the demo chips, a vector ZIP stored
+and used as an editable layer (the layer file served with the CSP), an EPS-only lettering bundle
+placed as its preview, an old row read on use, an SVG reference sanitised and labelled, one
+download for repeated saves and layers, member 403 on every action, and placing an icon,
+recolouring it, setting a background and saving the design with no network call and no task.
+`scripts/assets-smoke.mjs` (Chromium, mocked API): the flow at 1440×1000 and 390×844 with the
+sticky footer measured at the top and the bottom of the results.
 
 `tests/freepik.test.ts`, under the paid guard (any network call the test did not stub fails it):
 the demo status and the member view; the search shape and every filter against the fixtures;
@@ -233,6 +318,11 @@ Not run live: no key, no token, no sign-in and no paid call were used while this
 - The daily cap (100 on the Premium family) is not counted locally; the API's 429 is surfaced.
 - The MCP result parser recognises stock items by an id with a preview, URL or title; other
   tools' answers are returned as they come and not turned into assets.
-- Vector downloads through the API are source bundles (ZIP): kept in the library, not usable as
-  a reference or a layer; the SVG of a vector comes through the MCP's `stock_download`
-  (`type: icon`) or an upload.
+- Vector downloads through the API are source bundles (ZIP): when the bundle carries an SVG it
+  becomes an editable layer; EPS/AI-only bundles and PSDs are placed as their preview picture and
+  their colours cannot be changed here (no converter runs in the Worker).
+- Image layers point at `/api/studio/...` URLs: the public share page cannot load them for a viewer
+  who is not signed in (true of every image layer, product photos included), so a shared preview
+  shows the post without them until the share route serves layer files.
+- A background shows only where the photo is transparent or around a smaller photo: making an
+  opaque photograph's own backdrop disappear needs a cut-out (a paid tool, asked separately).

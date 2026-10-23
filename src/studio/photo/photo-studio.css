@@ -1209,3 +1209,12 @@ body:has(.ps) .confirm-backdrop {
     max-height: 60vh;
   }
 }
+@media (max-width: 860px) {
+  /* The bottom toolbar already says Assets: the room goes to the results. */
+  .ps-assets > .ts-panel-head {
+    display: none;
+  }
+  .ps-side:has(.ps-assets) {
+    max-height: 64vh;
+  }
+}

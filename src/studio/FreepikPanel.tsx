@@ -314,6 +314,10 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     setBusy(what);
     try {
       const asset = selectedAsset?.stored ? selectedAsset : await ensureStored(item, what !== "download");
+      // The stored asset is the selection from now on, kept for this tab before anything else
+      // happens (the Photo studio closes on "Add as layer"; the Text studio opens on it, stored).
+      writeSaved(clientId, { q, category, kind, orientation, color, page, answer, selected, selectedAsset: asset });
+      setSelectedAsset(asset);
       if (what === "download") {
         toast.success(selectedAsset?.stored ? `"${asset.title}" is in the library.` : "Saved to the library: it is reused from there, never downloaded again.");
       } else if (what === "reference") {

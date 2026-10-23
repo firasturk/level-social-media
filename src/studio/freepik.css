@@ -29,6 +29,16 @@
   align-items: center;
   gap: 6px;
 }
+/* Row one: the source and the Search / Library tabs; row two: the connection, small. */
+.fp-head > .fp-note,
+.fp-head > .fp-demo {
+  order: 3;
+  flex-basis: 100%;
+  justify-self: start;
+}
+.fp-head > .fp-demo {
+  flex-basis: auto;
+}
 .fp-tabs {
   display: inline-flex;
   gap: 4px;
@@ -76,6 +86,7 @@
 /* Search and filter chips */
 .fp-controls {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 .fp-search {
@@ -490,8 +501,20 @@
 
 /* Phones: a compact action bar at the bottom, clear of the home indicator. */
 @media (max-width: 640px) {
+  .fp-panel {
+    gap: 7px;
+  }
   .fp-results {
     max-height: 52vh;
+    min-height: 96px;
+  }
+  .fp-head .fp-note,
+  .fp-head .fp-demo {
+    display: none;
+  }
+  .fp-chips button {
+    height: 26px;
+    padding: 0 9px;
   }
   .fp-grid {
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -516,15 +539,12 @@
     display: none;
   }
   .fp-actions {
-    display: flex;
-    overflow-x: auto;
-    scrollbar-width: none;
-    gap: 6px;
+    gap: 5px;
   }
   .fp-actions button {
-    flex: none;
-    min-height: 36px;
-    padding: 0 10px;
+    min-height: 34px;
+    padding: 0 6px;
+    font-size: 12px;
   }
   .fp-search button span {
     display: none;

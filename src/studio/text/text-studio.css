@@ -544,7 +544,7 @@
 }
 @media (max-width: 860px) {
   .ts .ts-right:has(.ts-assets) {
-    max-height: 60vh;
+    max-height: 64vh;
   }
 }
 
@@ -587,4 +587,9 @@
   border-radius: 5px;
   background: #1d1d1f;
   color: #fff;
+}
+
+/* A download confirm, asked from the Assets tab, sits above the studio sheet. */
+body:has(.ts) .confirm-backdrop {
+  z-index: 960;
 }

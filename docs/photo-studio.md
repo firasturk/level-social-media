@@ -93,7 +93,7 @@ Originals (product uploads, Drive photos) are never written by any of this.
 | **Edit** (AI) | wand | one paid picture per edit (the engine's price, said before the confirm) | whoever opened the month |
 | **Adjust** | sliders | free: drawn in the browser, nothing is generated | everyone |
 | **Photo lab** | flask | Freepik, about the price shown per tool; a demo when no key is saved | admins only for now |
-| **Assets** | pictures | Freepik stock: a download is proposed with its estimate; the client's Drive is free | Freepik: admins only for now; Drive: everyone |
+| **Assets** | pictures | Freepik stock: a download is proposed with its estimate (once; then reused); layers and backgrounds are free; the client's Drive is free | Freepik: admins only for now; Drive: everyone |
 | **Versions** | history | free | everyone |
 | **Check** | scan | the writing check is one Vision call per read when Google Vision is connected | everyone |
 
@@ -128,11 +128,16 @@ request runs. The result goes on the canvas as before / after; then **Use as the
 (`src/studio/photolab/usePhotoLab.ts`) shared with the post editor's Photo lab panel, which keeps
 working as it was.
 
-**Assets.** Two tabs: Freepik stock (the search and the library, in reference mode: *Use as
-reference* makes the asset the post's reference for its next AI edit) and the client's Drive photos
-(the same picker as the editor's Idea group: pin one as the reference). *Add to design* (a picture
-layer over the post) is made in the Text studio, where layers live: the panel says so and offers
-the switch.
+**Assets.** Two tabs, each with its source badge: **Freepik** stock and the **Client's Drive**
+photos (the same picker as the editor's Idea group: pin one as the reference). The Freepik tab is
+the shared assets panel (see docs/freepik.md, "Assets as design elements"): a search, the chips
+Icons · Photos · Backgrounds · Textures · Typography, the results scrolling in their own area, and
+a sticky footer with the selected asset's preview and **Add as layer**, **Set as background**,
+**Use as reference**, **Save to library**. The footer never scrolls away and never covers the
+canvas or the last results; at 640 px and below it becomes a compact action bar clear of the home
+indicator. *Add as layer* and *Set as background* download the asset once and open the Text studio
+on this post with it already placed (layers live there); the same search and selection are waiting
+in its Assets tab. Layers and backgrounds never call an image model: the photo is not made again.
 
 **Versions.** Every take of this post, newest first: the picture, the date, the cost (or *free*),
 its note (what it was edited or adjusted for), whether it was made for the idea as it is now or an
