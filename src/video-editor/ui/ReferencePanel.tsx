@@ -149,7 +149,7 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
       const output = analysis.height > analysis.width ? { width: 1080, height: 1920 } : p0.output;
       const fills = fillSlots(sources, template.slots.map((s) => ({ duration: s.duration, action: s.action ?? 0.5 })), output);
       const logo = ctx.layers.logoUrl && ctx.layers.logoUrl.startsWith("/") ? { src: ctx.layers.logoUrl, name: "Client logo" } : null;
-      let next = applyTemplate(template, p0, [], { windows: fills, keepLook: true, language, logo, frame: analysis.height > analysis.width ? "reel" : "keep" });
+      let next = applyTemplate(template, p0, [], { windows: fills, keepLook: true, language, logo, words: ctx.words, frame: analysis.height > analysis.width ? "reel" : "keep" });
       if (matchColour && analysis.colour) {
         setBusy("Matching the reference's colour…");
         const ref: LabStats = { n: 1, mean: analysis.colour.mean, std: analysis.colour.std, sum: analysis.colour.mean, sumSq: [0, 0, 0] };
@@ -267,7 +267,7 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
             <li>Pace: {analysis.pace.map((p) => p.toFixed(1)).join(" · ")} cuts per second, every 2 s</li>
             <li>Camera: {stats.moves || "mostly still"}</li>
             <li>Music: {analysis.music ? `a steady beat at about ${Math.round(analysis.music.bpm)} BPM` : "no steady beat heard"}</li>
-            <li>On-screen text: {analysis.text === "found" ? `seen on ${stats.texts} shot${stats.texts === 1 ? "" : "s"} (a rough guess; placeholders go there)` : "not detected (a rough guess: small or thin text is missed)"}</li>
+            <li>On-screen text: {analysis.text === "found" ? `seen on ${stats.texts} shot${stats.texts === 1 ? "" : "s"} (a rough guess; the post's headline goes there, or a placeholder)` : "not detected (a rough guess: small or thin text is missed)"}</li>
           </ul>
           <fieldset className="ve-fields" disabled={readOnly || !!busy}>
             <div className="vl-seg" role="group" aria-label="Text language">

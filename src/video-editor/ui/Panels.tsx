@@ -11,6 +11,7 @@ import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Library
 import { Orb } from "@/components/Orb";
 import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, isGap, placeClips, totalLength, TRANSITIONS, type Clip, type VideoProject } from "@shared/video-project";
 import type { LooksCtx } from "./looks-ctx";
+import type { PostWords } from "@shared/video-templates";
 import TemplatesGallery from "./TemplatesGallery";
 import MusicSourcePanel from "./MusicSourcePanel";
 import { DEFAULT_FRAMING, MAX_LOGO_DATA_URL, MAX_ZOOM, textDirection, type Framing, type LogoOverlay, type Overlay, type TextOverlay } from "@shared/video-compose";
@@ -38,6 +39,8 @@ export interface PanelCtx {
   sources: Media[];
   /** The sources a first cut or a template picks from: without the editor's own renders. */
   footage: Media[];
+  /** The post's own words (headline, second line) and the brand: templates and auto edit write them instead of placeholders. */
+  words: PostWords;
   labelOf: (clip: Clip) => string;
   onAddClip: (m: Media) => void;
   onAddFootage: (files: FileList) => Promise<void>;
@@ -761,6 +764,9 @@ export function ExportPanel({ ctx }: { ctx: PanelCtx }) {
         </div>
       )}
       {last?.status === "interrupted" && <p className="ts-hint warn">The last render stopped when its tab closed or went to sleep. Rendering happens in the browser and cannot continue without the tab: press Render again and keep this tab open.</p>}
+      <p className="ts-hint">
+        Sound is encoded with FFmpeg's AAC encoder (LGPL) when the browser has none of its own. <a href="/licences" target="_blank" rel="noreferrer">Open-source licences</a>
+      </p>
       {!x.standalone && x.renders.length > 0 && (
         <>
           <span className="ts-group-title">Renders</span>

@@ -28,6 +28,8 @@ import {
   type Clip,
 } from "../shared/video-project";
 import { parseCube, sampleCube } from "../shared/cube-lut";
+import { applyTemplate, hookFromPost, TEMPLATES } from "../shared/video-templates";
+import { PURPOSE_TEXT } from "../shared/edit-plan";
 
 const src = (id: string) => ({ kind: "version" as const, batch: "b1", videoId: id });
 const clip = (id: string, duration: number, patch: Partial<Clip> = {}): Clip => ({ ...newClip(src(id), duration, id), ...patch });
@@ -246,5 +248,23 @@ describe("footage for a first cut", () => {
   it("leaves out the editor's own renders, unless they are all there is", () => {
     expect(footageOnly([v("a"), v("r"), { source: { kind: "upload" as const, name: "x.mp4", size: 1 } }], new Set(["r"])).map((m) => (m.source.kind === "version" ? m.source.videoId : "upload"))).toEqual(["a", "upload"]);
     expect(footageOnly([v("r")], new Set(["r"]))).toHaveLength(1);
+  });
+});
+
+describe("the post's own words in a cut", () => {
+  const base = PURPOSE_TEXT.promo.hook;
+  it("puts the headline and its second line over the hook, one language when the post has one", () => {
+    expect(hookFromPost(base, { headline: "عصير طازج", subline: "Fresh juice" }, "both")).toMatchObject({ tx: { ar: "عصير طازج", en: "Fresh juice" }, language: "both" });
+    expect(hookFromPost(base, { headline: "عصير طازج" }, "both")).toMatchObject({ tx: { ar: "عصير طازج" }, language: "ar" });
+    expect(hookFromPost(base, { headline: "Fresh juice" }, "ar")).toMatchObject({ tx: { en: "Fresh juice" }, language: "en" });
+    expect(hookFromPost(base, { headline: "  " }, "both")).toBeNull();
+    expect(hookFromPost(base, undefined, "both")).toBeNull();
+  });
+  it("a template's opening line says the post's headline, the call to action stays", () => {
+    const tpl = TEMPLATES.find((t) => t.texts.some((x) => x.role === "offer" || x.role === "headline"))!;
+    const out = applyTemplate(tpl, newProject("t"), [], { language: "en", words: { headline: "Summer menu" } });
+    const texts = out.overlays.filter((o) => o.kind === "text").map((o) => (o as { text: string }).text);
+    expect(texts[0]).toBe("Summer menu");
+    expect(texts.length).toBeGreaterThan(1);
   });
 });

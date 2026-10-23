@@ -969,7 +969,7 @@ export default function PlanView({
                           if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
                           // The team's own acceptance of the picture; the client's approval is a separate chip under the title.
                           if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by the team · ${accepted}` };
-                          return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                          return { cls: "ok", icon: <Check size={12} />, text: isMediaPost(p) && STATUS_LABEL[t.status] === "Made" ? "Ready" : (STATUS_LABEL[t.status] ?? t.status) };
                         })()
                       : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                 const saved = plan.find((x) => x.index === p.index);
@@ -1274,7 +1274,7 @@ export default function PlanView({
                                   const accepted = acceptedBy(t);
                                   if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
                                   if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
-                                  return { cls: "ok", icon: <Check size={12} />, text: STATUS_LABEL[t.status] ?? t.status };
+                                  return { cls: "ok", icon: <Check size={12} />, text: isMediaPost(p) && STATUS_LABEL[t.status] === "Made" ? "Ready" : (STATUS_LABEL[t.status] ?? t.status) };
                                 })()
                               : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
                       return (
@@ -2021,7 +2021,7 @@ export default function PlanView({
           <Suspense fallback={null}>
             <VideoEditor
               open
-              post={{ batch: batchId, index: p.index, title: p.title }}
+              post={{ batch: batchId, index: p.index, title: p.title, headline: p.headline, subline: p.subline }}
               initialVideoId={videoEditing.videoId}
               initialPanel={videoEditing.panel}
               pictureUrl={t?.output ? pictureOf(p.index, t) : null}

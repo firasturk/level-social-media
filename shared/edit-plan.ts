@@ -32,7 +32,7 @@ import { DEFAULT_COLOUR, MAX_CLIPS, MAX_TIMELINE_SECONDS, MIN_CLIP_SECONDS, clip
 import type { Framing, LogoOverlay, Overlay } from "./video-compose";
 import { hamming, DUPLICATE_BITS, type FootageAnalysis, type WindowFlag, type WindowScore } from "./shot-analysis";
 import type { MusicGrid } from "./music-bars";
-import { textOverlays, type TemplateLanguage, type TemplateText } from "./video-templates";
+import { hookFromPost, textOverlays, type PostWords, type TemplateLanguage, type TemplateText } from "./video-templates";
 import type { Pace, Purpose } from "./video-autoedit";
 
 export interface PlanSource {
@@ -59,9 +59,11 @@ export interface PlanOptions {
   /** Locked clips of the current timeline and where they start. */
   locked?: readonly { clip: Clip; start: number }[];
   output: { width: number; height: number };
-  /** Placeholder words (default on), in which language. */
+  /** Words over the hook and on the end card (default on), in which language. */
   text?: boolean;
   language?: TemplateLanguage;
+  /** The post's own words: its headline (and second line) go over the hook instead of placeholders; the brand closes a story. */
+  words?: PostWords;
   logo?: { src: string; name: string } | null;
   /** Calm shots a little faster (1.25×). Off by default. */
   ramps?: boolean;
@@ -447,6 +449,9 @@ const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
 
 /* ───────────── Words ───────────── */
 
+const ARABIC = /[\u0600-\u06FF]/;
+
+
 /** Placeholder words per purpose: an opening line over the hook and a call to action on the end card. */
 export const PURPOSE_TEXT: Record<Purpose, { hook: TemplateText; end: TemplateText; look: { id: string; amount: number } }> = {
   launch: {
@@ -622,9 +627,14 @@ export function planEdit(sources: readonly PlanSource[], opts: PlanOptions): Edi
   const hookAt = shots.findIndex((s) => s.role === "hook");
   const endAt = shots.findIndex((s) => s.role === "end");
   const language = opts.language ?? "both";
+  const own = hookFromPost(purposeText.hook, opts.words, language);
+  const hookText = own?.tx ?? purposeText.hook;
+  const brand = opts.words?.brand?.trim();
+  // A story ends on the brand's name when it is known; launch and promo end on their call to action.
+  const endText = opts.purpose === "story" && brand ? { ...purposeText.end, en: brand, ar: brand } : purposeText.end;
   if (opts.text !== false) {
-    if (hookAt >= 0) overlays.push(...textOverlays(purposeText.hook, placed[hookAt].start + 0.1, placed[hookAt].end, language, aspect, nextId));
-    if (endAt >= 0) overlays.push(...textOverlays(purposeText.end, placed[endAt].start + 0.3, placed[endAt].end, language, aspect, nextId));
+    if (hookAt >= 0) overlays.push(...textOverlays(hookText, placed[hookAt].start + 0.1, placed[hookAt].end, own?.language ?? language, aspect, nextId));
+    if (endAt >= 0) overlays.push(...textOverlays(endText, placed[endAt].start + 0.3, placed[endAt].end, endText === purposeText.end ? language : ARABIC.test(brand ?? "") ? "ar" : "en", aspect, nextId));
   }
   if (endAt >= 0 && opts.logo?.src) {
     const l: LogoOverlay = { id: `o${nextId()}`, kind: "logo", src: opts.logo.src, name: opts.logo.name || "Logo", start: round3(placed[endAt].start + 0.2), end: round3(placed[endAt].end), x: 0.5, y: 0.12, width: 0.26, opacity: 1 };
@@ -655,7 +665,12 @@ export function planEdit(sources: readonly PlanSource[], opts: PlanOptions): Edi
   if (left.length) summary.push(`Left out (half seconds): ${left.join(", ")}.`);
   if (punches) summary.push(`${punches} reused shot${punches === 1 ? " is" : "s are"} punched in so ${punches === 1 ? "it reads" : "they read"} as new angles.`);
   const brightened = clips.filter((c) => c.colour && c.colour.exposure > 0).length;
-  if (opts.text !== false) summary.push(`Text: ${hookAt >= 0 ? `“${purposeText.hook.en}” over the hook` : ""}${hookAt >= 0 && endAt >= 0 ? " and " : ""}${endAt >= 0 ? `“${purposeText.end.en}” on the end card` : ""}: placeholders to replace.`);
+  if (opts.text !== false) {
+    const hookLine = own ? `the post's headline “${own.language === "ar" ? hookText.ar : hookText.en}”` : `“${purposeText.hook.en}”`;
+    const endLine = `“${endText.en}”`;
+    const tail = own ? "." : ": placeholders to replace (the post has no headline yet).";
+    summary.push(`Text: ${hookAt >= 0 ? `${hookLine} over the hook` : ""}${hookAt >= 0 && endAt >= 0 ? " and " : ""}${endAt >= 0 ? `${endLine} on the end card` : ""}${tail}`);
+  }
   if (brightened) summary.push(`${brightened} dark shot${brightened === 1 ? "" : "s"} brightened a little (Colour → the clip's exposure).`);
   if (speechAll.length) summary.push(`${placedSpeech} speech segment${placedSpeech === 1 ? "" : "s"} kept whole.`);
   if (locked.length) summary.push(`${locked.length} locked clip${locked.length === 1 ? "" : "s"} kept in place.`);

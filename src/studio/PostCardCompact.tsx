@@ -242,8 +242,8 @@ export default function PostCardCompact({
               <button type="button" className="cta primary small" onClick={() => (task?.output && onPhotoStudio ? onPhotoStudio() : onEdit(task?.output ? "image" : "idea"))} disabled={inFlight} title={task?.output ? "Open the Photo studio: the picture large, with the AI edit, free adjustments, the Photo lab, versions and checks" : "Open the editor on the idea and the shot; no picture is made"}>
                 {task?.output ? <Aperture size={14} /> : <Pencil size={14} />} {task?.output ? "Edit picture" : "Edit the idea"}
               </button>
-              <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline, caption and the layout of the words on the picture; no picture is made">
-                Words &amp; layout
+              <button type="button" className="cta secondary small" onClick={() => onEdit("words")} disabled={inFlight} title="Headline and caption, and how the words sit on the picture (the T button opens the Text studio); no picture is made">
+                Words &amp; caption
               </button>
             </>
           )}

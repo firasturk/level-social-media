@@ -24,7 +24,7 @@ import { askConfirm } from "@/lib/confirm";
 import type { Ambassador, Client, Source, Task, Theme, User } from "@shared/types";
 import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
-import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post } from "@shared/posts";
+import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post, isMediaPost } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { draftLabel, type PlanDraft } from "@shared/draft";
 import { CONFLICT_LABELS, precedenceLine, type Conflict, type GuideLayer } from "@shared/conflicts";
@@ -1447,7 +1447,7 @@ export default function Flow(p: FlowProps) {
                             : "Pick a grid from the library; the month follows it tile by tile."
                           : way === "refs"
                             ? theme
-                              ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; never their objects.`
+                              ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; a post with no product photo starts from one of them.`
                               : "Pin pictures to a theme; they set the light and palette."
                             : startStyle
                               ? `Goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.`
@@ -1529,7 +1529,7 @@ export default function Flow(p: FlowProps) {
                           </span>
                           <div className="flow-input-text">
                             <b>{theme && theme.references ? `Theme references · ${theme.references}` : "Theme references · none"}</b>
-                            <span>{theme && theme.references ? "Visual references: they set the light and palette for every post, never their objects. They are not product photos." : "Visual references: would set the light and palette for every post, never their objects. Not product photos. Optional."}</span>
+                            <span>{theme && theme.references ? "Visual references: they set the light and palette for every post. A post with no product photo starts from one of them and recreates it in the post's idea. They are not product photos." : "Visual references: would set the light and palette for every post (and be the starting picture of a post with no product photo). Not product photos. Optional."}</span>
                           </div>
                           <span className="flow-input-actions">
                             {theme && (
@@ -2008,7 +2008,7 @@ export default function Flow(p: FlowProps) {
                     if (campaignRefs) items.push({ n: `${campaignRefs} attached to the brief`, what: "recreated on the posts they were attached to" });
                     if (styled.length) items.push({ n: `${styled.length} style${styled.length === 1 ? "" : "s"} on post${styled.length === 1 ? "" : "s"} ${styled.map((x) => x.index).slice(0, 5).join(", ")}${styled.length > 5 ? "…" : ""}`, what: "the idea and shot of that post" });
                     if (monthGrid) items.push({ n: `Grid “${monthGrid.title}”`, what: "the composition of every post" });
-                    if (theme?.references) items.push({ n: `${theme.references} theme reference${theme.references === 1 ? "" : "s"}`, what: "the light and palette only, never their objects" });
+                    if (theme?.references) items.push({ n: `${theme.references} theme reference${theme.references === 1 ? "" : "s"}`, what: "the light and palette; the starting picture of a post with no product photo" });
                     return (
                       <ul className="flow-refs-list">
                         {items.map((it) => (
@@ -2131,7 +2131,7 @@ export default function Flow(p: FlowProps) {
                       const t = taskOf(x.index);
                       const o = outcomeOf(x.index);
                       const kind = x.tileSpec?.kind === "text" && !x.product ? "Text tile · drawn here, free" : x.group ? `${x.group.kind === "carousel" ? "Carousel" : "Series"} · slide ${x.group.slide} of ${x.group.of}` : "Picture";
-                      const state = o?.status === "blocked" ? { cls: "warn", text: "Blocked" } : t && olderIdea(t, x, p.config) ? { cls: "idea", text: "Older idea" } : o?.status === "made" ? { cls: "ok", text: "Made" } : o?.status === "making" ? { cls: "making", text: "Making" } : o?.status === "ready" ? { cls: "ready", text: o.paid ? "Ready to make" : "Drawn here" } : { cls: "", text: "" };
+                      const state = o?.status === "blocked" ? { cls: "warn", text: "Blocked" } : t && olderIdea(t, x, p.config) ? { cls: "idea", text: "Older idea" } : o?.status === "made" ? { cls: "ok", text: isMediaPost(x) ? "Ready" : "Made" } : o?.status === "making" ? { cls: "making", text: "Making" } : o?.status === "ready" ? { cls: "ready", text: o.paid ? "Ready to make" : "Drawn here" } : { cls: "", text: "" };
                       const isOpen = open === x.index;
                       const older = !!t && olderIdea(t, x, p.config);
                       return (

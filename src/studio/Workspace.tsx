@@ -18,7 +18,7 @@ import { HEADLINE_FONTS, resolveOverlay } from "@shared/overlay";
 import { postConfig, type Config, type Size } from "@shared/config";
 import { campaignSizeOf, type CampaignSize } from "@shared/campaign-size";
 import { inFlight } from "@shared/inflight";
-import { currentMonth, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
+import { currentMonth, isMediaPost, lineageUnknown, monthLabel, olderIdea, postFileName, type Format, type Post } from "@shared/posts";
 import { blocking, monthIssues, sceneContext } from "@shared/issues";
 import { monthCounts } from "@shared/counts";
 import { confirmScope } from "@shared/scope";
@@ -686,7 +686,8 @@ export default function Workspace({
     if (!batch) return;
     const due = plan.filter((p) => {
       const t = tasks.find((x) => x.post === p.index);
-      if (!t?.output || ["queued", "processing", "finalizing"].includes(t.status) || p.captionHand || p.captionFrom === t.output) return false;
+      // The client's own pictures and clips are not captioned by themselves (a paid text call nobody asked for): the post editor has a button.
+      if (!t?.output || isMediaPost(p) || ["queued", "processing", "finalizing"].includes(t.status) || p.captionHand || p.captionFrom === t.output) return false;
       const key = `${t.id}:${t.output}`;
       if (captionsAsked.current.has(key)) return false;
       captionsAsked.current.add(key);
@@ -1612,6 +1613,14 @@ export default function Workspace({
                   const r = await post<{ check: { ok: boolean }; post: Post; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] }>("/api/studio/posts/text-check", { batch: batch.id, index, image: canvas.toDataURL("image/jpeg", 0.82), propose });
                   await refresh();
                   return { note: r.post.textCheck?.note ?? "", ok: r.check.ok, proposal: r.proposal, applied: r.applied };
+                }
+              : undefined,
+            onWriteCaption: t?.output
+              ? async () => {
+                  const r = await post<{ plan: Post[]; failed: number[] }>("/api/studio/posts/captions", { batch: batch.id, indexes: [index], force: true });
+                  await refresh();
+                  if (r.failed?.includes(index)) throw new Error("The caption could not be written; try again.");
+                  return r.plan.find((x) => x.index === index)?.caption ?? null;
                 }
               : undefined,
             lineage: !t?.output ? "none" : lineageUnknown(t) ? "unknown" : olderIdea(t, editorPost, config ?? null) ? "older" : "current",

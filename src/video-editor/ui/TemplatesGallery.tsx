@@ -73,7 +73,7 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
     }
     for (const m of ctx.footage) add(m);
     const brand = ctx.layers.logoUrl && ctx.layers.logoUrl.startsWith("/") ? { src: ctx.layers.logoUrl, name: "Client logo" } : null;
-    ctx.commit((q) => applyTemplate(tpl, q, media, { language, logo: brand, frame: isReel ? "keep" : frame }));
+    ctx.commit((q) => applyTemplate(tpl, q, media, { language, logo: brand, words: ctx.words, frame: isReel ? "keep" : frame }));
     const moods = tpl.music.moods.map((id) => MUSIC_MOODS.find((m) => m.id === id)?.label ?? id).join(", ");
     toast.success(`${tpl.name}: ${tpl.slots.length} shots${media.length ? "" : " (add footage to fill them)"}. Suggested music: ${moods}${tpl.music.bpm ? `, ${tpl.music.bpm[0]}–${tpl.music.bpm[1]} BPM` : ""}.`);
   };
@@ -138,7 +138,7 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
               <button type="button" className="ts-btn primary" disabled={ctx.readOnly} onClick={() => void use(t)} title={ctx.readOnly ? ctx.reason : "Fill the cut with this template; everything stays editable"}>
                 <LayoutTemplate size={14} /> Use this template
               </button>
-              <p className="ts-hint">Fills the cut with the footage above (reused when there are fewer clips than shots), placeholder words to replace, the preset and {ctx.layers.logoUrl ? "the client's logo" : "a place for the logo (add it under Logo)"}. Nothing is generated or charged.</p>
+              <p className="ts-hint">Fills the cut with the footage above (reused when there are fewer clips than shots), {ctx.words.headline ? "the post's headline as the opening line" : "placeholder words to replace (the post has no headline yet)"}, the preset and {ctx.layers.logoUrl ? "the client's logo" : "a place for the logo (add it under Logo)"}. Nothing is generated or charged.</p>
             </div>
           )}
         </>

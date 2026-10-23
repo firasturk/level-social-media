@@ -57,7 +57,7 @@ export function AutoEditPanel({ ctx }: { ctx: PanelCtx }) {
           ))}
         </div>
         <label className="ve-check">
-          <input type="checkbox" checked={text} onChange={(e) => setText(e.target.checked)} /> Placeholder words over the hook and on the end card
+          <input type="checkbox" checked={text} onChange={(e) => setText(e.target.checked)} /> Words over the hook (the post's headline) and on the end card
         </label>
         {text && (
           <div className="vl-seg" role="group" aria-label="Text language">

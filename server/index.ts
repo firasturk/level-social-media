@@ -4,6 +4,7 @@ import { getCookie } from "hono/cookie";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { authRoutes, currentUser, SESSION_COOKIE } from "./auth";
+import { LICENCES_HTML } from "./licences";
 import { studioRoutes } from "./studio";
 import { verifyObjectToken } from "./signed";
 import { adminRoutes, cleanupOldBatches } from "./admin";
@@ -98,6 +99,8 @@ app.use("/api/studio/*", async (c, next) => {
   await next();
 });
 app.route("/api/studio", studioRoutes);
+
+app.get("/licences", (c) => c.html(LICENCES_HTML));
 
 app.get("*", (c) => {
   if (c.req.path.startsWith("/api/")) return c.json({ error: "Not found." }, 404);

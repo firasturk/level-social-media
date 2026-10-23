@@ -2545,7 +2545,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       brief.noRefImage = true;
       changes.push("The reference shows people, so it is described and not attached: the engine copies no one over the portraits.");
     }
-    if (brief.refIsSource) changes.push("No product photo on this post: the reference picture is image 1 and is recreated.");
+    if (brief.refIsSource) changes.push(styled ? "No product photo on this post: the style's picture is the starting picture, recreated in this post's idea." : "No product photo on this post: a theme reference is the starting picture, recreated in this post's idea (its objects can show). Add a product photo to show the product instead.");
     if (brief.editRef) changes.push("A picture pinned to this post is attached: it wins over the grid tile and the theme reference here.");
     // What will guide this picture, and where its inputs disagree: a conflict the post does not
     // allow blocks it until the team adapts the style or allows the exception on this post.

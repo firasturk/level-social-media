@@ -108,6 +108,8 @@ export interface PostEditorTools {
   takes?: Take[];
   /** The art director looks at the post as it will be published (words drawn on): its finding, and the moves it proposes. */
   onCheckWords?: (propose: boolean) => Promise<{ note: string; ok: boolean; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] }>;
+  /** Writes the caption from the picture (a text call) and returns it. */
+  onWriteCaption?: () => Promise<string | null>;
   /** An earlier take back on the post (the current picture stays listed). */
   onUseTake?: (key: string) => Promise<void>;
   /** Who accepted it, when someone did. */
@@ -168,6 +170,7 @@ export default function ReviewDialog({
   /** The words check: running, its finding, and the moves it proposes until applied or left. */
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{ note: string; ok: boolean; proposal: { ov?: Post["ov"]; changes: string[] } | null; applied?: string[] } | null>(null);
+  const [writingCaption, setWritingCaption] = useState(false);
   const [autoApply, setAutoApply] = useState<boolean>(() => {
     try {
       return localStorage.getItem("lsm-words-auto") === "1";
@@ -451,6 +454,27 @@ export default function ReviewDialog({
             </label>
             <div className="revision-voice">
               <VoiceInput label="Dictate the caption" onText={(t) => set("caption", appendDictation(field("caption") ?? "", t))} disabled={busy} />
+              {editor.onWriteCaption && (
+                <button
+                  type="button"
+                  className="cta secondary small"
+                  disabled={busy || writingCaption}
+                  title="Write the caption from the picture (a text call, billed by the connected text provider)"
+                  onClick={async () => {
+                    setWritingCaption(true);
+                    try {
+                      const c = await editor.onWriteCaption!();
+                      if (c) set("caption", c);
+                    } catch (e) {
+                      toast.error((e as Error).message);
+                    } finally {
+                      setWritingCaption(false);
+                    }
+                  }}
+                >
+                  {writingCaption ? "Writing…" : "Write the caption from the picture"}
+                </button>
+              )}
             </div>
             <label className="field-label">
               Hashtags

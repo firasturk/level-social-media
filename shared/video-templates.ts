@@ -239,6 +239,31 @@ export interface TemplateMedia {
 
 export type TemplateLanguage = "en" | "ar" | "both";
 
+const ARABIC_LETTERS = /[\u0600-\u06FF]/;
+
+/** What the post already says, read from its card. */
+export interface PostWords {
+  headline?: string | null;
+  subline?: string | null;
+  brand?: string | null;
+}
+
+/**
+ * The hook line from the post's own words: an Arabic and a Latin line when the headline and its
+ * second line give both, otherwise the one there is (shown alone, not twice). Null when the post has
+ * no headline: the purpose's placeholder stays.
+ */
+export function hookFromPost(base: TemplateText, words: PostWords | undefined, language: TemplateLanguage): { tx: TemplateText; language: TemplateLanguage } | null {
+  const lines = [words?.headline, words?.subline].map((w) => w?.trim()).filter((w): w is string => !!w);
+  if (!lines.length) return null;
+  const ar = lines.find((l) => ARABIC_LETTERS.test(l)) ?? null;
+  const en = lines.find((l) => !ARABIC_LETTERS.test(l)) ?? null;
+  const tx = { ...base, en: en ?? ar!, ar: ar ?? en! };
+  // One language only in the post: that one, whatever the panel asked for.
+  const lang: TemplateLanguage = ar && en ? language : ar ? "ar" : "en";
+  return { tx, language: lang };
+}
+
 export interface ApplyOptions {
   /** The words in English, Arabic, or both (Arabic above English). */
   language?: TemplateLanguage;
@@ -253,6 +278,8 @@ export interface ApplyOptions {
   windows?: readonly (SlotWindow | null)[];
   /** Keep the project's colour (a template read from a reference video has no look of its own). */
   keepLook?: boolean;
+  /** The post's own words: its headline replaces the template's opening line (headline or offer). */
+  words?: PostWords;
 }
 
 /**
@@ -330,10 +357,13 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
   const output = opts.frame === "keep" ? base.output : { ...base.output, width: 1080, height: 1920 };
   const aspect = output.width / Math.max(1, output.height);
   const overlays: Overlay[] = [];
-  for (const tx of t.texts) {
+  // The first headline or offer line says what the post says, when the post has words.
+  const lead = t.texts.findIndex((x) => x.role === "headline" || x.role === "offer");
+  t.texts.forEach((tx, i) => {
     const { start, end } = span(tx.from, tx.to);
-    overlays.push(...textOverlays(tx, start, end, language, aspect, nextId));
-  }
+    const own = i === lead ? hookFromPost(tx, opts.words, language) : null;
+    overlays.push(...textOverlays(own?.tx ?? tx, start, end, own?.language ?? language, aspect, nextId));
+  });
   if (opts.logo?.src) {
     const { start, end } = span(t.logo.from, t.logo.to);
     const l: LogoOverlay = { id: `o${nextId()}`, kind: "logo", src: opts.logo.src, name: opts.logo.name || "Logo", start, end, x: t.logo.x, y: t.logo.y, width: t.logo.width, opacity: 1 };

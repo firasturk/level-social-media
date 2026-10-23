@@ -63,6 +63,9 @@ export interface EditorPost {
   batch: string;
   index: number;
   title: string;
+  /** The words on the post's card: auto edit puts them over the hook. */
+  headline?: string;
+  subline?: string;
 }
 
 interface Props {
@@ -196,6 +199,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   // The editor's own renders: never footage for a first cut or a template.
   const renderedIds = useMemo(() => new Set(videos.filter((v) => v.source === "editor").map((v) => v.id)), [videos]);
   const footage = useMemo(() => footageOnly(sources, renderedIds), [sources, renderedIds]);
+  const postWords = useMemo(() => ({ headline: post?.headline, subline: post?.subline, brand: client?.name }), [post?.headline, post?.subline, client?.name]);
   const [videosLoaded, setVideosLoaded] = useState(false);
   const [admin, setAdmin] = useState(!post);
   const [shownId, setShownId] = useState<string | null>(initialVideoId ?? null);
@@ -643,7 +647,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       const logo = logoUrl && logoUrl.startsWith("/") ? { src: logoUrl, name: "Client logo" } : null;
       // A Reel by default (Instagram and TikTok want 9:16); "keep" leaves the frame the cut has.
       const output = opts.frame === "reel" ? { ...p.output, width: 1080, height: 1920 } : p.output;
-      const plan = planEdit(sources, { purpose: opts.purpose, pace: opts.pace, target: opts.target, grid, locked, output, text: opts.text, language: opts.language, logo, ramps: opts.ramps });
+      const plan = planEdit(sources, { purpose: opts.purpose, pace: opts.pace, target: opts.target, grid, locked, output, text: opts.text, language: opts.language, words: postWords, logo, ramps: opts.ramps });
       // Fresh ids for the new shots; locked clips keep theirs.
       const clips = plan.clips.map((c) => (c.locked ? c : { ...c, id: newClipId() }));
       if (!clips.length) {
@@ -1127,6 +1131,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         mark: history.mark,
         sources,
         footage,
+        words: postWords,
         labelOf,
         onAddClip: addClip,
         onAddFootage: addFootage,
