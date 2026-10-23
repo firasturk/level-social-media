@@ -30,8 +30,11 @@ One list of what you need to do to activate and verify every connection, after `
 4. Instagram publishing token (item 7) when you want to publish from the studio; Drive Outputs folders (item 8) when you want deliveries.
 5. The optional ones (5, 6, 10, 11) when needed.
 
-## What is verified today
+## What is verified today (23 Oct 2026)
 
-- Higgsfield key: saved and verified (authentication). No clip has been made through the studio yet (operation not verified).
-- Vertex service account, Meta reading token, Drive reading of Habibah's and Abu Saleh's product folders: working on production.
-- Everything else above: not connected; the studio runs those features as labelled demos or answers "Not connected" with the exact step to take.
+- Higgsfield sign-in (subscription credits): signed in; one Seedance 2.5 clip (35 credits) and one Kling 3.0 Turbo clip (7.5 credits, "7.5 credits reported (balance 5604.75 → 5597.25)") made from the Video studio's Generate panel, both on the client link; the preset gallery's nine categories fill with reference videos; "Get the cost" on Upscale answers 2 credits with the balance unchanged.
+- Higgsfield Cloud API key: saved and verified (authentication); unused while the billing choice is "Subscription credits".
+- Magnific sign-in: signed in; the 12 video engines list, the 51 picture looks with 49 samples. No Magnific generation run through the studio yet (each costs credits; blocked until `simulate_cost` names a figure).
+- Freepik API key and plan: a search, an in-plan download and a Photo lab remove-background ($0.02) done; the asset previews show (over https).
+- Vertex service account, Meta reading token, Drive reading of Habibah's and Abu Saleh's product folders, Google Vision OCR: working on production.
+- Everything else above (Instagram publishing, Drive Outputs delivery, Resend, generated music): not connected; the studio runs those features as labelled demos or answers "Not connected" with the exact step to take.
