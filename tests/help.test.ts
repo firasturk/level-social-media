@@ -76,6 +76,8 @@ describe("asking", () => {
     expect(text).toContain("written plainly and politely");
     expect(text).toContain("هاد وجهي الطبيعي");
     expect(text).toContain("drop the act and just help");
+    expect(text).toContain("ALWAYS SHORT");
+    expect(text).not.toContain("هاد السؤال ضحكني");
     expect(helpInstruction({ message: "q", history: [], role: "member", name: "N", local: { hour: 23, weekday: 5 } })).toContain("Their local time: 23:00, Friday.");
   });
 });
