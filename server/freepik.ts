@@ -181,7 +181,7 @@ function fromListItem(it: ListItem): StockItem {
     title: (it.title ?? it.filename ?? "Untitled").slice(0, 200),
     author: it.author?.name ?? "",
     license: licenseOf(lic?.type, lic?.url),
-    preview: it.image?.source?.url ?? "",
+    preview: securePreview(it.image?.source?.url),
     width: size ? Number(size[1]) : null,
     height: size ? Number(size[2]) : null,
     orientation: orientationOf(it.image?.orientation),
@@ -258,7 +258,7 @@ export class FreepikStockClient implements StockProvider {
       title: (d.name ?? "Untitled").slice(0, 200),
       author: d.author?.name ?? "",
       license: licenseOf(d.premium ? "premium" : "freemium", d.license),
-      preview: d.preview?.url ?? "",
+      preview: securePreview(d.preview?.url),
       width: d.dimensions?.width ?? d.preview?.width ?? null,
       height: d.dimensions?.height ?? d.preview?.height ?? null,
       orientation: d.dimensions?.width && d.dimensions?.height ? (d.dimensions.width > d.dimensions.height ? "landscape" : d.dimensions.width < d.dimensions.height ? "portrait" : "square") : "unknown",
@@ -474,7 +474,7 @@ export function assetJson(a: AssetRow, uses: number | null = null) {
     title: a.title,
     author: a.author,
     license,
-    preview: a.preview_url,
+    preview: securePreview(a.preview_url),
     file: a.file_key ? assetFileUrl(a.id) : null,
     stored: !!a.file_key,
     mime: a.mime,
@@ -610,6 +610,17 @@ export interface UseInput {
   slide?: number | null;
   role: UseRole;
   layerId?: string | null;
+}
+
+/**
+ * Freepik's search and detail answers link previews over plain `http://img.b2bpic.net/…`; the
+ * studio page is https, so a browser refuses those pictures (mixed content) and the cards show
+ * blank. The CDN serves the same path over https, so the scheme is upgraded here, once, for every
+ * preview the studio hands out (search results, one asset, the stored library rows).
+ */
+export function securePreview(url: string | null | undefined): string {
+  if (!url) return "";
+  return url.replace(/^http:\/\//i, "https://");
 }
 
 /** The R2 key of the preview picture kept next to a bundle (a vector's ZIP), once fetched. */

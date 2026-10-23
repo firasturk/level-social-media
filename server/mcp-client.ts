@@ -180,7 +180,100 @@ export function jsonOf(r: McpCallResult): unknown {
       /* prose with a bracket */
     }
   }
+  // Magnific's tools answer a compact YAML-like text ("models[7]:\n  - slug: kling-25\n    name: …"): read it into the same shape.
+  for (const c of r.content) {
+    if (c.type !== "text" || typeof c.text !== "string") continue;
+    const parsed = parseYamlish(c.text);
+    if (parsed) return parsed;
+  }
   return null;
+}
+
+const YAMLISH_LINE = /^(\s*)(-\s+)?(?:([A-Za-z_][\w.-]*)(?:\[(\d+)\])?:(?:\s+(.*))?|(.+))$/;
+
+function yamlishScalar(v: string): unknown {
+  const t = v.trim();
+  if (/^".*"$/.test(t)) return t.slice(1, -1).replace(/\\"/g, '"');
+  if (t === "true") return true;
+  if (t === "false") return false;
+  if (t === "null" || t === "~") return null;
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  return t;
+}
+
+/** `"1:1","16:9"` or `5,10` → the values (commas inside quotes kept). */
+function yamlishList(v: string): unknown[] {
+  const out: unknown[] = [];
+  let cur = "";
+  let quoted = false;
+  for (const ch of v) {
+    if (ch === '"') quoted = !quoted;
+    if (ch === "," && !quoted) {
+      out.push(yamlishScalar(cur));
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur.trim() !== "") out.push(yamlishScalar(cur));
+  return out;
+}
+
+interface YamlishLine {
+  indent: number;
+  /** The item marker's width ("- "), 0 when the line is not a list item. */
+  dash: number;
+  key: string | null;
+  /** The key carried a `[n]` count: its value is a list. */
+  counted: boolean;
+  value: string | undefined;
+}
+
+/**
+ * The compact YAML-like text some MCP tools answer with (Magnific's catalogs): `key: value`,
+ * `key[n]: a,b,c` (an inline list), `key:` followed by indented lines (a block), and `- key: value`
+ * items under a `key[n]:` block (a list of objects). Null when the text does not look like that.
+ */
+export function parseYamlish(text: string): Record<string, unknown> | null {
+  const lines: YamlishLine[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    if (raw.trim() === "") continue;
+    const m = YAMLISH_LINE.exec(raw);
+    if (!m) return null;
+    const [, ws, dash, key, count, value, bare] = m;
+    lines.push({ indent: ws.length, dash: dash ? dash.length : 0, key: key ?? null, counted: count !== undefined, value: key ? value : bare });
+  }
+  if (lines.length < 2 || lines[0].indent !== 0 || lines[0].dash || !lines[0].key) return null;
+  let i = 0;
+  const parseObject = (indent: number, into: Record<string, unknown>): Record<string, unknown> => {
+    while (i < lines.length && lines[i].indent === indent && !lines[i].dash && lines[i].key) {
+      const l = lines[i++];
+      into[l.key!] = valueOf(l, indent);
+    }
+    return into;
+  };
+  const parseList = (indent: number): unknown[] => {
+    const out: unknown[] = [];
+    while (i < lines.length && lines[i].indent === indent && lines[i].dash) {
+      const l = lines[i++];
+      if (!l.key) {
+        out.push(yamlishScalar(l.value ?? ""));
+        continue;
+      }
+      // "- key: value": the first key of an object whose other keys sit under the marker.
+      const inner = indent + l.dash;
+      const item: Record<string, unknown> = { [l.key]: valueOf(l, inner) };
+      out.push(parseObject(inner, item));
+    }
+    return out;
+  };
+  const valueOf = (l: YamlishLine, indent: number): unknown => {
+    if (l.value !== undefined && l.value.trim() !== "") return l.counted ? yamlishList(l.value) : yamlishScalar(l.value);
+    // A block: the lines indented deeper, a list when they are items.
+    const next = lines[i];
+    if (!next || next.indent <= indent) return l.counted ? [] : {};
+    return next.dash ? parseList(next.indent) : parseObject(next.indent, {});
+  };
+  const root = parseObject(0, {});
+  return Object.keys(root).length ? root : null;
 }
 
 /**

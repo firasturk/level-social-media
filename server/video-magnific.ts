@@ -90,18 +90,27 @@ export function parseVideoModels(r: McpCallResult): MagnificVideoModel[] {
     const slug = String(o.slug);
     if (seen.has(slug) || !/^[a-z0-9][a-z0-9_.:/-]{1,80}$/i.test(slug)) continue;
     seen.add(slug);
+    // `private: true` = internal or feature-flagged (the catalog's own words): not offered.
+    if (o.private === true) continue;
+    // Only video generators: the catalog may list other tools under the same key.
+    if (typeof o.tool === "string" && o.tool && !/video/i.test(o.tool)) continue;
     const caps = `${JSON.stringify(o.capabilities ?? o.features ?? o.inputs ?? o.supports ?? "")}`.toLowerCase();
     const rec = o.agentRecommendation ?? o.recommendation ?? o.recommended;
+    // The live catalog: `agentRecommendation: {tier, rank, summary}`; older shapes said a string or a flag.
+    const recBlock = rec && typeof rec === "object" && !Array.isArray(rec) ? (rec as Record<string, unknown>) : null;
+    const recText = recBlock ? String(recBlock.summary ?? recBlock.tier ?? "") : typeof rec === "string" ? rec : "";
+    const keyframes = o.keyframes && typeof o.keyframes === "object" ? (o.keyframes as Record<string, unknown>) : null;
+    const startFrame = o.supportsStartFrame === true || !!keyframes?.start;
     out.push({
       slug,
       name: String(o.name ?? o.title ?? o.displayName ?? slug).slice(0, 80),
-      description: String(o.description ?? o.summary ?? "").slice(0, 300),
+      description: String(o.description ?? recBlock?.summary ?? o.summary ?? "").slice(0, 300),
       durations: numbersOf(o.durations ?? o.duration ?? o.supportedDurations ?? o.durationOptions),
       aspectRatios: stringsOf(o.aspectRatios ?? o.aspect_ratios ?? o.supportedAspectRatios),
       resolutions: stringsOf(o.resolutions ?? o.supportedResolutions),
-      recommended: rec === true || (typeof rec === "string" && rec.trim() !== "" && !/not recommended/i.test(rec)),
-      recommendation: typeof rec === "string" ? rec.slice(0, 300) : "",
-      imageToVideo: caps === '""' || /image|keyframe|start/.test(caps) || !/text[-_ ]?only/.test(caps),
+      recommended: rec === true || !!recBlock || (typeof rec === "string" && rec.trim() !== "" && !/not recommended/i.test(rec)),
+      recommendation: recText.slice(0, 300),
+      imageToVideo: o.supportsStartFrame === false && !keyframes?.start ? false : startFrame || caps === '""' || /image|keyframe|start/.test(caps) || !/text[-_ ]?only/.test(caps),
     });
   }
   return out;
