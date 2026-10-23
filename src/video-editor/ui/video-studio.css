@@ -1463,3 +1463,139 @@ body:has(.vs) .confirm-backdrop {
     height: 46px;
   }
 }
+
+/* ───────────── Presets as a wall of clips (like Higgsfield's page): the references playing at
+   their own shapes in columns on a dark stage, the name over the clip, the buttons on hover
+   (always on touch screens), the price and the clip's own buttons in the top corners. ───────────── */
+.vs-gallery .vs-grid-wrap {
+  background: #07080c;
+  color: #f2f2f7;
+}
+.vs-gallery .vs-gallery-title small {
+  color: rgba(242, 242, 247, 0.55);
+}
+.vs-gallery .vs-gallery-head .ts-icon {
+  color: #f2f2f7;
+}
+.vs-gallery .vs-search {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(242, 242, 247, 0.6);
+}
+.vs-gallery .vs-search input {
+  color: #f2f2f7;
+}
+.vs-gallery .vs-note {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(242, 242, 247, 0.85);
+}
+.vs-gallery .vs-note .ts-link {
+  color: #b9c2ff;
+}
+.vs-gallery .vs-grid {
+  display: block;
+  column-width: 240px;
+  column-gap: 12px;
+}
+.vs-gallery .vs-preset {
+  position: relative;
+  display: block;
+  break-inside: avoid;
+  margin: 0 0 12px;
+  border: 0;
+  border-radius: 14px;
+  background: #15161c;
+  overflow: hidden;
+  box-shadow: none;
+}
+.vs-gallery .vs-preset.on {
+  box-shadow: 0 0 0 2px #fff;
+}
+.vs-gallery .vs-preset-media {
+  aspect-ratio: auto;
+  min-height: 120px;
+  background: #15161c;
+}
+.vs-gallery .vs-preset-media .apv,
+.vs-gallery .vs-preset-media .apv > video,
+.vs-gallery .vs-preset-media img {
+  height: auto;
+}
+.vs-gallery .vs-preset-media .apv-tools {
+  top: 8px;
+  bottom: auto;
+}
+.vs-gallery .vs-preset-blank {
+  aspect-ratio: 4 / 5;
+  height: auto;
+}
+.vs-gallery .vs-preset-price {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  z-index: 3;
+}
+.vs-gallery .vs-preset-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  gap: 6px;
+  padding: 36px 12px 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.35) 60%, transparent);
+  color: #fff;
+  pointer-events: none;
+}
+.vs-gallery .vs-preset-text b {
+  font-size: 13.5px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.vs-gallery .vs-preset-desc,
+.vs-gallery .vs-preset-text .vs-chips,
+.vs-gallery .vs-needs {
+  display: none;
+}
+.vs-gallery .vs-preset-actions {
+  pointer-events: auto;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin: 0;
+  transition: opacity 0.15s, max-height 0.15s;
+}
+.vs-gallery .vs-preset:hover .vs-preset-actions,
+.vs-gallery .vs-preset:focus-within .vs-preset-actions,
+.vs-gallery .vs-preset.on .vs-preset-actions {
+  max-height: 40px;
+  opacity: 1;
+}
+.vs-gallery .vs-preset-actions .ts-mini {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+.vs-gallery .vs-preset-actions .ts-mini.primary {
+  background: #fff;
+  color: #111;
+}
+.vs-gallery .vs-more {
+  display: flex;
+  margin: 4px auto 0;
+}
+@media (hover: none) {
+  .vs-gallery .vs-preset-actions {
+    max-height: 40px;
+    opacity: 1;
+  }
+}
+@media (max-width: 860px) {
+  .vs-gallery .vs-grid {
+    column-width: auto;
+    column-count: 2;
+    column-gap: 8px;
+  }
+  .vs-gallery .vs-preset {
+    margin-bottom: 8px;
+  }
+}

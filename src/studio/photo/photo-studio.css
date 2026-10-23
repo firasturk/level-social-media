@@ -1218,3 +1218,133 @@ body:has(.ps) .confirm-backdrop {
     max-height: 64vh;
   }
 }
+
+/* ───────────── Presets as a wall of pictures (like Higgsfield's page): the samples at their own
+   shapes in columns on a dark stage, the name over the picture, the buttons on hover (always on
+   touch screens), the price in the corner; the detail panel holds the rest. ───────────── */
+.ps-gallery .ps-grid-wrap {
+  background: #07080c;
+  color: #f2f2f7;
+}
+.ps-gallery .ps-gallery-title small {
+  color: rgba(242, 242, 247, 0.55);
+}
+.ps-gallery .ps-gallery-head .ts-icon {
+  color: #f2f2f7;
+}
+.ps-gallery .ps-search {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: rgba(242, 242, 247, 0.6);
+}
+.ps-gallery .ps-search input {
+  color: #f2f2f7;
+}
+.ps-gallery .ps-note {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: rgba(242, 242, 247, 0.85);
+}
+.ps-gallery .ps-note .ts-link {
+  color: #b9c2ff;
+}
+.ps-gallery .ps-grid {
+  display: block;
+  column-width: 230px;
+  column-gap: 12px;
+}
+.ps-gallery .ps-preset {
+  position: relative;
+  display: block;
+  break-inside: avoid;
+  margin: 0 0 12px;
+  border: 0;
+  border-radius: 14px;
+  background: #15161c;
+  overflow: hidden;
+  box-shadow: none;
+}
+.ps-gallery .ps-preset.on {
+  box-shadow: 0 0 0 2px #fff;
+}
+.ps-gallery .ps-preset-media {
+  aspect-ratio: auto;
+  background: #15161c;
+}
+.ps-gallery .ps-preset-media img {
+  height: auto;
+  transition: transform 0.35s ease;
+}
+.ps-gallery .ps-preset:hover .ps-preset-media img {
+  transform: scale(1.03);
+}
+.ps-gallery .ps-preset-blank {
+  aspect-ratio: 4 / 5;
+  background: #1c1d24;
+  color: rgba(242, 242, 247, 0.5);
+}
+.ps-gallery .ps-preset-price {
+  left: auto;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+.ps-gallery .ps-preset-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  gap: 6px;
+  padding: 36px 12px 12px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.78), rgba(0, 0, 0, 0.35) 60%, transparent);
+  color: #fff;
+  pointer-events: none;
+}
+.ps-gallery .ps-preset-text b {
+  font-size: 13.5px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+}
+.ps-gallery .ps-preset-desc,
+.ps-gallery .ps-preset-text .ps-chips-row,
+.ps-gallery .ps-needs {
+  display: none;
+}
+.ps-gallery .ps-preset-actions {
+  pointer-events: auto;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin: 0;
+  transition: opacity 0.15s, max-height 0.15s;
+}
+.ps-gallery .ps-preset:hover .ps-preset-actions,
+.ps-gallery .ps-preset:focus-within .ps-preset-actions,
+.ps-gallery .ps-preset.on .ps-preset-actions {
+  max-height: 40px;
+  opacity: 1;
+}
+.ps-gallery .ps-preset-actions .ts-mini {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+.ps-gallery .ps-preset-actions .ts-mini.primary {
+  background: #fff;
+  color: #111;
+}
+@media (hover: none) {
+  .ps-gallery .ps-preset-actions {
+    max-height: 40px;
+    opacity: 1;
+  }
+}
+@media (max-width: 860px) {
+  .ps-gallery .ps-grid {
+    column-width: auto;
+    column-count: 2;
+    column-gap: 8px;
+  }
+  .ps-gallery .ps-preset {
+    margin-bottom: 8px;
+  }
+}
