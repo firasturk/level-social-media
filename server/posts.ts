@@ -29,7 +29,8 @@ import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftSt
 import { blockingConflicts, detectConflicts, guideFor, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { traceEvent } from "./trace";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
-import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
+import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatFrame, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
+import { framePostPicture, postPictureSizes, sizeLabel, type FrameOutcome } from "./picture-frame";
 import { hintsTool, INTENT_SCHEMA, intentInstruction, intentSummary, resolveIntent, validateIntent, videoCatalog, type PromptContext } from "@shared/promptbox";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
@@ -5668,9 +5669,11 @@ postRoutes.post("/chat", async (c) => {
   const month = config.month ?? "";
   const occasions = pickedOccasions(month, config.occasions).map((o) => ({ id: o.id, name: o.name, date: o.date }));
   const history = (config.chat ?? []).slice(-12);
+  const sizes = await postPictureSizes(c.env, b.id, plan.map((p) => p.index)).catch(() => new Map<number, { width: number; height: number }>());
+  const pictures = Object.fromEntries([...sizes].map(([i, size]) => [i, sizeLabel(size)]));
   const raw = await askText(
     c.env,
-    ideasChatInstruction({ client: client.name, month, posts: plan, products, notes: config.notes, history, message: d.message, occasions }),
+    ideasChatInstruction({ client: client.name, month, posts: plan, products, notes: config.notes, history, message: d.message, occasions, pictures, format: config.format ?? "4:5" }),
     IDEAS_CHAT_SCHEMA,
   );
   const answer = parseIdeasChat(parseJson<unknown>(raw), plan, products.map((p) => p.name), month);
@@ -5747,6 +5750,33 @@ postRoutes.post("/chat", async (c) => {
     }
   }
   for (const x of captions) await run(c.env.DB, "UPDATE tasks SET caption = ? WHERE batch = ? AND post = ?", JSON.stringify({ text: x.caption, hashtags: x.hashtags }), b.id, x.index);
+  // Frames: the pictures cut to the new shape, free; the posts (or the month) take the frame.
+  const framed: Record<FrameOutcome, number[]> = { already: [], cropped: [], held: [], "no-picture": [], unreadable: [] };
+  for (const a of answer.actions) {
+    if (a.op !== "frame") continue;
+    const list: Post[] = cfg.plan ?? [];
+    const asked: number[] = a.indexes.map(shift);
+    const every: boolean = !asked.length || list.every((p) => asked.includes(p.index));
+    const targets: number[] = every ? list.map((p) => p.index) : asked.filter((i) => list.some((p) => p.index === i));
+    if (every) {
+      cfg.format = a.format;
+      cfg.plan = list.map((p): Post => {
+        const next = { ...p };
+        delete next.format;
+        return next;
+      });
+    } else cfg.plan = list.map((p): Post => (targets.includes(p.index) ? { ...p, format: a.format } : p));
+    for (const index of targets) {
+      const outcome = await framePostPicture(c.env, fresh, cfg, index, a.format).catch((e) => {
+        console.error("[chat] frame", index, errorMessage(e));
+        return "unreadable" as const;
+      });
+      framed[outcome].push(index);
+      if (outcome === "cropped" || outcome === "held") changed.add(index);
+    }
+  }
+  const frameNote = framedNote(framed, answer.actions.find((a): a is ChatFrame => a.op === "frame")?.format);
+  if (frameNote) answer.reply = [answer.reply, frameNote].filter(Boolean).join("\n");
   // New standing rules only when the designer gave some (an echo of the month's notes is not a change).
   const notesChanged = answer.notes !== undefined && answer.notes.trim() !== (cfg.notes ?? "").trim();
   if (notesChanged) cfg.notes = answer.notes;
@@ -5874,3 +5904,16 @@ postRoutes.post("/share", async (c) => {
 });
 
 export type { Post };
+
+/** What the crop did, said by the studio after the chat's own reply (the facts, not the model's words). */
+export function framedNote(f: Record<FrameOutcome, number[]>, format: string | undefined): string {
+  if (!format) return "";
+  const list = (xs: number[]) => (xs.length === 1 ? `post ${xs[0]}` : `posts ${xs.join(", ")}`);
+  const parts: string[] = [];
+  if (f.cropped.length) parts.push(`Cut to ${format}, free (the middle kept; the previous picture is under Versions): ${list(f.cropped)}.`);
+  if (f.held.length) parts.push(`Cut to ${format} as a new version beside the client's (send it for review to show it): ${list(f.held)}.`);
+  if (f.already.length) parts.push(`Already ${format}, nothing to cut: ${list(f.already)}.`);
+  if (f["no-picture"].length) parts.push(`No picture yet (it will be made in ${format}): ${list(f["no-picture"])}.`);
+  if (f.unreadable.length) parts.push(`Could not be cut here (open it in Edit picture → Adjust): ${list(f.unreadable)}.`);
+  return parts.join(" ");
+}

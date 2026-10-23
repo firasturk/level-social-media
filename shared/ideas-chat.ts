@@ -4,7 +4,7 @@
  * captions in Jordanian Arabic", "add a Mother's Day post") and the art director understands,
  * changes exactly that, and answers in the designer's language.
  */
-import { matchProduct, POST_TYPES, type Post, type PostType } from "./posts";
+import { FORMATS, matchProduct, POST_TYPES, type Format, type Post, type PostType } from "./posts";
 
 export interface ChatTurn {
   role: "user" | "studio";
@@ -29,7 +29,13 @@ export interface ChatMake {
   op: "make";
   indexes: number[];
 }
-export type ChatAction = ChatUpdate | ChatAdd | ChatRemove | ChatMake;
+/** The pictures cut to another frame, free (server/picture-frame.ts); no indexes = every post. */
+export interface ChatFrame {
+  op: "frame";
+  indexes: number[];
+  format: Format;
+}
+export type ChatAction = ChatUpdate | ChatAdd | ChatRemove | ChatMake | ChatFrame;
 
 export interface ChatAnswer {
   reply: string;
@@ -66,14 +72,16 @@ export const IDEAS_CHAT_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          op: { type: "string", enum: ["update", "add", "remove", "make"] },
+          op: { type: "string", enum: ["update", "add", "remove", "make", "frame"] },
           /** The post's number as listed (#3 is 3), never zero-based. */
           post: { type: "integer" },
           posts: { type: "array", items: { type: "integer" } },
           /** update: the fields that change, each with its full new value, "" for the rest. add: the new post's fields. */
           fields: FIELDS_SCHEMA,
+          /** frame: the new frame ("1:1", "4:5" or "9:16"); "" for the other ops. */
+          format: { type: "string" },
         },
-        required: ["op", "post", "posts", "fields"],
+        required: ["op", "post", "posts", "fields", "format"],
       },
     },
   },
@@ -89,6 +97,10 @@ export function ideasChatInstruction(r: {
   history: ChatTurn[];
   message: string;
   occasions?: { id: string; name: string; date: string }[];
+  /** Each post's current picture, "1086×1358 (4:5)"; posts with none are left out. */
+  pictures?: Record<number, string>;
+  /** The month's frame. */
+  format?: string;
 }): string {
   const post = (p: Post) =>
     [
@@ -99,6 +111,7 @@ export function ideasChatInstruction(r: {
       `  idea: ${p.brief}`,
       p.scene ? `  shot: ${p.scene.slice(0, 300)}` : "",
       `  caption: ${p.caption || "(none)"} | hashtags: ${p.hashtags || "(none)"}`,
+      r.pictures ? `  picture: ${r.pictures[p.index] ?? "none yet"}${p.format ? ` · post frame ${p.format}` : ""}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -106,6 +119,7 @@ export function ideasChatInstruction(r: {
     `You are the art director of a social-media studio, in a conversation with the designer about ${r.client}'s posts for ${r.month}. Read what the designer says, understand exactly what they want changed, change only that, and answer them.`,
     `THE MONTH'S POSTS NOW:\n${r.posts.length ? r.posts.map(post).join("\n\n") : "(no posts yet)"}`,
     r.products.length ? `THE PRODUCT PHOTOS (a post's product is one of these exact names; never invent a product):\n${r.products.map((p) => `- ${p.name}${p.note ? `: ${p.note}` : ""}`).join("\n")}` : "THE PRODUCT PHOTOS: none this month.",
+    r.format ? `THE MONTH'S FRAME: ${r.format} (1:1 square, 4:5 portrait, 9:16 story). Each post above lists its picture's size.` : "",
     r.occasions?.length ? `OCCASIONS THIS MONTH: ${r.occasions.map((o) => `${o.name} (${o.date})`).join(", ")}.` : "",
     r.notes?.trim() ? `STANDING RULES FOR THE WORDS (the month's copy brief): ${r.notes.trim().slice(0, 1500)}` : "STANDING RULES FOR THE WORDS: none yet.",
     r.history.length ? `THE CONVERSATION SO FAR:\n${r.history.map((t) => `${t.role === "user" ? "Designer" : "You"}: ${t.text.slice(0, 600)}`).join("\n")}` : "",
@@ -113,13 +127,15 @@ export function ideasChatInstruction(r: {
     "HOW TO ANSWER:",
     "- actions: what to change. update {post, fields}: post is the post's number exactly as listed (#6 is 6; the Arabic ٦ is 6); fields carries every key; a key that changes holds its complete new value, a key that does not change holds \"\" (never copy an old value back). Every field you say you changed in reply MUST have its new value in fields, and text the designer dictated is copied word for word. add {fields} for a new post (date inside the month, a product from the list or \"\"). remove {post}. make {posts} only when the designer asks for the pictures to be made or made again. post is 0 and posts [] when the op has no use for them.",
     "- THE MONTH'S POSTS above are the truth now. When the conversation says something was changed but the posts do not show it, do it now.",
+    "- SIZE, FRAME OR CROP (\"crop to 4:5\", \"make them square\", \"story size\", \"غيّر القياس\"): use frame {posts, format}: the pictures are cut to that frame for free, keeping the middle; posts [] means every post. Look at each post's picture size first: when they are already in that frame, say so in reply and send no action. Never use make to change a size or crop: make draws a new picture and costs money.",
+    "- When the designer says nothing happened or it did not work, look at the posts above (their words, products, picture sizes) and say plainly what is there now; do the change if it is missing. Do not offer to make pictures again unless they ask for new pictures.",
     `- type is one of: ${POST_TYPES.join(", ")}. date is YYYY-MM-DD inside ${r.month}.`,
     "- The brief (idea) and the scene are written in English and describe the picture: place, subject, action, light, where the product is; never words, letters, logos or signs to draw. The headline is at most 6 words, the caption at most 10 words, both in the client's language as the other posts have them (Arabic stays Arabic).",
     "- \"post 3\" or \"بوست ٣\" means the post listed as #3. \"the Christmas post\" means the post whose title, occasion or idea says so. A change asked for \"all posts\" or \"every caption\" is one update per post.",
     "- When the designer gives a rule for the words of every post from now on (the tone, phrases to use or avoid, the language), put the full updated rules in notes and apply them to the posts' words now.",
     "- When the designer asks a question, answer it in reply with no actions. When the request is ambiguous (two posts could be meant), ask one short question in reply with no actions. Never change what was not asked.",
     "- reply: short, in the designer's own language (Arabic when they write Arabic), saying plainly what you changed (\"غيّرت بوست ٣ لموهيتو الكيوي وعدّلت الكابشن\") or asking your question. No markdown.",
-    'Return ONLY JSON: {"reply": "...", "notes": "", "actions": [{"op": "update", "post": 3, "posts": [], "fields": {"product": "...", "brief": "...", "headline": "...", "caption": "...", "type": "", "title": "", "scene": "", "subline": "", "hashtags": "", "date": ""}}, {"op": "add", "post": 0, "posts": [], "fields": {"title": "...", "date": "2026-12-24", "brief": "...", "headline": "...", "caption": "...", "hashtags": "#...", "type": "lifestyle", "scene": "", "subline": "", "product": ""}}, {"op": "remove", "post": 5, "posts": [], "fields": {}}, {"op": "make", "post": 0, "posts": [3], "fields": {}}]}.',
+    'Return ONLY JSON: {"reply": "...", "notes": "", "actions": [{"op": "update", "post": 3, "posts": [], "fields": {"product": "...", "brief": "...", "headline": "...", "caption": "...", "type": "", "title": "", "scene": "", "subline": "", "hashtags": "", "date": ""}}, {"op": "add", "post": 0, "posts": [], "fields": {"title": "...", "date": "2026-12-24", "brief": "...", "headline": "...", "caption": "...", "hashtags": "#...", "type": "lifestyle", "scene": "", "subline": "", "product": ""}}, {"op": "remove", "post": 5, "posts": [], "fields": {}}, {"op": "make", "post": 0, "posts": [3], "fields": {}}, {"op": "frame", "post": 0, "posts": [], "fields": {}, "format": "4:5"}]} (format is "" on the other ops).',
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -173,6 +189,11 @@ export function parseIdeasChat(raw: unknown, posts: Post[], products: string[], 
     } else if (op === "make") {
       const indexes = (Array.isArray(a.posts) && (a.posts as unknown[]).length ? (a.posts as unknown[]) : Array.isArray(a.indexes) ? (a.indexes as unknown[]) : [index]).map(Number).filter((i) => posts.some((p) => p.index === i));
       if (indexes.length) actions.push({ op: "make", indexes: [...new Set(indexes)] });
+    } else if (op === "frame") {
+      const format = str(a.format).replace(/\s+/g, "").replace("x", ":") as Format;
+      if (!(FORMATS as readonly string[]).includes(format)) continue;
+      const indexes = (Array.isArray(a.posts) ? (a.posts as unknown[]) : []).map(Number).filter((i) => posts.some((p) => p.index === i));
+      actions.push({ op: "frame", indexes: [...new Set(indexes)], format });
     }
   }
   return { reply: str(d.reply).slice(0, 1500), actions, notes: str(d.notes).slice(0, 2000) || undefined };
