@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A sale badge the way an editor exports one: a background rect, a ring with a gradient and a
+     CSS-classed stroke, stripes clipped to a circle, stars placed with <use> from a symbol, and
+     lettering with a drop shadow. Written for the "Split into layers" tests. -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 400 400" width="800" height="800">
+  <title>Sale badge</title>
+  <defs>
+    <linearGradient id="ring-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffcc00"/>
+      <stop offset="1" stop-color="#ff6600"/>
+    </linearGradient>
+    <linearGradient id="ring-grad-2" xlink:href="#ring-grad" gradientTransform="rotate(90 .5 .5)"/>
+    <clipPath id="stripe-clip">
+      <circle cx="200" cy="200" r="118"/>
+    </clipPath>
+    <symbol id="star" viewBox="0 0 20 20">
+      <path d="M10 0 L13 7 L20 7 L14 12 L16 20 L10 15 L4 20 L6 12 L0 7 L7 7 Z" fill="#ffffff"/>
+    </symbol>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <style>
+    .label { fill: #ffffff; font-family: Arial, Helvetica, sans-serif; font-weight: 700; }
+    .ring { stroke: #7a1f00; }
+  </style>
+  <rect id="background" x="0" y="0" width="400" height="400" fill="#1d3557"/>
+  <circle class="ring" cx="200" cy="200" r="150" fill="url(#ring-grad)" stroke-width="10"/>
+  <circle id="inner-disc" cx="200" cy="200" r="118" fill="url(#ring-grad-2)"/>
+  <g id="stripes" clip-path="url(#stripe-clip)">
+    <rect x="40" y="150" width="320" height="22" fill="#e63946" transform="rotate(-20 200 161)"/>
+    <rect x="40" y="228" width="320" height="22" fill="#e63946" transform="rotate(-20 200 239)"/>
+  </g>
+  <g id="stars" transform="translate(200 300)">
+    <use xlink:href="#star" x="-50" y="-10" width="20" height="20"/>
+    <use xlink:href="#star" x="-10" y="-10" width="20" height="20"/>
+    <use xlink:href="#star" x="30" y="-10" width="20" height="20"/>
+  </g>
+  <text class="label" x="200" y="222" font-size="64" text-anchor="middle" filter="url(#shadow)">SALE</text>
+</svg>

@@ -24,7 +24,7 @@ export default function AssetsPanel({ ctx }: { ctx: StudioCtx }) {
     if (!batchId) return;
     queueAssetForDesign({ batch: batchId, post: index, how, layer });
     if (ctx.onTextStudio) {
-      toast.success(how === "background" ? "Opening the Text studio with the background behind the photo." : "Opening the Text studio with the asset as a layer.");
+      toast.success(how === "background" ? "Opening the Text studio with the background behind the photo." : how === "pieces" ? "Opening the Text studio with the vector as separate layers." : "Opening the Text studio with the asset as a layer.");
       ctx.onTextStudio();
     } else toast.success("Saved for this post's design: it appears when the Text studio opens.");
   };

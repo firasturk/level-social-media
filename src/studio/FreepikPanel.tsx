@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BookmarkPlus, Check, ImagePlus, Layers, Library, Lock, PanelBottom, Search, SlidersHorizontal, Type } from "lucide-react";
+import { BookmarkPlus, Check, ImagePlus, Layers, Library, Lock, PanelBottom, Scissors, Search, SlidersHorizontal, Type } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { askConfirm } from "@/lib/confirm";
@@ -109,7 +109,8 @@ export interface FreepikLayer {
   preview?: boolean;
 }
 
-export type DesignHow = "layer" | "background";
+/** As one image layer, as the background, or (an SVG vector) as separate layers, one per group or shape. */
+export type DesignHow = "layer" | "background" | "pieces";
 
 export interface FreepikPanelProps {
   clientId: string;
@@ -227,7 +228,7 @@ function writeSaved(clientId: string, s: SavedSearch) {
   }
 }
 
-type Busy = "reference" | "layer" | "background" | "download" | null;
+type Busy = "reference" | "layer" | "background" | "pieces" | "download" | null;
 
 export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide, posts, mode = "all", layerId, onReference, onDesign, onAddText, fill, layerHint }: FreepikPanelProps) {
   const status = useFreepikStatus();
@@ -604,6 +605,17 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
           {canDesign && (
             <button type="button" className="primary wide" disabled={!current || !!busy || !batchId} onClick={() => void act("layer")} title={layerHint ?? "An image layer over the post's picture: move, resize, turn and stack it. Free: no picture is made."}>
               {busy === "layer" ? <Orb size={14} /> : <Layers size={14} />} Add as layer
+            </button>
+          )}
+          {canDesign && current?.kind === "vector" && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={!current || !!busy || !batchId}
+              onClick={() => void act("pieces")}
+              title="Each group and shape of the SVG as its own layer, in the same place and grouped: move, recolour or delete one piece, or remove the vector's background. An EPS/AI-only file cannot be split: it is added as one picture and says why."
+            >
+              {busy === "pieces" ? <Orb size={14} /> : <Scissors size={14} />} Add as separate layers
             </button>
           )}
           {canDesign && (

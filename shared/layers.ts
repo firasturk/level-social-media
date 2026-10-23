@@ -182,6 +182,10 @@ export interface ImageLayer {
   recolor?: Record<string, string>;
   /** Decorative lettering (a typography illustration): a picture, not editable text. */
   lettering?: boolean;
+  /** A piece of a vector taken apart with "Split into layers" (its own small SVG, grouped with the other pieces). */
+  piece?: boolean;
+  /** That piece was the vector's own background (a filled shape covering most of it): "Remove background" removes it. */
+  bgShape?: boolean;
 }
 
 export type ShapeKind = "rect" | "ellipse" | "line";
@@ -390,6 +394,8 @@ export const IMAGE_LAYER_SCHEMA = z.object({
   colors: z.array(hex).max(24).optional(),
   recolor: z.record(hex, hex).refine((m) => Object.keys(m).length <= 32, "at most 32 colours").optional(),
   lettering: z.boolean().optional(),
+  piece: z.boolean().optional(),
+  bgShape: z.boolean().optional(),
 });
 
 export const SHAPE_LAYER_SCHEMA = z.object({

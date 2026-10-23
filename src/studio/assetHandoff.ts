@@ -6,12 +6,12 @@
  * same asset is never searched for or imported twice. Kept in sessionStorage (this tab only) with
  * an in-memory fallback, and forgotten after ten minutes.
  */
-import type { FreepikLayer } from "./FreepikPanel";
+import type { DesignHow, FreepikLayer } from "./FreepikPanel";
 
 export interface PendingAsset {
   batch: string;
   post: number;
-  how: "layer" | "background";
+  how: DesignHow;
   layer: FreepikLayer;
   at: number;
 }
