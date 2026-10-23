@@ -73,6 +73,7 @@
     "@shared/palette-source": "./shared/palette-source.ts",
     "@shared/video-frame": "./shared/video-frame.ts",
     "@shared/photo-presets": "./shared/photo-presets.ts",
+    "@shared/help-guide": "./shared/help-guide.ts",
     "@shared/photo-tools": "./shared/photo-tools.ts",
   },
   "triggers": { "crons": ["* * * * *"] },

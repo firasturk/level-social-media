@@ -20509,7 +20509,7 @@ a.publish-pill.published:hover {
 /* ───────────── Help: the assistant (src/components/HelpAssistant.tsx) ───────────── */
 .help-fab {
   position: fixed;
-  left: 16px;
+  left: 84px;
   bottom: 16px;
   z-index: 900;
   display: inline-flex;
@@ -20542,7 +20542,7 @@ a.publish-pill.published:hover {
 }
 .help-panel {
   position: fixed;
-  left: 16px;
+  left: 84px;
   bottom: 16px;
   z-index: 950;
   width: min(400px, calc(100vw - 32px));
@@ -20597,7 +20597,30 @@ a.publish-pill.published:hover {
 }
 .help-msg { max-width: 92%; font-size: 13.5px; line-height: 1.5; }
 .help-msg p { margin: 0; white-space: pre-wrap; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.help-msg ol { margin: 6px 0 0; padding-inline-start: 20px; }
+.help-msg ol { margin: 6px 0 0; padding-inline-start: 22px; list-style: decimal; }
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--ink-700);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.help-btn:hover { background: var(--surface-3); }
+.help-btn.primary { background: var(--accent); color: #fff; }
+.help-btn.primary:hover { background: var(--accent-hover); }
+.help-btn:disabled { opacity: 0.5; cursor: default; }
+.help-link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; text-align: start; }
+.help-link:hover { text-decoration: underline; }
+.help-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 999px; background: transparent; color: var(--ink-500); cursor: pointer; }
+.help-icon:hover { background: var(--surface-2); color: var(--ink-700); }
 .help-msg li { margin: 2px 0; }
 .help-msg.user { align-self: flex-end; background: var(--accent); color: #fff; padding: 8px 12px; border-radius: 14px 14px 4px 14px; }
 .help-msg.assistant { align-self: flex-start; background: var(--surface-2); padding: 9px 12px; border-radius: 14px 14px 14px 4px; }
@@ -20630,7 +20653,7 @@ a.publish-pill.published:hover {
 .help-q { color: var(--ink-500); font-size: 12px; }
 .help-reply { background: var(--surface-2); padding: 6px 9px; border-radius: 8px; }
 @media (max-width: 600px) {
-  .help-fab { left: 12px; bottom: 12px; height: 34px; padding: 0 11px; }
+  .help-fab { left: auto; right: 12px; bottom: 76px; height: 34px; padding: 0 11px; }
   .help-fab span { display: none; }
   .help-panel { left: 8px; right: 8px; bottom: 8px; width: auto; height: calc(100dvh - 16px); }
 }

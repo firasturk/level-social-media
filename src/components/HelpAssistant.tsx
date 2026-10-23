@@ -165,7 +165,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                 {admin ? <Inbox size={13} /> : null} {admin ? `Inbox${openCount ? ` (${openCount})` : ""}` : "My requests"}
               </button>
             </nav>
-            <button type="button" className="ts-icon" onClick={() => setOpen(false)} aria-label="Close">
+            <button type="button" className="help-icon" onClick={() => setOpen(false)} aria-label="Close">
               <X size={15} />
             </button>
           </header>
@@ -196,7 +196,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                       </ol>
                     )}
                     {t.role === "assistant" && t.known !== false && !t.sent && t.question && (
-                      <button type="button" className="ts-link help-stuck" onClick={() => setDraft({ at: Date.now(), message: t.question!, question: t.question!, answer: t.text })}>
+                      <button type="button" className="help-link help-stuck" onClick={() => setDraft({ at: Date.now(), message: t.question!, question: t.question!, answer: t.text })}>
                         Still stuck? Send it to Firas himself
                       </button>
                     )}
@@ -215,10 +215,10 @@ export default function HelpAssistant({ user }: { user: User }) {
                     <small>He adds or fixes it and answers you under My requests. Change the words if you like.</small>
                     <textarea dir="auto" rows={4} value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} />
                     <div className="help-row">
-                      <button type="button" className="ts-btn primary" disabled={sending || !draft.message.trim()} onClick={() => void send()}>
+                      <button type="button" className="help-btn primary" disabled={sending || !draft.message.trim()} onClick={() => void send()}>
                         {sending ? <Orb size={14} /> : <Send size={14} />} Send to Firas himself
                       </button>
-                      <button type="button" className="ts-btn" onClick={() => setDraft(null)}>
+                      <button type="button" className="help-btn" onClick={() => setDraft(null)}>
                         Not now
                       </button>
                     </div>
@@ -249,11 +249,11 @@ export default function HelpAssistant({ user }: { user: User }) {
                 <div className="help-row">
                   <VoiceInput compact onText={(w) => setText((x) => appendDictation(x, w))} disabled={busy} />
                   {turns.length > 0 && (
-                    <button type="button" className="ts-link" onClick={() => (setTurns([]), setDraft(null))}>
+                    <button type="button" className="help-link" onClick={() => (setTurns([]), setDraft(null))}>
                       New conversation
                     </button>
                   )}
-                  <button type="submit" className="ts-btn primary" disabled={busy || !text.trim()}>
+                  <button type="submit" className="help-btn primary" disabled={busy || !text.trim()}>
                     <Send size={14} /> Ask
                   </button>
                 </div>
@@ -307,16 +307,16 @@ function RequestCard({ item, admin, onMark }: { item: HelpItem; admin: boolean; 
           <textarea dir="auto" rows={2} value={reply} placeholder="A reply they will see (optional)" onChange={(e) => setReply(e.target.value)} />
           <div className="help-row">
             {item.status === "open" ? (
-              <button type="button" className="ts-btn primary" disabled={busy} onClick={() => void act("done")}>
+              <button type="button" className="help-btn primary" disabled={busy} onClick={() => void act("done")}>
                 Mark done
               </button>
             ) : (
-              <button type="button" className="ts-btn" disabled={busy} onClick={() => void act("open")}>
+              <button type="button" className="help-btn" disabled={busy} onClick={() => void act("open")}>
                 Open again
               </button>
             )}
             {item.reply !== (reply.trim() || null) && item.status === "done" && (
-              <button type="button" className="ts-btn" disabled={busy} onClick={() => void act("done")}>
+              <button type="button" className="help-btn" disabled={busy} onClick={() => void act("done")}>
                 Save the reply
               </button>
             )}
