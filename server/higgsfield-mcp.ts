@@ -36,7 +36,7 @@ import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
-import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, storeFinishedClip, versionNumbers, videoItem, type VideoItem, type VideoRow, type VideoStatus } from "./video";
+import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, startFrameKey, storeFinishedClip, versionNumbers, videoItem, type StartFrame, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
 
 export const HIGGSFIELD_MCP_URL = "https://mcp.higgsfield.ai/mcp";
@@ -504,14 +504,14 @@ export interface McpEstimate {
 }
 
 /** The cost in credits of exactly this clip (`get_cost: true` submits nothing), with the balance. */
-export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record = true): Promise<McpEstimate> {
+export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record = true, opts: StartFrame = {}): Promise<McpEstimate> {
   const b = await ownedPlan(env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
   const mcp = new HiggsfieldMcp(env, fetcher());
   await mcp.connect();
   const { engine, duration, aspect } = await engineFor(env, mcp, d);
-  const posterKey = await posterFor(env, b, { id: t.id, output: t.output }, d);
+  const posterKey = startFrameKey(b, opts) ?? (await posterFor(env, b, { id: t.id, output: t.output }, d));
   const mediaId = await mediaFor(env, mcp, posterKey);
   const params = videoParams(engine, d, mediaId, duration, aspect);
   const r = await mcp.call("generate_video", { params: { ...params, get_cost: true } });
@@ -541,19 +541,19 @@ const isTimeout = (e: unknown) => e instanceof Error && (/TimeoutError|AbortErro
  * within ten minutes is refused, the op is recorded, the job goes out as a one-item batch. Nothing
  * retries by itself: a timeout keeps the row and the claim and says the outcome is unknown.
  */
-export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput): Promise<VideoItem> {
+export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, opts: StartFrame = {}): Promise<VideoItem> {
   if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if ((await higgsfieldBilling(env)) !== "credits") throw new StudioError(CLOUD_CHOSEN, 409, false, { billing: "cloud" });
   const b = await ownedPlan(env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
   // The estimate is asked again with the same body the job gets (the balance fresh, for the reported cost); the run's own row is the `video` op below.
-  const est = await estimateMcpVideo(env, user, d, false);
+  const est = await estimateMcpVideo(env, user, d, false, opts);
   const { engine, params } = est;
   if (est.unlimChoice && d.useUnlim === undefined) throw new StudioError(`Higgsfield asks whether this ${engine.name} clip should use the unlimited allowance or pay credits${est.credits !== null ? ` (${est.credits})` : ""}. Choose, then run again.`, 409, false, { unlimChoice: est.unlimChoice, credits: est.credits });
   if (est.credits === null && !d.confirm) throw new StudioError(`The cost of a ${engine.name} clip is not known: Higgsfield gave no figure. Confirm it at an unknown cost, or pick another engine.`, 409, false, { needsEstimate: true, model: engine.id });
   if (!d.confirm) throw new StudioError(`Confirm the clip: about ${est.credits} credits from the subscription balance${est.balance !== null ? ` (${est.balance} available)` : ""}.`, 409, false, { needsConfirm: true, credits: est.credits, balance: est.balance });
-  const posterKey = await posterFor(env, b, { id: t.id, output: t.output }, d);
+  const posterKey = startFrameKey(b, opts) ?? (await posterFor(env, b, { id: t.id, output: t.output }, d));
   const duration = typeof params.duration === "number" ? params.duration : undefined;
   const aspect = typeof params.aspect_ratio === "string" ? params.aspect_ratio : undefined;
   const mcp = new HiggsfieldMcp(env, fetcher());

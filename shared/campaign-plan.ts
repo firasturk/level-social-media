@@ -337,8 +337,8 @@ export function planCounts(plan: CampaignPlan, selected?: Set<string>): PlanCoun
 export interface Price {
   amount: number | null;
   unit: CostUnit;
-  /** catalog: the maintained price table; setting: the admin's price; provider: the provider's own estimate for this request. */
-  source: "catalog" | "setting" | "provider" | null;
+  /** catalog: the maintained price table; setting: the admin's price; provider: the provider's own estimate for this request; demo: a preview fixture (never a live price). */
+  source: "catalog" | "setting" | "provider" | "demo" | null;
   note?: string;
 }
 export type PriceBook = Record<string, Price>;
@@ -446,6 +446,30 @@ export function itemProductionSignature(it: ImagePlanItem | VideoPlanItem): stri
     );
   }
   return stableHash(JSON.stringify([it.idea, it.visual, productSig(it.product), refSig(it.reference), it.engine, it.outputs]));
+}
+
+/**
+ * What one step's result depends on: a step whose signature changed since it was made is made
+ * again (its earlier result stays a version); a step whose signature is unchanged keeps its result.
+ * The assembly and the render follow everything in the video, its words included (both are free).
+ */
+export function stepSignature(plan: CampaignPlan, spec: Pick<StepSpec, "item" | "shot" | "kind">): string {
+  const img = plan.images.find((i) => i.key === spec.item);
+  if (img) return spec.kind === "post" ? itemWordsSignature(img) + itemProductionSignature(img) : itemProductionSignature(img);
+  const v = plan.videos.find((x) => x.key === spec.item);
+  if (!v) return "missing";
+  const shotSig = (s: ShotPlan) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset)];
+  const first = v.shots.find((s) => s.source === "start-image") ?? null;
+  const keyFrame = stableHash(JSON.stringify([v.concept, productSig(v.product), v.frame, v.keyFrameEngine, first ? shotSig(first) : null]));
+  if (spec.kind === "post") return stableHash(JSON.stringify([v.concept, v.hook, v.caption, v.cta, productSig(v.product), v.frame]));
+  if (spec.kind === "image") return keyFrame;
+  const shot = v.shots.find((s) => s.key === spec.shot);
+  if (spec.kind === "frame") return stableHash(JSON.stringify([keyFrame, v.frameEngine, shot ? shotSig(shot) : null]));
+  if (spec.kind === "clip") {
+    const start = !shot ? "" : shot.source === "start-image" ? (shot.key === first?.key ? keyFrame : stableHash(JSON.stringify([keyFrame, v.frameEngine, shotSig(shot)]))) : shot.asset ? refSig(shot.asset) : keyFrame;
+    return stableHash(JSON.stringify([start, v.clipEngine, shot ? shotSig(shot) : null]));
+  }
+  return stableHash(JSON.stringify([itemProductionSignature(v), itemWordsSignature(v)]));
 }
 
 /** The words of an item: changing them needs no new approval (they are drawn by the studio, free). */

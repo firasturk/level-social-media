@@ -435,7 +435,7 @@ interface ClientListing {
  * to read; a photo whose checksum changed is read again; copies point at their first; a photo Drive
  * no longer gives is marked missing and listed apart with the reason.
  */
-async function listClient(env: Env, client: string, fresh = false): Promise<ClientListing> {
+export async function listClient(env: Env, client: string, fresh = false): Promise<ClientListing> {
   const folders = await readFolders(env, client);
   const photos: DrivePhoto[] = [];
   const trashed: DrivePhoto[] = [];

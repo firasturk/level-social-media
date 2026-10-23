@@ -585,7 +585,7 @@ export type SubmitInput = z.infer<typeof submitSchema>;
  * Makes the video: the post's picture (or its artwork) is the first frame, the idea is the motion.
  * The caller has checked the admin and the switch; the Prompt Box calls this too.
  */
-export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): Promise<VideoItem> {
+export async function submitVideoRequest(env: Env, user: User, d: SubmitInput, opts: StartFrame = {}): Promise<VideoItem> {
   const b = await ownedPlan(env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
@@ -594,8 +594,8 @@ export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): 
   if (model.promptRequired && d.prompt.trim().length < 5) throw new StudioError(`${model.name} needs a motion idea of a few words.`);
   const checked = checkVideoSettings(model, { duration: d.duration, aspect: d.aspect, resolution: d.resolution, audio: d.audio });
   if (!checked.ok) throw new StudioError(checked.reason);
-  let posterKey = t.output;
-  if (d.source === "artwork") {
+  let posterKey = startFrameKey(b, opts) ?? t.output;
+  if (d.source === "artwork" && !opts.posterKey) {
     if (!d.artwork) throw new StudioError("Send the artwork (the post with its words and logo) to make the clip from it.");
     const art = dataUrlBytes(d.artwork);
     posterKey = `${b.owner}/${b.id}/video/${t.id}/${uuid()}.artwork.${art.mime === "image/png" ? "png" : art.mime === "image/webp" ? "webp" : "jpg"}`;
@@ -605,6 +605,20 @@ export async function submitVideoRequest(env: Env, user: User, d: SubmitInput): 
   const rows = await postRows(env, b.id, d.index);
   const numbers = versionNumbers(rows);
   return videoItem(row, numbers.get(row.id) ?? rows.length);
+}
+
+/**
+ * An internal caller's own starting picture for the clip (Campaign Autopilot: a shot's starting
+ * image, not the card's picture). Never from a request body; it must be a file of this month.
+ */
+export interface StartFrame {
+  posterKey?: string;
+}
+
+export function startFrameKey(b: { id: string; owner: string }, opts: StartFrame): string | null {
+  if (!opts.posterKey) return null;
+  if (!opts.posterKey.startsWith(`${b.owner}/${b.id}/`)) throw new StudioError("The starting picture is not a file of this month.", 400);
+  return opts.posterKey;
 }
 
 /** The Cloud API path is refused while the admin chose the subscription credits (the MCP adapter takes those clips). */

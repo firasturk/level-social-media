@@ -16,6 +16,7 @@ import { auditRoutes, dailyAudit } from "./audit";
 import { shareRoutes } from "./share";
 import { sendDueNotifications } from "./notify";
 import { publishDue } from "./publish";
+import { advanceCampaigns } from "./campaign-runner";
 
 type Variables = { user: User };
 
@@ -133,6 +134,8 @@ export default {
     ctx.waitUntil(
       readPendingReferences(env).catch((e) => console.error("[refs]", errorMessage(e))),
     );
+    // Campaign Autopilot: approved campaigns keep producing while no page is open (renders wait for the page).
+    ctx.waitUntil(advanceCampaigns(env, (p) => ctx.waitUntil(p)).catch((e) => console.error("[campaign]", errorMessage(e))));
     // The style library grows by itself: new pins collected each day, a few read each minute.
     ctx.waitUntil(dailyStyles(env).catch((e) => console.error("[styles]", errorMessage(e))));
     // The clients' Drive photos are named by vision a few at a time, so the team finds them by name.

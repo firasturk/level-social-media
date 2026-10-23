@@ -65,6 +65,7 @@ import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/
 import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User, PersonSpend } from "@shared/types";
 import type { EditorialBrief } from "./editorial";
 import { signObjectUrl } from "./signed";
+import { campaignRoutes } from "./campaign";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
@@ -129,6 +130,7 @@ studioRoutes.route("/lessons", lessonRoutes);
 studioRoutes.route("/ocr", ocrRoutes);
 studioRoutes.route("/promptbox", promptboxRoutes);
 studioRoutes.route("/help", helpRoutes);
+studioRoutes.route("/campaigns", campaignRoutes);
 studioRoutes.route("/feedback", feedbackRoutes);
 studioRoutes.route("/notify", notifyRoutes);
 studioRoutes.route("/photolab", photoLabRoutes);
