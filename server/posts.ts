@@ -7,6 +7,7 @@ import { z } from "zod";
 import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { demoAnswer, demoMode } from "./demo";
 import { StudioError, errorMessage } from "./errors";
+import { sanitizeSvg, SvgRefused } from "@shared/svg-sanitize";
 import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
 import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
@@ -5506,8 +5507,64 @@ postRoutes.post("/graphic", async (c) => {
   if (f.size > 8 * 1024 * 1024) throw new StudioError("The graphic is over 8 MB.");
   const id = uuid();
   const key = `${b.owner}/${b.id}/graphics/${id}`;
-  await c.env.BUCKET.put(key, await f.arrayBuffer(), { httpMetadata: { contentType: f.type }, customMetadata: { name: f.name.slice(0, 120) } });
+  // An SVG is never stored as it came: it is rebuilt from the allow-list (no script, no handler, no outside reference).
+  let bytes: ArrayBuffer | Uint8Array = await f.arrayBuffer();
+  if (f.type === "image/svg+xml") {
+    try {
+      bytes = new TextEncoder().encode(sanitizeSvg(new TextDecoder().decode(bytes)));
+    } catch (e) {
+      throw new StudioError(e instanceof SvgRefused ? e.message : "The SVG could not be read safely.");
+    }
+  }
+  await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: f.type }, customMetadata: { name: f.name.slice(0, 120) } });
   return c.json({ ok: true, url: `/api/studio/posts/graphic?batch=${encodeURIComponent(b.id)}&id=${encodeURIComponent(id)}` });
+});
+
+/** At most this many pieces in one call (a design holds at most 40 layers). */
+export const MAX_PIECES = 40;
+/** One piece, after sanitising, and all of one call together. */
+export const MAX_PIECE_BYTES = 2 * 1024 * 1024;
+export const MAX_PIECES_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The pieces of a vector the Text studio split (or merged back, or stripped of its background):
+ * small SVGs kept with the month like any uploaded graphic and served by the same route (and by
+ * the client's review link, through the post's design). Each is sanitised here, whatever the
+ * browser sent; an identical piece is stored once (its id is the hash of its sanitised bytes).
+ */
+postRoutes.post("/graphic/pieces", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const parsed = z.object({ pieces: z.array(z.string().min(1)).min(1).max(MAX_PIECES) }).safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throw new StudioError(`Send between 1 and ${MAX_PIECES} SVG pieces.`);
+  const enc = new TextEncoder();
+  const clean: Uint8Array[] = [];
+  let total = 0;
+  for (const [i, text] of parsed.data.pieces.entries()) {
+    let svg: string;
+    try {
+      svg = sanitizeSvg(text);
+    } catch (e) {
+      throw new StudioError(`Piece ${i + 1} could not be read safely${e instanceof SvgRefused ? `: ${e.message}` : "."}`);
+    }
+    const bytes = enc.encode(svg);
+    if (bytes.byteLength > MAX_PIECE_BYTES) throw new StudioError(`Piece ${i + 1} is over ${MAX_PIECE_BYTES / 1024 / 1024} MB.`);
+    total += bytes.byteLength;
+    if (total > MAX_PIECES_BYTES) throw new StudioError(`The pieces are over ${MAX_PIECES_BYTES / 1024 / 1024} MB together.`);
+    clean.push(bytes);
+  }
+  const urls: string[] = [];
+  let stored = 0;
+  for (const bytes of clean) {
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const id = [...hash.slice(0, 16)].map((x) => x.toString(16).padStart(2, "0")).join("");
+    const key = `${b.owner}/${b.id}/graphics/${id}`;
+    if (!(await c.env.BUCKET.head(key))) {
+      await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "image/svg+xml" }, customMetadata: { name: "vector piece" } });
+      stored++;
+    }
+    urls.push(`/api/studio/posts/graphic?batch=${encodeURIComponent(b.id)}&id=${id}`);
+  }
+  return c.json({ ok: true, urls, stored, reused: clean.length - stored });
 });
 
 postRoutes.get("/graphic", async (c) => {
@@ -5516,8 +5573,15 @@ postRoutes.get("/graphic", async (c) => {
   if (!/^[0-9a-f-]{8,40}$/i.test(id)) throw new StudioError("No such graphic.", 404);
   const obj = await c.env.BUCKET.get(`${b.owner}/${b.id}/graphics/${id}`);
   if (!obj) throw new StudioError("No such graphic.", 404);
+  const type = obj.httpMetadata?.contentType || "image/png";
   return new Response(obj.body, {
-    headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff" },
+    headers: {
+      "Content-Type": type,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+      // An SVG opened on its own runs nothing and reaches nothing.
+      ...(/svg/i.test(type) ? { "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" } : {}),
+    },
   });
 });
 

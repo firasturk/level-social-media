@@ -46,6 +46,7 @@
     "@shared/typography": "./shared/typography.ts",
     "@shared/layers": "./shared/layers.ts",
     "@shared/svg-colors": "./shared/svg-colors.ts",
+    "@shared/svg-sanitize": "./shared/svg-sanitize.ts",
     "@shared/language": "./shared/language.ts",
     "@shared/text-assist": "./shared/text-assist.ts",
     "@shared/realism": "./shared/realism.ts",

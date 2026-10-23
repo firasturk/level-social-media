@@ -124,6 +124,7 @@ export function LayersList({
   onUploadGraphic,
   onAddFreepik,
   assets,
+  vectorBar,
 }: {
   layers: Layer[];
   selected: string[];
@@ -142,6 +143,8 @@ export function LayersList({
   onUploadGraphic?: (file: File) => void;
   onAddFreepik?: () => void;
   assets: Asset[];
+  /** The selected vector's actions (Split into layers, Remove background, Merge back), labelled. */
+  vectorBar?: React.ReactNode;
 }) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [dragging, setDragging] = useState<number | null>(null);
@@ -154,6 +157,7 @@ export function LayersList({
         <span>Layers</span>
         <AddLayerMenu onAdd={onAdd} onAddLogo={onAddLogo} onAddImage={onAddImage} onAddShape={onAddShape} onUploadGraphic={onUploadGraphic} onAddFreepik={onAddFreepik} assets={assets} />
       </div>
+      {vectorBar}
       {!rows.length && <p className="ts-empty">No layers yet. Press T for text, or “Add” for a logo, a picture or a shape.</p>}
       <ul>
         {rows.map((l, i) => {
@@ -210,9 +214,10 @@ export function LayersList({
                 </span>
               )}
               {l.type === "image" && l.behind && <span className="ts-layer-bg" title="The background: drawn behind the photo">BG</span>}
-              {l.type === "image" && l.source && <SourceBadge source={l.source} compact />}
+              {l.type === "image" && l.source && !l.piece && <SourceBadge source={l.source} compact />}
               {text?.role && <span className="ts-layer-role" title={text.role === "headline" ? "The post's headline" : "The post's second line"}>{text.role === "headline" ? "H" : "2"}</span>}
-              {l.group && <span className="ts-layer-group" title="In a group">G</span>}
+              {l.type === "image" && l.piece && <span className="ts-layer-piece" title="A piece of a split vector, grouped with the other pieces">Piece</span>}
+              {l.group && !(l.type === "image" && l.piece) && <span className="ts-layer-group" title="In a group">G</span>}
               {warnings.has(l.id) && <TriangleAlert size={12} className="ts-layer-warn" aria-label="Low contrast" />}
               <span className="ts-layer-actions" onClick={(e) => e.stopPropagation()}>
                 <button type="button" aria-label="Move up" title="Bring forward" disabled={i === 0} onClick={() => onReorder(i, i - 1)}>

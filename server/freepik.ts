@@ -352,6 +352,9 @@ interface DemoFixture {
 const LIGHTNING_ART = '<path d="M58 4 L20 56 L46 56 L38 96 L80 40 L54 40 Z" fill="#c6f432" stroke="#111111" stroke-width="3" stroke-linejoin="round"/>';
 /** A four-point sparkle. */
 const SPARKLE_ART = '<path d="M50 4 C54 38 62 46 96 50 C62 54 54 62 50 96 C46 62 38 54 4 50 C38 46 46 38 50 4 Z" fill="#111111"/>';
+/** A sale badge in several elements (a background square, a ring, a ribbon, lettering, dots): the demo's vector to split into layers. */
+const BADGE_ART =
+  '<rect id="badge-background" width="100" height="100" fill="#1d3557"/><circle id="badge-ring" cx="50" cy="50" r="38" fill="#ffb703" stroke="#7a1f00" stroke-width="3"/><g id="ribbon"><rect x="12" y="42" width="76" height="16" fill="#e63946" transform="rotate(-12 50 50)"/></g><text x="50" y="56" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="16" text-anchor="middle" fill="#ffffff">SALE</text><g id="dots" fill="#ffffff"><circle cx="38" cy="76" r="2.5"/><circle cx="50" cy="78" r="2.5"/><circle cx="62" cy="76" r="2.5"/></g>';
 /** A brush-stroke word, the demo's decorative lettering (shipped as EPS only). */
 const LETTERING_ART = '<text x="50" y="62" font-family="Impact, sans-serif" font-size="34" text-anchor="middle" fill="#e2336b" transform="rotate(-8 50 50)">SALE!</text>';
 
@@ -359,7 +362,7 @@ export const DEMO_CATALOGUE: readonly DemoFixture[] = [
   { id: "demo-1", kind: "photo", title: "Pistachio dessert on marble", author: "Demo studio", license: "freemium", orientation: "portrait", color: "green", hex: "#6f9f5d", width: 2400, height: 3000, words: ["pistachio", "dessert", "marble", "food", "sweet", "cafe"], cats: ["photos"] },
   { id: "demo-2", kind: "photo", title: "Iced coffee by the window", author: "Demo studio", license: "premium", orientation: "landscape", color: "orange", hex: "#c98a3a", width: 3000, height: 2000, words: ["coffee", "iced", "window", "drink", "cafe", "morning"], cats: ["photos"] },
   { id: "demo-3", kind: "vector", title: "Lantern pattern, Ramadan", author: "Demo vectors", license: "freemium", orientation: "square", color: "blue", hex: "#2f5ea8", width: 2000, height: 2000, words: ["lantern", "ramadan", "pattern", "eid", "ornament", "arabic"], cats: ["backgrounds"] },
-  { id: "demo-4", kind: "vector", title: "Sale badge set", author: "Demo vectors", license: "premium", orientation: "square", color: "red", hex: "#b8372f", width: 2000, height: 2000, words: ["sale", "badge", "offer", "discount", "sticker", "label"], cats: ["icons"] },
+  { id: "demo-4", kind: "vector", title: "Sale badge set", author: "Demo vectors", license: "premium", orientation: "square", color: "red", hex: "#fbe9e7", width: 2000, height: 2000, words: ["sale", "badge", "offer", "discount", "sticker", "label"], cats: ["icons"], art: BADGE_ART, bundle: "svg+eps" },
   { id: "demo-5", kind: "psd", title: "Story template, product launch", author: "Demo templates", license: "premium", orientation: "portrait", color: "purple", hex: "#6a3fa0", width: 1080, height: 1920, words: ["template", "story", "launch", "product", "instagram", "layout"] },
   { id: "demo-6", kind: "photo", title: "Fresh mango splash", author: "Demo studio", license: "freemium", orientation: "square", color: "yellow", hex: "#e0b43a", width: 2000, height: 2000, words: ["mango", "splash", "fruit", "juice", "fresh", "summer"], cats: ["photos"] },
   { id: "demo-7", kind: "vector", title: "Lightning icon", author: "Demo vectors", license: "freemium", orientation: "square", color: "green", hex: "#f4f4f6", width: 1000, height: 1000, words: ["lightning", "bolt", "icon", "energy", "power", "flash"], cats: ["icons"], art: LIGHTNING_ART, bundle: "svg+eps" },

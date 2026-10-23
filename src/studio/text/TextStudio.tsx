@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Clapperboard, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2, Images } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
-import { postForm } from "@/api";
+import { post, postForm } from "@/api";
 import { askConfirm, askInput } from "@/lib/confirm";
 import { saveBlob } from "@/lib/zip";
 import { stackedImagesPdf } from "@/lib/pdf";
@@ -18,6 +18,11 @@ import FontMenu from "./FontMenu";
 import FreepikPanel, { LETTERING_LABEL, type DesignHow, type FreepikLayer } from "../FreepikPanel";
 import { takeAssetsForDesign, type PendingAsset } from "../assetHandoff";
 import { duplicateLayers, imageLayerFromAsset, patchLayers, removeLayers, reorderLayer, setBackground, zOrderLayers } from "@shared/layer-ops";
+import { extractSvgColors, recolorSvg } from "@shared/svg-colors";
+import { sanitizeSvg } from "@shared/svg-sanitize";
+import { mergePieces, type MergePiece } from "@shared/svg-split";
+import { fetchSvgText, planSplit, recolorFor, stripBackground } from "@/lib/svgSplit";
+import VectorActions, { isSvgLayer, splitRefusal, type VectorBusy } from "./VectorActions";
 import { Assistant, BrandAssets, LayersList, LayoutsList, PresetsList, type Asset } from "./Panels";
 import Properties, { type Align } from "./Properties";
 import { applyLayout, brandFonts, contrastOf, designFromLegacy, directionFor, hitLayer, languageWithSource, layoutsFor, patchWith, round3, sampleContent, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type ClientLanguage, type Guide, type LayoutPreset } from "./model";
@@ -171,6 +176,10 @@ export default function TextStudio(p: Props) {
   const [preview, setPreview] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
   const [returning, setReturning] = useState(false);
+  /** A vector being split, stripped of its background or merged back. */
+  const [vectorBusy, setVectorBusy] = useState<VectorBusy>(null);
+  /** "Remove background": what would go, highlighted on the stage, until it is confirmed or cancelled. */
+  const [bgPreview, setBgPreview] = useState<{ polys: { x: number; y: number }[][]; note: string; confirm: () => Promise<void> } | null>(null);
   const hold = p.hold ?? null;
   const batch = p.batchId ?? null;
   const basis = basisOf(p.headline, p.subline, p.patch);
@@ -543,7 +552,7 @@ export default function TextStudio(p: Props) {
     const y = (spec.logo.top * W) / H;
     addAny(newLogoLayer({ x: round3(x), y: round3(spec.logo.position === "bottom-center" ? 1 - y - (w * W * 0.5) / H : y), w }));
   };
-  const addImage = (src: string, name?: string, source?: ImageLayer["source"]) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H), ...(source ? { source } : {}) }));
+  const addImage = (src: string, name?: string, source?: ImageLayer["source"], over: Partial<ImageLayer> = {}) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H), ...(source ? { source } : {}), ...over }));
   /**
    * A Freepik asset placed on the design (from the Assets tab here, or carried over from the Photo
    * studio): an image layer on top, or the background behind the photo. The layer takes the id the
@@ -563,6 +572,12 @@ export default function TextStudio(p: Props) {
       return;
     }
     addAny(made);
+    if (how === "pieces") {
+      // "Add as separate layers": the vector is placed, then taken apart; a file that is not an SVG stays one picture and says why.
+      if (l.editable) void splitLayer(made.id);
+      else toast.message(`${splitRefusal(l.format)} It was added as one picture.`);
+      return;
+    }
     if (l.lettering) toast.success(`${LETTERING_LABEL}: placed as a picture. Use “Add editable text” for words you can type.`);
     else if (l.editable) toast.success("Added as an editable vector: change its colours under Properties › Vector colours.");
     else toast.success(l.note ?? "Added as a layer: a flattened picture.");
@@ -582,7 +597,17 @@ export default function TextStudio(p: Props) {
     if (!p.onUploadGraphic) return toast.error("Save the month first: an uploaded graphic is kept with it.");
     try {
       const src = await p.onUploadGraphic(file);
-      addImage(src, file.name.replace(/\.[^.]+$/, ""), "upload");
+      // An uploaded SVG is a vector like a Freepik one: its colours can change and it can be split into layers.
+      let over: Partial<ImageLayer> = {};
+      if (file.type === "image/svg+xml") {
+        try {
+          const colors = extractSvgColors(sanitizeSvg(await file.text()));
+          over = { format: "SVG", fit: "contain", ...(colors.length ? { colors: colors.slice(0, 24) } : {}) };
+        } catch {
+          over = { format: "SVG", fit: "contain" };
+        }
+      }
+      addImage(src, file.name.replace(/\.[^.]+$/, ""), "upload", over);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -631,13 +656,240 @@ export default function TextStudio(p: Props) {
     const id = on ? `G${layerId()}` : undefined;
     update(selected, { group: id });
   };
-  const select = (id: string, add: boolean) => {
-    const d = designRef.current;
-    const l = d?.layers.find((x) => x.id === id);
-    const members = l?.group ? d!.layers.filter((x) => x.group === l.group).map((x) => x.id) : [id];
-    setSelected((s) => (add ? (s.includes(id) ? s.filter((x) => !members.includes(x)) : [...s, ...members.filter((m) => !s.includes(m))]) : members));
+  /** A row of the Layers list selects that layer alone, even inside a group (a piece of a split vector). */
+  const selectRow = (id: string, add: boolean) => {
+    setSelected((s) => (add ? (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]) : [id]));
     if (editing && editing !== id) setEditing(null);
   };
+
+  /* ───────────── Vectors: split into layers, remove background, merge back ───────────── */
+  /** Stores SVG pieces with the month (sanitised and deduplicated by the Worker); their studio URLs. */
+  const storePieces = async (svgs: string[]): Promise<string[]> => {
+    if (!batch) throw new Error("Save the month first: the pieces are kept with it.");
+    const r = await post<{ urls: string[] }>(`/api/studio/posts/graphic/pieces?batch=${encodeURIComponent(batch)}`, { pieces: svgs });
+    return r.urls;
+  };
+  const r5 = (n: number) => Math.round(n * 100000) / 100000;
+  const vectorName = (l: ImageLayer) => (l.name ?? "Vector").replace(/^.* · /, "").slice(0, 40);
+  /**
+   * "Split into layers": the vector's groups and shapes become image layers of their own (small
+   * SVGs kept with the month), each exactly where it was drawn, grouped, in place of the vector
+   * in the stack. One step of history: ⌘Z puts the single layer back.
+   */
+  const splitLayer = async (id: string) => {
+    const d = designRef.current;
+    const l = d?.layers.find((x) => x.id === id);
+    if (!d || !l || l.type !== "image") return;
+    if (!isSvgLayer(l) && l.format) return void toast.error(splitRefusal(l.format));
+    if (!batch) return void toast.error("Save the month first: the pieces are kept with it.");
+    const budget = Math.min(30, 40 - (d.layers.length - 1));
+    if (budget < 2) return void toast.error("This design already holds 40 layers, the most a design can: delete some before splitting.");
+    setVectorBusy("split");
+    try {
+      const text = await fetchSvgText(l.src);
+      if (!text) return void toast.error(splitRefusal(l.format));
+      const plan = planSplit(text, l, W, H, budget);
+      if (plan.pieces.length < 2) return void toast.message(plan.pieces.length ? "This vector is one element (one shape, or one group with an effect on it): there is nothing to split." : "Nothing of this vector is visible to split.");
+      const urls = await storePieces(plan.pieces.map((pc) => pc.svg));
+      const group = l.group ?? `G${layerId()}`;
+      const base = vectorName(l);
+      const made = plan.pieces.map((pc, i) =>
+        newImageLayer(urls[i], {
+          name: `${pc.name} · ${base}`.slice(0, 60),
+          x: r5(pc.place.x),
+          y: r5(pc.place.y),
+          w: r5(pc.place.w),
+          h: r5(pc.place.h),
+          rotate: pc.place.rotate,
+          fit: "contain",
+          opacity: l.opacity,
+          blend: l.blend,
+          hidden: l.hidden,
+          locked: l.locked,
+          behind: l.behind,
+          source: l.source,
+          asset: l.asset,
+          format: "SVG",
+          note: pc.bg ? `The background of “${base}”: Remove background (or Delete) takes it away; the other pieces stay.` : `A piece of “${base}”: move, resize, turn, recolour or delete it on its own.`,
+          ...(pc.colors.length ? { colors: pc.colors.slice(0, 24) } : {}),
+          recolor: recolorFor(l.recolor, pc.colors),
+          lettering: pc.lettering || l.lettering || undefined,
+          group,
+          piece: true,
+          bgShape: pc.bg || undefined,
+        }),
+      );
+      const cur = designRef.current!;
+      const at = cur.layers.findIndex((x) => x.id === id);
+      if (at < 0) return;
+      commit({ ...cur, layers: [...cur.layers.slice(0, at), ...made, ...cur.layers.slice(at + 1)] });
+      setSelected(made.map((m) => m.id));
+      setEditing(null);
+      const bg = plan.pieces.some((pc) => pc.bg);
+      toast.success(
+        `Split into ${made.length} layers${plan.merged ? ` (the vector has ${plan.elements} elements: neighbours were kept together to stay within the 40 layers a design holds)` : ""}. They are grouped: pick one in the Layers list to change it alone.${bg ? " Its background is a piece of its own: Remove background takes it away." : ""}`,
+      );
+    } catch (e) {
+      toast.error((e as Error).message || "The vector could not be split.");
+    } finally {
+      setVectorBusy(null);
+    }
+  };
+  /** The four corners of a layer's box on the canvas, rotation included (for the highlight). */
+  const cornersOf = (b: LayerBox) => {
+    const a = ((b.rotate ?? 0) * Math.PI) / 180;
+    return [
+      [b.x, b.y],
+      [b.x + b.w, b.y],
+      [b.x + b.w, b.y + b.h],
+      [b.x, b.y + b.h],
+    ].map(([x, y]) => ({ x: b.cx + (x - b.cx) * Math.cos(a) - (y - b.cy) * Math.sin(a), y: b.cy + (x - b.cx) * Math.sin(a) + (y - b.cy) * Math.cos(a) }));
+  };
+  /**
+   * "Remove background": what would go is highlighted first and removed only once confirmed. On a
+   * split vector it is the piece found to be its background; on a whole vector, the elements found
+   * to be its background are left out of a new copy of the SVG (the layer keeps its place). Undoable.
+   */
+  const removeVectorBackground = async (id: string) => {
+    const d = designRef.current;
+    const l = d?.layers.find((x) => x.id === id);
+    if (!d || !l || l.type !== "image") return;
+    if (l.piece && l.group) {
+      const bgs = d.layers.filter((x) => x.group === l.group && x.type === "image" && x.bgShape);
+      if (!bgs.length) return void toast.message("No piece of this vector was found to be its background. Select the piece you do not want and press Delete (⌘Z brings it back).");
+      const polys = bgs.map((x) => boxesRef.current.find((b) => b.id === x.id)).filter((b): b is LayerBox => !!b).map(cornersOf);
+      setSelected(bgs.map((x) => x.id));
+      setBgPreview({
+        polys,
+        note: `Highlighted: the vector's background (${bgs.length === 1 ? "one piece" : `${bgs.length} pieces`}). Remove it and keep the other elements?`,
+        confirm: async () => {
+          remove(bgs.map((x) => x.id));
+          toast.success("Background removed: the other pieces stay where they were. ⌘Z brings it back.");
+        },
+      });
+      return;
+    }
+    if (!isSvgLayer(l)) return void toast.error(splitRefusal(l.format));
+    if (!batch) return void toast.error("Save the month first: the new copy of the vector is kept with it.");
+    setVectorBusy("bg");
+    try {
+      const text = await fetchSvgText(l.src);
+      if (!text) return void toast.error(splitRefusal(l.format));
+      const plan = planSplit(text, l, W, H, 40);
+      if (!plan.background.length) return void toast.message("No background found: no filled shape covers most of this vector. Split it into layers and delete the piece you do not want.");
+      const cover = Math.round(Math.max(...plan.background.map((b) => b.cover)) * 100);
+      setSelected([id]);
+      setBgPreview({
+        polys: plan.background.map((b) => b.polygon),
+        note: `Highlighted: the vector's background (${plan.background.length === 1 ? "a filled shape" : `${plan.background.length} filled shapes`} covering ${cover}% of it). Remove it and keep the other elements?`,
+        confirm: async () => {
+          const { svg, colors } = stripBackground(plan);
+          const [url] = await storePieces([svg]);
+          const cur = designRef.current!;
+          if (!cur.layers.some((x) => x.id === id)) return;
+          commit(patchLayers(cur, [id], { src: url, format: "SVG", colors: colors.length ? colors.slice(0, 24) : undefined, recolor: recolorFor(l.recolor, colors) } as Partial<Layer>));
+          toast.success("Background removed: the elements stay where they were. ⌘Z brings it back.");
+        },
+      });
+    } catch (e) {
+      toast.error((e as Error).message || "The vector could not be read.");
+    } finally {
+      setVectorBusy(null);
+    }
+  };
+  const confirmBackground = async () => {
+    const pv = bgPreview;
+    if (!pv) return;
+    setVectorBusy("bg");
+    try {
+      await pv.confirm();
+      setBgPreview(null);
+    } catch (e) {
+      toast.error((e as Error).message || "The background could not be removed.");
+    } finally {
+      setVectorBusy(null);
+    }
+  };
+  /**
+   * "Merge back": the pieces of a split vector as one layer again, with every change made to them
+   * (moves, turns, colours, fades; deleted pieces stay deleted, hidden ones are left out). The
+   * pieces are composed into one SVG (each at its place), stored like a piece, and replace the group.
+   */
+  const mergeBack = async (id: string) => {
+    const d = designRef.current;
+    const l = d?.layers.find((x) => x.id === id);
+    if (!d || !l || !l.group) return;
+    const members = d.layers.filter((x) => x.group === l.group);
+    if (!members.every((x) => isSvgLayer(x))) return void toast.error("Only the pieces of a vector can be merged back: this group also holds text, a logo, a shape or a picture. Ungroup it first (⇧⌘G).");
+    const parts = members as ImageLayer[];
+    const shown = parts.filter((x) => !x.hidden);
+    if (!shown.length) return void toast.message("Every piece is hidden: show the ones to keep, then merge.");
+    if (!batch) return void toast.error("Save the month first: the merged vector is kept with it.");
+    setVectorBusy("merge");
+    try {
+      const texts = await Promise.all(shown.map((x) => fetchSvgText(x.src)));
+      if (texts.some((t) => !t)) return void toast.error("A piece of this vector could not be read, so nothing was merged.");
+      const pieces: MergePiece[] = shown.map((x, i) => ({ svg: recolorSvg(texts[i]!, x.recolor), box: { x: x.x * W, y: x.y * H, w: x.w * W, h: x.h * H }, rotate: x.rotate, opacity: x.opacity, fit: x.fit }));
+      const { svg, box } = mergePieces(pieces);
+      const [url] = await storePieces([svg]);
+      const colors = extractSvgColors(svg);
+      const first = parts[0];
+      const blends = new Set(shown.map((x) => x.blend ?? "normal"));
+      const merged = newImageLayer(url, {
+        name: vectorName(first),
+        x: r5(box.x / W),
+        y: r5(box.y / H),
+        w: r5(Math.max(0.01, box.w / W)),
+        h: r5(Math.max(0.01, box.h / H)),
+        fit: "contain",
+        blend: blends.size === 1 ? first.blend : undefined,
+        behind: first.behind,
+        source: first.source,
+        asset: first.asset,
+        format: "SVG",
+        note: "The vector merged back into one layer, with the changes made to its pieces.",
+        ...(colors.length ? { colors: colors.slice(0, 24) } : {}),
+        lettering: parts.some((x) => x.lettering) || undefined,
+      });
+      const cur = designRef.current!;
+      const ids = new Set(members.map((x) => x.id));
+      const at = cur.layers.findIndex((x) => ids.has(x.id));
+      if (at < 0) return;
+      const rest = cur.layers.filter((x) => !ids.has(x.id));
+      commit({ ...cur, layers: [...rest.slice(0, at), merged, ...rest.slice(at)] });
+      setSelected([merged.id]);
+      const left = parts.length - shown.length;
+      toast.success(`Merged back into one layer${left ? ` (${left} hidden piece${left === 1 ? " was" : "s were"} left out)` : ""}${blends.size > 1 ? "; the pieces' different blend modes became normal" : ""}. ⌘Z gives the pieces back.`);
+    } catch (e) {
+      toast.error((e as Error).message || "The pieces could not be merged.");
+    } finally {
+      setVectorBusy(null);
+    }
+  };
+  const selectGroupOf = (id: string) => {
+    const d = designRef.current;
+    const l = d?.layers.find((x) => x.id === id);
+    if (!d || !l?.group) return;
+    setSelected(d.layers.filter((x) => x.group === l.group).map((x) => x.id));
+  };
+  /** The vector actions for the selected layer (Layers panel and Properties). */
+  const vectorActions = (compact: boolean) => {
+    if (!primary || primary.type !== "image") return null;
+    const groupSize = primary.group ? layers.filter((x) => x.group === primary.group).length : 1;
+    return (
+      <VectorActions
+        layer={primary}
+        groupSize={groupSize}
+        busy={vectorBusy}
+        compact={compact}
+        onSplit={() => void splitLayer(primary.id)}
+        onRemoveBackground={() => void removeVectorBackground(primary.id)}
+        onMerge={() => void mergeBack(primary.id)}
+        onSelectGroup={() => selectGroupOf(primary.id)}
+      />
+    );
+  };
+
   const align = (how: Align) => {
     const d = designRef.current;
     if (!d) return;
@@ -890,6 +1142,9 @@ export default function TextStudio(p: Props) {
       setSelected([hit.id]);
       setEditing(hit.id);
       setTimeout(() => textareaRef.current?.focus(), 0);
+    } else if (hit && l?.group) {
+      // Into the group: one piece of a split vector (or one member of any group) alone.
+      setSelected([hit.id]);
     }
   };
   const boxAt = (l: Layer, b: LayerBox) => ({ x: l.x * W, y: l.y * H, cx: l.x * W + b.w / 2, cy: l.y * H + b.h / 2 });
@@ -915,6 +1170,10 @@ export default function TextStudio(p: Props) {
         return;
       }
       if (e.key === "Escape") {
+        if (bgPreview) {
+          setBgPreview(null);
+          return;
+        }
         if (picking) {
           pickRef.current?.(null);
           pickRef.current = null;
@@ -1319,8 +1578,9 @@ export default function TextStudio(p: Props) {
           layers={layers}
           selected={selected}
           warnings={warnings}
-          onSelect={select}
+          onSelect={selectRow}
           onChange={(id, patch) => update([id], patch)}
+          vectorBar={vectorActions(true)}
           onReorder={reorder}
           onDuplicate={(id) => duplicate([id])}
           onDelete={(id) => remove([id])}
@@ -1369,6 +1629,7 @@ export default function TextStudio(p: Props) {
           onAddText={() => addLayer()}
           onBackground={makeBackground}
           photoOpaque={photoOpaque.current}
+          vector={vectorActions(false)}
         />
       )}
       {rightTab === "assets" && (
@@ -1549,6 +1810,17 @@ export default function TextStudio(p: Props) {
 
         {/* Stage: the scroller, with the trial bar and the view tools pinned over it (they do not scroll away when zoomed in) */}
         <div className="ts-stage-wrap">
+          {bgPreview && (
+            <div className="ts-trial ts-bg-confirm" role="alertdialog" aria-label="Remove background">
+              <span className="ts-bg-note">{bgPreview.note}</span>
+              <button type="button" className="ts-btn primary" onClick={() => void confirmBackground()} disabled={vectorBusy === "bg"}>
+                {vectorBusy === "bg" ? <Orb size={12} /> : null} Remove background
+              </button>
+              <button type="button" className="ts-btn" onClick={() => setBgPreview(null)}>
+                Cancel
+              </button>
+            </div>
+          )}
           {trial && (
             <div className="ts-trial" role="status">
               <span>
@@ -1615,6 +1887,18 @@ export default function TextStudio(p: Props) {
                     </div>
                   );
                 })}
+                {bgPreview && (
+                  <svg className="ts-bg-highlight" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
+                    <defs>
+                      <pattern id="ts-bg-hatch" width="12" height="12" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                        <rect width="6" height="12" fill="rgba(229, 57, 53, 0.28)" />
+                      </pattern>
+                    </defs>
+                    {bgPreview.polys.map((poly, i) => (
+                      <polygon key={i} points={poly.map((pt) => `${pt.x},${pt.y}`).join(" ")} fill="url(#ts-bg-hatch)" stroke="#e53935" strokeWidth={3 / scale} strokeDasharray={`${8 / scale} ${5 / scale}`} />
+                    ))}
+                  </svg>
+                )}
                 {marquee && <div className="ts-marquee" style={{ left: marquee.x * scale, top: marquee.y * scale, width: marquee.w * scale, height: marquee.h * scale }} />}
                 {editingLayer && editingBox && (
                   <textarea

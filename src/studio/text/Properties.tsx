@@ -73,6 +73,7 @@ export default function Properties({
   onAddText,
   onBackground,
   photoOpaque,
+  vector,
 }: {
   sel: Selection;
   /** Applies to every selected layer. */
@@ -98,6 +99,8 @@ export default function Properties({
   onBackground?: (id: string, on: boolean) => void;
   /** The photo has no transparent pixel: a background shows only around a smaller photo. */
   photoOpaque?: boolean;
+  /** The vector actions of a picture layer (Split into layers, Remove background, Merge back), or why it cannot be split. */
+  vector?: React.ReactNode;
 }) {
   const l = sel.layer;
   const fonts = brandFonts(brand);
@@ -121,6 +124,12 @@ export default function Properties({
     return (
       <div className="ts-props">
         {sel.count > 1 && <AlignRow count={sel.count} onAlign={onAlign} />}
+        {vector && (
+          <details open className="ts-vector-section">
+            <summary>Vector layers</summary>
+            {vector}
+          </details>
+        )}
         <PlainProperties layer={l} onChange={onChange} swatches={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} W={W} canvasFx={canvasFx} onCanvasFx={onCanvasFx} onAddText={onAddText} onBackground={onBackground} photoOpaque={photoOpaque} />
         <details>
           <summary>Picture</summary>

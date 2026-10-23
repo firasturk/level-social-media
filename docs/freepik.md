@@ -230,15 +230,16 @@ properties and the post's reference.
 
 ### Formats: read from the bytes (`server/asset-format.ts`)
 
-| Downloaded file | What the layer draws | Colours editable? | What the UI says |
-| --- | --- | --- | --- |
-| SVG | the sanitised SVG | yes (per layer) | *Editable vector (SVG): its colours can be changed on the layer.* |
-| ZIP with an SVG (Freepik's vector bundle) | the sanitised SVG (EPS/AI stay in the library) | yes | *Vector bundle with an SVG: …* |
-| ZIP with EPS/AI and a PNG/JPG | that PNG/JPG | no | *This file is EPS/AI: colours cannot be changed here. The PNG/JPG it carries is placed instead.* |
-| ZIP with EPS/AI only, an EPS, an AI | the preview picture (flattened) | no | *This file is EPS/AI: colours cannot be changed here. The preview picture is placed instead.* |
-| PSD | the preview picture (flattened) | no | *This file is PSD: its layers and colours cannot be changed here…* |
-| JPG, PNG, WebP, GIF | the file itself | no | *A picture (JPG/PNG): placed as it is…* |
-| anything else, a broken ZIP or SVG | the preview picture | no | said plainly |
+| Downloaded file | What the layer draws | Colours editable? | Split into layers? | What the UI says |
+| --- | --- | --- | --- | --- |
+| SVG | the sanitised SVG | yes (per layer) | **yes** | *Editable vector (SVG): its colours can be changed on the layer.* |
+| ZIP with an SVG (Freepik's vector bundle) | the sanitised SVG (EPS/AI stay in the library) | yes | **yes** (the SVG) | *Vector bundle with an SVG: …* |
+| ZIP with EPS/AI and a PNG/JPG | that PNG/JPG | no | no | *This file is EPS/AI: colours cannot be changed here. The PNG/JPG it carries is placed instead.* |
+| ZIP with EPS/AI only, an EPS, an AI | the preview picture (flattened) | no | no | *This file is EPS/AI: colours cannot be changed here. The preview picture is placed instead.* |
+| PSD | the preview picture (flattened) | no | no | *This file is PSD: its layers and colours cannot be changed here…* |
+| JPG, PNG, WebP, GIF | the file itself | no | no | *A picture (JPG/PNG): placed as it is…* |
+| an uploaded SVG graphic (Layers › Add › Upload) | the sanitised SVG | yes | **yes** | the same as a Freepik SVG |
+| anything else, a broken ZIP or SVG | the preview picture | no | no | said plainly |
 
 No EPS, AI, PDF or PSD is converted: a Worker has no safe renderer for them and no outside
 converter is used. An SVG is rebuilt from an allow-list (elements, attributes): scripts,
@@ -260,6 +261,105 @@ stop; colours set through CSS custom properties or `currentColor` are not listed
 calligraphy, word art, slogan, quote) is an image layer labelled *Decorative lettering (not
 editable text)*, never a text box; **Add editable text** next to it adds a normal text layer.
 
+### Vector layers: Split into layers, Remove background, Merge back
+
+**Why a vector could not be taken apart before.** A Freepik vector (or any SVG) became *one*
+image layer: the layer points at one stored file (`assets.layer_key`, served by
+`GET /assets/:id/file?layer=1`), the renderer loads that file into an `<img>` and draws it on the
+canvas as one picture (`src/lib/textLayers.ts`, `paintImage`), and the only per-layer control over
+its inside was the colour map. Nothing in the layer model or the renderer knew about the SVG's
+elements, so a shape could not be moved, deleted or recoloured on its own and a background rect
+could not be dropped.
+
+**What is there now** (`shared/svg-split.ts`, pure; `src/lib/svgSplit.ts`, the browser half;
+`src/studio/text/VectorActions.tsx`, the UI):
+
+- **Split into layers** (Layers panel and Properties › *Vector layers*, on any SVG image layer;
+  also **Add as separate layers** in the Assets footer for a vector). The layer's SVG is fetched,
+  sanitised again and parsed; the pieces are the root's painted children, descending through every
+  group that is the only painted child of its parent (Illustrator's `Layer_1`, a named wrapper);
+  a group with a `filter` or `mask` is never descended into (its effect is on the whole group);
+  hidden elements are skipped. Each piece's bounding box is measured on the SVG rendered offscreen
+  in the page (`getBBox` on every painted element mapped into the vector's coordinates with
+  `getScreenCTM`; stroke width added, with the miter allowance; 15% added around filtered
+  pieces) and cut to the part the layer shows (its viewport, crop and a cover fit). Each piece
+  becomes its own small SVG: view box = its box in the vector's units, the same pixels per unit,
+  the root's paint and every wrapper group around it (transforms and inherited fill kept), the
+  definitions it needs closed over (gradients and their `href` chains, clip paths, masks, filters,
+  patterns, markers, symbols reached through `<use>`) and only the CSS rules whose class/id
+  selectors can apply to it (plus the `url(#…)` those rules point at). Each becomes an image layer
+  (`piece: true`, the vector's `source`/`asset`, `format: "SVG"`, its own `colors`, the vector's
+  recolour map kept for the colours it has) placed so the composition is unchanged: the box maths
+  is the renderer's own (view box → natural pixels per `preserveAspectRatio`, crop, contain/cover,
+  then the rotation about the layer's centre; a piece's centre is turned about the vector's centre
+  and the piece keeps the angle). A box smaller than the schema's 1% minimum is grown by
+  transparent margin, never by scaling. The pieces replace the vector in the stack, in paint
+  order, under one **group** id (the existing layer groups): clicking the vector on the picture
+  selects and moves all of it; **a row of the Layers list selects that piece alone** (as does a
+  double-click on the picture), so a piece can be moved, resized, turned, faded, reordered,
+  recoloured (*Vector colours*, the same `shared/svg-colors.ts` scanner) or deleted on its own.
+  A design holds at most 40 layers: when a vector has more elements than the room left (at most
+  30 pieces), neighbours in paint order with the smallest combined box are kept together (never
+  the background) and the toast says so. Splitting a piece again splits that piece (same group).
+  One undo step puts the single layer back.
+- **Remove background**. On a whole vector: the background is found (from the bottom of the paint
+  order, each *filled single shape* — rect, path, polygon, circle, ellipse, image, through groups
+  of one — or a piece whose id/class says background, whose box covers at least 90% of the view
+  box; an outline, a clipped or masked shape, a nearly transparent one, or a run that would take
+  every element is never a background), **highlighted on the stage** (hatched red outline) with
+  *Remove it and keep the other elements?*; on confirm a copy of the SVG without it is stored and
+  the layer points at it (same frame: nothing moves). On a split vector the background is the piece
+  marked `bgShape` at the split; it is highlighted the same way and removed on confirm. Esc or
+  Cancel leaves everything as it was; ⌘Z undoes the removal. Any other piece is removed with Delete.
+- **Merge back** (a piece of a split vector): the group's pieces are composed into one SVG again
+  with every change made to them (each nested at its box, turned, faded, recoloured; deleted
+  pieces stay deleted, hidden ones are left out; ids prefixed and CSS scoped per piece so they
+  cannot collide), stored, and put in the stack where the lowest piece was. Pieces' different
+  blend modes become normal (the toast says so). ⌘Z gives the pieces back.
+
+**Lettering inside a vector is shapes**: a piece holding SVG `<text>` is named *… (lettering)* /
+*Lettering N* and labelled *Decorative lettering (not editable text)*; outlined lettering (paths)
+is simply shapes. Neither becomes a text box; **Add editable text** adds real words.
+
+**Storage.** `POST /api/studio/posts/graphic/pieces?batch=` `{pieces: string[]}` (1–40 pieces,
+each at most 2 MB after sanitising, 8 MB together) — the same month-scoped graphic storage as an
+uploaded graphic (`<owner>/<batch>/graphics/<id>`, served by `GET /api/studio/posts/graphic`, the
+month's owner or an admin, as every graphic). **Every piece is sanitised by the Worker** with the
+same allow-list (`shared/svg-sanitize.ts`, moved out of `server/asset-format.ts` so the browser
+runs it too before measuring); nothing the browser sends is stored as it came. A piece's id is
+the first 128 bits of the SHA-256 of its sanitised bytes: an identical piece (the same vector
+split twice, the same badge in two posts) is stored once. `POST /graphic` (an uploaded graphic)
+now sanitises an SVG too (it stored the file as uploaded before), and `GET /graphic` answers an
+SVG with the sandbox CSP. Pieces are ordinary image layers of the design (`ov.design`), so they
+survive the auto-save, a refresh, reopening, *Save & return* and the card; the client's review
+link draws them through `GET /api/share/<token>/layer/<post>/<layer id>`, which serves a piece
+only when it is on that post of that month (`layerFile` already allowed this month's graphics).
+The Freepik admin-only rules are unchanged: downloading and using an asset stay admin routes;
+splitting a layer already in a design is a design edit (like moving it), open to whoever may
+edit the month.
+
+**Demo.** In the preview (no Freepik key) the demo *Sale badge set* (`demo-4`) is now a vector
+bundle with an SVG of five elements (a background square, a ring, a ribbon, lettering, dots) so
+*Add as separate layers* and *Remove background* can be tried; the *Lightning icon* (`demo-7`) is
+one shape and says *nothing to split*; *Brush lettering* (`demo-9`, EPS only) says why it cannot be
+split.
+
+**Verified** (`tests/svg-split.test.ts`, `tests/svg-pieces.test.ts`,
+`scripts/svg-layers-smoke.mjs`): with real fixtures in `tests/fixtures/svg/` (a badge: background
+rect, gradient ring with a CSS-classed stroke, a disc whose gradient `href`s another, stripes
+clipped to a circle, stars through `<use>` of a `<symbol>`, lettering with a drop-shadow filter;
+an Illustrator icon set in a `Layer_1` wrapper with `.st0`-style classes, transforms and
+strokes; an illustration with nested scaled/rotated groups, inherited fill and a CSS-painted
+cloud), in headless Chromium at a 1080 × 1350 canvas, the composition before and after a split
+differed in **8 of 1,458,000 pixels** (badge), **222** (icon set) and **856** (illustration)
+by more than 24 of 255 on a channel (antialiasing at piece edges; mean difference ≤ 0.042), and
+after *Merge back* in 187; after a save and a reload, **0**.
+
+**Not possible here.** EPS, AI and PSD are not split: a browser cannot read them, the Worker has
+no safe renderer, and no outside converter is used (a converter service could turn EPS/AI into
+SVG; that would be a separate, priced decision). PDF likewise. The UI says so on the layer and in
+the toast of *Add as separate layers*.
+
 Existing assets stored before this change are read once on their next use (`ensureInspected`).
 Migration `0074_asset_formats.sql` adds `format, contents, layer_key, layer_mime, colors,
 format_note` to `assets`.
@@ -279,6 +379,29 @@ download for repeated saves and layers, member 403 on every action, and placing 
 recolouring it, setting a background and saving the design with no network call and no task.
 `scripts/assets-smoke.mjs` (Chromium, mocked API): the flow at 1440×1000 and 390×844 with the
 sticky footer measured at the top and the bottom of the results.
+
+`tests/svg-split.test.ts`: parsing and writing the sanitised SVG back; the splitting rules (root
+children, single-child wrappers, no descent through filters/masks, hidden elements); piece names
+(lettering, editor ids and classes ignored); the definitions closure (gradient `href` chains,
+clip paths, `<use>` symbols, filters, CSS rules by selector and their `url()`); a piece keeping its
+wrappers' transform and fill; pieces passing the sanitiser and a hostile file split into clean
+pieces; background detection (first in paint order, ≥ 90%, never an outline/clipped/small shape,
+never everything; the illustration's sky through its wrapper's transform at 90.25%); removing it
+keeps the frame; the placement maths with rotation, meet offsets, slice, crop and `none` (every
+test point of a piece lands within 1e-6 px of where it was), tiny pieces grown by margin;
+merging to the layer budget; *Merge back* (ids and CSS scoped, nested boxes, rotation, opacity);
+the schema keeping `piece`/`bgShape`; the demo badge splitting into five with its background.
+`tests/svg-pieces.test.ts` (paid guard): pieces stored sanitised (scripts, handlers,
+`foreignObject`, outside references gone), deduplicated, limits (not SVG, 0 or 41 pieces, over
+2 MB), another owner's month refused (an admin allowed), an uploaded SVG graphic sanitised, and
+the review link serving a piece through its post and refusing it through another post, another
+month's piece and an unknown layer.
+`scripts/svg-layers-smoke.mjs` (Chromium, mocked API storing pieces the Worker's way; run with
+`node --experimental-strip-types`): split three fixtures with pixel comparisons, remove the
+illustration's background (highlight, confirm, undo, redo), move/recolour/delete badge pieces,
+remove the badge's background piece, save, reload (same layers, same pixels), *Save & return*,
+reopen, *Merge back*, *Add as separate layers* for an SVG and an EPS-only vector, the review link
+drawing every piece, and the actions on screen at 390 × 844.
 
 `tests/freepik.test.ts`, under the paid guard (any network call the test did not stub fails it):
 the demo status and the member view; the search shape and every filter against the fixtures;
@@ -321,8 +444,14 @@ Not run live: no key, no token, no sign-in and no paid call were used while this
 - Vector downloads through the API are source bundles (ZIP): when the bundle carries an SVG it
   becomes an editable layer; EPS/AI-only bundles and PSDs are placed as their preview picture and
   their colours cannot be changed here (no converter runs in the Worker).
-- Image layers point at `/api/studio/...` URLs: the public share page cannot load them for a viewer
-  who is not signed in (true of every image layer, product photos included), so a shared preview
-  shows the post without them until the share route serves layer files.
+- Image layers point at `/api/studio/...` URLs; the review link rewrites them to
+  `/api/share/<token>/layer/<post>/<layer id>`, which serves only the layers on that post.
+- Splitting: an element drawn partly outside the vector's view box is cut at it (as the vector
+  showed it); a piece's box is the bounding box of its shapes (a rotated ellipse's box is a little
+  larger than the ellipse: transparent margin only). Group opacity on a wrapper becomes per-piece
+  opacity, which differs only where pieces overlap. SVG `<text>` is measured with the browser's
+  fonts, as it is drawn. Merge back of pieces that were interleaved with other layers puts the
+  merged vector at the lowest piece's place in the stack. Pieces of a vector split in a design are
+  stored with that month; they are not written back to the Freepik library.
 - A background shows only where the photo is transparent or around a smaller photo: making an
   opaque photograph's own backdrop disappear needs a cut-out (a paid tool, asked separately).

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A flat illustration with nested, transformed groups inside one wrapper (with inherited paint):
+     a sky (the background: a gradient rect covering the scene), a turned sun with stroked rays, two
+     hills (one in a scaled sub-group), a tree, and clouds painted through a CSS rule. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <radialGradient id="sky" cx="0.7" cy="0.2" r="0.9">
+      <stop offset="0" stop-color="#fff3c4"/>
+      <stop offset="1" stop-color="#7ec8e3"/>
+    </radialGradient>
+    <linearGradient id="hill-a" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6ab04c"/>
+      <stop offset="1" stop-color="#3e7a2a"/>
+    </linearGradient>
+  </defs>
+  <style>.cloud path { fill: #ffffff; opacity: 0.92; }</style>
+  <g id="scene" transform="translate(20 10) scale(0.95)" fill="#334455">
+    <rect id="sky-rect" width="800" height="600" fill="url(#sky)"/>
+    <g id="sun" transform="translate(620 130) rotate(15)">
+      <circle r="48" fill="#ffb703"/>
+      <g stroke="#fb8500" stroke-width="10" stroke-linecap="round">
+        <line x1="0" y1="-70" x2="0" y2="-95"/>
+        <line x1="70" y1="0" x2="95" y2="0"/>
+        <line x1="0" y1="70" x2="0" y2="95"/>
+        <line x1="-70" y1="0" x2="-95" y2="0"/>
+      </g>
+    </g>
+    <g class="cloud" transform="translate(140 110) scale(1.3)">
+      <path d="M0 30 C0 10 20 0 35 8 C45 -8 75 -6 80 14 C100 12 110 30 98 40 L5 40 C-5 40 -5 30 0 30 Z"/>
+    </g>
+    <g id="hills" transform="translate(0 360)">
+      <path d="M-20 240 C120 40 300 20 460 240 Z" fill="url(#hill-a)"/>
+      <g transform="scale(1.2) translate(-30 10)">
+        <path d="M300 200 C420 60 560 40 700 200 Z" fill="#4c8c34"/>
+      </g>
+    </g>
+    <g id="tree" transform="translate(190 330) rotate(-5) scale(1.1)">
+      <rect x="-8" y="0" width="16" height="70"/>
+      <circle cx="0" cy="-20" r="42" fill="#2d6a4f"/>
+      <circle cx="-26" cy="0" r="28" fill="#40916c"/>
+    </g>
+  </g>
+</svg>
