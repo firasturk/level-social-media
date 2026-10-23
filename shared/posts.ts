@@ -125,6 +125,8 @@ export interface PostReference {
    * reach this post; pinning again takes the new version.
    */
   drive?: { id: string; version: string; md5?: string; name: string };
+  /** Where the picture came from, for its badge: a Freepik asset, the client's Drive, a Pinterest pin or an upload. */
+  source?: "freepik" | "drive" | "pinterest" | "upload";
 }
 
 export interface Post {

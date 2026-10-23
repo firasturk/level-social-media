@@ -1181,3 +1181,40 @@ body:has(.ps) .confirm-backdrop {
     min-width: 48px;
   }
 }
+
+/* ───────────── Assets: the panel fills the side, only the results scroll ───────────── */
+.ps-side .ts-side-body:has(> .ps-assets) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ps-assets {
+  flex: 1;
+  min-height: 0;
+}
+.ps-assets .ps-asset-tabs {
+  margin-top: 0;
+}
+.ps-asset-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ps-drive {
+  min-height: 0;
+  overflow-y: auto;
+}
+@media (max-width: 860px) {
+  .ps-side:has(.ps-assets) {
+    max-height: 60vh;
+  }
+}
+@media (max-width: 860px) {
+  /* The bottom toolbar already says Assets: the room goes to the results. */
+  .ps-assets > .ts-panel-head {
+    display: none;
+  }
+  .ps-side:has(.ps-assets) {
+    max-height: 64vh;
+  }
+}

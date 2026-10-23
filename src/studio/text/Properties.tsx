@@ -2,9 +2,12 @@ import { useState } from "react";
 import { AlignCenter, AlignHorizontalDistributeCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalDistributeCenter, ArrowDownToLine, ArrowLeftToLine, ArrowRightToLine, ArrowUpToLine, Bold, CaseSensitive, Italic, List, ListOrdered, Strikethrough, Superscript, Subscript, TriangleAlert, Underline } from "lucide-react";
 import type { CanvasFx, Fill, ImageLayer, Layer, LogoLayer, ShapeLayer, TextLayer } from "@shared/layers";
 import { BLEND_MODES, isTextLayer } from "@shared/layers";
+import { recolorLayer } from "@shared/layer-ops";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
 import { brandFonts, onPalette, type Brand } from "./model";
+import SourceBadge from "../SourceBadge";
+import { BACKGROUND_HINT, LETTERING_LABEL } from "../FreepikPanel";
 
 export interface Selection {
   layer: Layer | null;
@@ -67,6 +70,9 @@ export default function Properties({
   onUploadFont,
   W,
   richActive,
+  onAddText,
+  onBackground,
+  photoOpaque,
 }: {
   sel: Selection;
   /** Applies to every selected layer. */
@@ -86,6 +92,12 @@ export default function Properties({
   W: number;
   /** Which rich styles are on at the caret / selection. */
   richActive: { bold: boolean; italic: boolean; underline: boolean; strike: boolean; script: "super" | "sub" | null };
+  /** A normal text layer, offered next to decorative lettering (a picture). */
+  onAddText?: () => void;
+  /** A picture layer as the design's background (behind the photo), or back over it. */
+  onBackground?: (id: string, on: boolean) => void;
+  /** The photo has no transparent pixel: a background shows only around a smaller photo. */
+  photoOpaque?: boolean;
 }) {
   const l = sel.layer;
   const fonts = brandFonts(brand);
@@ -109,7 +121,7 @@ export default function Properties({
     return (
       <div className="ts-props">
         {sel.count > 1 && <AlignRow count={sel.count} onAlign={onAlign} />}
-        <PlainProperties layer={l} onChange={onChange} swatches={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} W={W} />
+        <PlainProperties layer={l} onChange={onChange} swatches={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} W={W} canvasFx={canvasFx} onCanvasFx={onCanvasFx} onAddText={onAddText} onBackground={onBackground} photoOpaque={photoOpaque} />
         <details>
           <summary>Picture</summary>
           <CanvasSection fx={canvasFx} onChange={onCanvasFx} brand={swatches} saved={saved} onSaveColour={onSaveColour} pickFromCanvas={pickFromCanvas} />
@@ -413,7 +425,33 @@ function AlignRow({ count, onAlign }: { count: number; onAlign: (how: Align) => 
 const pct = (f: number) => Math.round(f * 1000) / 10;
 
 /** The properties of a logo, a picture or a shape layer: its own section, then place and size. */
-function PlainProperties({ layer: l, onChange, swatches, saved, onSaveColour, pickFromCanvas, W }: { layer: LogoLayer | ImageLayer | ShapeLayer; onChange: (patch: Partial<Layer>) => void; swatches: { name: string; hex: string }[]; saved: string[]; onSaveColour: (hex: string) => void; pickFromCanvas: () => Promise<string | null>; W: number }) {
+function PlainProperties({
+  layer: l,
+  onChange,
+  swatches,
+  saved,
+  onSaveColour,
+  pickFromCanvas,
+  W,
+  canvasFx,
+  onCanvasFx,
+  onAddText,
+  onBackground,
+  photoOpaque,
+}: {
+  layer: LogoLayer | ImageLayer | ShapeLayer;
+  onChange: (patch: Partial<Layer>) => void;
+  swatches: { name: string; hex: string }[];
+  saved: string[];
+  onSaveColour: (hex: string) => void;
+  pickFromCanvas: () => Promise<string | null>;
+  W: number;
+  canvasFx?: CanvasFx;
+  onCanvasFx?: (fx: CanvasFx | undefined) => void;
+  onAddText?: () => void;
+  onBackground?: (id: string, on: boolean) => void;
+  photoOpaque?: boolean;
+}) {
   const px = (f: number) => Math.round(f * W);
   const fromPx = (n: number) => n / W;
   const image = l.type === "image" ? l : null;
@@ -445,6 +483,75 @@ function PlainProperties({ layer: l, onChange, swatches, saved, onSaveColour, pi
           <Slider label="Opacity" value={Math.round((logo.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ opacity: v === 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
         </details>
       )}
+      {image && (image.source || image.format || image.note || image.lettering) && (
+        <details open>
+          <summary>Asset</summary>
+          <div className="ts-source-row">
+            {image.source && <SourceBadge source={image.source} />}
+            {image.format && <span className="ts-format">{image.format}</span>}
+            {image.lettering && <span className="ts-lettering">{LETTERING_LABEL}</span>}
+          </div>
+          {image.note && <p className="ts-hint">{image.note}</p>}
+          {image.lettering && (
+            <>
+              <p className="ts-hint">Lettering from a stock file is a picture: its words cannot be typed in. For words you can edit, add a text layer.</p>
+              {onAddText && (
+                <button type="button" className="ts-mini" onClick={onAddText}>
+                  Add editable text
+                </button>
+              )}
+            </>
+          )}
+        </details>
+      )}
+      {image && !!image.colors?.length && (
+        <details open>
+          <summary>Vector colours</summary>
+          <p className="ts-hint">The SVG's own colours. A change applies to this layer only; the file in the library stays as it is.</p>
+          <div className="ts-vector-colours">
+            {image.colors.map((orig) => {
+              const now = image.recolor?.[orig] ?? orig;
+              return <ColorField key={orig} compact label={orig.toUpperCase()} value={{ type: "solid", color: now }} onChange={(f) => f.type === "solid" && onChange({ recolor: recolorLayer(image, orig, f.color).recolor } as Partial<ImageLayer>)} brand={swatches} saved={saved} onSaveColour={onSaveColour} onPickFromCanvas={pickFromCanvas} />;
+            })}
+          </div>
+          <button type="button" className="ts-mini" onClick={() => onChange({ recolor: undefined } as Partial<ImageLayer>)} disabled={!image.recolor}>
+            Original colours
+          </button>
+        </details>
+      )}
+      {image && !image.colors?.length && image.source === "freepik" && image.format && image.format !== "SVG" && (
+        <p className="ts-hint">{image.format === "EPS/AI" ? "This file is EPS/AI: colours cannot be changed here." : `This file is ${image.format}: its colours cannot be changed here.`}</p>
+      )}
+      {image && (
+        <details open={!!image.behind}>
+          <summary>Background</summary>
+          <p className="ts-hint">{BACKGROUND_HINT}</p>
+          {onBackground && (
+            <div className="ts-seg">
+              <button type="button" className={image.behind ? "" : "on"} onClick={() => image.behind && onBackground(image.id, false)} title="Drawn over the photo, like any layer">
+                Over the photo
+              </button>
+              <button type="button" className={image.behind ? "on" : ""} onClick={() => !image.behind && onBackground(image.id, true)} title="Full canvas, behind the photo">
+                Behind the photo
+              </button>
+            </div>
+          )}
+          {image.behind && onCanvasFx && (
+            <>
+              {photoOpaque && <p className="ts-hint">This photo has no transparent areas: make it smaller to show the background around it.</p>}
+              <Slider label="Photo size" value={Math.round((canvasFx?.photoScale ?? 1) * 100)} min={30} max={100} onChange={(v) => onCanvasFx({ ...(canvasFx ?? {}), photoScale: v >= 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
+              <div className="ts-row">
+                <button type="button" className="ts-mini" onClick={() => onCanvasFx({ ...(canvasFx ?? {}), photoScale: 0.8 })}>
+                  Frame the photo (80%)
+                </button>
+                <button type="button" className="ts-mini" onClick={() => onCanvasFx({ ...(canvasFx ?? {}), photoScale: undefined })} disabled={!canvasFx?.photoScale}>
+                  Full photo
+                </button>
+              </div>
+            </>
+          )}
+        </details>
+      )}
       {image && (
         <details open>
           <summary>Picture layer</summary>
@@ -465,6 +572,16 @@ function PlainProperties({ layer: l, onChange, swatches, saved, onSaveColour, pi
           </div>
           <Slider label="Corner radius" value={px(image.radius ?? 0)} min={0} max={Math.round(W / 4)} onChange={(v) => onChange({ radius: v ? fromPx(v) : undefined } as Partial<ImageLayer>)} format={(n) => `${n}px`} />
           <Slider label="Opacity" value={Math.round((image.opacity ?? 1) * 100)} min={0} max={100} onChange={(v) => onChange({ opacity: v === 100 ? undefined : v / 100 })} format={(n) => `${n}%`} />
+          <label className="ts-num">
+            <span>Blend</span>
+            <select value={image.blend ?? "normal"} onChange={(e) => onChange({ blend: e.target.value === "normal" ? undefined : e.target.value })}>
+              {BLEND_MODES.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
         </details>
       )}
       {shape && (

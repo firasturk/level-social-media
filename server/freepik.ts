@@ -19,6 +19,8 @@ import { MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
 import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { ownedPlan, saveConfig } from "./posts";
 import { storeBytes } from "./styles";
+import { formatLabelOf, inspectAssetFile, type SourceFormat } from "./asset-format";
+import { zipSync } from "fflate";
 import type { User } from "@shared/types";
 import type { Config } from "@shared/config";
 import type { PostReference } from "@shared/posts";
@@ -58,6 +60,26 @@ export const ORIENTATIONS = ["landscape", "portrait", "square", "panoramic"] as 
 export type Orientation = (typeof ORIENTATIONS)[number];
 export const COLORS = ["black", "blue", "gray", "green", "orange", "red", "white", "yellow", "purple", "cyan", "pink"] as const;
 
+/**
+ * The filter chips of the Assets panel, mapped onto the documented search filters: a content
+ * type, words added to the search term and, for icons and lettering, SVG vectors first so the
+ * download can be an editable vector. The demo catalogue tags its fixtures the same way.
+ */
+export const CATEGORIES = ["icons", "photos", "backgrounds", "textures", "typography"] as const;
+export type Category = (typeof CATEGORIES)[number];
+export const CATEGORY_RULES: Record<Category, { type: AssetKind | ""; words: string; svg: boolean }> = {
+  icons: { type: "vector", words: "icon", svg: true },
+  photos: { type: "photo", words: "", svg: false },
+  backgrounds: { type: "", words: "background", svg: false },
+  textures: { type: "photo", words: "texture", svg: false },
+  typography: { type: "vector", words: "lettering", svg: true },
+};
+
+/** A typography illustration or an outlined word: drawn as a picture, never as editable text. */
+export function isLettering(title: string, category?: string | null): boolean {
+  return category === "typography" || /\b(letter(ing)?|typograph\w*|calligraph\w*|text effect|word ?art|wordmark|slogan|quote)\b/i.test(title);
+}
+
 export type LicenseType = "freemium" | "premium";
 /** The licence as the API reports it: the type and its URL; attribution follows Freepik's free licence (assumed, see docs). */
 export interface AssetLicense {
@@ -90,6 +112,8 @@ export interface SearchParams {
   type?: AssetKind | "";
   orientation?: Orientation | "";
   color?: string;
+  /** A filter chip: adds its content type, words and the SVG filter (see CATEGORY_RULES). */
+  category?: Category | "";
   page?: number;
   limit?: number;
 }
@@ -195,11 +219,15 @@ function fromListItem(it: ListItem): StockItem {
 /** The documented query: term, page, limit, filters[content_type][photo]=1 and so on. */
 export function searchQuery(p: SearchParams): URLSearchParams {
   const q = new URLSearchParams();
-  if (p.q.trim()) q.set("term", p.q.trim());
+  const rule = p.category ? CATEGORY_RULES[p.category] : null;
+  const term = [p.q.trim(), rule && !p.q.toLowerCase().includes(rule.words) ? rule.words : ""].filter(Boolean).join(" ");
+  if (term) q.set("term", term);
   q.set("page", String(Math.max(1, Math.min(100, p.page ?? 1))));
   q.set("limit", String(Math.max(1, Math.min(50, p.limit ?? 24))));
   q.set("order", "relevance");
-  if (p.type && p.type !== "template") q.set(`filters[content_type][${p.type}]`, "1");
+  const type = p.type || rule?.type || "";
+  if (type && type !== "template") q.set(`filters[content_type][${type}]`, "1");
+  if (rule?.svg && type === "vector") q.set("filters[vector][type][svg]", "1");
   if (p.orientation) q.set(`filters[orientation][${p.orientation}]`, "1");
   if (p.color && (COLORS as readonly string[]).includes(p.color)) q.set("filters[color]", p.color);
   return q;
@@ -312,15 +340,33 @@ interface DemoFixture {
   width: number;
   height: number;
   words: string[];
+  /** The filter chips it answers. */
+  cats?: Category[];
+  /** Vector artwork (inner SVG markup on a 100×100 view box): drawn on the card and shipped in the download. */
+  art?: string;
+  /** What the download is: the card as an SVG (default), a vector ZIP with an SVG and an EPS, or a ZIP with an EPS only. */
+  bundle?: "svg+eps" | "eps";
 }
 
+/** A lightning bolt in two colours, the demo's editable icon. */
+const LIGHTNING_ART = '<path d="M58 4 L20 56 L46 56 L38 96 L80 40 L54 40 Z" fill="#c6f432" stroke="#111111" stroke-width="3" stroke-linejoin="round"/>';
+/** A four-point sparkle. */
+const SPARKLE_ART = '<path d="M50 4 C54 38 62 46 96 50 C62 54 54 62 50 96 C46 62 38 54 4 50 C38 46 46 38 50 4 Z" fill="#111111"/>';
+/** A brush-stroke word, the demo's decorative lettering (shipped as EPS only). */
+const LETTERING_ART = '<text x="50" y="62" font-family="Impact, sans-serif" font-size="34" text-anchor="middle" fill="#e2336b" transform="rotate(-8 50 50)">SALE!</text>';
+
 export const DEMO_CATALOGUE: readonly DemoFixture[] = [
-  { id: "demo-1", kind: "photo", title: "Pistachio dessert on marble", author: "Demo studio", license: "freemium", orientation: "portrait", color: "green", hex: "#6f9f5d", width: 2400, height: 3000, words: ["pistachio", "dessert", "marble", "food", "sweet", "cafe"] },
-  { id: "demo-2", kind: "photo", title: "Iced coffee by the window", author: "Demo studio", license: "premium", orientation: "landscape", color: "orange", hex: "#c98a3a", width: 3000, height: 2000, words: ["coffee", "iced", "window", "drink", "cafe", "morning"] },
-  { id: "demo-3", kind: "vector", title: "Lantern pattern, Ramadan", author: "Demo vectors", license: "freemium", orientation: "square", color: "blue", hex: "#2f5ea8", width: 2000, height: 2000, words: ["lantern", "ramadan", "pattern", "eid", "ornament", "arabic"] },
-  { id: "demo-4", kind: "vector", title: "Sale badge set", author: "Demo vectors", license: "premium", orientation: "square", color: "red", hex: "#b8372f", width: 2000, height: 2000, words: ["sale", "badge", "offer", "discount", "sticker", "label"] },
+  { id: "demo-1", kind: "photo", title: "Pistachio dessert on marble", author: "Demo studio", license: "freemium", orientation: "portrait", color: "green", hex: "#6f9f5d", width: 2400, height: 3000, words: ["pistachio", "dessert", "marble", "food", "sweet", "cafe"], cats: ["photos"] },
+  { id: "demo-2", kind: "photo", title: "Iced coffee by the window", author: "Demo studio", license: "premium", orientation: "landscape", color: "orange", hex: "#c98a3a", width: 3000, height: 2000, words: ["coffee", "iced", "window", "drink", "cafe", "morning"], cats: ["photos"] },
+  { id: "demo-3", kind: "vector", title: "Lantern pattern, Ramadan", author: "Demo vectors", license: "freemium", orientation: "square", color: "blue", hex: "#2f5ea8", width: 2000, height: 2000, words: ["lantern", "ramadan", "pattern", "eid", "ornament", "arabic"], cats: ["backgrounds"] },
+  { id: "demo-4", kind: "vector", title: "Sale badge set", author: "Demo vectors", license: "premium", orientation: "square", color: "red", hex: "#b8372f", width: 2000, height: 2000, words: ["sale", "badge", "offer", "discount", "sticker", "label"], cats: ["icons"] },
   { id: "demo-5", kind: "psd", title: "Story template, product launch", author: "Demo templates", license: "premium", orientation: "portrait", color: "purple", hex: "#6a3fa0", width: 1080, height: 1920, words: ["template", "story", "launch", "product", "instagram", "layout"] },
-  { id: "demo-6", kind: "photo", title: "Fresh mango splash", author: "Demo studio", license: "freemium", orientation: "square", color: "yellow", hex: "#e0b43a", width: 2000, height: 2000, words: ["mango", "splash", "fruit", "juice", "fresh", "summer"] },
+  { id: "demo-6", kind: "photo", title: "Fresh mango splash", author: "Demo studio", license: "freemium", orientation: "square", color: "yellow", hex: "#e0b43a", width: 2000, height: 2000, words: ["mango", "splash", "fruit", "juice", "fresh", "summer"], cats: ["photos"] },
+  { id: "demo-7", kind: "vector", title: "Lightning icon", author: "Demo vectors", license: "freemium", orientation: "square", color: "green", hex: "#f4f4f6", width: 1000, height: 1000, words: ["lightning", "bolt", "icon", "energy", "power", "flash"], cats: ["icons"], art: LIGHTNING_ART, bundle: "svg+eps" },
+  { id: "demo-8", kind: "vector", title: "Sparkle star icon", author: "Demo vectors", license: "premium", orientation: "square", color: "black", hex: "#f4f4f6", width: 1000, height: 1000, words: ["star", "sparkle", "icon", "shine", "magic"], cats: ["icons"], art: SPARKLE_ART },
+  { id: "demo-9", kind: "vector", title: "Brush lettering, SALE", author: "Demo vectors", license: "freemium", orientation: "square", color: "pink", hex: "#fff1f5", width: 1000, height: 1000, words: ["sale", "lettering", "typography", "brush", "word"], cats: ["typography"], art: LETTERING_ART, bundle: "eps" },
+  { id: "demo-10", kind: "photo", title: "Concrete wall texture", author: "Demo studio", license: "freemium", orientation: "portrait", color: "gray", hex: "#9a9a9e", width: 2400, height: 3000, words: ["concrete", "wall", "texture", "grey", "background", "studio"], cats: ["textures", "backgrounds"] },
+  { id: "demo-11", kind: "photo", title: "Soft pink gradient backdrop", author: "Demo studio", license: "premium", orientation: "portrait", color: "pink", hex: "#f2a7c3", width: 2400, height: 3000, words: ["gradient", "backdrop", "background", "pink", "soft"], cats: ["backgrounds"] },
 ];
 
 export const DEMO_PREVIEW_PATH = "/api/studio/freepik/demo";
@@ -332,9 +378,21 @@ function escapeXml(s: string): string {
 /** The placeholder card of a demo fixture: a coloured SVG with its title and a DEMO label; drawn on the server, never fetched. */
 export function demoCard(f: DemoFixture, w = 600): { bytes: ArrayBuffer; mime: string } {
   const h = Math.round((w * f.height) / f.width);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${f.hex}"/><text x="50%" y="50%" fill="#fff" font-family="sans-serif" font-size="${Math.max(12, Math.round(w / 14))}" text-anchor="middle">${escapeXml(f.title)}</text><text x="50%" y="92%" fill="#fff" fill-opacity="0.75" font-family="sans-serif" font-size="${Math.max(9, Math.round(w / 24))}" text-anchor="middle">DEMO FIXTURE · ${f.kind.toUpperCase()} · ${f.license.toUpperCase()}</text></svg>`;
+  const label = `<text x="50%" y="92%" fill="${f.art ? "#6e6e73" : "#fff"}" fill-opacity="0.75" font-family="sans-serif" font-size="${Math.max(9, Math.round(w / 24))}" text-anchor="middle">DEMO FIXTURE · ${f.kind.toUpperCase()} · ${f.license.toUpperCase()}</text>`;
+  const body = f.art
+    ? `<g transform="translate(${w * 0.2} ${h * 0.12}) scale(${(w * 0.6) / 100} ${(h * 0.6) / 100})">${f.art}</g>`
+    : `<text x="50%" y="50%" fill="#fff" font-family="sans-serif" font-size="${Math.max(12, Math.round(w / 14))}" text-anchor="middle">${escapeXml(f.title)}</text>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="100%" height="100%" fill="${f.hex}"/>${body}${label}</svg>`;
   return { bytes: new TextEncoder().encode(svg).buffer as ArrayBuffer, mime: "image/svg+xml" };
 }
+
+/** The demo download of a vector with artwork: the bare SVG an editor exports, as Freepik ships it in a ZIP. */
+export function demoArtSvg(f: DemoFixture): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1000" height="1000"><title>${escapeXml(f.title)}</title>${f.art ?? ""}</svg>`;
+}
+
+/** A stand-in EPS: the header a real one starts with, so the format is read from the bytes. */
+const demoEps = (f: DemoFixture) => new TextEncoder().encode(`%!PS-Adobe-3.0 EPSF-3.0\n%%Creator: Demo vectors\n%%Title: ${f.title}\n%%BoundingBox: 0 0 1000 1000\n%%EOF\n`);
 
 function fromFixture(f: DemoFixture): StockItem {
   return {
@@ -348,25 +406,26 @@ function fromFixture(f: DemoFixture): StockItem {
     height: f.height,
     orientation: f.orientation,
     flattened: isFlattened(f.kind),
-    formats: f.kind === "vector" ? ["svg", "eps"] : f.kind === "psd" ? ["psd", "jpg"] : ["jpg"],
+    formats: f.bundle === "eps" ? ["eps"] : f.kind === "vector" ? ["svg", "eps"] : f.kind === "psd" ? ["psd", "jpg"] : ["jpg"],
     url: "",
     demo: true,
   };
 }
 
-/** The stand-in with no key: the six fixtures, filtered like the real search; nothing is sent anywhere. */
+/** The stand-in with no key: the labelled fixtures, filtered like the real search; nothing is sent anywhere. */
 export class DemoStockProvider implements StockProvider {
   readonly name = "demo" as const;
   async search(p: SearchParams): Promise<SearchResult> {
     const words = p.q.toLowerCase().split(/\s+/).filter(Boolean);
     const items = DEMO_CATALOGUE.filter((f) => {
       if (p.type && !(p.type === f.kind || (p.type === "template" && f.kind === "psd"))) return false;
+      if (p.category && !(f.cats ?? []).includes(p.category)) return false;
       if (p.orientation && p.orientation !== f.orientation) return false;
       if (p.color && p.color !== f.color) return false;
       return true;
     });
     const matched = words.length ? items.filter((f) => words.every((w) => [f.title.toLowerCase(), ...f.words].some((h) => h.includes(w)))) : items;
-    // The demo catalogue is six cards: when the words match none of them, all six are shown (labelled demo) so the flow can be tried.
+    // The demo catalogue is a handful of cards: when the words match none of them, all are shown (labelled demo) so the flow can be tried.
     const shown = (matched.length ? matched : items).map(fromFixture);
     return { items: shown, page: 1, lastPage: 1, total: shown.length, demo: true };
   }
@@ -378,6 +437,14 @@ export class DemoStockProvider implements StockProvider {
   async download(id: string): Promise<Downloaded> {
     const f = DEMO_CATALOGUE.find((x) => x.id === id);
     if (!f) throw new StudioError("That demo asset does not exist.", 404);
+    // A vector bundle the way Freepik ships one: a ZIP with the source files (and an SVG when there is one).
+    if (f.bundle) {
+      const files: Record<string, Uint8Array> = { [`${f.id}/${f.id}.eps`]: demoEps(f), [`${f.id}/License free.txt`]: new TextEncoder().encode("Demo fixture, not a real licence.") };
+      if (f.bundle === "svg+eps") files[`${f.id}/${f.id}.svg`] = new TextEncoder().encode(demoArtSvg(f));
+      const zip = zipSync(files);
+      return { bytes: zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength) as ArrayBuffer, mime: "application/zip", filename: `${f.id}.zip` };
+    }
+    if (f.art) return { bytes: new TextEncoder().encode(demoArtSvg(f)).buffer as ArrayBuffer, mime: "image/svg+xml", filename: `${f.id}.svg` };
     const card = demoCard(f, 1200);
     return { ...card, filename: `${f.id}.svg` };
   }
@@ -452,9 +519,32 @@ export interface AssetRow {
   flattened: number;
   added_by: string;
   created: number;
+  /** Read from the bytes when stored (migration 0074); null for a file stored before. */
+  format?: SourceFormat | null;
+  contents?: string | null;
+  layer_key?: string | null;
+  layer_mime?: string | null;
+  colors?: string | null;
+  format_note?: string | null;
 }
 
 export const assetFileUrl = (id: string) => `/api/studio/freepik/assets/${encodeURIComponent(id)}/file`;
+
+const parseList = (raw: string | null | undefined): string[] => {
+  try {
+    const v = JSON.parse(raw ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
+
+/** The URL an image layer draws: the sanitised SVG or the raster kept for layers, else the file itself when the browser draws it. */
+export function layerSrcOf(a: AssetRow): string | null {
+  if (a.layer_key) return a.layer_key === a.file_key ? assetFileUrl(a.id) : `${assetFileUrl(a.id)}?layer=1`;
+  if (!a.format && a.file_key && /^image\/(jpeg|png|webp)$/.test(a.mime ?? "")) return assetFileUrl(a.id);
+  return null;
+}
 
 /** The asset as the UI and the Prompt Box read it. */
 export function assetJson(a: AssetRow, uses: number | null = null) {
@@ -465,6 +555,8 @@ export function assetJson(a: AssetRow, uses: number | null = null) {
     /* the default stands */
   }
   const mime = a.mime ?? "";
+  const contents = parseList(a.contents) as SourceFormat[];
+  const editable = !!a.layer_key && /svg/.test(a.layer_mime ?? "");
   return {
     id: a.id,
     client: a.client,
@@ -482,7 +574,17 @@ export function assetJson(a: AssetRow, uses: number | null = null) {
     height: a.height,
     flattened: a.flattened === 1,
     /** True when the stored file can be an image layer (a picture the browser draws: JPG, PNG, WebP, SVG). */
-    layerable: /^image\/(jpeg|png|webp|svg\+xml)$/.test(mime),
+    layerable: !!a.layer_key || /^image\/(jpeg|png|webp|svg\+xml)$/.test(mime),
+    /** What the file is, read from its bytes: "SVG", "EPS/AI", "PSD", "JPG"…; null before it was read. */
+    format: a.format ? formatLabelOf(a.format, contents) : null,
+    contents,
+    /** An SVG layer whose colours can be changed. */
+    editable,
+    colors: editable ? parseList(a.colors) : [],
+    formatNote: a.format_note ?? null,
+    /** The URL an image layer draws, when the file itself (or what it carried) can be drawn. */
+    layerSrc: layerSrcOf(a),
+    lettering: isLettering(a.title),
     demo: a.provider_id.startsWith("demo-"),
     addedBy: a.added_by,
     created: a.created,
@@ -538,9 +640,45 @@ export async function upsertStockItem(env: Env, item: StockItem, user: User, cli
 export async function storeDownloaded(env: Env, asset: AssetRow, file: Downloaded): Promise<AssetRow> {
   const key = `assets/${asset.provider_id}.${extOf(file.mime, file.filename)}`;
   await env.BUCKET.put(key, file.bytes, { httpMetadata: { contentType: file.mime }, customMetadata: { name: file.filename.slice(0, 120) } });
-  const flattened = /^image\/svg/.test(file.mime) ? 0 : asset.kind === "vector" && /zip/.test(file.mime) ? 0 : 1;
-  await run(env.DB, "UPDATE assets SET file_key = ?, mime = ?, flattened = ? WHERE id = ?", key, file.mime, flattened, asset.id);
+  await run(env.DB, "UPDATE assets SET file_key = ?, mime = ? WHERE id = ?", key, file.mime, asset.id);
+  return storeInspection(env, { ...asset, file_key: key, mime: file.mime }, file.bytes, file.filename);
+}
+
+/**
+ * Reads what the stored file really is (server/asset-format.ts) and keeps what an image layer
+ * draws: a sanitised SVG (assets/<id>.layer.svg, with its colours) or the raster a bundle carried
+ * (assets/<id>.layer.<ext>); a plain picture is its own layer file. EPS, AI and PSD keep no layer
+ * file: the preview picture stands in and the note says so. `flattened` is 0 only for an SVG.
+ */
+export async function storeInspection(env: Env, asset: AssetRow, bytes: ArrayBuffer, filename: string): Promise<AssetRow> {
+  const ins = inspectAssetFile(bytes, filename);
+  let layerKey: string | null = null;
+  if (ins.layer) {
+    const isOwnFile = ins.format === "png" || ins.format === "jpg" || ins.format === "webp" || ins.format === "gif";
+    layerKey = isOwnFile && asset.file_key ? asset.file_key : `assets/${asset.provider_id}.layer.${ins.layer.ext}`;
+    if (layerKey !== asset.file_key) await env.BUCKET.put(layerKey, ins.layer.bytes, { httpMetadata: { contentType: ins.layer.mime }, customMetadata: { name: (ins.layer.entry ?? filename).slice(0, 120) } });
+  }
+  await run(
+    env.DB,
+    "UPDATE assets SET format = ?, contents = ?, layer_key = ?, layer_mime = ?, colors = ?, format_note = ?, flattened = ? WHERE id = ?",
+    ins.format,
+    JSON.stringify(ins.contents),
+    layerKey,
+    ins.layer?.mime ?? null,
+    JSON.stringify(ins.colors),
+    ins.note,
+    ins.editable ? 0 : 1,
+    asset.id,
+  );
   return (await assetById(env, asset.id))!;
+}
+
+/** A file stored before the format was read (or by an older build): read once now, from the bucket. */
+export async function ensureInspected(env: Env, asset: AssetRow): Promise<AssetRow> {
+  if (asset.format || !asset.file_key) return asset;
+  const obj = await env.BUCKET.get(asset.file_key);
+  if (!obj) return asset;
+  return storeInspection(env, asset, await obj.arrayBuffer(), asset.file_key);
 }
 
 export interface DownloadOutcome {
@@ -567,7 +705,7 @@ export async function downloadAsset(
   if (existing?.file_key) {
     const opId = await recordIntegrationOp(env, { provider: "freepik", kind: "download", user: user.id, batch: opts.batch ?? null, post: opts.post ?? null, estimate: 0, reported: 0, status: "done", note: `Reused ${existing.provider_id} already in the library` });
     if (!existing.client && opts.client) await run(env.DB, "UPDATE assets SET client = ? WHERE id = ?", opts.client, existing.id);
-    return { asset: (await assetById(env, existing.id))!, reused: true, estimate: 0, opId };
+    return { asset: await ensureInspected(env, (await assetById(env, existing.id))!), reused: true, estimate: 0, opId };
   }
   const item = opts.item ?? (await fp.provider.detail(id));
   if (item.demo !== !fp.connected) throw new StudioError(fp.connected ? "That is a demo asset: search again with the key connected." : NOT_CONNECTED, 409);
@@ -635,6 +773,13 @@ export async function previewPicture(env: Env, asset: AssetRow, fetchFn: typeof 
   const key = previewKeyOf(asset);
   const kept = await env.BUCKET.get(key);
   if (kept) return { bytes: await kept.arrayBuffer(), mime: kept.httpMetadata?.contentType || "image/jpeg", key };
+  // A demo fixture's preview is the card drawn here: nothing is fetched.
+  const fixture = asset.provider_id.startsWith("demo-") ? DEMO_CATALOGUE.find((f) => f.id === asset.provider_id) : undefined;
+  if (fixture) {
+    const card = demoCard(fixture, 1200);
+    await env.BUCKET.put(key, card.bytes, { httpMetadata: { contentType: card.mime } });
+    return { bytes: card.bytes, mime: card.mime, key };
+  }
   if (!asset.preview_url || !/^https?:/.test(asset.preview_url)) throw new StudioError("This asset is a file bundle, not a picture, and it has no preview picture to use instead.", 415);
   const r = await fetchFn(asset.preview_url, { signal: AbortSignal.timeout(60_000) });
   if (!r.ok) throw new StudioError(`The asset's preview picture could not be fetched (${r.status}).`, 502);
@@ -655,10 +800,12 @@ const isBundle = (mime: string): boolean => !/^image\//i.test(mime);
  */
 async function attachReference(env: Env, user: User, asset: AssetRow, batch: string, index: number, fetchFn: typeof fetch = fetch): Promise<PostReference> {
   if (!asset.file_key) throw new StudioError("Download this asset to the library first.", 409);
-  const obj = await env.BUCKET.get(asset.file_key);
+  // The layer file when there is one: the sanitised SVG or the raster a bundle carried, never a raw SVG.
+  const layerObj = asset.layer_key ? await env.BUCKET.get(asset.layer_key) : null;
+  const obj = layerObj ?? (await env.BUCKET.get(asset.file_key));
   if (!obj) throw new StudioError("The asset's file is no longer in storage: download it again.", 404);
   let bytes = await obj.arrayBuffer();
-  let mime = obj.httpMetadata?.contentType || asset.mime || "application/octet-stream";
+  let mime = (layerObj ? asset.layer_mime : null) || obj.httpMetadata?.contentType || asset.mime || "application/octet-stream";
   let fromPreview = false;
   if (isBundle(mime)) {
     const p = await previewPicture(env, asset, fetchFn);
@@ -685,7 +832,7 @@ async function attachReference(env: Env, user: User, asset: AssetRow, batch: str
   const post = (config.plan ?? []).find((p) => p.index === index);
   if (!post) throw new StudioError("That post is not in the month.", 404);
   if (post.reference?.key) await env.BUCKET.delete([post.reference.key, post.reference.thumb]).catch(() => undefined);
-  const reference: PostReference = { key: image, thumb, name: `${asset.title.slice(0, 180)}${fromPreview ? " (preview picture)" : ""}`, note: post.reference?.note, at: now() };
+  const reference: PostReference = { key: image, thumb, name: `${asset.title.slice(0, 180)}${fromPreview ? " (preview picture)" : ""}`, note: post.reference?.note, at: now(), source: "freepik" };
   config.plan = (config.plan ?? []).map((p) => (p.index === index ? { ...p, reference } : p));
   await saveConfig(env, b, config);
   return reference;
@@ -695,8 +842,31 @@ export interface UseOutcome {
   asset: AssetRow;
   use: { id: string; role: UseRole; batch: string; post: number; slide: number | null; layerId: string | null };
   reference?: PostReference;
-  /** For a design use: the studio URL an image layer points at, and whether it is flattened. */
-  layer?: { src: string; name: string; flattened: boolean; layerable: boolean };
+  /** For a design use: the studio URL an image layer points at, whether it is flattened, and what the file allows. */
+  layer?: DesignLayerInfo;
+}
+
+/** What the Text studio needs to make the image layer, and to say plainly what the file allows. */
+export interface DesignLayerInfo {
+  src: string;
+  name: string;
+  flattened: boolean;
+  layerable: boolean;
+  /** "SVG", "EPS/AI", "PSD", "JPG"…, read from the bytes. */
+  format: string | null;
+  /** An SVG whose colours the layer can change. */
+  editable: boolean;
+  /** Its distinct colours (#rrggbb), the swatches. */
+  colors: string[];
+  /** The plain sentence for the UI ("This file is EPS/AI: colours cannot be changed here…"). */
+  note: string | null;
+  /** A typography illustration: a picture, never editable text. */
+  lettering: boolean;
+  /** The preview picture stands in for a file the browser cannot draw. */
+  preview: boolean;
+  kind: AssetKind;
+  /** Width over height of the asset, when known: the layer keeps it. */
+  aspect: number | null;
 }
 
 export async function useAsset(env: Env, user: User, d: UseInput, fetchFn: typeof fetch = fetch): Promise<UseOutcome> {
@@ -705,16 +875,19 @@ export async function useAsset(env: Env, user: User, d: UseInput, fetchFn: typeo
   await ownedPlan(env, user, d.batch);
   const out: UseOutcome = { asset, use: { id: uuid(), role: d.role, batch: d.batch, post: d.post, slide: d.slide ?? null, layerId: null } };
   if (d.role === "reference") {
-    out.reference = await attachReference(env, user, asset, d.batch, d.post, fetchFn);
+    out.reference = await attachReference(env, user, await ensureInspected(env, asset), d.batch, d.post, fetchFn);
   } else {
-    const json = assetJson(asset);
+    const read = await ensureInspected(env, asset);
+    out.asset = read;
+    const json = assetJson(read);
     out.use.layerId = d.layerId ?? null;
-    if (json.layerable) {
-      out.layer = { src: assetFileUrl(asset.id), name: asset.title, flattened: asset.flattened === 1, layerable: true };
+    const info = { format: json.format, editable: json.editable, colors: json.colors, note: json.formatNote, lettering: json.lettering, kind: read.kind, aspect: read.width && read.height ? Math.round((read.width / read.height) * 1000) / 1000 : null };
+    if (json.layerSrc) {
+      out.layer = { src: json.layerSrc, name: asset.title, flattened: !json.editable, layerable: true, preview: false, ...info };
     } else {
-      // A bundle (a vector's ZIP) is drawn as its preview picture, flattened; the source files stay in the library.
-      await previewPicture(env, asset, fetchFn);
-      out.layer = { src: `${assetFileUrl(asset.id)}?preview=1`, name: `${asset.title} (preview picture)`, flattened: true, layerable: true };
+      // EPS, AI, PSD (or a bundle without an SVG or a picture) is drawn as its preview picture, flattened; the source files stay in the library.
+      await previewPicture(env, read, fetchFn);
+      out.layer = { src: `${assetFileUrl(asset.id)}?preview=1`, name: `${asset.title} (preview picture)`, flattened: true, layerable: true, preview: true, ...info, editable: false, colors: [] };
     }
   }
   await run(env.DB, "INSERT INTO asset_uses (id, asset, batch, post, slide, role, layer_id, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", out.use.id, asset.id, d.batch, d.post, d.slide ?? null, d.role, out.use.layerId, now());
@@ -794,6 +967,7 @@ const searchSchema = z.object({
   type: z.enum(ASSET_KINDS).or(z.literal("")).default(""),
   orientation: z.enum(ORIENTATIONS).or(z.literal("")).default(""),
   color: z.enum(COLORS).or(z.literal("")).default(""),
+  category: z.enum(CATEGORIES).or(z.literal("")).default(""),
   page: z.coerce.number().int().min(1).max(100).default(1),
   client: z.string().max(120).optional(),
 });
@@ -805,8 +979,8 @@ freepikRoutes.get("/search", async (c) => {
   if (!parsed.success) throw new StudioError(`Invalid search: ${parsed.error.issues[0]?.path.join(".") || "query"} ${parsed.error.issues[0]?.message ?? "is invalid"}.`);
   const d = parsed.data;
   const fp = await resolveFreepik(c.env, fetcher());
-  const result = await fp.provider.search({ q: d.q, type: d.type, orientation: d.orientation, color: d.color, page: d.page });
-  await recordIntegrationOp(c.env, { provider: "freepik", kind: "search", user: user.id, estimate: 0, reported: 0, status: "done", note: `"${d.q}" ${d.type || "any"} ${d.orientation || ""} ${d.color || ""} p${d.page}: ${result.items.length}`.trim() });
+  const result = await fp.provider.search({ q: d.q, type: d.type, orientation: d.orientation, color: d.color, category: d.category, page: d.page });
+  await recordIntegrationOp(c.env, { provider: "freepik", kind: "search", user: user.id, estimate: 0, reported: 0, status: "done", note: `"${d.q}" ${d.category ? `[${d.category}] ` : ""}${d.type || "any"} ${d.orientation || ""} ${d.color || ""} p${d.page}: ${result.items.length}`.trim() });
   return c.json({ ...result, connected: fp.connected, reason: fp.reason, plan: fp.plan, downloadEstimate: downloadEstimate(fp.plan, fp.connected) });
 });
 
@@ -869,10 +1043,18 @@ freepikRoutes.get("/assets/:id/file", async (c) => {
   const a = await assetById(c.env, c.req.param("id"));
   if (!a.file_key) throw new StudioError("Not downloaded yet.", 404);
   // `?preview=1`: the preview picture kept next to a bundle (fetched when the bundle was first used).
-  const obj = c.req.query("preview") ? ((await c.env.BUCKET.get(previewKeyOf(a))) ?? (await previewPicture(c.env, a, fetcher()).then(() => c.env.BUCKET.get(previewKeyOf(a))))) : await c.env.BUCKET.get(a.file_key);
+  // `?layer=1`: the file an image layer draws (the sanitised SVG, or the picture a bundle carried).
+  const layer = c.req.query("layer") && a.layer_key ? a.layer_key : null;
+  const obj = c.req.query("preview") ? ((await c.env.BUCKET.get(previewKeyOf(a))) ?? (await previewPicture(c.env, a, fetcher()).then(() => c.env.BUCKET.get(previewKeyOf(a))))) : await c.env.BUCKET.get(layer ?? a.file_key);
   if (!obj) throw new StudioError("Not found.", 404);
   return new Response(obj.body, {
-    headers: { "Content-Type": obj.httpMetadata?.contentType || a.mime || "application/octet-stream", "Cache-Control": "private, max-age=604800", "X-Content-Type-Options": "nosniff" },
+    headers: {
+      "Content-Type": obj.httpMetadata?.contentType || (layer ? a.layer_mime : a.mime) || "application/octet-stream",
+      "Cache-Control": "private, max-age=604800",
+      "X-Content-Type-Options": "nosniff",
+      // A stock SVG opened on its own runs nothing and loads nothing, whatever it contains.
+      "Content-Security-Policy": "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+    },
   });
 });
 

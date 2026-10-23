@@ -10,6 +10,7 @@ import VoiceInput from "@/components/VoiceInput";
 import { del, postForm } from "@/api";
 import { rasterize } from "@/lib/image";
 import { FRESH_TAKE, type PostReference } from "@shared/posts";
+import SourceBadge from "./SourceBadge";
 
 export interface PostComment {
   id: string;
@@ -137,7 +138,9 @@ export function PostReferenceBox({
           }}
         />
         <span className="post-ref-text">
-          <strong>{reference ? "Reference on this post" : "Reference for the next picture"}</strong>
+          <strong>
+            {reference ? "Reference on this post" : "Reference for the next picture"} {reference && !file && <SourceBadge source={reference.drive ? "drive" : (reference.source ?? "upload")} compact />}
+          </strong>
           <small>{file ? file.name : reference?.name || "Pick a picture, then say what to take from it"}</small>
         </span>
         <button

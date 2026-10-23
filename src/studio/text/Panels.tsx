@@ -7,6 +7,7 @@ import { ASSIST_ACTIONS, ASSIST_LABELS, type AssistAction, type AssistAnswer, ty
 import { isTextLayer, type Layer, type ShapeKind, type TextLayer } from "@shared/layers";
 import type { LanguageSource } from "@shared/language";
 import { brandFonts, LANGUAGE_LABELS, PRESETS, savedStyles, styleOf, type Brand, type ClientLanguage, type LayoutPreset, type SavedStyle } from "./model";
+import SourceBadge from "../SourceBadge";
 
 /* ───────────── Layers ───────────── */
 
@@ -22,7 +23,7 @@ export function layerLabel(l: Layer): string {
   if (l.name) return l.name;
   if (isTextLayer(l)) return l.text.split("\n")[0] || "Empty";
   if (l.type === "logo") return "Logo";
-  if (l.type === "image") return "Picture";
+  if (l.type === "image") return l.behind ? "Background" : l.lettering ? "Decorative lettering" : "Picture";
   return l.shape === "rect" ? "Rectangle" : l.shape === "ellipse" ? "Ellipse" : "Line";
 }
 
@@ -36,7 +37,7 @@ function LayerIcon({ layer }: { layer: Layer }) {
 }
 
 /** The Add menu: a text layer, the client's logo, a picture (product photo, brand asset, upload, a Freepik asset), a shape. */
-export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, onAddFreepik, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; /** Opens the Freepik assets picker (admins only for now; the picker says so to a member). */ onAddFreepik?: () => void; assets: Asset[] }) {
+export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, onAddFreepik, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string, source?: Asset["kind"]) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; /** Opens the Freepik assets picker (admins only for now; the picker says so to a member). */ onAddFreepik?: () => void; assets: Asset[] }) {
   const [open, setOpen] = useState(false);
   const [pictures, setPictures] = useState(false);
   const products = assets.filter((a) => a.kind === "product");
@@ -71,7 +72,7 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
               {!products.length && <p className="ts-empty">No product photos in this month.</p>}
               <div className="ts-asset-grid">
                 {products.map((a) => (
-                  <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name))}>
+                  <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name, a.kind))}>
                     <img src={a.src} alt="" loading="lazy" />
                   </button>
                 ))}
@@ -81,7 +82,7 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
                   <span className="ts-group-title">Brand assets</span>
                   <div className="ts-asset-grid">
                     {brandAssets.map((a) => (
-                      <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name))}>
+                      <button key={a.src} type="button" title={a.name} onClick={pick(() => onAddImage(a.src, a.name, a.kind))}>
                         <img src={a.src} alt="" loading="lazy" />
                       </button>
                     ))}
@@ -93,8 +94,8 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden disabled={!onUploadGraphic} onChange={(e) => { const f = e.target.files?.[0]; if (f && onUploadGraphic) pick(() => onUploadGraphic(f))(); e.target.value = ""; }} />
               </label>
               {onAddFreepik && (
-                <button type="button" className="ts-link" onClick={pick(onAddFreepik)} title="A stock photo, vector or template from Freepik as an image layer. Admins only for now.">
-                  <Search size={12} /> Freepik asset
+                <button type="button" className="ts-link" onClick={pick(onAddFreepik)} title="Freepik icons, photos, backgrounds and lettering, in the Assets panel. Admins only for now.">
+                  <Search size={12} /> Freepik assets…
                 </button>
               )}
               <button type="button" className="ts-link" onClick={() => setPictures(false)}>Back</button>
@@ -135,7 +136,7 @@ export function LayersList({
   onDelete: (id: string) => void;
   onAdd: () => void;
   onAddLogo?: () => void;
-  onAddImage: (src: string, name?: string) => void;
+  onAddImage: (src: string, name?: string, source?: Asset["kind"]) => void;
   onAddShape: (kind: ShapeKind) => void;
   onUploadGraphic?: (file: File) => void;
   onAddFreepik?: () => void;
@@ -207,6 +208,8 @@ export function LayersList({
                   {layerLabel(l)}
                 </span>
               )}
+              {l.type === "image" && l.behind && <span className="ts-layer-bg" title="The background: drawn behind the photo">BG</span>}
+              {l.type === "image" && l.source && <SourceBadge source={l.source} compact />}
               {text?.role && <span className="ts-layer-role" title={text.role === "headline" ? "The post's headline" : "The post's second line"}>{text.role === "headline" ? "H" : "2"}</span>}
               {l.group && <span className="ts-layer-group" title="In a group">G</span>}
               {warnings.has(l.id) && <TriangleAlert size={12} className="ts-layer-warn" aria-label="Low contrast" />}

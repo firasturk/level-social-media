@@ -1,0 +1,39 @@
+/* Where a picture comes from: one small badge per source, the same everywhere. */
+.src-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.06);
+  color: #3a3a3c;
+}
+.src-badge.compact {
+  height: 16px;
+  padding: 0 5px;
+  font-size: 9.5px;
+}
+.src-badge.freepik {
+  background: #e8ecff;
+  color: #1129d3;
+}
+.src-badge.drive {
+  background: #e7f6ec;
+  color: #1e6b3a;
+}
+.src-badge.pinterest {
+  background: #fde8ec;
+  color: #b1123b;
+}
+.src-badge.product,
+.src-badge.brand {
+  background: #fff4e5;
+  color: #8a4b00;
+}

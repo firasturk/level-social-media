@@ -1,22 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
-import { Check, Download, ImagePlus, Layers, Library, Lock, Search } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BookmarkPlus, Check, ImagePlus, Layers, Library, Lock, PanelBottom, Search, SlidersHorizontal, Type } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { askConfirm } from "@/lib/confirm";
 import { ApiError, get, post } from "@/api";
+import { layerId as newLayerId } from "@shared/layers";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import SourceBadge from "./SourceBadge";
 import "./freepik.css";
 
 /**
- * Freepik assets: a stock search with filters, the result grid with a licence badge, and for the
- * chosen item "Use as reference" (the post's reference picture), "Add to design" (an image layer
- * of the Text Studio) and "Download to library". A download is proposed with its estimate and
- * confirmed before anything is fetched; a file already in the library is reused. With no key the
- * panel searches a labelled demo catalogue and nothing leaves the server. Members see the entry
- * with "Admins only for now". A Freepik asset never changes the theme, the engine or a product photo.
+ * Freepik assets: one search with filter chips (Icons, Photos, Backgrounds, Textures, Typography),
+ * the results in their own scrolling area, and the chosen item's compact preview with its actions
+ * in a footer that never scrolls away: Add as layer, Set as background, Use as reference and Save
+ * to library. Every download is proposed with its estimate and confirmed first; a file already in
+ * the library is reused (nothing is downloaded twice). Layer and background edits are free: no
+ * picture is made. With no key the panel searches a labelled demo catalogue and nothing leaves the
+ * server. Members see the actions with "Admins only for now". A Freepik asset never changes the
+ * theme, the engine or a product photo.
  */
 
 export type AssetKind = "photo" | "vector" | "psd" | "template";
+export type Category = "icons" | "photos" | "backgrounds" | "textures" | "typography";
 
 export interface FreepikStatus {
   connected: boolean;
@@ -65,6 +70,13 @@ export interface AssetItem {
   height: number | null;
   flattened: boolean;
   layerable: boolean;
+  /** Read from the bytes when stored: "SVG", "EPS/AI", "PSD", "JPG"…; null before. */
+  format?: string | null;
+  editable?: boolean;
+  colors?: string[];
+  formatNote?: string | null;
+  layerSrc?: string | null;
+  lettering?: boolean;
   demo: boolean;
   uses?: number;
 }
@@ -79,12 +91,25 @@ interface SearchAnswer {
   downloadEstimate: number | null;
 }
 
+/** The image layer an asset becomes, as the server's design use answers it. */
 export interface FreepikLayer {
   src: string;
   name: string;
   flattened: boolean;
   assetId: string;
+  /** The id the use was recorded against: the new layer takes it. */
+  layerId?: string;
+  format?: string | null;
+  editable?: boolean;
+  colors?: string[];
+  note?: string | null;
+  lettering?: boolean;
+  kind?: AssetKind;
+  aspect?: number | null;
+  preview?: boolean;
 }
+
+export type DesignHow = "layer" | "background";
 
 export interface FreepikPanelProps {
   clientId: string;
@@ -93,12 +118,19 @@ export interface FreepikPanelProps {
   post?: number;
   slide?: number;
   posts?: { index: number; title: string }[];
-  /** Which actions are offered: both, only the reference, or only the design layer. */
+  /** Which actions are offered: all four, only the reference (and the library), or only the design ones. */
   mode?: "all" | "reference" | "design";
   /** Design mode: the id the Text Studio gives the new image layer, so the use is recorded against it. */
   layerId?: string;
   onReference?: (post: number) => void | Promise<void>;
-  onDesign?: (layer: FreepikLayer) => void;
+  /** Add as layer / Set as background: the Text studio adds it in place; the Photo studio carries it to the Text studio. */
+  onDesign?: (layer: FreepikLayer, how: DesignHow) => void | Promise<void>;
+  /** "Add editable text": a normal text layer, offered next to decorative lettering. */
+  onAddText?: () => void;
+  /** Where the panel sits: fills its column (results scroll inside, the footer stays) or keeps its own height. */
+  fill?: boolean;
+  /** What "Add as layer" says it does here. */
+  layerHint?: string;
 }
 
 const KINDS: { id: AssetKind | ""; label: string }[] = [
@@ -108,10 +140,21 @@ const KINDS: { id: AssetKind | ""; label: string }[] = [
   { id: "psd", label: "PSD" },
   { id: "template", label: "Templates" },
 ];
+const CHIPS: { id: Category | ""; label: string }[] = [
+  { id: "", label: "All" },
+  { id: "icons", label: "Icons" },
+  { id: "photos", label: "Photos" },
+  { id: "backgrounds", label: "Backgrounds" },
+  { id: "textures", label: "Textures" },
+  { id: "typography", label: "Typography" },
+];
 const ORIENTATIONS = ["", "landscape", "portrait", "square", "panoramic"] as const;
 const COLORS = ["", "black", "blue", "gray", "green", "orange", "red", "white", "yellow", "purple", "cyan", "pink"] as const;
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+export const LETTERING_LABEL = "Decorative lettering (not editable text)";
+export const BACKGROUND_HINT = "Set as background puts the asset behind the photo, across the whole post. It shows where the photo is transparent (a cut-out) and around the photo when you make the photo smaller. The photo is not made again and nothing is spent.";
 
 /** The licence badge: free with attribution, premium in the plan, credits, or cost not known. */
 export function licenseBadge(item: Pick<StockItem, "license" | "demo">, status: FreepikStatus | null): { text: string; cls: string } {
@@ -123,12 +166,23 @@ export function licenseBadge(item: Pick<StockItem, "license" | "demo">, status: 
   return { text: `Credits: ${est}`, cls: "credits" };
 }
 
-/** What the format allows: a flattened picture, or an editable vector the Text Studio can draw. */
-export function formatLabel(item: { kind: AssetKind; flattened: boolean; formats?: string[]; mime?: string | null }): string {
-  if (item.kind === "vector") return item.formats?.includes("svg") || /svg/.test(item.mime ?? "") ? "Editable vector (SVG): works as an image layer" : "Vector source files: editable in Illustrator, not as layers here";
-  if (item.kind === "psd" || item.kind === "template") return "Flattened picture, not editable layers (PSD preview)";
-  return "Flattened picture, not editable layers";
+/** What the format allows, said plainly: before the download from the formats Freepik lists, after it from the bytes. */
+export function formatLabel(item: { kind: AssetKind; flattened: boolean; formats?: string[]; mime?: string | null; format?: string | null; formatNote?: string | null }): string {
+  if (item.formatNote) return item.formatNote;
+  if (item.kind === "vector") return item.formats?.includes("svg") || /svg/.test(item.mime ?? "") ? "Editable vector (SVG): its colours can be changed on the layer." : "This file is EPS/AI: colours cannot be changed here. The preview picture is placed instead.";
+  if (item.kind === "psd" || item.kind === "template") return "This file is PSD: placed as a flattened picture; its layers cannot be changed here.";
+  return "A picture (JPG/PNG): placed as it is; its colours cannot be changed here.";
 }
+
+/** The short format on a card: "SVG", "EPS/AI", "PSD" or "Photo". */
+function formatChip(item: { kind: AssetKind; formats?: string[]; format?: string | null }): string {
+  if (item.format) return item.format;
+  if (item.kind === "vector") return item.formats?.includes("svg") ? "SVG" : "EPS/AI";
+  if (item.kind === "psd" || item.kind === "template") return "PSD";
+  return "Photo";
+}
+
+const looksLettering = (title: string, category: Category | "") => category === "typography" || /\b(letter(ing)?|typograph\w*|calligraph\w*|text effect|word ?art|wordmark|slogan|quote)\b/i.test(title);
 
 export function useFreepikStatus(): FreepikStatus | null {
   const [status, setStatus] = useState<FreepikStatus | null>(null);
@@ -144,40 +198,78 @@ export function useFreepikStatus(): FreepikStatus | null {
   return status;
 }
 
-export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide, posts, mode = "all", layerId, onReference, onDesign }: FreepikPanelProps) {
+/** The search, its results and the choice, kept for this tab: the Text studio opens on the same results and the same asset. */
+interface SavedSearch {
+  q: string;
+  category: Category | "";
+  kind: AssetKind | "";
+  orientation: string;
+  color: string;
+  page: number;
+  answer: SearchAnswer | null;
+  selected: StockItem | null;
+  selectedAsset: AssetItem | null;
+}
+const savedKey = (clientId: string) => `lsm-freepik-search:${clientId}`;
+function readSaved(clientId: string): SavedSearch | null {
+  try {
+    const raw = sessionStorage.getItem(savedKey(clientId));
+    return raw ? (JSON.parse(raw) as SavedSearch) : null;
+  } catch {
+    return null;
+  }
+}
+function writeSaved(clientId: string, s: SavedSearch) {
+  try {
+    sessionStorage.setItem(savedKey(clientId), JSON.stringify(s));
+  } catch {
+    /* private mode or full: the search is simply not carried over */
+  }
+}
+
+type Busy = "reference" | "layer" | "background" | "download" | null;
+
+export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide, posts, mode = "all", layerId, onReference, onDesign, onAddText, fill, layerHint }: FreepikPanelProps) {
   const status = useFreepikStatus();
+  const saved = useRef(readSaved(clientId)).current;
   const [tab, setTab] = useState<"search" | "library">("search");
-  const [q, setQ] = useState("");
-  const [kind, setKind] = useState<AssetKind | "">("");
-  const [orientation, setOrientation] = useState<string>("");
-  const [color, setColor] = useState<string>("");
-  const [page, setPage] = useState(1);
-  const [answer, setAnswer] = useState<SearchAnswer | null>(null);
+  const [q, setQ] = useState(saved?.q ?? "");
+  const [category, setCategory] = useState<Category | "">(saved?.category ?? "");
+  const [kind, setKind] = useState<AssetKind | "">(saved?.kind ?? "");
+  const [orientation, setOrientation] = useState<string>(saved?.orientation ?? "");
+  const [color, setColor] = useState<string>(saved?.color ?? "");
+  const [page, setPage] = useState(saved?.page ?? 1);
+  const [answer, setAnswer] = useState<SearchAnswer | null>(saved?.answer ?? null);
   const [library, setLibrary] = useState<AssetItem[] | null>(null);
   const [searching, setSearching] = useState(false);
-  const [selected, setSelected] = useState<StockItem | null>(null);
-  const [selectedAsset, setSelectedAsset] = useState<AssetItem | null>(null);
-  const [busy, setBusy] = useState<"reference" | "design" | "download" | null>(null);
+  const [selected, setSelected] = useState<StockItem | null>(saved?.selected ?? null);
+  const [selectedAsset, setSelectedAsset] = useState<AssetItem | null>(saved?.selectedAsset ?? null);
+  const [busy, setBusy] = useState<Busy>(null);
   const [postIndex, setPostIndex] = useState<number>(fixedPost ?? posts?.[0]?.index ?? 1);
+  const resultsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (fixedPost) setPostIndex(fixedPost);
   }, [fixedPost]);
+  useEffect(() => {
+    writeSaved(clientId, { q, category, kind, orientation, color, page, answer, selected, selectedAsset });
+  }, [clientId, q, category, kind, orientation, color, page, answer, selected, selectedAsset]);
 
   const search = useCallback(
-    async (p = 1) => {
+    async (p = 1, over: { category?: Category | "" } = {}) => {
       setSearching(true);
       try {
-        const params = new URLSearchParams({ q, type: kind, orientation, color, page: String(p), client: clientId });
+        const params = new URLSearchParams({ q, type: kind, orientation, color, category: over.category ?? category, page: String(p), client: clientId });
         const r = await get<SearchAnswer>(`/api/studio/freepik/search?${params}`);
         setAnswer(r);
         setPage(p);
+        resultsRef.current?.scrollTo({ top: 0 });
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "The search failed.");
       } finally {
         setSearching(false);
       }
     },
-    [q, kind, orientation, color, clientId],
+    [q, kind, orientation, color, category, clientId],
   );
 
   const loadLibrary = useCallback(async () => {
@@ -194,7 +286,7 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
   }, [status?.admin, tab, library, loadLibrary]);
   useEffect(() => {
     if (status?.admin && answer === null) void search(1);
-    // The first search runs once the status says the viewer may search.
+    // The first search runs once the status says the viewer may search (a carried-over search is shown as it was).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.admin]);
 
@@ -215,22 +307,30 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     }
   }
 
-  async function act(kindOf: "reference" | "design" | "download") {
+  async function act(what: Exclude<Busy, null>) {
     const item = selectedAsset ? { id: selectedAsset.providerId, title: selectedAsset.title } : selected ? { id: selected.id, title: selected.title } : null;
     if (!item) return;
-    if (kindOf !== "download" && !batchId) return toast.error("Save the month first.");
-    setBusy(kindOf);
+    if (what !== "download" && !batchId) return toast.error("Save the month first.");
+    setBusy(what);
     try {
-      const asset = selectedAsset?.stored ? selectedAsset : await ensureStored(item, kindOf !== "download");
-      if (kindOf === "download") {
-        toast.success(asset.stored ? `"${asset.title}" is in the library.` : "Downloaded to the library.");
+      const asset = selectedAsset?.stored ? selectedAsset : await ensureStored(item, what !== "download");
+      // The stored asset is the selection from now on, kept for this tab before anything else
+      // happens (the Photo studio closes on "Add as layer"; the Text studio opens on it, stored).
+      writeSaved(clientId, { q, category, kind, orientation, color, page, answer, selected, selectedAsset: asset });
+      setSelectedAsset(asset);
+      if (what === "download") {
+        toast.success(selectedAsset?.stored ? `"${asset.title}" is in the library.` : "Saved to the library: it is reused from there, never downloaded again.");
+      } else if (what === "reference") {
+        await post("/api/studio/freepik/use", { asset: asset.id, batch: batchId, post: postIndex, slide, role: "reference" });
+        toast.success(`Reference on post ${postIndex}: its next picture takes it.`);
+        await onReference?.(postIndex);
       } else {
-        const r = await post<{ layer?: FreepikLayer & { layerable: boolean }; reference?: { key: string } }>("/api/studio/freepik/use", { asset: asset.id, batch: batchId, post: postIndex, slide, role: kindOf, layerId: kindOf === "design" ? layerId : undefined });
-        if (kindOf === "reference") {
-          toast.success(`Reference on post ${postIndex}: its next picture takes it.`);
-          await onReference?.(postIndex);
-        } else if (r.layer) {
-          onDesign?.({ src: r.layer.src, name: r.layer.name, flattened: r.layer.flattened, assetId: asset.id });
+        const id = layerId ?? newLayerId();
+        const r = await post<{ layer?: Omit<FreepikLayer, "assetId"> & { layerable: boolean } }>("/api/studio/freepik/use", { asset: asset.id, batch: batchId, post: postIndex, slide, role: "design", layerId: id });
+        if (r.layer) {
+          const { layerable: _l, ...layer } = r.layer;
+          void _l;
+          await onDesign?.({ ...layer, assetId: asset.id, layerId: id, lettering: layer.lettering || looksLettering(asset.title, category) }, what);
         }
       }
       setLibrary(null);
@@ -243,38 +343,67 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     }
   }
 
+  const canReference = mode !== "design";
+  const canDesign = mode !== "reference" && !!onDesign;
+
   if (status === null) return <p className="fp-note">Checking the Freepik connection…</p>;
-  if (!status.admin)
+  if (!status.admin || !status.switch.enabled)
     return (
-      <div className="fp-locked" role="note">
-        <strong>
-          <Lock size={14} /> Freepik assets · Admins only for now
-        </strong>
-        <span>Stock photos, vectors and templates from Freepik as a post's reference or a design layer. Access is restricted until wider access is approved; ask an admin to add the asset for you.</span>
-      </div>
-    );
-  if (!status.switch.enabled)
-    return (
-      <div className="fp-locked" role="note">
-        <strong>
-          <Lock size={14} /> Freepik assets · switched off
-        </strong>
-        <span>{status.switch.reason || "The integration is off."}</span>
+      <div className={`fp-panel ${fill ? "fill" : ""}`}>
+        <div className="fp-locked" role="note">
+          <strong>
+            <Lock size={14} /> <SourceBadge source="freepik" /> {status.admin ? "Switched off" : "Admins only for now"}
+          </strong>
+          <span>{status.admin ? status.switch.reason || "The integration is off." : "Stock icons, photos, backgrounds and lettering from Freepik, as a layer, a background or a post's reference. Access is restricted until wider access is approved; ask an admin to add the asset for you."}</span>
+        </div>
+        <div className="fp-footer" aria-label="Actions on the selected asset">
+          <div className="fp-actions locked">
+            {canDesign && (
+              <button type="button" className="primary wide" disabled title="Admins only for now">
+                <Lock size={13} /> Add as layer
+              </button>
+            )}
+            {canDesign && (
+              <button type="button" className="secondary" disabled title="Admins only for now">
+                <Lock size={13} /> Set as background
+              </button>
+            )}
+            {canReference && (
+              <button type="button" className="secondary" disabled title="Admins only for now">
+                <Lock size={13} /> Use as reference
+              </button>
+            )}
+            <button type="button" className="secondary wide" disabled title="Admins only for now">
+              <Lock size={13} /> Save to library
+            </button>
+            {onAddText && (
+              <button type="button" className="secondary wide" onClick={onAddText} title="A normal text layer you can type in">
+                <Type size={13} /> Add editable text
+              </button>
+            )}
+          </div>
+          <span className="fp-note">Freepik actions: admins only for now.</span>
+        </div>
       </div>
     );
 
   const current = selectedAsset ?? selected;
   const badge = current ? licenseBadge(current, status) : null;
-  const canReference = mode !== "design";
-  const canDesign = mode !== "reference" && (!selectedAsset || selectedAsset.layerable);
+  const lettering = current ? !!selectedAsset?.lettering || looksLettering(current.title, category) : false;
+  const vectorColours = selectedAsset?.editable ? (selectedAsset.colors ?? []) : [];
+  const thumb = current ? (selectedAsset?.layerSrc ?? selectedAsset?.file ?? current.preview) : null;
+  const pickChip = (c: Category | "") => {
+    setCategory(c);
+    void search(1, { category: c });
+  };
 
   return (
-    <div className="fp-panel">
+    <div className={`fp-panel ${fill ? "fill" : ""}`}>
       <div className="fp-head">
         <strong>
-          <Search size={14} /> Freepik assets
+          <SourceBadge source="freepik" /> Assets
         </strong>
-        {status.demo ? <span className="fp-demo" title={status.reason}>Demo catalogue · Not connected</span> : <span className="fp-note">Connected · {status.plan === "premium" ? "downloads in the plan (100 a day)" : status.plan === "business" ? "downloads billed in credits" : "plan not set"}</span>}
+        {status.demo ? <span className="fp-demo" title={status.reason}>Demo catalogue · Not connected</span> : <span className="fp-note">{status.plan === "premium" ? "Downloads in the plan (100 a day)" : status.plan === "business" ? "Downloads billed in credits" : "Plan not set"}</span>}
         <span className="fp-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === "search"} className={tab === "search" ? "on" : ""} onClick={() => setTab("search")}>
             Search
@@ -286,7 +415,7 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
       </div>
 
       {tab === "search" && (
-        <>
+        <div className="fp-controls">
           <form
             className="fp-search"
             onSubmit={(e) => {
@@ -294,106 +423,168 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
               void search(1);
             }}
           >
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Freepik: pistachio dessert, lantern pattern…" aria-label="Search Freepik" />
-            <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind | "")} aria-label="Type">
-              {KINDS.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.label}
-                </option>
-              ))}
-            </select>
-            <select value={orientation} onChange={(e) => setOrientation(e.target.value)} aria-label="Orientation">
-              {ORIENTATIONS.map((o) => (
-                <option key={o} value={o}>
-                  {o ? cap(o) : "Any orientation"}
-                </option>
-              ))}
-            </select>
-            <select value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour">
-              {COLORS.map((c) => (
-                <option key={c} value={c}>
-                  {c ? cap(c) : "Any colour"}
-                </option>
-              ))}
-            </select>
+            <span className="fp-search-box">
+              <Search size={14} aria-hidden />
+              <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search assets: lightning, marble, lantern…" aria-label="Search Freepik" />
+            </span>
             <button type="submit" className="secondary" disabled={searching}>
-              {searching ? <Orb size={14} /> : <Search size={14} />} Search
+              {searching ? <Orb size={14} /> : <Search size={14} />} <span>Search</span>
             </button>
           </form>
-          {answer && !answer.items.length && <p className="fp-empty">Nothing found{answer.demo ? " in the demo catalogue (try mango, coffee, lantern, sale, story)" : ""}.</p>}
-          {answer && answer.items.length > 0 && (
-            <div className="fp-grid" role="list">
-              {answer.items.map((it) => {
-                const b = licenseBadge(it, status);
-                return (
-                  <button key={it.id} type="button" role="listitem" className={`fp-card ${selected?.id === it.id && !selectedAsset ? "on" : ""}`} onClick={() => { setSelected(it); setSelectedAsset(null); }} title={`${it.title} · ${it.author}`}>
-                    <img src={it.preview} alt="" loading="lazy" />
-                    <span className={`fp-badge ${b.cls}`}>{b.text}</span>
-                    <span className="fp-title">{it.title}</span>
-                    <span className="fp-format">{it.kind === "vector" ? (it.formats.includes("svg") ? "Editable vector" : "Vector files") : "Flattened picture"}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {answer && answer.lastPage > 1 && (
-            <div className="fp-pager">
-              <button type="button" className="text-button" disabled={page <= 1 || searching} onClick={() => void search(page - 1)}>
-                Previous
+          <div className="fp-chips" role="group" aria-label="Kind of asset">
+            {CHIPS.map((c) => (
+              <button key={c.id || "all"} type="button" className={category === c.id ? "on" : ""} aria-pressed={category === c.id} onClick={() => pickChip(c.id)}>
+                {c.label}
               </button>
-              <span>
-                Page {page} of {answer.lastPage}
-              </span>
-              <button type="button" className="text-button" disabled={page >= answer.lastPage || searching} onClick={() => void search(page + 1)}>
-                Next
-              </button>
+            ))}
+          </div>
+          <details className="fp-more">
+            <summary>
+              <SlidersHorizontal size={12} /> More filters
+            </summary>
+            <div className="fp-more-row">
+              <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind | "")} aria-label="Type">
+                {KINDS.map((k) => (
+                  <option key={k.id} value={k.id}>
+                    {k.label}
+                  </option>
+                ))}
+              </select>
+              <select value={orientation} onChange={(e) => setOrientation(e.target.value)} aria-label="Orientation">
+                {ORIENTATIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {o ? cap(o) : "Any orientation"}
+                  </option>
+                ))}
+              </select>
+              <select value={color} onChange={(e) => setColor(e.target.value)} aria-label="Colour">
+                {COLORS.map((c) => (
+                  <option key={c} value={c}>
+                    {c ? cap(c) : "Any colour"}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-        </>
+          </details>
+        </div>
       )}
 
-      {tab === "library" && (
-        <>
-          {library === null && <p className="fp-note">Reading the library…</p>}
-          {library && !library.length && <p className="fp-empty">Nothing in the library yet: search and download an asset.</p>}
-          {library && library.length > 0 && (
-            <div className="fp-grid" role="list">
-              {library.map((a) => {
-                const b = licenseBadge(a, status);
-                return (
-                  <button key={a.id} type="button" role="listitem" className={`fp-card ${selectedAsset?.id === a.id ? "on" : ""}`} onClick={() => { setSelectedAsset(a); setSelected(null); }} title={`${a.title} · ${a.author}`}>
-                    <img src={a.file ?? a.preview} alt="" loading="lazy" />
-                    <span className={`fp-badge ${b.cls}`}>{b.text}</span>
-                    {a.stored && (
-                      <span className="fp-stored" title="In the library">
-                        <Check size={12} />
+      <div className="fp-results" ref={resultsRef} role="region" aria-label={tab === "search" ? "Search results" : "Library"} tabIndex={0}>
+        {tab === "search" && (
+          <>
+            {!answer && <p className="fp-note">{searching ? "Searching…" : "Search Freepik, or pick a kind above."}</p>}
+            {answer && !answer.items.length && <p className="fp-empty">Nothing found{answer.demo ? " in the demo catalogue (try lightning, mango, lantern, sale)" : ""}.</p>}
+            {answer && answer.items.length > 0 && (
+              <div className="fp-grid" role="list">
+                {answer.items.map((it) => {
+                  const b = licenseBadge(it, status);
+                  const on = selected?.id === it.id && !selectedAsset;
+                  return (
+                    <button
+                      key={it.id}
+                      type="button"
+                      role="listitem"
+                      aria-pressed={on}
+                      className={`fp-card ${on ? "on" : ""} ${it.kind === "vector" ? "vector" : ""}`}
+                      onClick={() => {
+                        setSelected(it);
+                        setSelectedAsset(null);
+                      }}
+                      title={`${it.title} · ${it.author}`}
+                    >
+                      <img src={it.preview} alt="" loading="lazy" />
+                      <span className={`fp-badge ${b.cls}`}>{b.text}</span>
+                      <span className="fp-title">{it.title}</span>
+                      <span className="fp-format">{formatChip(it)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {answer && answer.lastPage > 1 && (
+              <div className="fp-pager">
+                <button type="button" className="text-button" disabled={page <= 1 || searching} onClick={() => void search(page - 1)}>
+                  Previous
+                </button>
+                <span>
+                  Page {page} of {answer.lastPage}
+                </span>
+                <button type="button" className="text-button" disabled={page >= answer.lastPage || searching} onClick={() => void search(page + 1)}>
+                  Next
+                </button>
+              </div>
+            )}
+          </>
+        )}
+        {tab === "library" && (
+          <>
+            {library === null && <p className="fp-note">Reading the library…</p>}
+            {library && !library.length && <p className="fp-empty">Nothing in the library yet: search and save an asset.</p>}
+            {library && library.length > 0 && (
+              <div className="fp-grid" role="list">
+                {library.map((a) => {
+                  const b = licenseBadge(a, status);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      role="listitem"
+                      aria-pressed={selectedAsset?.id === a.id}
+                      className={`fp-card ${selectedAsset?.id === a.id ? "on" : ""} ${a.kind === "vector" ? "vector" : ""}`}
+                      onClick={() => {
+                        setSelectedAsset(a);
+                        setSelected(null);
+                      }}
+                      title={`${a.title} · ${a.author}`}
+                    >
+                      <img src={a.layerSrc ?? a.file ?? a.preview} alt="" loading="lazy" />
+                      <span className={`fp-badge ${b.cls}`}>{b.text}</span>
+                      {a.stored && (
+                        <span className="fp-stored" title="In the library">
+                          <Check size={12} />
+                        </span>
+                      )}
+                      <span className="fp-title">{a.title}</span>
+                      <span className="fp-format">
+                        {formatChip(a)} · {a.uses ? `used ${a.uses}×` : "not used yet"}
                       </span>
-                    )}
-                    <span className="fp-title">{a.title}</span>
-                    <span className="fp-format">{a.uses ? `Used ${a.uses}×` : "Not used yet"}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
-      {current && badge && (
-        <div className="fp-selected">
-          <img src={selectedAsset?.file ?? current.preview} alt="" />
-          <div className="fp-selected-text">
-            <b>{current.title}</b>
-            <span className="fp-meta">
-              {current.author ? `${current.author} · ` : ""}
-              {cap(current.kind)}
-              {current.width && current.height ? ` · ${current.width}×${current.height}` : ""}
-              {" · "}
-              <span className={`fp-badge-inline ${badge.cls}`}>{badge.text}</span>
-            </span>
-            <span className="fp-note">{formatLabel({ kind: current.kind, flattened: current.flattened, formats: selected?.formats, mime: selectedAsset?.mime })}</span>
-            {current.license.attribution && <span className="fp-note">Free licence: credit the author ({current.author || "Freepik"}) where the post is published.</span>}
-            {!fixedPost && posts && posts.length > 0 && mode !== "design" && (
+      <div className="fp-footer" aria-label="Actions on the selected asset">
+        {current && badge ? (
+          <>
+            {vectorColours.length > 0 && (
+              <div className="fp-swatches" aria-label="Vector colours">
+                <span className="fp-swatches-title">Vector colours</span>
+                <span className="fp-swatch-row">
+                  {vectorColours.slice(0, 10).map((c) => (
+                    <span key={c} className="fp-swatch" style={{ background: c }} title={`${c.toUpperCase()}: change it on the layer`} />
+                  ))}
+                </span>
+              </div>
+            )}
+            <div className="fp-selected">
+              <span className={`fp-thumb ${current.kind === "vector" ? "vector" : ""}`}>{thumb && <img src={thumb} alt="" />}</span>
+              <span className="fp-selected-text">
+                <b title={current.title}>{current.title}</b>
+                <span className="fp-meta">
+                  <SourceBadge source="freepik" compact /> {formatChip({ kind: current.kind, formats: selected?.formats, format: selectedAsset?.format })}
+                  {" · "}
+                  <span className={`fp-badge-inline ${badge.cls}`}>{badge.text}</span>
+                </span>
+              </span>
+            </div>
+            {lettering && <span className="fp-lettering">{LETTERING_LABEL}</span>}
+            <span className="fp-note fp-format-note">{formatLabel({ kind: current.kind, flattened: current.flattened, formats: selected?.formats, mime: selectedAsset?.mime, format: selectedAsset?.format, formatNote: selectedAsset?.formatNote })}</span>
+            {current.license.attribution && <span className="fp-note fp-attribution">Free licence: credit {current.author || "Freepik"} where the post is published.</span>}
+            {!fixedPost && posts && posts.length > 0 && (
               <label className="fp-post">
                 For post
                 <select value={postIndex} onChange={(e) => setPostIndex(Number(e.target.value))}>
@@ -405,29 +596,42 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
                 </select>
               </label>
             )}
-            <div className="fp-actions">
-              {canReference && (
-                <button type="button" className="primary" disabled={!!busy || !batchId} onClick={() => void act("reference")} title="The picture attached to the post as its reference: the next take or revision uses it. It does not change the theme.">
-                  {busy === "reference" ? <Orb size={14} /> : <ImagePlus size={14} />} Use as reference
-                </button>
-              )}
-              {canDesign && (
-                <button type="button" className={canReference ? "secondary" : "primary"} disabled={!!busy || !batchId} onClick={() => void act("design")} title="An image layer in the Text Studio over the post's picture">
-                  {busy === "design" ? <Orb size={14} /> : <Layers size={14} />} Add to design
-                </button>
-              )}
-              <button type="button" className="secondary" disabled={!!busy || !!selectedAsset?.stored} onClick={() => void act("download")}>
-                {busy === "download" ? <Orb size={14} /> : selectedAsset?.stored ? <Check size={14} /> : <Download size={14} />} {selectedAsset?.stored ? "In the library" : "Download to library"}
-              </button>
-            </div>
-          </div>
+          </>
+        ) : (
+          <p className="fp-note fp-pick">Pick an asset: its actions stay here while the results scroll.</p>
+        )}
+        <div className="fp-actions">
+          {canDesign && (
+            <button type="button" className="primary wide" disabled={!current || !!busy || !batchId} onClick={() => void act("layer")} title={layerHint ?? "An image layer over the post's picture: move, resize, turn and stack it. Free: no picture is made."}>
+              {busy === "layer" ? <Orb size={14} /> : <Layers size={14} />} Add as layer
+            </button>
+          )}
+          {canDesign && (
+            <button type="button" className="secondary" disabled={!current || !!busy || !batchId} onClick={() => void act("background")} title={BACKGROUND_HINT}>
+              {busy === "background" ? <Orb size={14} /> : <PanelBottom size={14} />} Set as background
+            </button>
+          )}
+          {canReference && (
+            <button type="button" className={canDesign ? "secondary" : "primary"} disabled={!current || !!busy || !batchId} onClick={() => void act("reference")} title="The picture attached to the post as its reference: the next take or revision uses it. It does not change the theme.">
+              {busy === "reference" ? <Orb size={14} /> : <ImagePlus size={14} />} Use as reference
+            </button>
+          )}
+          <button type="button" className="secondary wide" disabled={!current || !!busy || !!selectedAsset?.stored} onClick={() => void act("download")}>
+            {busy === "download" ? <Orb size={14} /> : selectedAsset?.stored ? <Check size={14} /> : <BookmarkPlus size={14} />} {selectedAsset?.stored ? "In the library" : "Save to library"}
+          </button>
+          {onAddText && lettering && (
+            <button type="button" className="secondary wide" onClick={onAddText} title="A normal text layer you can type in, next to the lettering picture">
+              <Type size={14} /> Add editable text
+            </button>
+          )}
         </div>
-      )}
+        {canDesign && current && <span className="fp-note fp-bg-hint">Set as background: behind the photo, which is never made again.</span>}
+      </div>
     </div>
   );
 }
 
-/** The panel in a dialog, for the Text Studio's Add menu and the Direction board. */
+/** The panel in a dialog (results scroll inside it; the selected asset's actions stay at the bottom). */
 export function FreepikDialog({ open, onClose, title, description, ...panel }: { open: boolean; onClose: () => void; title?: string; description?: string } & FreepikPanelProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -437,9 +641,9 @@ export function FreepikDialog({ open, onClose, title, description, ...panel }: {
             <Library size={16} style={{ display: "inline", verticalAlign: "-3px", marginRight: 6 }} />
             {title ?? "Freepik assets"}
           </DialogTitle>
-          <DialogDescription>{description ?? "Stock photos, vectors and templates from Freepik, as a post's reference picture or a design layer. Never the theme, the engine or a product photo."}</DialogDescription>
+          <DialogDescription>{description ?? "Stock icons, photos, backgrounds and lettering from Freepik, as a layer, a background or a post's reference picture. Never the theme, the engine or a product photo."}</DialogDescription>
         </DialogHeader>
-        {open && <FreepikPanel {...panel} />}
+        {open && <FreepikPanel fill {...panel} />}
       </DialogContent>
     </Dialog>
   );

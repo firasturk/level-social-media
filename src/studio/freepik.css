@@ -1,7 +1,9 @@
-/* ───────────── Freepik assets: search, library, use as reference or design layer ───────────── */
+/* ───────────── Freepik assets: search, results, and the selected asset's sticky actions ───────────── */
 .fp-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  --fp-line: var(--border, #d9d9d9);
+  --fp-accent: var(--accent, #1129d3);
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   font-size: 13px;
   min-width: 0;
@@ -20,12 +22,22 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 12px;
+  gap: 6px 10px;
 }
 .fp-head strong {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+/* Row one: the source and the Search / Library tabs; row two: the connection, small. */
+.fp-head > .fp-note,
+.fp-head > .fp-demo {
+  order: 3;
+  flex-basis: 100%;
+  justify-self: start;
+}
+.fp-head > .fp-demo {
+  flex-basis: auto;
 }
 .fp-tabs {
   display: inline-flex;
@@ -33,7 +45,7 @@
   margin-left: auto;
 }
 .fp-tabs button {
-  border: 1px solid var(--border, #d9d9d9);
+  border: 1px solid var(--fp-line);
   background: transparent;
   color: inherit;
   border-radius: 999px;
@@ -42,8 +54,8 @@
   cursor: pointer;
 }
 .fp-tabs button.on {
-  background: var(--accent, #1129d3);
-  border-color: var(--accent, #1129d3);
+  background: var(--fp-accent);
+  border-color: var(--fp-accent);
   color: #fff;
 }
 .fp-demo {
@@ -54,60 +66,152 @@
   border-radius: 999px;
   background: rgba(255, 170, 0, 0.14);
   color: #8a5a00;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
 }
 .fp-locked {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px dashed var(--border, #d9d9d9);
+  border: 1px dashed var(--fp-line);
   border-radius: 10px;
-  opacity: 0.85;
 }
 .fp-locked strong {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+/* Search and filter chips */
+.fp-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 .fp-search {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  display: flex;
   gap: 6px;
   align-items: center;
 }
-.fp-search input {
-  grid-column: 1 / -1;
-}
-.fp-search input,
-.fp-search select {
-  width: 100%;
+.fp-search-box {
+  flex: 1;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border, #d9d9d9);
-  border-radius: 8px;
-  background: var(--input-bg, transparent);
-  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  height: 34px;
+  border: 1px solid var(--fp-line);
+  border-radius: 10px;
+  background: var(--input-bg, #fff);
+  color: #6e6e73;
+}
+.fp-search-box input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #1d1d1f;
   font: inherit;
   font-size: 13px;
 }
-@media (max-width: 720px) {
-  .fp-search {
-    grid-template-columns: 1fr 1fr;
-  }
+.fp-search-box:focus-within {
+  border-color: var(--fp-accent);
+  box-shadow: 0 0 0 3px rgba(17, 41, 211, 0.12);
+}
+.fp-search button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  flex: none;
+}
+.fp-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 1px;
+}
+.fp-chips::-webkit-scrollbar {
+  display: none;
+}
+.fp-chips button {
+  flex: none;
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #3a3a3c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.fp-chips button.on {
+  background: var(--fp-accent);
+  color: #fff;
+}
+.fp-more summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6e6e73;
+  cursor: pointer;
+  list-style: none;
+}
+.fp-more summary::-webkit-details-marker {
+  display: none;
+}
+.fp-more-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.fp-more select,
+.fp-post select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--fp-line);
+  border-radius: 8px;
+  background: var(--input-bg, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+}
+
+/* The results scroll inside their own area: the search above and the actions below stay put. */
+.fp-results {
+  min-height: 140px;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: 10px;
+  padding: 2px;
+}
+.fp-results:focus-visible {
+  outline: 2px solid var(--fp-accent);
+  outline-offset: 2px;
 }
 .fp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 8px;
 }
 .fp-card {
   position: relative;
   display: grid;
-  gap: 4px;
+  gap: 3px;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -115,18 +219,28 @@
   font: inherit;
 }
 .fp-card:hover {
-  border-color: var(--border, #d9d9d9);
+  border-color: var(--fp-line);
 }
 .fp-card.on {
-  border-color: var(--accent, #1129d3);
+  border-color: var(--fp-accent);
+  box-shadow: 0 0 0 3px rgba(17, 41, 211, 0.12);
 }
 .fp-card img {
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 10px;
   background: rgba(127, 127, 127, 0.12);
   display: block;
+}
+/* A vector sits on a checkerboard, the way an editor shows transparency. */
+.fp-card.vector img,
+.fp-thumb.vector {
+  object-fit: contain;
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #ececf0 25%, transparent 25%), linear-gradient(-45deg, #ececf0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ececf0 75%), linear-gradient(-45deg, transparent 75%, #ececf0 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
 }
 .fp-card .fp-title {
   font-size: 12px;
@@ -141,9 +255,13 @@
   position: absolute;
   top: 6px;
   left: 6px;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 2px 7px;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.4;
   background: rgba(0, 0, 0, 0.72);
@@ -162,6 +280,15 @@
 .fp-badge.unknown {
   background: rgba(120, 120, 120, 0.92);
 }
+.fp-badge-inline.free {
+  color: #107a48;
+}
+.fp-badge-inline.premium {
+  color: #1129d3;
+}
+.fp-badge-inline.credits {
+  color: #b45a00;
+}
 .fp-stored {
   position: absolute;
   top: 6px;
@@ -179,63 +306,9 @@
   opacity: 0.75;
   padding: 0 4px 4px;
 }
-.fp-selected {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--border, #d9d9d9);
-  border-radius: 10px;
-}
-.fp-selected img {
-  width: 120px;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 8px;
-  background: rgba(127, 127, 127, 0.12);
-}
-.fp-selected-text {
-  display: grid;
-  gap: 4px;
-  align-content: start;
-  min-width: 0;
-}
-.fp-selected-text b {
-  font-size: 14px;
-}
-.fp-meta {
-  font-size: 12px;
-  opacity: 0.8;
-}
 .fp-note {
   font-size: 12px;
   opacity: 0.8;
-}
-.fp-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
-}
-.fp-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.fp-post {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.fp-post select {
-  padding: 4px 6px;
-  border: 1px solid var(--border, #d9d9d9);
-  border-radius: 8px;
-  background: var(--input-bg, transparent);
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
 }
 .fp-empty {
   padding: 14px;
@@ -248,9 +321,159 @@
   justify-content: center;
   gap: 10px;
   font-size: 12px;
+  padding: 8px 0 2px;
 }
+
+/*
+ * The selected asset and its actions: always in view. In a column that has a height (the studios'
+ * side panels, the dialog) the panel fills it and only the results scroll; anywhere else the footer
+ * sticks to the bottom of whatever scrolls. Being in the flow, it never covers the last results.
+ */
+.fp-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--fp-line);
+  border-radius: 12px;
+  background: var(--ts-panel-solid, #fff);
+  box-shadow: 0 -8px 18px -12px rgba(0, 0, 0, 0.25);
+}
+.fp-selected {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.fp-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(127, 127, 127, 0.12);
+}
+.fp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.fp-thumb.vector img {
+  object-fit: contain;
+}
+.fp-selected-text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.fp-selected-text b {
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fp-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #6e6e73;
+}
+.fp-lettering {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 11px;
+  font-weight: 600;
+}
+.fp-format-note,
+.fp-attribution,
+.fp-bg-hint {
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+.fp-swatches {
+  display: grid;
+  gap: 4px;
+}
+.fp-swatches-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #3a3a3c;
+}
+.fp-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fp-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+.fp-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.fp-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+}
+.fp-actions .wide {
+  grid-column: 1 / -1;
+}
+.fp-post {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.fp-pick {
+  margin: 0;
+}
+
+/* Filling a column with a height: only the results scroll. */
+.fp-panel.fill {
+  flex: 1;
+  min-height: 0;
+}
+.fp-panel.fill .fp-results {
+  flex: 1;
+  max-height: none;
+}
+.fp-panel.fill .fp-footer {
+  position: static;
+  flex: none;
+}
+
+/* The dialog: as tall as the screen allows, the panel filling it. */
 .fp-dialog {
   max-width: min(960px, 96vw);
+  max-height: min(92dvh, 900px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.fp-dialog > .fp-panel {
+  flex: 1;
+  min-height: 0;
 }
 .editor-freepik {
   margin: 8px 0;
@@ -274,4 +497,60 @@
 }
 .fp-plan input {
   margin-top: 3px;
+}
+
+/* Phones: a compact action bar at the bottom, clear of the home indicator. */
+@media (max-width: 640px) {
+  .fp-panel {
+    gap: 7px;
+  }
+  .fp-results {
+    max-height: 52vh;
+    min-height: 96px;
+  }
+  .fp-head .fp-note,
+  .fp-head .fp-demo {
+    display: none;
+  }
+  .fp-chips button {
+    height: 26px;
+    padding: 0 9px;
+  }
+  .fp-grid {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 6px;
+  }
+  .fp-card .fp-title {
+    display: none;
+  }
+  .fp-footer {
+    gap: 4px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+  }
+  .fp-thumb {
+    width: 36px;
+    height: 36px;
+  }
+  .fp-format-note,
+  .fp-attribution,
+  .fp-bg-hint,
+  .fp-swatches-title {
+    display: none;
+  }
+  .fp-actions {
+    gap: 5px;
+  }
+  .fp-actions button {
+    min-height: 34px;
+    padding: 0 6px;
+    font-size: 12px;
+  }
+  .fp-search button span {
+    display: none;
+  }
+  .fp-dialog {
+    max-height: 96dvh;
+    padding: 16px 12px 0;
+  }
 }

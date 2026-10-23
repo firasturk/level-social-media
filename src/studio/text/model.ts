@@ -193,11 +193,16 @@ export function toLocal(box: LayerBox, x: number, y: number): { x: number; y: nu
   return { x: box.cx + dx * Math.cos(a) - dy * Math.sin(a), y: box.cy + dx * Math.sin(a) + dy * Math.cos(a) };
 }
 
-export function hitLayer(boxes: LayerBox[], layers: Layer[], x: number, y: number, slack = 0): LayerBox | null {
+/**
+ * The layer under the pointer, top first. A background (drawn behind the photograph) is only hit
+ * once it is selected, from the layers list: a click on the photograph never grabs it by mistake.
+ */
+export function hitLayer(boxes: LayerBox[], layers: Layer[], x: number, y: number, slack = 0, selected: string[] = []): LayerBox | null {
   for (let i = boxes.length - 1; i >= 0; i--) {
     const b = boxes[i];
     const l = layers.find((k) => k.id === b.id);
     if (!l || l.hidden) continue;
+    if (l.type === "image" && l.behind && !selected.includes(l.id)) continue;
     const p = toLocal(b, x, y);
     if (p.x >= b.x - slack && p.x <= b.x + b.w + slack && p.y >= b.y - slack && p.y <= b.y + b.h + slack) return b;
   }

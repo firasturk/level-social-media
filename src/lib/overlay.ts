@@ -6,7 +6,7 @@ import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } fro
 import { HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
 import { ARABIC, fontStack, loadFont } from "./fonts";
-import { drawBasePicture, drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
+import { drawBackdrop, drawBasePicture, drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
 
 export interface OverlayText {
   headline?: string;
@@ -860,8 +860,9 @@ export async function renderOverlay(
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  // The photograph goes under everything, cropped and shifted as the design asks (its file is untouched).
-  drawBasePicture(ctx, img, W, H, opts.patch?.design?.canvas);
+  // The design's background (if any) goes first, then the photograph, cropped and shifted as the design asks (its file is untouched).
+  const backdrop = await drawBackdrop(ctx, W, H, opts.patch?.design);
+  drawBasePicture(ctx, img, W, H, opts.patch?.design?.canvas, backdrop);
   await drawOverlay(ctx, W, H, spec, text, logoSrc, opts);
   return canvas;
 }
@@ -878,7 +879,10 @@ export async function paintFrame(
   const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  drawBasePicture(ctx, img, canvas.width, canvas.height, opts.patch?.design?.canvas);
+  // A reused canvas starts clean, so a transparent photograph shows its background, not the last frame.
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const backdrop = await drawBackdrop(ctx, canvas.width, canvas.height, opts.patch?.design);
+  drawBasePicture(ctx, img, canvas.width, canvas.height, opts.patch?.design?.canvas, backdrop);
   return drawOverlay(ctx, canvas.width, canvas.height, spec, text, logoSrc, opts);
 }
 

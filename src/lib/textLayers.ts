@@ -6,6 +6,7 @@
  */
 import type { CanvasFx, Fill, ImageLayer, LogoLayer, RunStyle, ShapeLayer, TextDesign, TextLayer } from "@shared/layers";
 import { ARABIC_RE, applyCase, directionRuns, isTextLayer, paragraphDirection, segmentsOf } from "@shared/layers";
+import { cleanColorMap, recolorSvg } from "@shared/svg-colors";
 import { ensureFont, fontStack } from "./fonts";
 
 /** Where a layer's box landed, in canvas pixels, before rotation (cx, cy is the pivot). */
@@ -56,16 +57,61 @@ export function loadLayerImage(src: string): Promise<Picture | null> {
 
 const sizeOf = (img: Picture) => ({ w: ("naturalWidth" in img && img.naturalWidth) || img.width || 1, h: ("naturalHeight" in img && img.naturalHeight) || img.height || 1 });
 
+/** The SVG text of a vector layer's file, read once per URL; null when it is not an SVG. */
+const svgTexts = new Map<string, Promise<string | null>>();
+/** Recoloured vectors, by file and colour map; the oldest are forgotten past a few dozen. */
+const recolored = new Map<string, Promise<Picture | null>>();
+const MAX_RECOLORED = 48;
+
+function svgTextOf(src: string): Promise<string | null> {
+  let p = svgTexts.get(src);
+  if (!p) {
+    p =
+      typeof fetch === "undefined"
+        ? Promise.resolve(null)
+        : fetch(src, { credentials: "same-origin" })
+            .then(async (r) => (r.ok && /svg/i.test(r.headers.get("content-type") ?? "") ? r.text() : null))
+            .catch(() => null);
+    svgTexts.set(src, p);
+  }
+  return p;
+}
+
+/**
+ * The picture an image layer draws: its file, or for an editable vector with a colour map, the
+ * SVG with those colours rewritten (shared/svg-colors.ts, the same scanner the server listed the
+ * swatches with). A file that is not an SVG ignores the map. Null when it cannot be loaded.
+ */
+export function loadImageLayerPicture(layer: Pick<ImageLayer, "src" | "recolor">): Promise<Picture | null> {
+  const map = cleanColorMap(layer.recolor);
+  const entries = Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  if (!entries.length) return loadLayerImage(layer.src);
+  const key = `${layer.src}|${JSON.stringify(entries)}`;
+  let p = recolored.get(key);
+  if (!p) {
+    p = svgTextOf(layer.src).then((text) => (text ? loadLayerImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolorSvg(text, map))}`) : loadLayerImage(layer.src)));
+    recolored.set(key, p);
+    if (recolored.size > MAX_RECOLORED) {
+      const oldest = recolored.keys().next().value;
+      if (oldest !== undefined) recolored.delete(oldest);
+    }
+  }
+  return p;
+}
+
 /**
  * The photograph under the layers, cropped and shifted as the design asks: `crop` is the part of
- * the file that fills the canvas (scaled to cover it), `offset` slides it. Only this drawing moves;
- * the file's pixels are never changed, and without either the whole picture fills the canvas.
+ * the file that fills the canvas (scaled to cover it), `offset` slides it, `photoScale` draws it
+ * smaller over a background. Only this drawing moves; the file's pixels are never changed, and
+ * without any of them the whole picture fills the canvas. `overBackdrop`: a background layer is
+ * already drawn, so the canvas is not blacked out around the photograph.
  */
-export function drawBasePicture(ctx: CanvasRenderingContext2D, img: Picture, W: number, H: number, fx?: CanvasFx) {
+export function drawBasePicture(ctx: CanvasRenderingContext2D, img: Picture, W: number, H: number, fx?: CanvasFx, overBackdrop = false) {
   const { w: nw, h: nh } = sizeOf(img);
   const crop = fx?.crop;
   const offset = fx?.offset;
-  if (!crop && !offset) {
+  const scale = fx?.photoScale && fx.photoScale < 1 ? Math.max(0.3, fx.photoScale) : 1;
+  if (!crop && !offset && scale === 1) {
     ctx.drawImage(img, 0, 0, W, H);
     return;
   }
@@ -73,16 +119,31 @@ export function drawBasePicture(ctx: CanvasRenderingContext2D, img: Picture, W: 
   const sy = (crop?.y ?? 0) * nh;
   const sw = Math.max(1, (crop?.w ?? 1) * nw);
   const sh = Math.max(1, (crop?.h ?? 1) * nh);
-  const k = Math.max(W / sw, H / sh);
+  const k = Math.max(W / sw, H / sh) * scale;
   const dw = sw * k;
   const dh = sh * k;
   const dx = (W - dw) / 2 + (offset?.x ?? 0) * W;
   const dy = (H - dh) / 2 + (offset?.y ?? 0) * H;
   ctx.save();
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, W, H);
+  if (!overBackdrop) {
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, W, H);
+  }
   ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
   ctx.restore();
+}
+
+/** The design's background layers (`behind`), drawn before the photograph. Returns true when one was drawn. */
+export async function drawBackdrop(ctx: CanvasRenderingContext2D, W: number, H: number, design: TextDesign | undefined | null): Promise<boolean> {
+  const behind = (design?.layers ?? []).filter((l): l is ImageLayer => l.type === "image" && !!l.behind && !l.hidden);
+  let drew = false;
+  for (const layer of behind) {
+    const img = await loadImageLayerPicture(layer);
+    if (!img) continue;
+    paintImage(ctx, W, layer, plainBox(layer, W, H), img);
+    drew = true;
+  }
+  return drew;
 }
 
 interface Token {
@@ -534,8 +595,9 @@ export async function drawDesign(ctx: Ctx, W: number, H: number, design: TextDes
     if (layer.type === "image") {
       const box = plainBox(layer, W, H);
       boxes.push(box);
-      if (opts.skip?.has(layer.id)) continue;
-      const img = await loadLayerImage(layer.src);
+      // A background is drawn before the photograph (drawBackdrop), never over it.
+      if (opts.skip?.has(layer.id) || layer.behind) continue;
+      const img = await loadImageLayerPicture(layer);
       if (img) paintImage(ctx, W, layer, box, img);
       continue;
     }
@@ -724,6 +786,7 @@ export async function renderDesignOnly(design: TextDesign, W: number, H: number,
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
+  await drawBackdrop(ctx, W, H, design);
   await drawDesign(ctx, W, H, { ...design, canvas: undefined }, opts);
   return canvas;
 }
