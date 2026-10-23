@@ -1,5 +1,5 @@
 /**
- * The Help assistant: a member asks how to do something; the text model answers only from the
+ * The Help assistant, "Firas" (named after the studio's owner): a member asks how to do something; the text model answers only from the
  * studio's own guide (shared/help-guide.ts), in the member's language, with the English labels as
  * they appear. When the guide does not cover it (the thing does not exist, or something is broken),
  * the answer says so and drafts a message to Firas, which the member sends with one click: it lands
@@ -61,11 +61,11 @@ export interface HelpTurn {
 export function helpInstruction(r: { message: string; history: HelpTurn[]; role: User["role"]; name: string; screen?: string }): string {
   const history = r.history.length ? r.history.map((t) => `${t.role === "user" ? "Member" : "Assistant"}: ${t.text}`).join("\n") : "(none)";
   return [
-    "You are the Help assistant inside Level Studio, the social-media post studio of the agency Level MENA. Team members ask how to do things in the studio.",
+    "You are Firas, the assistant inside Level Studio, the social-media post studio of the agency Level MENA (you are named after the studio's owner, Firas, who receives the requests you cannot answer). Team members ask you how to do things in the studio. Speak in the first person, warmly and briefly.",
     "Answer ONLY from the guide below. Never invent a button, tab, setting or feature. Quote labels exactly as the guide writes them, in English, in double quotes (the studio's screens are in English).",
     "Write in the member's language: Arabic (simple, friendly Levantine/Jordanian Arabic is fine) when they write Arabic, English when they write English.",
     "Be short: one or two sentences in `answer`, then the clicks in `steps` (at most 8, one action each). Say when a step costs credits or money, and when it is admins only (then tell a member to ask an admin).",
-    "If the guide does not cover the question, if the thing does not exist in the studio, or if the member describes something that looks broken: set known to false, say plainly (no guessing) that you cannot do it or do not know, and write `request`: a clear message to Firas (the studio's owner) in the member's language saying who needs what, on which screen, and why, so he can add or fix it. Keep it to 2–4 sentences. Otherwise known is true and request is \"\".",
+    "If the guide does not cover the question, if the thing does not exist in the studio, or if the member describes something that looks broken: set known to false, say plainly (no guessing) that it is not in the studio yet or that you do not know, that you can pass it to Firas himself (the owner) to add or fix, and write `request`: a clear message to Firas (the studio's owner) in the member's language saying who needs what, on which screen, and why, so he can add or fix it. Keep it to 2–4 sentences. Otherwise known is true and request is \"\".",
     "If the question is not about the studio at all, answer in one sentence that you only help with the studio; known true, request \"\".",
     `The member: ${r.name || "a team member"} (${r.role === "admin" ? "admin" : "member, not an admin"}).${r.screen ? ` They are on the screen at ${r.screen}.` : ""}`,
     "",
@@ -151,9 +151,9 @@ async function mailAdmins(env: Env, user: User, d: z.infer<typeof requestSchema>
   if (!to.length) return false;
   const from = (await getSetting(env, NOTIFY_FROM_SETTING)) || FALLBACK_FROM;
   const who = user.name || user.email;
-  const text = [`${who} (${user.email}) sent a request from the studio's Help:`, "", d.message, "", d.question ? `Their question: ${d.question}` : "", d.screen ? `Screen: ${d.screen}` : "", "", `Open the Help inbox: ${publicOrigin(env)}/?help=inbox`].filter((l, i, all) => l || all[i - 1]).join("\n");
+  const text = [`${who} (${user.email}) sent you a request through the studio's assistant:`, "", d.message, "", d.question ? `Their question: ${d.question}` : "", d.screen ? `Screen: ${d.screen}` : "", "", `Open the Help inbox: ${publicOrigin(env)}/?help=inbox`].filter((l, i, all) => l || all[i - 1]).join("\n");
   try {
-    await sendResend(key, { from, to: [...new Set(to)], subject: `Studio request from ${who}`, text });
+    await sendResend(key, { from, to: [...new Set(to)], subject: `Studio request from ${who} (via the assistant)`, text });
     return true;
   } catch (e) {
     console.error("[help] mail", errorMessage(e));

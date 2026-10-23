@@ -101,7 +101,7 @@ describe("sending to Firas", () => {
     const sent = (await json(await postJson(app("member"), env, "/api/studio/help/requests", { question: "q", message: "Please add it." }))) as { mailed: boolean };
     expect(sent.mailed).toBe(true);
     expect(mails).toHaveLength(1);
-    expect(mails[0]).toMatchObject({ to: ["admin@test"], subject: "Studio request from member" });
+    expect(mails[0]).toMatchObject({ to: ["admin@test"], subject: "Studio request from member (via the assistant)" });
     expect(mails[0].text).toContain("Please add it.");
   });
 });

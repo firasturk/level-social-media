@@ -20563,7 +20563,8 @@ a.publish-pill.published:hover {
   padding: 10px 10px 10px 14px;
   border-bottom: 1px solid var(--line);
 }
-.help-head > b { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.help-head > b { display: inline-flex; align-items: baseline; gap: 6px; font-size: 14px; }
+.help-head > b small { font-weight: 500; font-size: 11.5px; color: var(--ink-500); }
 .help-tabs { display: flex; gap: 4px; margin-left: auto; }
 .help-tabs button {
   display: inline-flex;

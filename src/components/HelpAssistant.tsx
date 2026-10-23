@@ -1,5 +1,6 @@
 /**
- * Help: a button on every studio screen that opens the assistant. A member asks how to do something
+ * "Ask Firas": a button on every studio screen that opens the assistant, named Firas after the
+ * studio's owner (who receives the requests it cannot answer). A member asks how to do something
  * ("how do I make a carousel?") and gets the steps, with the studio's own labels, from the guide
  * (server/help.ts). When the assistant cannot answer, it says so and drafts a message to Firas,
  * sent with "Send to Firas" (editable first). Admins get the inbox of those requests and mark them
@@ -121,7 +122,7 @@ export default function HelpAssistant({ user }: { user: User }) {
     setSending(true);
     try {
       const r = await post<{ mailed: boolean }>("/api/studio/help/requests", { question: draft.question, message: draft.message, answer: draft.answer, screen: screenNow() });
-      setTurns((t) => [...t, { role: "assistant", text: r.mailed ? "Sent to Firas: he has it in his e-mail and in the Help inbox. You will see his answer under My requests." : "Sent to Firas: he has it in the Help inbox. You will see his answer under My requests.", known: true, sent: true }]);
+      setTurns((t) => [...t, { role: "assistant", text: r.mailed ? "Sent to Firas himself: he has it in his e-mail and in the Help inbox. You will see his answer under My requests." : "Sent to Firas himself: he has it in the Help inbox. You will see his answer under My requests.", known: true, sent: true }]);
       setDraft(null);
     } catch (e) {
       toast.error((e as Error).message);
@@ -143,17 +144,18 @@ export default function HelpAssistant({ user }: { user: User }) {
   return (
     <>
       {!open && (
-        <button type="button" className="help-fab" onClick={() => setOpen(true)} aria-label="Help" title="Ask how to do something in the studio">
+        <button type="button" className="help-fab" onClick={() => setOpen(true)} aria-label="Ask Firas" title="Ask Firas, the studio's assistant, how to do something">
           <CircleHelp size={18} />
-          <span>Help</span>
+          <span>Ask Firas</span>
           {admin && openCount > 0 && <em className="help-fab-n">{openCount}</em>}
         </button>
       )}
       {open && (
-        <aside className="help-panel" aria-label="Help">
+        <aside className="help-panel" aria-label="Firas, the studio's assistant">
           <header className="help-head">
             <b>
-              <CircleHelp size={16} /> Help
+              <CircleHelp size={16} /> Firas
+              <small>the studio's assistant</small>
             </b>
             <nav className="help-tabs" role="tablist">
               <button type="button" role="tab" aria-selected={tab === "ask"} className={tab === "ask" ? "on" : ""} onClick={() => setTab("ask")}>
@@ -163,7 +165,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                 {admin ? <Inbox size={13} /> : null} {admin ? `Inbox${openCount ? ` (${openCount})` : ""}` : "My requests"}
               </button>
             </nav>
-            <button type="button" className="ts-icon" onClick={() => setOpen(false)} aria-label="Close Help">
+            <button type="button" className="ts-icon" onClick={() => setOpen(false)} aria-label="Close">
               <X size={15} />
             </button>
           </header>
@@ -173,7 +175,7 @@ export default function HelpAssistant({ user }: { user: User }) {
               <div className="help-thread">
                 {!turns.length && (
                   <div className="help-empty">
-                    <p>Ask how to do anything in the studio, in Arabic or English.</p>
+                    <p>Hi, I'm Firas, the studio's assistant. Ask me how to do anything in the studio, in Arabic or English. If it isn't in the studio yet, I pass it to Firas himself.</p>
                     <div className="help-examples">
                       {["How do I make a carousel?", "How do I change the words on a post?", "How do I send the month to the client?"].map((q) => (
                         <button key={q} type="button" onClick={() => setText(q)}>
@@ -195,7 +197,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                     )}
                     {t.role === "assistant" && t.known !== false && !t.sent && t.question && (
                       <button type="button" className="ts-link help-stuck" onClick={() => setDraft({ at: Date.now(), message: t.question!, question: t.question!, answer: t.text })}>
-                        Still stuck? Send it to Firas
+                        Still stuck? Send it to Firas himself
                       </button>
                     )}
                   </div>
@@ -203,18 +205,18 @@ export default function HelpAssistant({ user }: { user: User }) {
                 {busy && (
                   <div className="help-msg assistant">
                     <p>
-                      <Orb size={14} /> Looking it up…
+                      <Orb size={14} /> Firas is looking it up…
                     </p>
                   </div>
                 )}
                 {draft && (
                   <div className="help-draft">
-                    <b>Send this to Firas?</b>
+                    <b>Send this to Firas himself?</b>
                     <small>He adds or fixes it and answers you under My requests. Change the words if you like.</small>
                     <textarea dir="auto" rows={4} value={draft.message} onChange={(e) => setDraft({ ...draft, message: e.target.value })} />
                     <div className="help-row">
                       <button type="button" className="ts-btn primary" disabled={sending || !draft.message.trim()} onClick={() => void send()}>
-                        {sending ? <Orb size={14} /> : <Send size={14} />} Send to Firas
+                        {sending ? <Orb size={14} /> : <Send size={14} />} Send to Firas himself
                       </button>
                       <button type="button" className="ts-btn" onClick={() => setDraft(null)}>
                         Not now
@@ -235,7 +237,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                   dir="auto"
                   rows={2}
                   value={text}
-                  placeholder="How do I…"
+                  placeholder="Ask Firas: how do I…"
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
