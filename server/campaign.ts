@@ -216,7 +216,16 @@ export async function planDefaults(env: Env, config: Config, setup: CampaignSetu
   const model = config.model || (await resolveEngineModel(env));
   const billing = await higgsfieldBilling(env);
   const cloud = videoModel(VIDEO_MODELS[0].slug)!;
-  const clipEngine: ClipEngine = billing === "credits" ? { provider: "higgsfield-mcp", model: "seedance", name: "Seedance (subscription credits)" } : { provider: "higgsfield", model: cloud.slug, name: `${cloud.name} (Cloud API)` };
+  let clipEngine: ClipEngine = billing === "credits" ? { provider: "higgsfield-mcp", model: "seedance", name: "Seedance (subscription credits)" } : { provider: "higgsfield", model: cloud.slug, name: `${cloud.name} (Cloud API)` };
+  if (billing === "credits") {
+    // The subscription catalog as last read (no call here): the plan names one exact engine, never a family.
+    const { readJsonSetting } = await import("./oauth-signin");
+    const { HIGGSFIELD_MCP_MODELS_SETTING } = await import("./settings");
+    const { matchMcpModel } = await import("./higgsfield-mcp");
+    const stored = await readJsonSetting<{ models: { id: string; name: string; durations: number[]; aspects: string[] }[] }>(env, HIGGSFIELD_MCP_MODELS_SETTING).catch(() => null);
+    const m = stored?.models?.length ? matchMcpModel(stored.models as Parameters<typeof matchMcpModel>[0], cloud.name) : null;
+    if (m) clipEngine = { provider: "higgsfield-mcp", model: m.id, name: `${m.name} (subscription credits)` };
+  }
   return { imageEngine: { kind: "engine", model }, frameEngine: { kind: "mg-camera", model: "images_change_camera" }, clipEngine, frame: setup.videoFrame, videoSeconds: setup.videoSeconds };
 }
 
