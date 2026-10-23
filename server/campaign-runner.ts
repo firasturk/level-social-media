@@ -32,7 +32,7 @@ import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
-import { stripListIdRefs } from "../shared/campaign-planner";
+import { peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -99,7 +99,11 @@ async function reserveFor(env: Env, row: CampaignRow, s: StepRow, amount: number
 
 /** The attempt cost what it cost: the reservation follows (released down, or topped up when the provider reported more). */
 async function settleCost(env: Env, row: CampaignRow, s: StepRow, spent: number | null): Promise<void> {
-  const cost = spent ?? s.reserved;
+  // Credits are "reported" from the balance's movement; jobs running side by side move one balance,
+  // so a figure above the provider's own estimate for this exact request is the overlap, not this job.
+  const overlap = spent !== null && s.unit !== "usd" && s.reserved > 0 && spent > s.reserved * 1.05;
+  const cost = overlap ? s.reserved : (spent ?? s.reserved);
+  if (overlap) await patchStep(env, s, { note: `${s.note ? `${s.note} · ` : ""}the balance moved by ${fmtAmount(spent, s.unit)} while other jobs ran too; counted at this request's estimate (${fmtAmount(s.reserved, s.unit)}).` });
   if (s.unit) {
     if (cost < s.reserved) await releaseSpend(env, campaignScope(row.id, s.unit), s.reserved - cost);
     else if (cost > s.reserved) {
@@ -180,6 +184,12 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
     post = { index, type: product ? "product" : "lifestyle", title, brief: `${v.concept}\nKey frame: ${keyShot?.action ?? ""} ${keyShot?.framing ?? ""}`.trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: v.hook || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   }
+  // A card that shows a person or a hand names the client's cast, so the engine draws one of them
+  // (from his or her reference photo) instead of inventing someone.
+  const { castOf } = await import("./campaign");
+  const cast = await castOf(env, config.client ?? null);
+  const words = image ? `${image.idea} ${image.visual}` : `${video!.concept} ${video!.shots.map((x) => x.action).join(" ")}`;
+  if (cast.length && showsPeople(words)) post.people = [cast[0].name];
   config.plan = [...planPosts, post];
   config.postCount = Math.min(MAX_POST_COUNT, Math.max(config.postCount ?? planPosts.length, planPosts.length) + 1);
   await saveConfig(env, fresh, config);
@@ -250,8 +260,9 @@ export function angleFor(shot: ShotPlan, taken: Set<string>): string {
 }
 
 /** The motion prompt a shot's clip is asked with. */
-export function clipPrompt(v: VideoPlanItem, s: ShotPlan): string {
-  return [s.action, s.framing && `Framing: ${s.framing}.`, s.camera && `Camera: ${s.camera}.`, v.product ? `Keep ${v.product.name} exactly as in the picture: shape, label and colours unchanged.` : "", "Natural, realistic motion; no text appears; no new objects."].filter(Boolean).join(" ").slice(0, 1500);
+export function clipPrompt(v: VideoPlanItem, s: ShotPlan, cast: CastMember[] = []): string {
+  const people = peopleRule(cast).replace(/^PEOPLE: /, "").replace(" in a post or shot", "");
+  return [s.action, s.framing && `Framing: ${s.framing}.`, s.camera && `Camera: ${s.camera}.`, v.product ? `Keep ${v.product.name} exactly as in the picture: shape, label and colours unchanged.` : "", "Natural, realistic motion; no text appears; no new objects.", showsPeople(s.action) || cast.length ? `People: ${people}` : ""].filter(Boolean).join(" ").slice(0, 1500);
 }
 
 /** The picture a shot's clip starts from. */
@@ -283,10 +294,16 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
     await patchStep(env, s, { status: "paused", note: "Changed after approval: approve the changes to make it." });
     return;
   }
-  const claimed = await run(env.DB, "UPDATE campaign_steps SET status = 'running', attempts = attempts + 1, started = ?, run_sig = ?, error = NULL, updated = ? WHERE campaign = ? AND step = ? AND status = 'ready'", now(), sig, now(), row.id, s.step);
-  if (!claimed) return;
+  // One attempt at a time, never past the approved attempts (counted in the row, not in a page's copy of it).
+  const claimed = await run(env.DB, "UPDATE campaign_steps SET status = 'running', attempts = attempts + 1, started = ?, run_sig = ?, error = NULL, updated = ? WHERE campaign = ? AND step = ? AND status = 'ready' AND attempts < max_attempts", now(), sig, now(), row.id, s.step);
+  if (!claimed) {
+    const fresh = await first<StepRow>(env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, s.step);
+    if (fresh?.status === "ready" && fresh.attempts >= fresh.max_attempts) await patchStep(env, fresh, { status: "failed", error: fresh.error ?? "The approved attempts are used." });
+    return;
+  }
+  const counted = await first<{ attempts: number }>(env.DB, "SELECT attempts FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, s.step);
   s.status = "running";
-  s.attempts += 1;
+  s.attempts = counted?.attempts ?? s.attempts + 1;
   s.started = now();
   s.run_sig = sig;
   const b = await ownedPlan(env, user, row.batch);
@@ -375,7 +392,8 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
           return;
         }
         const duration = clipSeconds(shot.seconds);
-        const prompt = clipPrompt(v, shot);
+        const { castOf } = await import("./campaign");
+        const prompt = clipPrompt(v, shot, await castOf(env, (JSON.parse(b.config) as Config).client ?? null));
         const note = `Campaign Autopilot ${v.key} ${shot.key}`;
         let videoId: string;
         if (engine.provider === "higgsfield-mcp") {

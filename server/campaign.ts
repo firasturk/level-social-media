@@ -63,7 +63,7 @@ import {
   type PriceBook,
   type StepSpec,
 } from "../shared/campaign-plan";
-import { applyRetarget, stripListIdRefs, CAMPAIGN_PLAN_SCHEMA, campaignInstruction, planFromAnswer, RETARGET_SCHEMA, retargetInstruction, type PlanDefaults, type PlannerInput } from "../shared/campaign-planner";
+import { applyRetarget, stripListIdRefs, type CastMember, CAMPAIGN_PLAN_SCHEMA, campaignInstruction, planFromAnswer, RETARGET_SCHEMA, retargetInstruction, type PlanDefaults, type PlannerInput } from "../shared/campaign-planner";
 
 type Variables = { user: User };
 export const campaignRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -205,6 +205,13 @@ export async function planSources(env: Env, b: BatchRow): Promise<{ products: Pl
     }
   }
   return { products, media };
+}
+
+/** The client's cast (its ambassadors): the only people a campaign may show. */
+export async function castOf(env: Env, client: string | null): Promise<CastMember[]> {
+  if (!client) return [];
+  const rows = await all<{ name: string; gender: string | null; modest: number | null }>(env.DB, "SELECT name, gender, modest FROM ambassadors WHERE client = ? ORDER BY position", client).catch(() => []);
+  return rows.map((r) => ({ name: r.name, gender: r.gender, modest: !!r.modest }));
 }
 
 async function brandOf(env: Env, config: Config): Promise<ClientBrand | null> {
@@ -521,6 +528,8 @@ async function writePlan(env: Env, b: BatchRow, setup: CampaignSetup, rev: numbe
     references,
     looks: LOOKS.filter((l) => l.id !== "none").map((l) => l.id),
     month: config.month ?? "",
+    cast: await castOf(env, config.client ?? null),
+    rules: config.client ? await (await import("./lessons")).lessonsFor(env, config.client, { batch: b.id }).catch(() => []) : [],
   };
   const defaults = await planDefaults(env, config, setup);
   const answer = parseJson<unknown>(await askText(env, campaignInstruction(input) + (extra ? `\n\n${extra}` : ""), CAMPAIGN_PLAN_SCHEMA));
@@ -658,7 +667,8 @@ campaignRoutes.post("/:id/retarget", async (c) => {
   const known = (await planSources(c.env, b)).products;
   if (product && !known.some((p) => p.id === product.id && p.from === product.from)) throw new StudioError("That product is not one of the client's.", 409);
   const original = [...planOf(row).images, ...planOf(row).videos].find((x) => x.key === before.key);
-  const answer = parseJson<unknown>(await askText(c.env, retargetInstruction(before, before.product ?? original?.product ?? null, product, setup.language), RETARGET_SCHEMA));
+  const { peopleRule } = await import("../shared/campaign-planner");
+  const answer = parseJson<unknown>(await askText(c.env, `${retargetInstruction(before, before.product ?? original?.product ?? null, product, setup.language)}\n${peopleRule(await castOf(c.env, config.client ?? null))}`, RETARGET_SCHEMA));
   const item = applyRetarget({ ...before, key: String((d.item as { key?: string }).key ?? before.key) }, answer, product);
   return c.json({ ok: true, item, note: "The words were rewritten for the new product (one text call, outside the production budget). Review them, then save." });
 });

@@ -316,12 +316,34 @@ export function higgsfieldArgs(tool: ToolDef, shape: ToolShape, mediaId: string,
 }
 
 /** The option arguments of a Magnific tool under the names its schema has. */
+/**
+ * "Change camera" (images_change_camera) takes no angle name: it moves the camera by numbers —
+ * `rotate` (0–360°, around the subject), `vertical` (−30…90°, below to above) and `closeup` (0–10).
+ * Each angle the studio offers is one setting of those three.
+ */
+export const CAMERA_MOVES: Record<string, { rotate: number; vertical: number; closeup: number }> = {
+  front: { rotate: 0, vertical: 0, closeup: 5 },
+  left: { rotate: 315, vertical: 0, closeup: 5 },
+  right: { rotate: 45, vertical: 0, closeup: 5 },
+  top: { rotate: 0, vertical: 60, closeup: 5 },
+  low: { rotate: 0, vertical: -25, closeup: 5 },
+  closer: { rotate: 0, vertical: 0, closeup: 8 },
+  wider: { rotate: 0, vertical: 0, closeup: 2 },
+};
+
 export function magnificOptionArgs(tool: ToolDef, params: string[], options: Record<string, string>): BuiltArgs {
   const notes: string[] = [];
   const args: Record<string, unknown> = {};
   for (const o of tool.options) {
     const v = options[o.id]?.trim();
     if (!v) continue;
+    if (o.id === "camera" && !paramFor(params, "camera") && params.includes("rotate") && CAMERA_MOVES[v]) {
+      const m = CAMERA_MOVES[v];
+      args.rotate = m.rotate;
+      if (params.includes("vertical")) args.vertical = m.vertical;
+      if (params.includes("closeup")) args.closeup = m.closeup;
+      continue;
+    }
     const k = paramFor(params, o.id);
     if (k) args[k] = v;
     else notes.push(`${o.label.toLowerCase()} not taken by ${tool.mcpTool}`);

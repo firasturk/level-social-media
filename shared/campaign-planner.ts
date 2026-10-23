@@ -41,7 +41,35 @@ export interface PlannerInput {
   /** The editor's looks the planner may name ("" for none). */
   looks: string[];
   month: string;
+  /** The client's cast (ambassadors): the only people who may appear. */
+  cast?: CastMember[];
+  /** The client's approved brand rules and lessons (brand memory), as the ideas writer gets them. */
+  rules?: string[];
 }
+
+export interface CastMember {
+  name: string;
+  gender: string | null;
+  modest: boolean;
+}
+
+/**
+ * Who may appear in a picture or a shot: the client's cast only. A cast of men means men only — no
+ * woman or girl, not even her hand. Without a cast, people appear at most as hands, and only when
+ * the brand's own rules show people.
+ */
+export function peopleRule(cast: CastMember[] | undefined): string {
+  const c = cast ?? [];
+  if (!c.length) return "PEOPLE: the brand has no cast. Show no faces; at most a hand holding the product, and only if the brand's style shows hands.";
+  const genders = new Set(c.map((m) => (m.gender ?? "").toLowerCase()).filter(Boolean));
+  const men = genders.size === 1 && genders.has("man");
+  const women = genders.size === 1 && genders.has("woman");
+  const list = c.map((m) => `${m.name}${m.gender ? ` (${m.gender}${m.modest ? ", dressed modestly" : ""})` : ""}`).join(", ");
+  return `PEOPLE: only the brand's cast may appear: ${list}. Any person, face, arm or hand in a post or shot is one of them.${men ? " Men only: never a woman or a girl, not even a woman's hand." : women ? " Women only: never a man." : ""}`;
+}
+
+/** Does an item's words put a person (or a hand) in the picture? */
+export const showsPeople = (words: string) => /\b(hands?|man|men|guy|boy|person|people|someone|friends?|holds?|holding|reaching|sips?|sipping|customer)\b|يد|ايد|إيد|شاب|رجل|شخص|يمسك|ماسك|أصابع|اصابع/i.test(words);
 
 export const CAMPAIGN_PLAN_SCHEMA = {
   type: "object",
@@ -123,6 +151,8 @@ export function campaignInstruction(x: PlannerInput): string {
     `CREATIVE DIRECTION: ${s.direction.prompt || "(none: follow the brand)"}`,
     `LANGUAGE: ${LANGUAGE_WORDS[s.language]}.`,
     `THE BRAND: ${x.brand.name}. Tone: ${x.brand.tone || "-"}. Style: ${x.brand.style || "-"}. Always: ${x.brand.dos || "-"}. Never: ${x.brand.donts || "-"}.`,
+    peopleRule(x.cast),
+    ...(x.rules?.length ? ["THE BRAND'S APPROVED RULES AND LESSONS (always follow them):", ...x.rules.slice(0, 30).map((r) => `- ${r}`)] : []),
     "",
     `PRODUCTS you may use (by id; never invent a product, never describe one differently from its note):${x.products.length ? "" : " none: the posts are about the brand, with no product in them."}`,
     ...x.products.map((p) => `${p.listId}: ${p.name}${p.note ? ` — ${p.note}` : ""}`),

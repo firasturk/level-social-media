@@ -34,7 +34,7 @@ import { OAuthSignIn, readJsonSetting } from "./oauth-signin";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, releaseSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
 import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, startFrameKey, storeFinishedClip, versionNumbers, videoItem, type StartFrame, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
@@ -560,7 +560,8 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
   // The submission tool must exist before anything is claimed or recorded: a missing name is a clear refusal, not a failed version.
   await mcp.requireTool("generate_video_batch");
   const fingerprint = await sha256([MCP_PROVIDER, engine.id, d.prompt.trim(), duration ?? "", aspect ?? "", d.source, posterKey, String(d.useUnlim ?? "")].join("\n"));
-  if (!(await claimSubmission(env, `video:${b.id}:${d.index}:${fingerprint}`, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
+  const claimKey = `video:${b.id}:${d.index}:${fingerprint}`;
+  if (!(await claimSubmission(env, claimKey, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
   const before = est.balance;
   const opId = await recordIntegrationOp(env, {
     provider: "higgsfield",
@@ -617,18 +618,38 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
     await updateIntegrationOp(env, opId, { status: "proposed", note: "waiting for the unlimited-allowance choice; nothing submitted" });
     throw new StudioError(`Higgsfield asks whether this ${engine.name} clip should use the unlimited allowance or pay credits. Choose, then run again.`, 409, false, { unlimChoice: unlim, credits: est.credits });
   }
+  // Higgsfield may answer with a preset it recommends instead of starting the job ("Retry this index
+  // with declined_preset_id=…"): nothing was started; the engine asked for is kept by declining it, once.
+  const declined = declinedPresetIn(r);
+  if (declined && !parseJobs(r).some((x) => x.jobId)) {
+    try {
+      r = await mcp.call("generate_video_batch", { requests: [{ index: 0, params: { ...params, declined_preset_id: declined } }] });
+    } catch (e) {
+      const message = errorMessage(e).slice(0, 400);
+      await insert(isTimeout(e) ? "queued" : "failed", null, isTimeout(e) ? null : message, isTimeout(e) ? { outcomeUnknown: true } : {});
+      await updateIntegrationOp(env, opId, { status: isTimeout(e) ? "running" : "failed", note: `${isTimeout(e) ? "outcome unknown (timeout) after declining a recommended preset" : message}` });
+      throw isTimeout(e) ? new StudioError("Higgsfield did not answer in time after the recommended preset was declined: the clip may have started, so nothing was sent again.", 504, false, { outcomeUnknown: true, videoId: id }) : e;
+    }
+  }
   const job = parseJobs(r).find((x) => x.index === 0 || x.index === null);
   if (r.isError || !job) {
     const message = `Higgsfield did not start the clip: ${resultText(r).slice(0, 300) || "no job id in the answer"}`;
     await insert("failed", null, message);
     await updateIntegrationOp(env, opId, { status: "failed", note: message });
-    throw new StudioError(message, 502);
+    // Nothing was started: the same ask may be sent again at once (the ten-minute guard is for asks that did start).
+    await releaseSubmission(env, claimKey);
+    throw new StudioError(message, 502, false, { notStarted: true });
   }
   await insert("queued", job.jobId, null);
   await updateIntegrationOp(env, opId, { taskId: job.jobId, status: "running" });
   const rows = await postRows(env, b.id, d.index);
   const row = rows.find((v) => v.id === id)!;
   return videoItem(row, versionNumbers(rows).get(id) ?? rows.length);
+}
+
+/** The preset id Higgsfield asks to decline before it starts a plain generation, when it answered with one. */
+export function declinedPresetIn(r: McpCallResult): string | null {
+  return /declined_preset_id[=:]\s*"?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.exec(resultText(r))?.[1] ?? null;
 }
 
 /* ───────────── Polling, from settlePending ───────────── */

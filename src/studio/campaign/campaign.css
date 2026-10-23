@@ -79,3 +79,6 @@
 }
 .ca-overlay .text-button { display: inline-flex; align-items: center; gap: 4px; }
 @media (min-width: 761px) { .ca-bottom { padding-left: 230px; } }
+/* A step's retry action sits on its own line under the step, so the message keeps the card's width. */
+.ca-step > .text-button { flex-basis: 100%; justify-content: flex-start; }
+.ca-step span small { overflow-wrap: anywhere; }

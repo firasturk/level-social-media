@@ -318,6 +318,11 @@ export async function claimSubmission(env: Env, key: string, ttlMs: number = CLA
   return changed > 0;
 }
 
+/** A claim given back: the provider answered that nothing was started, so the same ask may be sent again at once. */
+export async function releaseSubmission(env: Env, key: string): Promise<void> {
+  await run(env.DB, "DELETE FROM integration_claims WHERE key = ?", key);
+}
+
 /* ───────────── 6. No retries, no fallback ───────────── */
 
 /**
