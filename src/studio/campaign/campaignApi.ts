@@ -7,7 +7,7 @@ export interface CampaignStep {
   step: string;
   item: string;
   shot: string | null;
-  kind: "post" | "image" | "frame" | "clip" | "assemble" | "render";
+  kind: "post" | "image" | "frame" | "review" | "clip" | "assemble" | "render";
   label: string;
   status: "waiting" | "ready" | "running" | "done" | "failed" | "paused" | "skipped";
   unit: CostUnit | null;
@@ -95,6 +95,8 @@ export const pauseCampaign = (id: string) => post<One>(`${base}/${id}/pause`);
 export const resumeCampaign = (id: string) => post<One>(`${base}/${id}/resume`);
 export const retryStep = (id: string, step: string, extra = false) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/retry`, { extra });
 export const renderedStep = (id: string, step: string, videoId: string) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/rendered`, { videoId });
+export const approveShots = (id: string, step: string) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/approve-shots`);
+export const redoStep = (id: string, step: string, angle?: string, confirm = false) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/redo`, { ...(angle ? { angle } : {}), confirm });
 export const discardCampaign = (id: string) => post<{ ok: true }>(`${base}/${id}/discard`);
 
 export type { Price };

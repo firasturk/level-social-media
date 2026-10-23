@@ -18,10 +18,16 @@ describe("3 image posts and 4 multishot Reels", () => {
     const steps = planSteps(campaign3x4());
     const at = new Map(steps.map((s, i) => [s.id, i]));
     for (const s of steps) for (const d of s.deps) expect(at.get(d)!).toBeLessThan(at.get(s.id)!);
-    expect(steps.find((s) => s.id === stepId("vid-1", "s2", "clip"))!.deps).toEqual([stepId("vid-1", "s2", "frame")]);
-    expect(steps.find((s) => s.id === stepId("vid-1", "s1", "clip"))!.deps).toEqual([stepId("vid-1", null, "image")]);
-    expect(steps.find((s) => s.id === stepId("vid-1", "s3", "clip"))!.deps).toEqual([stepId("vid-1", null, "image")]);
-    expect(steps.find((s) => s.id === stepId("vid-4", "s1", "clip"))!.deps).toEqual([stepId("vid-4", null, "post")]);
+    // Every clip made from a generated starting picture waits for the admin's look at the Reel's pictures.
+    const review = steps.find((s) => s.id === stepId("vid-1", null, "review"))!;
+    expect(review.deps.sort()).toEqual([stepId("vid-1", null, "image"), stepId("vid-1", "s2", "frame")].sort());
+    expect(review.priceKey).toBeNull();
+    expect(steps.find((s) => s.id === stepId("vid-1", "s2", "clip"))!.deps).toEqual([review.id]);
+    expect(steps.find((s) => s.id === stepId("vid-1", "s1", "clip"))!.deps).toEqual([review.id]);
+    expect(steps.find((s) => s.id === stepId("vid-1", "s3", "clip"))!.deps).toEqual([review.id]);
+    // A Reel made only from the client's photos waits for the look too (its review needs only the card).
+    expect(steps.find((s) => s.id === stepId("vid-4", "s1", "clip"))!.deps).toEqual([stepId("vid-4", null, "review")]);
+    expect(steps.find((s) => s.id === stepId("vid-4", null, "review"))!.deps).toEqual([stepId("vid-4", null, "post")]);
     expect(steps.some((s) => s.id === stepId("vid-4", null, "image"))).toBe(false);
     expect(steps.find((s) => s.id === stepId("vid-2", "s3", "clip"))!.priceKey).toBe("clip:higgsfield-mcp:kling-3.0:10:9:16");
   });

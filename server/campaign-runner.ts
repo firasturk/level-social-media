@@ -38,7 +38,7 @@ import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
 
 /** Steps started in one pass, per kind: the providers are not flooded and one pass stays short. */
-const START_LIMIT: Record<StepRow["kind"], number> = { post: 12, image: 3, frame: 3, clip: 3, assemble: 4, render: 0 };
+const START_LIMIT: Record<StepRow["kind"], number> = { post: 12, image: 3, frame: 3, review: 0, clip: 3, assemble: 4, render: 0 };
 /** A render the browser started and stopped reporting on, after this long, is offered again. */
 const RENDER_STALE_MS = 3 * 60 * 1000;
 
@@ -353,6 +353,9 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
           const a = angleFor(x, taken);
           if (x.key === shot.key) angle = a;
         }
+        // "Make again" with an angle the admin picked on the review.
+        const asked = s.data ? (JSON.parse(s.data) as { angle?: string }).angle : undefined;
+        if (asked) angle = asked;
         if (row.simulate) {
           if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
           await settleCost(env, row, s, null);

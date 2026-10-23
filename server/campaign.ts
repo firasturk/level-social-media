@@ -440,7 +440,7 @@ export async function campaignJson(env: Env, row: CampaignRow, items?: string[],
     plan,
     prices,
     pricesAt: row.prices_at,
-    approval: approval ? { ...approval, at: row.approved_at, by: row.approved_by, current: approval.signature === p.signature } : null,
+    approval: approval ? { ...approval, at: row.approved_at, by: row.approved_by, current: !approval.needsApproval.length && selected.every((k) => approval.terms.items.includes(k)) } : null,
     proposal: { ...p, steps: undefined, stepCount: p.steps.length },
     outsideTheCap: OUTSIDE_THE_CAP,
     units: UNIT_LABEL,
@@ -819,6 +819,58 @@ campaignRoutes.post("/:id/steps/:step/rendered", async (c) => {
   const { row } = await campaignOf(c.env, user, c.req.param("id"));
   const { finishRender } = await import("./campaign-runner");
   await finishRender(c.env, row, c.req.param("step"), d.videoId);
+  await advanceCampaign(c.env, user, row.id, (p) => c.executionCtx.waitUntil(p));
+  const next = (await first<CampaignRow>(c.env.DB, "SELECT * FROM campaign_plans WHERE id = ?", row.id))!;
+  return c.json({ ok: true, campaign: await campaignJson(c.env, next) });
+});
+
+/**
+ * The admin approves a Reel's starting pictures: its clips may now be made. Free; nothing is sent
+ * until the runner's next pass, which starts the clips within the approved allowance.
+ */
+campaignRoutes.post("/:id/steps/:step/approve-shots", async (c) => {
+  const user = c.get("user");
+  const { row } = await campaignOf(c.env, user, c.req.param("id"));
+  const s = await first<StepRow>(c.env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, c.req.param("step"));
+  if (!s || s.kind !== "review") throw new StudioError("Step not found.", 404);
+  if (s.status !== "ready") throw new StudioError(s.status === "done" ? "These pictures are approved already." : "The starting pictures are not all made yet.", 409);
+  await run(c.env.DB, "UPDATE campaign_steps SET status = 'done', note = ?, run_sig = sig, finished = ?, updated = ? WHERE campaign = ? AND step = ? AND status = 'ready'", `Approved by ${user.name || user.email}`, now(), now(), row.id, s.step);
+  await advanceCampaign(c.env, user, row.id, (p) => c.executionCtx.waitUntil(p));
+  const next = (await first<CampaignRow>(c.env.DB, "SELECT * FROM campaign_plans WHERE id = ?", row.id))!;
+  return c.json({ ok: true, campaign: await campaignJson(c.env, next) });
+});
+
+/**
+ * One starting picture made again before its Reel's pictures are approved: the key frame (another
+ * take from the image engine) or one angle (Magnific, at the angle the admin picks). One more
+ * attempt is approved at the step's estimate, and the Reel's review waits for the new picture.
+ */
+campaignRoutes.post("/:id/steps/:step/redo", async (c) => {
+  const user = c.get("user");
+  const d = await parseBody(c, z.object({ angle: z.enum(["front", "left", "right", "top", "low", "closer", "wider"]).optional(), confirm: z.boolean().optional() }));
+  const { row } = await campaignOf(c.env, user, c.req.param("id"));
+  const s = await first<StepRow>(c.env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, c.req.param("step"));
+  if (!s || (s.kind !== "image" && s.kind !== "frame")) throw new StudioError("Only a starting picture is made again here.", 404);
+  const review = await first<StepRow>(c.env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, `${s.item}:-:review`);
+  if (!review) throw new StudioError("This picture is not a Reel's starting picture.", 409);
+  if (review.status === "done") throw new StudioError("This Reel's pictures are approved already: its clips may be on their way. Change the shot in the plan instead.", 409);
+  if (s.status === "running") throw new StudioError("This picture is being made right now.", 409);
+  // A new key frame: the other angles come from it, so they are made again too (said in the amount).
+  const frames = s.kind === "image" ? await all<StepRow>(c.env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND item = ? AND kind = 'frame' AND status != 'skipped'", row.id, s.item) : [];
+  const unitName = (u: string | null) => (u === "usd" ? "USD" : u === "magnific-credits" ? "Magnific credits" : "credits");
+  const costs = [s, ...frames].reduce<Record<string, number>>((m, x) => (x.unit && x.estimate ? { ...m, [x.unit]: (m[x.unit] ?? 0) + x.estimate } : m), {});
+  const said = Object.entries(costs).map(([u, n]) => `${Math.round(n * 1000) / 1000} ${unitName(u)}`).join(" + ") || "an unknown amount";
+  if (!d.confirm) throw new StudioError(`Making this picture again${frames.length ? ` (and its ${frames.length} other angle${frames.length === 1 ? "" : "s"}, which come from it)` : ""} costs about ${said}. Confirm to approve it.`, 409, false, { needsConfirm: true, costs, frames: frames.length });
+  const t = now();
+  for (const x of [s, ...frames]) {
+    if (x.status === "running") continue;
+    if (x.unit && x.estimate) await approveSpend(c.env, campaignScope(row.id, x.unit), x.estimate, `${row.id}:${x.step}:redo:${x.attempts}`);
+    const mine = x.step === s.step;
+    await run(c.env.DB, "UPDATE campaign_steps SET status = ?, max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", mine ? "ready" : "waiting", mine && d.angle ? JSON.stringify({ angle: d.angle }) : x.data, mine ? (d.angle ? `Making again, angle: ${d.angle}` : "Making again") : "Made again from the new key frame", t, row.id, x.step);
+  }
+  // The clips that start from this picture, and the Reel's review, wait for the new picture.
+  await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', updated = ? WHERE campaign = ? AND step = ?", t, row.id, review.step);
+  await run(c.env.DB, "UPDATE campaign_plans SET status = 'producing', pause_reason = NULL, updated = ? WHERE id = ? AND status IN ('paused', 'producing')", t, row.id);
   await advanceCampaign(c.env, user, row.id, (p) => c.executionCtx.waitUntil(p));
   const next = (await first<CampaignRow>(c.env.DB, "SELECT * FROM campaign_plans WHERE id = ?", row.id))!;
   return c.json({ ok: true, campaign: await campaignJson(c.env, next) });

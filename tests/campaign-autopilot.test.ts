@@ -83,11 +83,13 @@ const get = async (env: FakeEnv, id: string) => (await call<{ campaign: Campaign
 async function approve(env: FakeEnv, c: Campaign, extra: Record<string, unknown> = {}) {
   return call<{ campaign: Campaign; already?: boolean; error?: string }>(env, "POST", `/${c.id}/approve`, { items: c.proposal.items, retries: 1, signature: c.proposal.signature, acceptedUnknown: [], ...extra });
 }
-async function tickUntilQuiet(env: FakeEnv, id: string, max = 12): Promise<Campaign> {
+/** Production passes; the admin approves each Reel's starting pictures as they are ready (unless `shots` is false). */
+async function tickUntilQuiet(env: FakeEnv, id: string, max = 12, shots = true): Promise<Campaign> {
   let c = await get(env, id);
   for (let i = 0; i < max; i++) {
     const before = JSON.stringify(c.steps.map((s) => s.status));
     c = (await call<{ campaign: Campaign }>(env, "POST", `/${id}/tick`)).body.campaign;
+    if (shots) for (const r of c.steps.filter((s) => s.kind === "review" && s.status === "ready")) c = (await call<{ campaign: Campaign }>(env, "POST", `/${id}/steps/${encodeURIComponent(r.step)}/approve-shots`)).body.campaign;
     if (JSON.stringify(c.steps.map((s) => s.status)) === before) break;
   }
   return c;
@@ -265,7 +267,7 @@ describe("Campaign Autopilot: approval and production", () => {
     const cur = r.body.campaign;
     // Only what the change touches is in the new approval: that shot (its starting image and clip), the assembly, the render.
     const changed = cur.steps.filter((s) => s.item === "vid-1" && (s as { stale?: boolean }).stale).map((s) => s.step);
-    expect(changed.sort()).toEqual(["vid-1:-:assemble", "vid-1:s3:clip", "vid-1:s3:frame"].sort());
+    expect(changed.sort()).toEqual(["vid-1:-:assemble", "vid-1:-:review", "vid-1:s3:clip", "vid-1:s3:frame"].sort());
     const a2 = await approve(env, cur);
     expect(a2.status).toBe(200);
     const after = await tickUntilQuiet(env, c.id);
@@ -325,5 +327,39 @@ describe("Campaign Autopilot: a new product on an item", () => {
     // A product that is not the client's is refused.
     const bad = await call(env, "POST", `/${c.id}/retarget`, { item: v, product: { id: "nope", name: "Fake", from: "drive", thumb: null } });
     expect(bad.status).toBe(409);
+  });
+});
+
+describe("Campaign Autopilot: the admin looks at the shots before the videos", () => {
+  it("makes no clip before a Reel's starting pictures are approved; Make again re-makes one picture alone", async () => {
+    const env = await seed();
+    const c = await create(env);
+    await approve(env, c);
+    const p = await tickUntilQuiet(env, c.id, 12, false);
+    // Every Reel stops at its review: pictures made, not one clip started.
+    expect(p.steps.filter((s) => s.kind === "review").every((s) => s.status === "ready")).toBe(true);
+    expect(p.steps.filter((s) => s.kind === "clip").every((s) => s.status === "waiting")).toBe(true);
+    expect(p.status).toBe("producing");
+    // Another angle for one shot: confirmed at its estimate first, then made alone.
+    const frame = p.steps.find((s) => s.step === "vid-1:s2:frame")!;
+    const ask = await call<{ needsConfirm?: boolean }>(env, "POST", `/${c.id}/steps/${encodeURIComponent(frame.step)}/redo`, { angle: "top" });
+    expect(ask.status).toBe(409);
+    expect(ask.body.needsConfirm).toBe(true);
+    const r = await call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent(frame.step)}/redo`, { angle: "top", confirm: true });
+    expect(r.status).toBe(200);
+    const q = await tickUntilQuiet(env, c.id, 6, false);
+    const again = q.steps.find((s) => s.step === frame.step)!;
+    expect(again.attempts).toBe(2);
+    expect(q.steps.find((s) => s.step === "vid-1:s3:frame")!.attempts).toBe(1);
+    expect(q.steps.find((s) => s.step === "vid-1:-:review")!.status).toBe("ready");
+    // Approved: that Reel's clips are made; the other Reels still wait for their look.
+    const ok = await call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent("vid-1:-:review")}/approve-shots`);
+    expect(ok.status).toBe(200);
+    const z = await tickUntilQuiet(env, c.id, 8, false);
+    expect(z.steps.filter((s) => s.item === "vid-1" && s.kind === "clip").every((s) => s.status === "done")).toBe(true);
+    expect(z.steps.filter((s) => s.item === "vid-3" && s.kind === "clip").every((s) => s.status === "waiting")).toBe(true);
+    // An approved Reel's pictures are not made again here.
+    const late = await call(env, "POST", `/${c.id}/steps/${encodeURIComponent("vid-1:s2:frame")}/redo`, { confirm: true });
+    expect(late.status).toBe(409);
   });
 });

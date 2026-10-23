@@ -82,3 +82,14 @@
 /* A step's retry action sits on its own line under the step, so the message keeps the card's width. */
 .ca-step > .text-button { flex-basis: 100%; justify-content: flex-start; }
 .ca-step span small { overflow-wrap: anywhere; }
+/* A Reel's starting pictures, reviewed before its clips are made. */
+.ca-review { border: 2px solid var(--blue); border-radius: 12px; padding: 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 10px; background: var(--surface); }
+.ca-review-head { display: flex; flex-direction: column; gap: 2px; }
+.ca-review-shots { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.ca-review-shots li { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ca-review-pic { position: relative; aspect-ratio: 9 / 16; border-radius: 10px; overflow: hidden; background: var(--surface-2); display: grid; place-items: center; }
+.ca-review-pic a, .ca-review-pic img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.ca-review-pic .ca-pill { position: absolute; top: 6px; left: 6px; }
+.ca-review-redo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ca-review-redo select { font-size: 12px; padding: 3px 6px; }
+.ca-review > .cta { align-self: flex-start; }

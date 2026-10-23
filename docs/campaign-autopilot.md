@@ -53,9 +53,13 @@ one conditional update):
    engine (`generateRun`).
 3. `frame`: another shot's starting image, made from the key frame with Magnific "Change camera"
    (the same scene from another angle) so the product and the scene carry over.
-4. `clip`: one shot's video from its starting image (Higgsfield).
-5. `assemble`: the Reel's editable project from its finished shots.
-6. `render`: the project rendered in the browser (the campaign page renders while it is open) and
+4. `review`: the admin looks at the Reel's starting pictures, in shot order, and approves them
+   ("Approve shots & make the videos"); no clip of that Reel is made before. "Make again" re-makes
+   one picture (a new key frame re-makes its other angles too; another angle may be picked), each
+   confirmed at its estimate first.
+5. `clip`: one shot's video from its starting image (Higgsfield).
+6. `assemble`: the Reel's editable project from its finished shots.
+7. `render`: the project rendered in the browser (the campaign page renders while it is open) and
    stored on the Reel's card as a new version.
 
 The assembled Reel (`assembleReel`) is an ordinary editor project: each shot a version of the

@@ -212,7 +212,8 @@ export const SHOT_SECONDS = { min: 1, max: 15 } as const;
 
 /* ───────────── Steps ───────────── */
 
-export type StepKind = "post" | "image" | "frame" | "clip" | "assemble" | "render";
+/** `review`: the admin looks at a Reel's starting pictures and approves them before any of its clips is made (free; it waits for the admin). */
+export type StepKind = "post" | "image" | "frame" | "review" | "clip" | "assemble" | "render";
 
 /** What a priced step costs in: the image engines in dollars, Magnific and Higgsfield in their credits, Higgsfield Cloud in dollars. */
 export type CostUnit = "usd" | "higgsfield-credits" | "magnific-credits";
@@ -270,19 +271,30 @@ export function planSteps(plan: CampaignPlan, selected?: Set<string>, clipLength
     if (key) out.push({ id: key, item: v.key, shot: null, kind: "image", deps: [post], priceKey: imagePriceKey(v.keyFrameEngine), unit: imageUnit(v.keyFrameEngine), label: "The key frame (the card's picture, image engine)" });
     const firstStart = v.shots.find((s) => s.source === "start-image")?.key ?? null;
     const shotSteps: string[] = [];
+    // The starting pictures first (the key frame, then the other angles)…
+    const starts = new Map<string, string>();
     for (const s of v.shots) {
       if (s.source === "existing") continue;
-      let start: string;
       if (s.source === "start-image") {
-        if (s.key === firstStart) start = key!;
+        if (s.key === firstStart) starts.set(s.key, key!);
         else {
-          start = stepId(v.key, s.key, "frame");
-          out.push({ id: start, item: v.key, shot: s.key, kind: "frame", deps: [key!], priceKey: imagePriceKey(v.frameEngine), unit: imageUnit(v.frameEngine), label: "The shot's starting image (from the key frame)" });
+          const frame = stepId(v.key, s.key, "frame");
+          out.push({ id: frame, item: v.key, shot: s.key, kind: "frame", deps: [key!], priceKey: imagePriceKey(v.frameEngine), unit: imageUnit(v.frameEngine), label: "The shot's starting image (from the key frame)" });
+          starts.set(s.key, frame);
         }
-      } else start = s.asset ? post : key!;
+      } else starts.set(s.key, s.asset ? post : key!);
+    }
+    // …then the admin's look at them: no clip of this Reel is made before its pictures are approved.
+    // Every clip of the Reel waits for it, a client's photo to animate included.
+    const made = [...new Set([...starts.values()].filter((x) => x !== post))];
+    const review = starts.size ? stepId(v.key, null, "review") : null;
+    if (review) out.push({ id: review, item: v.key, shot: null, kind: "review", deps: made.length ? made : [post], priceKey: null, unit: null, label: "Your approval of the shots' starting pictures" });
+    for (const s of v.shots) {
+      const start = starts.get(s.key);
+      if (!start) continue;
       const clip = stepId(v.key, s.key, "clip");
       const len = clipSeconds(s.seconds, clipLengths?.(v.clipEngine));
-      out.push({ id: clip, item: v.key, shot: s.key, kind: "clip", deps: [start], priceKey: clipPriceKey(v.clipEngine, len, v.frame), unit: clipUnit(v.clipEngine), label: `The shot's clip (${v.clipEngine.name}, ${len} s)` });
+      out.push({ id: clip, item: v.key, shot: s.key, kind: "clip", deps: [review ?? start], priceKey: clipPriceKey(v.clipEngine, len, v.frame), unit: clipUnit(v.clipEngine), label: `The shot's clip (${v.clipEngine.name}, ${len} s)` });
       shotSteps.push(clip);
     }
     const assemble = stepId(v.key, null, "assemble");
@@ -465,6 +477,10 @@ export function stepSignature(plan: CampaignPlan, spec: Pick<StepSpec, "item" | 
   if (spec.kind === "image") return keyFrame;
   const shot = v.shots.find((s) => s.key === spec.shot);
   if (spec.kind === "frame") return stableHash(JSON.stringify([keyFrame, v.frameEngine, shot ? shotSig(shot) : null]));
+  if (spec.kind === "review") {
+    // The pictures it approves: a change to the key frame or any angle asks for the look again.
+    return stableHash(JSON.stringify([keyFrame, v.frameEngine, v.shots.filter((x) => x.source === "start-image").map(shotSig)]));
+  }
   if (spec.kind === "clip") {
     const start = !shot ? "" : shot.source === "start-image" ? (shot.key === first?.key ? keyFrame : stableHash(JSON.stringify([keyFrame, v.frameEngine, shotSig(shot)]))) : shot.asset ? refSig(shot.asset) : keyFrame;
     return stableHash(JSON.stringify([start, v.clipEngine, shot ? shotSig(shot) : null]));

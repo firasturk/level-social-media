@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
 import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
-import { retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
+import { approveShots, redoStep, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import "./campaign.css";
 
 interface Props {
@@ -557,7 +557,80 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
 
 const STATUS_LABEL: Record<CampaignStep["status"], string> = { waiting: "Waiting", ready: "Ready", running: "Working", done: "Done", failed: "Failed", paused: "Paused", skipped: "Skipped" };
 
-function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAgain }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null; renderFailed: Record<string, string>; onRenderAgain: (step: string) => void }) {
+const ANGLES = [
+  ["left", "From the left"],
+  ["right", "From the right"],
+  ["top", "From above"],
+  ["low", "Low angle"],
+  ["closer", "Closer"],
+  ["wider", "Wider"],
+  ["front", "Front"],
+] as const;
+
+/**
+ * A Reel's starting pictures, in shot order, for the admin to look at before any clip is made:
+ * each shot's picture (or the client's own media), its length and action, "Make again" for one
+ * picture, and the approval that lets the clips be made.
+ */
+function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPlanItem; onApprove: (step: string) => void; onRedo: (step: string, angle?: string) => void; busy: boolean }) {
+  const review = c.steps.find((s) => s.step === `${v.key}:-:review`);
+  const [angles, setAngles] = useState<Record<string, string>>({});
+  if (!review || review.status === "done" || review.status === "skipped") return null;
+  const firstStart = v.shots.find((x) => x.source === "start-image")?.key;
+  const stepOf = (shot: ShotPlan) => (shot.source === "existing" || (shot.source === "animate" && shot.asset) ? null : shot.source === "start-image" && shot.key !== firstStart ? c.steps.find((s) => s.step === `${v.key}:${shot.key}:frame`) : c.steps.find((s) => s.step === `${v.key}:-:image`));
+  const ready = review.status === "ready";
+  return (
+    <div className="ca-review">
+      <div className="ca-review-head">
+        <b>Look at {v.key}'s shots before the videos are made</b>
+        <span className="ca-muted">{ready ? "Every starting picture is ready. Approve them, or make one again; no clip is made before you approve." : "The starting pictures are being made; they appear here as they finish."}</span>
+      </div>
+      <ol className="ca-review-shots">
+        {v.shots.map((shot, i) => {
+          const st = stepOf(shot);
+          const pic = st?.output ?? shot.asset?.thumb ?? null;
+          return (
+            <li key={shot.key}>
+              <div className="ca-review-pic">
+                {pic ? (
+                  <a href={pic} target="_blank" rel="noreferrer" title="Open large">
+                    <img src={pic} alt={`Shot ${i + 1}`} />
+                  </a>
+                ) : (
+                  <span className="ca-muted">{st?.status === "running" ? <Loader2 size={18} className="spin" /> : "…"}</span>
+                )}
+                <span className="ca-pill">{i + 1} · {shot.seconds} s</span>
+              </div>
+              <small dir="auto">{shot.action}</small>
+              {!st && <small className="ca-muted">{shot.source === "existing" ? "The client's own media, used as it is" : "The client's photo, animated"}</small>}
+              {st && st.status !== "running" && (
+                <span className="ca-review-redo">
+                  {st.kind === "frame" && (
+                    <select aria-label="Angle" value={angles[st.step] ?? ""} onChange={(e) => setAngles({ ...angles, [st.step]: e.target.value })} disabled={busy}>
+                      <option value="">Same angle</option>
+                      {ANGLES.map(([id, label]) => (
+                        <option key={id} value={id}>{label}</option>
+                      ))}
+                    </select>
+                  )}
+                  <button type="button" className="text-button" disabled={busy} onClick={() => onRedo(st.step, angles[st.step] || undefined)} title={st.kind === "image" ? "Another take of the key frame (its other angles are made again from it)" : "This angle made again"}>
+                    <RefreshCw size={13} /> Make again
+                  </button>
+                </span>
+              )}
+              {st?.error && <small className="ca-error">{st.error}</small>}
+            </li>
+          );
+        })}
+      </ol>
+      <button type="button" className="cta primary" disabled={!ready || busy} onClick={() => onApprove(review.step)}>
+        <Check size={16} /> Approve shots &amp; make the videos
+      </button>
+    </div>
+  );
+}
+
+function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAgain, onApproveShots, onRedo, busy }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null; renderFailed: Record<string, string>; onRenderAgain: (step: string) => void; onApproveShots: (step: string) => void; onRedo: (step: string, angle?: string) => void; busy: boolean }) {
   const items = [...c.plan.images.map((i) => ({ key: i.key, title: i.headline || i.idea.slice(0, 50), video: false })), ...c.plan.videos.map((v) => ({ key: v.key, title: v.hook || v.concept.slice(0, 50), video: true }))];
   return (
     <section className="ca-card">
@@ -580,6 +653,7 @@ function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAga
                   </button>
                 )}
               </header>
+              {it.video && <ShotReview c={c} v={c.plan.videos.find((x) => x.key === it.key)!} onApprove={onApproveShots} onRedo={onRedo} busy={busy} />}
               <div className="ca-steps">
                 {steps.map((s) => (
                   <div key={s.step} className={`ca-step ca-st-${s.status}`} title={[s.label, s.note, s.error].filter(Boolean).join(" · ")}>
@@ -794,7 +868,14 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
                 {needs.length > 0 && <span className="ca-warn-inline">Changed after approval, waiting for approval: {needs.join(", ")}</span>}
               </div>
             </section>
-            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} onOpenCard={onOpenCard} rendering={rendering} renderFailed={renderFailed} onRenderAgain={(step) => setRenderFailed((f) => Object.fromEntries(Object.entries(f).filter(([k]) => k !== step)))} onRetry={(s) => void act("retry", async () => {
+            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} busy={!!busy} onApproveShots={(step) => void act("shots", () => approveShots(c.id, step))} onRedo={(step, angle) => void act("redo", async () => {
+              try {
+                return await redoStep(c.id, step, angle);
+              } catch (e) {
+                if (e instanceof ApiError && (e.data as { needsConfirm?: boolean }).needsConfirm && window.confirm(e.message)) return redoStep(c.id, step, angle, true);
+                throw e;
+              }
+            })} onOpenCard={onOpenCard} rendering={rendering} renderFailed={renderFailed} onRenderAgain={(step) => setRenderFailed((f) => Object.fromEntries(Object.entries(f).filter(([k]) => k !== step)))} onRetry={(s) => void act("retry", async () => {
               try {
                 return await retryStep(c.id, s.step);
               } catch (e) {
@@ -842,9 +923,11 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
               )}
               <span className="ca-grow" />
               {c.proposal.unaccepted.length > 0 && <span className="ca-warn-inline"><AlertTriangle size={14} /> {c.proposal.unaccepted.length} step(s) without a cost</span>}
-              <button type="button" className="cta secondary" disabled={!canApprove || !selected.length} onClick={() => void approve(selected)} title="Approve only the ticked items">
-                Approve selected ({selected.length})
-              </button>
+              {c.status === "draft" && (
+                <button type="button" className="cta secondary" disabled={!canApprove || !selected.length} onClick={() => void approve(selected)} title="Approve only the ticked items">
+                  Approve selected ({selected.length})
+                </button>
+              )}
               {c.status === "draft" && (
                 <button type="button" className="cta primary" disabled={!canApprove || selected.length !== [...draft.images, ...draft.videos].length} onClick={() => void approve(selected)} title={selected.length !== [...draft.images, ...draft.videos].length ? "Some items are unticked: approve the selected ones" : "Approve every item and start production"}>
                   {busy === "approve" ? <Loader2 size={16} className="spin" /> : <Play size={16} />} Approve plan &amp; start production

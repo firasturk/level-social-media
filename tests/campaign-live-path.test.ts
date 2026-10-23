@@ -146,9 +146,13 @@ async function plannedAndPriced(env: FakeEnv): Promise<C> {
   return (await call<{ campaign: C }>(env, "GET", `/${c.id}`)).body.campaign;
 }
 
+/** Production passes; the admin approves each Reel's starting pictures as they are ready. */
 async function tick(env: FakeEnv, id: string, n = 8): Promise<C> {
   let c = (await call<{ campaign: C }>(env, "GET", `/${id}`)).body.campaign;
-  for (let i = 0; i < n; i++) c = (await call<{ campaign: C }>(env, "POST", `/${id}/tick`)).body.campaign;
+  for (let i = 0; i < n; i++) {
+    c = (await call<{ campaign: C }>(env, "POST", `/${id}/tick`)).body.campaign;
+    for (const r of c.steps.filter((s) => s.kind === "review" && s.status === "ready")) c = (await call<{ campaign: C }>(env, "POST", `/${id}/steps/${encodeURIComponent(r.step)}/approve-shots`)).body.campaign;
+  }
   return c;
 }
 
