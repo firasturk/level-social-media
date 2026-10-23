@@ -6,7 +6,8 @@
  * (TemplatesGallery.tsx) and the music source (MusicSourcePanel.tsx) are phase 3's own files.
  */
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Lock, Music, Plus, RotateCcw, Scissors, Send, Trash2, Type, Unlock, Upload } from "lucide-react";
+import { get } from "@/api";
+import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Library, Lock, Music, Plus, RotateCcw, Scissors, Send, Trash2, Type, Unlock, Upload } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, isGap, placeClips, totalLength, TRANSITIONS, type Clip, type VideoProject } from "@shared/video-project";
 import type { LooksCtx } from "./looks-ctx";
@@ -491,6 +492,15 @@ export function TextPanel({ ctx }: { ctx: PanelCtx }) {
   );
 }
 
+/** What the logo panel reads from the client's asset library (GET /api/studio/freepik/assets). */
+interface LibraryAsset {
+  id: string;
+  title: string;
+  stored: boolean;
+  mime: string | null;
+  layerable: boolean;
+}
+
 export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
@@ -507,6 +517,22 @@ export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
   };
   // The brand kit's logo is a same-origin address the project can keep; anything else is uploaded as a small file.
   const brand = ctx.layers.logoUrl && ctx.layers.logoUrl.startsWith("/") ? ctx.layers.logoUrl : null;
+  // The client's asset library (stock brought in from Freepik): a stored picture is a same-origin address too.
+  const [library, setLibrary] = useState<LibraryAsset[] | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const clientId = ctx.looks.client?.id ?? null;
+  const openLibrary = async () => {
+    setLibraryOpen((v) => !v);
+    if (library || !clientId) return;
+    setError("");
+    try {
+      const r = await get<{ assets: LibraryAsset[] }>(`/api/studio/freepik/assets?client=${encodeURIComponent(clientId)}`);
+      setLibrary(r.assets.filter((a) => a.stored && (a.layerable || /^image\//.test(a.mime ?? ""))));
+    } catch (e) {
+      setLibrary([]);
+      setError(e instanceof Error ? e.message : "The asset library could not be read.");
+    }
+  };
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Logo and pictures</span>
@@ -521,7 +547,35 @@ export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
         <button type="button" className="ts-btn" disabled={ctx.readOnly || !ctx.project.clips.length} onClick={() => fileRef.current?.click()}>
           <Upload size={14} /> Upload a logo
         </button>
+        {clientId && (
+          <button type="button" className="ts-btn" aria-expanded={libraryOpen} disabled={ctx.readOnly || !ctx.project.clips.length} onClick={() => void openLibrary()}>
+            <Library size={14} /> From the asset library
+          </button>
+        )}
       </div>
+      {libraryOpen && (
+        <div className="ve-asset-pick">
+          {library === null ? (
+            <p className="ts-hint">Reading the library…</p>
+          ) : library.length === 0 ? (
+            <p className="ts-hint">Nothing in this client's library yet. Bring assets in from Freepik in the Text studio first.</p>
+          ) : (
+            library.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                title={a.title}
+                onClick={() => {
+                  ctx.layers.addLogo(`/api/studio/freepik/assets/${encodeURIComponent(a.id)}/file${a.layerable ? "?layer=1" : ""}`, a.title.slice(0, 60) || "Asset");
+                  setLibraryOpen(false);
+                }}
+              >
+                <img src={`/api/studio/freepik/assets/${encodeURIComponent(a.id)}/file${a.layerable ? "?layer=1" : ""}`} alt="" loading="lazy" />
+              </button>
+            ))
+          )}
+        </div>
+      )}
       {error && <p className="ts-hint warn">{error}</p>}
       <LayerList ctx={ctx} kind="logo" />
       {o && (

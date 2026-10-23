@@ -19839,6 +19839,32 @@ a.publish-pill.published:hover {
 .ve-actions .ts-mini.danger {
   color: #c0392b;
 }
+.ve-asset-pick {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.ve-asset-pick > button {
+  aspect-ratio: 1;
+  padding: 4px;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.12));
+  border-radius: 8px;
+  background: repeating-conic-gradient(rgba(0, 0, 0, 0.06) 0 25%, transparent 0 50%) 0 0 / 12px 12px;
+  cursor: pointer;
+}
+.ve-asset-pick > button:hover {
+  border-color: var(--accent, #3b5bdb);
+}
+.ve-asset-pick img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ve-asset-pick > .ts-hint {
+  grid-column: 1 / -1;
+}
 .ve-check {
   display: flex;
   align-items: center;
