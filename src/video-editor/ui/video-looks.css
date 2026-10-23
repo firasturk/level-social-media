@@ -1,0 +1,242 @@
+/* Phase 3: the Colour panel (presets with thumbnails, scope, intensity, match), the templates gallery, the music source block. */
+
+.vl-seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.vl-seg button {
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vl-seg button.on {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+}
+.vl-seg button:disabled {
+  opacity: 0.45;
+}
+
+.vl-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.vl-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--ts-line);
+  background: #fff;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.vl-preset.on {
+  border-color: var(--ts-accent, #1129d3);
+  box-shadow: 0 0 0 1px var(--ts-accent, #1129d3);
+}
+.vl-preset span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vl-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #1d1d1f;
+}
+.vl-thumb.empty {
+  display: grid;
+  place-items: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
+}
+
+.vl-clips {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 160px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--ts-line);
+  background: #fff;
+}
+.vl-clips label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.vl-clips label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vl-clips small {
+  margin-left: auto;
+  color: rgba(0, 0, 0, 0.5);
+  flex: none;
+}
+
+.vl-refs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+.vl-ref {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ts-line);
+  background: #eee;
+  padding: 0;
+}
+.vl-ref img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.vl-ref.on {
+  border-color: var(--ts-accent, #1129d3);
+  box-shadow: 0 0 0 2px var(--ts-accent, #1129d3);
+}
+.vl-chosen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ts-line);
+  background: #fff;
+  font-size: 12px;
+}
+.vl-chosen img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex: none;
+}
+.vl-chosen span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Templates */
+.vl-templates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.vl-template {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ts-line);
+  background: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+}
+.vl-template.on {
+  border-color: var(--ts-accent, #1129d3);
+  box-shadow: 0 0 0 1px var(--ts-accent, #1129d3);
+}
+.vl-template svg {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+}
+.vl-template span {
+  line-height: 1.2;
+}
+.vl-slots {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vl-slots small {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* Music rights */
+.vl-rights {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--ts-line);
+  background: #fff;
+  font-size: 12px;
+}
+.vl-rights pre {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  font: inherit;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.vl-rights .warn {
+  color: #9a3412;
+}
+.vl-rights a {
+  color: inherit;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.vl-library {
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .vl-preset,
+  .vl-template {
+    font-size: 11px;
+  }
+  .vl-thumb {
+    max-height: 96px;
+  }
+  .vl-refs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

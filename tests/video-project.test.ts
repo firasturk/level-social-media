@@ -17,6 +17,7 @@ import {
   newProject,
   placeClips,
   planAutoEdit,
+  PROJECT_VERSION,
   snapCutsToBeats,
   splitClip,
   timelineBeats,
@@ -38,7 +39,7 @@ describe("validateProject", () => {
     const r = validateProject(full);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.project.clips[1].colour).toEqual({ exposure: 0.2, contrast: 0, saturation: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0 });
+    expect(r.project.clips[1].colour).toEqual({ exposure: 0.2, contrast: 0, saturation: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0, vibrance: 0, whites: 0, blacks: 0 });
     expect(r.project.lut).toEqual({ name: "warm.cube", size: 17, strength: 1 });
     expect(r.project.music?.beats).toEqual([0.5, 1, 1.5]);
     expect(r.project.snapToBeats).toBe(true);
@@ -46,7 +47,8 @@ describe("validateProject", () => {
 
   it("refuses what cannot be rendered, with a plain reason", () => {
     const p = newProject("x");
-    expect(validateProject({ ...p, v: 2 })).toMatchObject({ ok: false, reason: expect.stringContaining("version") });
+    expect(validateProject({ ...p, v: PROJECT_VERSION + 1 })).toMatchObject({ ok: false, reason: expect.stringContaining("version") });
+    expect(validateProject({ ...p, v: 0 })).toMatchObject({ ok: false, reason: expect.stringContaining("version") });
     expect(validateProject({ ...p, clips: [clip("a", 5, { in: 4, out: 2 })] })).toMatchObject({ ok: false, reason: expect.stringContaining("in before out") });
     expect(validateProject({ ...p, clips: [clip("a", 5, { speed: 9 })] })).toMatchObject({ ok: false, reason: expect.stringContaining("speed") });
     expect(validateProject({ ...p, clips: [clip("a", 5), clip("a", 5)] })).toMatchObject({ ok: false, reason: expect.stringContaining("unique id") });

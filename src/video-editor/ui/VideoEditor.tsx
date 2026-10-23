@@ -22,8 +22,8 @@ import { askConfirm } from "@/lib/confirm";
 import { saveBlob } from "@/lib/zip";
 import { Orb } from "@/components/Orb";
 import type { Approval } from "@shared/config";
-import { parseCube, type CubeLut } from "@shared/cube-lut";
-import { moveClip, newClip, newProject, placeClips, planAutoEdit, snapCutsToBeats, splitClip, timelineBeats, totalLength, validateProject, type AutoStyle, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { parseCube, serialiseCube, type CubeLut } from "@shared/cube-lut";
+import { moveClip, musicFileUrl, musicSourceFromTrack, newClip, newProject, placeClips, planAutoEdit, snapCutsToBeats, splitClip, timelineBeats, totalLength, validateProject, type AutoStyle, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
 import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
 import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
@@ -36,7 +36,10 @@ import { Player } from "../engine/preview";
 import { exportProject, overallProgress, type ExportProgress } from "../engine/export";
 import { useHistory } from "./history";
 import Timeline from "./Timeline";
-import { AutoEditPanel, ClipsPanel, ColourPanel, ExportPanel, LogoPanel, MusicPanel, TextPanel, type PanelCtx } from "./Panels";
+import { AutoEditPanel, ClipsPanel, ExportPanel, LogoPanel, MusicPanel, TextPanel, type PanelCtx } from "./Panels";
+import { ColourPanel } from "./ColourPanel";
+import type { MusicPick } from "./MusicLibrary";
+import type { LooksCtx, RefPicture } from "./looks-ctx";
 import { PresetDetailPanel, PresetsGallery, usePresets } from "./studio/PresetsPanel";
 import GeneratePanel from "./studio/GeneratePanel";
 import EnhancePanel from "./studio/EnhancePanel";
@@ -82,6 +85,10 @@ interface Props {
   onTextStudio?: () => void;
   /** The client's logo (the brand kit's), offered as a logo layer. */
   logoUrl?: string | null;
+  /** The client: its Drive photos (colour references) and its own music library. */
+  client?: { id: string; name: string } | null;
+  /** Pictures saved in the studio for this post (its pinned reference, the theme's pins), offered as colour references. */
+  references?: RefPicture[];
 }
 
 type Tab = "clips" | "text" | "logo" | "music" | "colour" | "auto" | "export";
@@ -127,7 +134,7 @@ const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; 
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 const MAX_FOOTAGE = 60 * 1024 * 1024;
 
-export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio, logoUrl }: Props) {
+export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio, logoUrl, client, references }: Props) {
   const history = useHistory();
   const { project } = history;
   const projectRef = useRef<VideoProject | null>(null);
@@ -155,6 +162,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const [musicBusy, setMusicBusy] = useState("");
   const [lut, setLut] = useState<{ name: string; lut: CubeLut } | null>(null);
   const [bypass, setBypass] = useState(false);
+  const [splitView, setSplitView] = useState(false);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -297,6 +305,18 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
               console.warn("[video-editor] music", (e as Error).message);
             }
           }
+          // A music library track (catalog or the client's own) is read back from the library's route.
+          const lib = doc.music?.source.kind === "catalog" || doc.music?.source.kind === "library" ? doc.music.source : null;
+          if (lib && doc.music) {
+            setLoading("Reading the music…");
+            try {
+              const r = await fetch(musicFileUrl(lib.trackId), { credentials: "same-origin" });
+              const buffer = r.ok ? await decodeAudio(await r.arrayBuffer()) : null;
+              if (buffer && alive) setMusicFile({ name: lib.name, buffer, beats: doc.music.beats ?? [] });
+            } catch (e) {
+              console.warn("[video-editor] music", (e as Error).message);
+            }
+          }
         } else {
           doc = newProject("New cut");
         }
@@ -382,6 +402,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         setPlaying(p);
       };
       playerRef.current = player;
+      player.split = splitView ? 0.5 : null;
     } catch (e) {
       setFatal((e as Error).message);
     }
@@ -399,6 +420,9 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   useEffect(() => {
     if (playerRef.current) playerRef.current.bypass = bypass;
   }, [bypass]);
+  useEffect(() => {
+    if (playerRef.current) playerRef.current.split = splitView ? 0.5 : null;
+  }, [splitView]);
   // Leaving the Edit panel unmounts the canvas: the player is disposed and made again on return.
   useEffect(() => {
     if (editing) return;
@@ -557,6 +581,28 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     }
   };
 
+  /** A track from the music library: decoded here, its beats found, its licence, credit and Content ID kept with the project. */
+  const pickLibrary = async (pick: MusicPick) => {
+    if (readOnly) return;
+    try {
+      setMusicBusy(`Reading ${pick.track.title}…`);
+      const r = await fetch(pick.fileUrl, { credentials: "same-origin" });
+      if (!r.ok) throw new Error(`${pick.track.title} could not be read from the library (${r.status}).`);
+      const buffer = await decodeAudio(await r.arrayBuffer());
+      if (!buffer) throw new Error(`${pick.track.title} could not be decoded as audio.`);
+      setMusicBusy("Finding the beats…");
+      const found = beatsOf(buffer);
+      const source = musicSourceFromTrack(pick.track);
+      setMusicFile({ name: pick.track.title, buffer, beats: found });
+      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+      if (source.kind !== "audioKey" && source.kind !== "upload" && source.rights.attributionRequired) toast.message("This track's licence asks for credit: copy the credit line under Music into the post's caption.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setMusicBusy("");
+    }
+  };
+
   /* ───────────── Frame, framing, text and logo layers ───────────── */
   const frame = project ? frameOfOutput(project.output) : null;
   const setFrame = (f: FrameId) => history.commit((p) => ({ ...p, output: { ...p.output, ...outputForFrame(f) } }));
@@ -622,7 +668,9 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       return;
     }
     setLut({ name: file.name, lut: r.lut });
-    history.commit((p) => ({ ...p, lut: { name: file.name, size: r.lut.size, strength: p.lut?.strength ?? 1 } }));
+    // The table is kept with the draft (at most 33³, 8-bit), so a reopened draft renders with it.
+    const stored = serialiseCube(r.lut);
+    history.commit((p) => ({ ...p, lut: { name: file.name.slice(0, 200), size: stored.size, strength: p.lut?.strength ?? 1, data: stored.data } }));
   };
   const clearLut = () => {
     setLut(null);
@@ -684,7 +732,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     const check = validateProject(p);
     if (!check.ok) return setExportError(check.reason);
     if (p.music && !musicFile) return setExportError("The music is not loaded in this tab: pick the track again under Music before rendering.");
-    if (p.lut && !lut) return setExportError("Load the LUT file again before rendering: a saved project keeps its name, not the table.");
+    if (p.lut && !p.lut.data && !lut) return setExportError("Load the LUT file again before rendering: this draft was saved before LUT tables were kept with it.");
     playerRef.current?.pause();
     setExportError(null);
     setExportResult(null);
@@ -909,6 +957,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         exporting: { progress, result: exportResult, error: exportError, run: runExport, stop: () => abortRef.current?.abort(), canExport: !!caps?.canExport, capsMessage: caps?.message ?? "", standalone, running: !!running, renders, chip: chip?.text ?? "", sendForReview, videoLabel: (id) => { const v = videos.find((x) => x.id === id); return v ? versionLabel(v) : "the new version"; }, clientId: videos.find((v) => v.forClient)?.id ?? null },
         layers: { selected: selectedOverlay, select: setSelectedOverlay, addText, addLogo, patch: patchOverlay, remove: removeOverlay, logoUrl: logoUrl ?? null },
         framing: { frame, setFrame },
+        looks: { split: splitView, setSplit: setSplitView, client: client ?? null, references: references ?? [], pickLibrary, tabLutName: lut?.name ?? null } satisfies LooksCtx,
       }
     : null;
 

@@ -84,3 +84,73 @@ export function sampleCube(lut: CubeLut, r: number, g: number, b: number): [numb
   }
   return out;
 }
+
+/* ───────────── The table kept with the draft ───────────── */
+
+/**
+ * A saved project keeps its LUT's table (phase 3; phase 1 kept only the name): 8-bit RGB, red
+ * fastest, base64 in the project document. The grader uploads the table as 8-bit RGB anyway, so
+ * nothing is lost at that precision. Tables larger than 33³ are resampled to 33³ before they are
+ * stored (33³ × 3 bytes = 108 KB, about 144 KB as base64), well inside the 512 KB a saved project
+ * may weigh; 33 points per axis is what most grading tools export.
+ */
+export const MAX_STORED_LUT_SIZE = 33;
+
+/** Bytes of a stored table of this size. */
+export const storedLutBytes = (size: number): number => size * size * size * 3;
+
+/** Characters of the base64 a stored table of this size takes. */
+export const storedLutChars = (size: number): number => Math.ceil(storedLutBytes(size) / 3) * 4;
+
+function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function fromBase64(s: string): Uint8Array | null {
+  try {
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** The table at `size` points per axis (trilinear), for a table too large to store. */
+export function resampleCube(lut: CubeLut, size: number): CubeLut {
+  if (size === lut.size) return lut;
+  const data = new Float32Array(storedLutBytes(size));
+  let i = 0;
+  for (let b = 0; b < size; b++)
+    for (let g = 0; g < size; g++)
+      for (let r = 0; r < size; r++) {
+        const [R, G, B] = sampleCube(lut, r / (size - 1), g / (size - 1), b / (size - 1));
+        data[i++] = R;
+        data[i++] = G;
+        data[i++] = B;
+      }
+  return { title: lut.title, size, data };
+}
+
+/** The table as it is stored with the draft: at most 33³, 8-bit, base64. */
+export function serialiseCube(lut: CubeLut): { size: number; data: string } {
+  const t = lut.size > MAX_STORED_LUT_SIZE ? resampleCube(lut, MAX_STORED_LUT_SIZE) : lut;
+  const bytes = new Uint8Array(storedLutBytes(t.size));
+  for (let i = 0; i < bytes.length; i++) bytes[i] = Math.round(Math.min(1, Math.max(0, t.data[i])) * 255);
+  return { size: t.size, data: toBase64(bytes) };
+}
+
+/** A stored table read back; null when the data does not have the size it claims (or is not base64). */
+export function parseStoredCube(stored: { size: number; data: string; name?: string }): CubeLut | null {
+  const { size, data } = stored;
+  if (!Number.isInteger(size) || size < 2 || size > MAX_STORED_LUT_SIZE) return null;
+  if (typeof data !== "string" || data.length !== storedLutChars(size) || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return null;
+  const bytes = fromBase64(data);
+  if (!bytes || bytes.length !== storedLutBytes(size)) return null;
+  const out = new Float32Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[i] = bytes[i] / 255;
+  return { title: stored.name ?? "", size, data: out };
+}

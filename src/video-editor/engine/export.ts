@@ -20,7 +20,7 @@ import { isHdr, OUTPUT_COLOUR, type Rotation, type SourceColour } from "@shared/
 import { checkCapabilities, STUDIO_CODECS, type ExportCodecs } from "./capabilities";
 import { demuxMp4, FrameCursor, type DemuxedVideo } from "./demux";
 import { encodeAac, renderMix } from "./audio";
-import { composeFrame, type Picture } from "./compose";
+import { composeFrame, projectLut, type Picture } from "./compose";
 import { Grader } from "./grader";
 import type { MediaStore } from "./media";
 import { OverlayLayer } from "./overlays";
@@ -160,7 +160,8 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
   });
   encoder.configure({ codec: caps.videoCodec, width, height, framerate: fps, bitrate, bitrateMode: "variable", latencyMode: "quality", ...(codecs.video === "avc" ? { avc: { format: "avc" as const } } : {}) });
   const grader = new Grader(width, height);
-  grader.setLut(args.lut);
+  // The table the draft carries (phase 3); a phase-1 draft with a name only uses the file loaded in the tab.
+  grader.setLut(projectLut(project) ?? (project.lut ? args.lut : null));
   const overlays = new OverlayLayer(width, height);
   await overlays.prepare(project.overlays);
   const frames = Math.max(1, Math.round(length * fps));

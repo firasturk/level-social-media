@@ -180,12 +180,40 @@ with `licence {id, name, version, url, attribution, attributionRequired}`, `cont
 note, url}` and `source {name, page, author}`; `fileUrl` streams the audio from our storage; `credit`
 is the line to publish with the video. The panel never changes the project.
 
-Wiring into the editor's Music tab after the video-core merge (not done here, to stay out of the
-editor's core): fetch `pick.fileUrl` into a `File` and pass it to the tab's existing `pick(file)`
-(decoding and beats are unchanged), and keep the licence with the project — the suggested
-`MusicSource` is `{ kind: "library"; id: string; name: string; licence: MusicLicence; contentId:
-ContentIdStatus; credit: string }`, so the export and the post's caption can carry the credit. The
-tab needs the client's id, which `PanelCtx` does not have today.
+### Wired into the editor's Music tab (video editor phase 3, 23 Oct 2026)
+
+- The Music tab opens with the library (`src/video-editor/ui/MusicSourcePanel.tsx`): the catalog
+  and, on a post, the client's own tracks (the editor now receives the client from the month:
+  `VideoEditor`'s `client` prop, passed by `PlanView`). Browsing and previewing are open to
+  everyone; **picking a track for the cut is an edit, so admins only** (members see the button as
+  "Admins only" and nothing happens). Importing a client's track stays inside the library, admins
+  only, with the licence form, as before. The tab's own "Pick a track" (a file from this
+  computer, kept with the post as a licensed track) and the post's tracks still work.
+- A pick is fetched from `pick.fileUrl` (our Range route), decoded, its beats found, and stored in
+  the project as a new `MusicSource` (shared/video-project.ts):
+  `{ kind: "catalog", trackId: "cat:<slug>", name, rights }` or
+  `{ kind: "library", trackId: "lib:<uuid>", client, name, rights }`, where `rights` is
+  `{ licence {id, name, version, url}, attributionRequired, credit, author, sourcePage,
+  contentId {status, note, url}, test? }` (`musicSourceFromTrack`). `validateProject` checks the
+  ids, that the licence is one of the allowed ids (no NC/ND/SA can get in), that a licence asking
+  for credit has its credit line, and the Content ID status. The older kinds (`audioKey`, `upload`)
+  are unchanged.
+- **Reopening** a draft reads the track again from `/api/studio/music/file?id=<trackId>`
+  (`musicFileUrl`), so it sounds the same and renders with it.
+- Under the track, the **rights block**: licence and link, author, source page; for CC BY tracks
+  "Required: put this credit in the post's caption (and the description wherever the video is
+  published)" with the credit line and a **Copy the credit** button; for CC0 the courtesy line;
+  Content ID "registered" (Kevin MacLeod: a claim can still appear, the credit in the description
+  is the answer) or "unknown" with the source's note; generated test audio is marked "never for a
+  client's video". A template's music hint (moods and BPM) shows above the library.
+- Nothing is scraped and no API is invented: the library's own routes are the only source (no
+  Mixkit, no Pixabay). Verified: `tests/video-looks.test.ts` (sources and validation),
+  `tests/video-looks-server.test.ts` (a catalog source saved and given back exactly),
+  `scripts/video-looks-check.mjs` (the catalog's test loop read through the file route and mixed
+  into a render: Opus track, mean −19 dB), `scripts/video-looks-smoke.mjs` (the real UI: list,
+  pick, rights block, saved as `catalog` with its rights, read back after a reload).
+- Not done: the credit is **not** added to the post's caption automatically (decision 1 below);
+  the editor shows it and copies it.
 
 ## 7. Decisions for Firas
 

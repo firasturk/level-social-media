@@ -62,7 +62,8 @@ The card's box keeps the post picture's frame and shows a clip with `object-fit:
   music is uploaded once as one of the post's licensed tracks, `video_audio`, and referenced by id,
   so a reopened draft sounds the same), the colour and the output settings. Reopening restores the
   project exactly (checked: reload → reopen keeps 9:16 and the text layer, `video-core-smoke`;
-  validation round-trip, `video-compose.test.ts`). The LUT table is still not stored (its name is).
+  validation round-trip, `video-compose.test.ts`). Since phase 3 the LUT table is stored with the
+  draft too (below, *Phase 3*); a phase-1 draft kept only its name.
 - **Render & update card**: the draft is saved if needed; `POST /renders {projectId, rev}` opens a
   **render job** (migration **0076**, table `video_renders`) for exactly that saved revision and
   copies its document into the row (frozen: later saves do not change what this job renders); the
@@ -150,6 +151,172 @@ branded headless Chrome in a container, with the same project JSON), not a secon
 commercial SDK or cloud API would only be worth a trial (no purchase made, none assumed free) if
 the template phase needs an off-the-shelf template editor; its Arabic text must be tested first.
 
+## Phase 3: looks, templates, reference match, music library (23 Oct 2026)
+
+Built on the video core; everything below goes through the one compositor and shader, so the
+preview, the thumbnails and the render draw the same colour. Nothing is generated, nothing calls a
+provider, nothing is charged.
+
+### Implemented
+
+- **Colour presets** (`LOOKS` / `PRESET_IDS` in `shared/video-project.ts`): Clean, Warm Film, Cool
+  Editorial, Soft Matte, Bold Sport (originals, sets of slider values; plus None and Mono). Each has
+  an **intensity** 0–100 % that scales every parameter toward the preset (`presetParams`). The
+  phase-1 looks keep their ids and values (`warm`, `cool`, `matte`, `punch` are marked *earlier
+  look* and point to their successors; `clean` is unchanged), so a saved draft renders exactly as
+  before; the auto edit's "clean"/"punch" still resolve.
+- **Scope** (`shared/video-looks.ts`): *This clip* (the selected one, else the one under the
+  playhead), *Chosen clips* (ticked in the panel, so it does not depend on the timeline's selection)
+  or *Whole video* (the project's look; clears the clips' own presets, keeps their sliders and
+  matches). A clip's own preset is `clip.look {id, amount}`. Each clip of a crossfade is now graded
+  with its own grade (phase 1 used the outgoing clip's for both).
+- **Correction sliders**: exposure, contrast, saturation, vibrance (new), temperature, tint,
+  highlights, shadows, whites (new), blacks (new); per scope.
+- **Thumbnails** (`ColourPanel.tsx`, `engine/looks.ts` `ThumbRenderer`): None + the five presets
+  drawn from the current frame of the clip in scope (its framing, sliders and match included) by
+  one small shared WebGL2 grader; redrawn when that clip, its colour or the frame shape changes
+  (not on every playhead move).
+- **Before/after**: hold *Before* (and the transport's button) for the footage untouched; *Split*
+  shows before colour left of the middle and after on the right with a dividing line (a shader
+  uniform; the preview only, a render never sets it).
+- **Protect skin tones** (`protectSkin`, project-wide): a **hue-range heuristic** in the shader,
+  not skin detection. A pixel whose original colour is in the warm band where skin tones fall
+  (HSV hue about 0°–45° around 20°, saturation about 10–70 %, not near black) gets a weight 0…1;
+  there the grade keeps its brightness but the colour part goes back to the original's hue, its
+  size limited to ±15 % of the original, blended at 90 % of the weight. Wood, sand, terracotta and
+  beige products in that band are protected too; skin under coloured light is not.
+- **Match colour to a reference** (`MatchColour.tsx`, `shared/colour-match.ts`): the reference is
+  a picture saved in the studio (the post's pinned reference, the theme's Pinterest pins and
+  uploads, read through their existing read-only routes), a photo from the client's Drive (the
+  studio's read-only `/api/studio/drive/photo/:id`; the Drive file is never changed) or a picture
+  from this computer (kept in the tab; only an 8 KB thumbnail goes into the draft). Each clip in
+  scope is measured on **five frames spread over the clip** (a hidden `<video>` of its own),
+  pooled, and a **Lab mean/spread transfer** (Reinhard) is fitted **once**: per channel a scale
+  (bounded, L 0.6–1.6, a/b 0.5–2) and an offset. It is stored on the clip (`clip.match`: scale,
+  offset, strength, frames, and the reference's kind, id and name) and applied by the shader to
+  every frame, before the preset and sliders; the same fixed transfer on every frame, so no flicker.
+- **LUT kept with the draft**: loading a `.cube` stores its table in the project (`lut.data`,
+  8-bit RGB as base64; tables above 33³ are resampled to 33³, ≈144 KB of text at most, inside the
+  512 KB a save may weigh). Reopening restores it; the render uses the draft's table with no file
+  loaded. A phase-1 draft (name only) asks for the file once and then keeps it. The shader now
+  samples the table at texel centres (0 and 1 hit the first and last entries), matching
+  `sampleCube`.
+- **Templates** (`shared/video-templates.ts`, `TemplatesGallery.tsx` at the top of the Media tab):
+  six originals: Product launch, Food close-up, Fashion/sport beat montage, Offer/promotion,
+  Testimonial with captions, Minimal brand story. Each is a recipe: shot slots (label, hint,
+  suggested length, framing, join), text layers with placeholder English and Arabic copy, the
+  logo's place, a preset and intensity, skin protection, a pace and a music hint (moods, BPM).
+  *Use this template* (admins; confirm when the cut is not empty; undo restores it) fills an
+  ordinary project with the footage at hand (reused, each use a different window, when there is
+  less footage than slots), texts in Arabic + English (stacked by their estimated lines so they
+  never overlap), English or Arabic, and the client's logo when the brand kit has one; the
+  project keeps `template {id, at}`. The gallery's thumbnails are schematics drawn from each
+  definition (text and logo places in a 9:16 frame, the shots as a strip). The template keeps the
+  cut's frame (positions are fractions; written for 9:16).
+- **Music library in the Music tab** (`MusicSourcePanel.tsx`; docs/music-library.md §6): new
+  sources `{kind:"catalog", trackId}` and `{kind:"library", trackId, client}` with the licence,
+  credit line and Content ID kept on the project; the rights block shows the credit the caption
+  must carry for CC BY tracks (Copy button) and the Content ID note. Older `audioKey`/`upload`
+  sources are unchanged.
+- **Schema**: `PROJECT_VERSION` 1 → **2**. `validateProject` reads version 1 and migrates it
+  (`migrateProject`: `lookAmount` 1, `protectSkin` false; new sliders default to 0; no clip
+  look/match; a LUT without `data`), so phase-1 drafts open and draw the same picture; a version
+  newer than the code is refused with "saved by a newer editor". The engine also draws a raw
+  version-1 document the same way (missing fields resolve to the phase-1 values).
+- **Permissions**: no new server route. Saving (look, match, LUT table, music source, template)
+  stays the existing admin-only `PUT/POST /projects`; members see the thumbnails, browse
+  references and the library, and cannot apply or save. The editor gets two new props from
+  `PlanView`: `client` (Drive and the client's tracks) and `references`.
+
+### Verified, and how
+
+- `tests/video-looks.test.ts` (29 tests): presets and the intensity blend (0 %, 60 %, 100 %,
+  monotonic distance), vibrance, per-clip grade resolution, scope (clip, chosen, whole video); skin
+  weight on four skin tones vs five non-skin colours, hue kept under a harsh cool grade, brightness
+  kept, other colours untouched; Lab round trip, exact pooling of frames, a fit that brings a cool
+  synthetic picture within 15 % of a warm reference's statistics, **stability**: fits on two
+  different sets of five frames of a flickering, grainy clip differ by < 0.03 in scale and < 1.5
+  Lab in offset (less than half the spread of single-frame fits), bounded scales, match
+  validation; LUT serialise/parse to 8-bit precision, 40³ → 33³ resampling keeping its effect,
+  refusal of mismatched or oversized data, a 33³ project under 200 KB; all six templates valid
+  through `validateProject` for footage/no footage × en/ar/both × with/without logo, Arabic over
+  English without overlap in 9:16, 4:5, 1:1, 16:9; music sources (CC BY catalog with credit and
+  Content ID, library with client, refusals: bad id, NC licence, missing credit, unknown status);
+  a version-1 draft migrated with the same grade as phase 1.
+- `tests/video-looks-server.test.ts` (4 tests, in-memory D1/R2, paid-route guard: zero network): a
+  v1 draft saved and read back as v2 (and a v1 row in the database still opens); the LUT table, a
+  match, clip presets, the template and a catalog source given back exactly; a 33³ table accepted,
+  mismatched data refused (400); a member's save 403 with nothing written.
+- The gate chain is green: `npm run typecheck && npx eslint . && npx vitest run && npm run build`
+  (113 files, 940 tests).
+- `node scripts/video-looks-check.mjs --out <dir>` (Playwright Chromium, VP9 + Opus, fixtures made
+  with ffmpeg: flat colour bands with grain, a warm reference PNG; the catalog's generated test
+  loop served on the music library's file route). 56 checks, all passing on 23 Oct 2026. Expected
+  against observed, as printed:
+
+| Check | Expected | Observed |
+| - | - | - |
+| Template render (Product launch, 5 shots, AR+EN texts) | 1080×1920, 9.10 s, audio | 1080×1920, 9.12 s, Opus 48 kHz, mean −19 dB |
+| Preview vs render, whole-frame mean, one time per shot | within 4/255 | Δ 2.10 · 1.91 · 2.63 · 2.15 · 2.18 |
+| Preview pixel = CPU twin of the shader (16 points) | ±4 | 0–1 off everywhere |
+| Render pixel = CPU twin (16 points) | ±12 | ≤ 4 off on 14 points; 8 and 9 on the two most saturated Bold Sport points (skin 252,189,132 vs 255,197,130; slate 66,107,165 vs 75,105,164): the render's own decode and the encoder's chroma on grain, since the preview (same shader) matches the twin |
+| Warm Film 60 % on the scene | R−B grows | 2 → 15 |
+| Bold Sport on the portrait (skin, red product, white) | the CPU twin | 252,189,132 / 253,0,0 / 253,253,253 vs 255,197,130 / 253,0,4 / 255,255,255 |
+| Match: Lab distance of the rendered frame to the reference | after < ½ before | 58.3 → 3.6 (a* −2.0 → 17.0 vs 18.6; b* −16.3 → 33.3 vs 35.2) |
+| Match fitted once | 5 frames | 5 frames, scale 1.072/1/1.256, offset 12.9/21.4/54.5 |
+| LUT from the saved draft, no file loaded (4 points) | the CPU twin ±8 | ≤ 3 off |
+| 40³ LUT stored | 33³ | 33³, 143,748 characters |
+| Skin protection, skin patch hue under a harsh cool grade | on < ½ of off | raw 27.1°, off 34.2° (7.1°), on 24.8° (2.4°); red product and slate identical on/off |
+| Thumbnails from one frame | warm > none > cool (R−B), 6 distinct | 65 > 47 > 42, 6 distinct |
+| Split view | left = before, right = after | equal to the pixel |
+
+  The frames (render and preview at each time), the contact sheet of the thumbnails, the match
+  before/after, the skin on/off, the LUT frame, the split view, the VP9 render with an H.264
+  transcode for viewing and `report.json` were looked at and are kept outside the repo in the
+  session's scratchpad `video-phase3/`. `node scripts/video-render-check.mjs` and
+  `node scripts/video-core-smoke.mjs` (phase 1) still pass with the new shader.
+- `npm run build && node scripts/video-looks-smoke.mjs` drives the real UI (built app, stateful
+  mock): six templates with schematics; Product launch fills 5 shots after the confirm; six
+  distinct thumbnails; Warm Film at 60 %; Split; the match to the post's reference ("Matched to
+  Sunset pin · 5 of 5 clips"); the library lists the catalog, a pick shows the rights block; Save
+  draft stores v2 with `look`, `lookAmount` 0.6, `template`, five matches with their reference and
+  the `catalog` source with credit and Content ID; after a reload and reopen Warm Film 60 % and the
+  track are back (read again from the file route); at 390 px the Colour, Media and Music panels do
+  not scroll sideways (screenshots looked at).
+
+### Not verified here
+
+- H.264/AAC encoding of these grades (the Playwright Chromium has none; as phase 1).
+- Real footage and real faces: the presets were tuned by eye on flat test bands and the skin rule
+  was checked on patches, not on people; the match on real Pinterest pins and Drive photos (the
+  routes were mocked in the UI smoke; the Drive listing and photo routes were not called live).
+- A real phone (touch on sliders, the 390 px layout beyond screenshots), Safari.
+- The thumbnails' cost on a slow phone GPU (one 120 px pass per preset, measured only headless).
+
+### Limits
+
+- The match is a global Lab statistic, not scene understanding: a reference with different content
+  transfers its cast too; strength 0–100 % and Protect skin tones are the brakes.
+- Skin protection is a hue band; it is project-wide (not per clip).
+- One LUT per cut, after the sliders, stored at 33³ and 8-bit at most.
+- A template's music hint is advice: the music is not picked or generated for you. With music set,
+  the render uses the music instead of the clips' sound (phase 1 limit), so the testimonial
+  template says to leave music off.
+- An uploaded reference picture is not stored: the match keeps working (its numbers are stored),
+  but re-fitting needs the picture again.
+
+### Decisions for the owner
+
+1. **Credit line placement**: the editor shows and copies the credit; it does not write it into
+   the post's caption. Confirm the caption (Instagram) / description (YouTube) placement and
+   whether it should be added automatically when a CC BY track is used.
+2. **Content ID tracks**: Kevin MacLeod's tracks are registered on purpose (claims released after
+   the credit); keep offering them for clients who post on YouTube, or prefer CC0 there.
+3. **Preset values**: the five presets are starting points tuned on test footage; a pass on the
+   clients' real footage may adjust them (values live in `LOOKS`).
+4. **Templates in other frames**: templates keep the cut's frame; say if a template should switch
+   a new cut to 9:16.
+
 ## Architecture
 
 **Where rendering happens.** A Cloudflare Worker cannot decode, render or mux video: there is no
@@ -206,9 +373,10 @@ open at most (a crossfade), the others are closed as the timeline moves on.
 hand-written `validateProject`; no zod so the browser bundle stays small): `clips[]` with a source
 (`{kind:"version", batch, videoId}` or `{kind:"upload", name, size}`), `in`/`out` in source
 seconds, `speed`, `transition` (`cut` | `crossfade`) and its length, an optional per-clip colour;
-the project's `look` (a named parameter set), `colour`, `lut` (name, size, strength; the table
-itself stays in the tab), `music` (an upload or an `audioKey` reserved for the audio library,
-`offset`, `volume`, fades, the detected `beats`), `output` (width, height, fps, bitrate),
+the project's `look` (a named parameter set) and since phase 3 its `lookAmount`, `colour`,
+`protectSkin`, `lut` (name, size, strength and, since phase 3, the table as `data`), `music` (an
+upload, one of the post's tracks by `audioKey`, or since phase 3 a music library track, `catalog`
+or `library`, with its rights), `offset`, `volume`, fades, the detected `beats`), `output` (width, height, fps, bitrate),
 `snapToBeats`, `rev`, `createdAt`, `updatedAt`. Stored in `video_projects` (migration 0072) with
 `source_video` (the version it opened from) and `rendered_video` (the version the last export
 made).
@@ -233,8 +401,9 @@ made).
 **What is not possible**, and is said so in the UI: no server-side render; no Instagram music
 library (a track comes from the person's computer, and they must hold its rights); no cheaper
 codec path when the browser lacks H.264/AAC; no editing of the words baked into a clip (that is
-the Text Studio's job, before the clip is made); a saved project keeps the music's and the LUT's
-names, not their files, so they are picked again when a project is reopened for an export.
+the Text Studio's job, before the clip is made); a track picked from this computer in the
+standalone editor is not kept (a post's tracks and library tracks are, and since phase 3 the LUT
+table is too).
 
 ## Inside the post studios
 
@@ -419,8 +588,9 @@ JSON report are kept outside the repo, under the session's scratchpad `video-sam
   background colour (no blurred copy yet).
 - The preview uses the browser's `<video>` decoding at up to 540×960; the render uses WebCodecs at
   full size. The compositor (framing, colour, text, logo) is the same for both.
-- The LUT is applied after the sliders and to the whole cut; per-clip colour is sliders only; the
-  LUT table is not stored with the draft (its name is).
+- The LUT is applied after the sliders and to the whole cut (not per clip); since phase 3 its table
+  is stored with the draft at 33³ at most. Per-clip colour is sliders, a preset with its intensity
+  and a colour match (phase 3).
 - Transitions: cut and crossfade. Text layers are words with a font family, weight, colour, box
   and position; no animation yet. Logos are one picture each (a brand-kit address or a small file
   of 200 KB at most).

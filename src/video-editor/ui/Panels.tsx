@@ -1,13 +1,17 @@
 /**
  * The editor's panels: Media (sources, the selected clip and its framing), Text and Logo (the
- * layers over the video), Music, Colour, Auto edit and Render. Each reads the shared `PanelCtx`
+ * layers over the video), Music, Auto edit and Render. Each reads the shared `PanelCtx`
  * the editor builds; the panels own no state of the document themselves. Plain words throughout:
- * the person is a designer, not an engineer.
+ * the person is a designer, not an engineer. The Colour panel (ColourPanel.tsx), the templates
+ * (TemplatesGallery.tsx) and the music source (MusicSourcePanel.tsx) are phase 3's own files.
  */
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Clapperboard, Download, Eye, EyeOff, Image as ImageIcon, Music, Plus, RotateCcw, Scissors, Send, Sparkles, Trash2, Type, Upload, Wand2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Music, Plus, RotateCcw, Scissors, Send, Sparkles, Trash2, Type, Upload, Wand2 } from "lucide-react";
 import { Orb } from "@/components/Orb";
-import { BITRATE_PRESETS, clipLength, COLOUR_KEYS, DEFAULT_COLOUR, estimateBytes, formatBytes, LOOKS, MAX_TIMELINE_SECONDS, totalLength, type AutoStyle, type Clip, type ColourParams, type VideoProject } from "@shared/video-project";
+import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, MAX_TIMELINE_SECONDS, totalLength, type AutoStyle, type Clip, type VideoProject } from "@shared/video-project";
+import type { LooksCtx } from "./looks-ctx";
+import TemplatesGallery from "./TemplatesGallery";
+import MusicSourcePanel from "./MusicSourcePanel";
 import { DEFAULT_FRAMING, MAX_LOGO_DATA_URL, MAX_ZOOM, textDirection, type Framing, type LogoOverlay, type Overlay, type TextOverlay } from "@shared/video-compose";
 import { frameLabel, FRAMES, type FrameId } from "@shared/video-frame";
 import type { AudioTrack } from "@/studio/videoApi";
@@ -78,6 +82,8 @@ export interface PanelCtx {
     logoUrl: string | null;
   };
   framing: { frame: FrameId | null; setFrame: (f: FrameId) => void };
+  /** Phase 3: split view, the client, the studio's reference pictures, the music library pick. */
+  looks: LooksCtx;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
@@ -91,6 +97,7 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
   const set = (patch: Partial<Clip>) => c && ctx.commit((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, ...patch } : x)) }));
   return (
     <div className="ve-panel">
+      <TemplatesGallery ctx={ctx} />
       <span className="ts-group-title">Footage</span>
       {ctx.sources.length === 0 && <p className="ts-hint">No footage yet. {ctx.exporting.standalone ? "Add a clip from this computer." : !ctx.exporting.canExport && ctx.exporting.capsMessage ? "This browser cannot read the post's clips, so they are not listed here." : "This post has no finished video version; add a clip from this computer or make one in the Video dialog."}</p>}
       <ul className="ve-sources">
@@ -452,6 +459,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Music</span>
+      <MusicSourcePanel ctx={ctx} />
       <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void ctx.music.pick(f, license); e.target.value = ""; }} />
       {!m ? (
         <>
@@ -491,7 +499,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
             <Music size={13} /> {ctx.music.name ?? (m.source.kind === "upload" ? m.source.name : "Track")}
             {ctx.music.duration ? ` · ${fmt(ctx.music.duration)}` : ""}
           </p>
-          {!ctx.music.name && <p className="ts-hint warn">{m.source.kind === "audioKey" ? "The track could not be read back from the post. Pick it again under Change track." : "The track's file is not in this tab (it was not kept with the post). Pick it again to hear it and to render with it."}</p>}
+          {!ctx.music.name && <p className="ts-hint warn">{m.source.kind === "audioKey" ? "The track could not be read back from the post. Pick it again under Change track." : m.source.kind === "catalog" || m.source.kind === "library" ? "The track could not be read from the music library. Pick it again from the library." : "The track's file is not in this tab (it was not kept with the post). Pick it again to hear it and to render with it."}</p>}
           <label className="ts-slider">
             <span>
               Starts in the track at <em>{fmt(m.offset)}</em>
@@ -531,99 +539,6 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
           </div>
         </fieldset>
       )}
-    </div>
-  );
-}
-
-/* ───────────── Colour ───────────── */
-
-const SLIDERS: { key: keyof ColourParams; label: string; min: number; max: number }[] = [
-  { key: "exposure", label: "Exposure", min: -2, max: 2 },
-  { key: "contrast", label: "Contrast", min: -1, max: 1 },
-  { key: "saturation", label: "Saturation", min: -1, max: 1 },
-  { key: "temperature", label: "Temperature", min: -1, max: 1 },
-  { key: "tint", label: "Tint", min: -1, max: 1 },
-  { key: "highlights", label: "Highlights", min: -1, max: 1 },
-  { key: "shadows", label: "Shadows", min: -1, max: 1 },
-];
-
-export function ColourPanel({ ctx }: { ctx: PanelCtx }) {
-  const lutRef = useRef<HTMLInputElement>(null);
-  const [perClip, setPerClip] = useState(false);
-  const c = ctx.selected;
-  const onClip = perClip && c;
-  const params: ColourParams = onClip ? (c.colour ?? DEFAULT_COLOUR) : ctx.project.colour;
-  const update = (key: keyof ColourParams, value: number, step: "patch" | "commit") =>
-    (step === "commit" ? ctx.commit : ctx.patch)((p) =>
-      onClip ? { ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, colour: { ...(x.colour ?? DEFAULT_COLOUR), [key]: value } } : x)) } : { ...p, colour: { ...p.colour, [key]: value } },
-    );
-  const reset = () => ctx.commit((p) => (onClip ? { ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, colour: undefined } : x)) } : { ...p, colour: { ...DEFAULT_COLOUR }, look: "none" }));
-  const changed = COLOUR_KEYS.some((k) => params[k] !== 0) || (!onClip && ctx.project.look !== "none");
-  return (
-    <div className="ve-panel">
-      <div className="ve-panel-head">
-        <span className="ts-group-title">Look</span>
-        <button type="button" className={`ts-mini ${ctx.colour.bypass ? "primary" : ""}`} onPointerDown={() => ctx.colour.setBypass(true)} onPointerUp={() => ctx.colour.setBypass(false)} onPointerLeave={() => ctx.colour.setBypass(false)} title="Hold to see the footage without any colour change">
-          {ctx.colour.bypass ? <EyeOff size={12} /> : <Eye size={12} />} Before
-        </button>
-      </div>
-      <fieldset className="ve-fields" disabled={ctx.readOnly}>
-        <div className="ve-looks">
-          {LOOKS.map((l) => (
-            <button key={l.id} type="button" className={`ve-look ${ctx.project.look === l.id ? "on" : ""}`} title={l.hint} onClick={() => ctx.commit((p) => ({ ...p, look: l.id }))}>
-              {l.name}
-            </button>
-          ))}
-        </div>
-        <p className="ts-hint">A look is a starting point; the sliders add to it. Applied to the whole cut{c ? ", or to the selected clip only" : ""}.</p>
-        {c && (
-          <label className="ve-check">
-            <input type="checkbox" checked={perClip} onChange={(e) => setPerClip(e.target.checked)} /> Adjust only “{ctx.labelOf(c)}”
-          </label>
-        )}
-        {SLIDERS.map((s) => (
-          <label key={s.key} className="ts-slider">
-            <span>
-              {s.label} <em>{params[s.key] > 0 ? "+" : ""}{params[s.key].toFixed(2)}</em>
-            </span>
-            <input type="range" min={s.min} max={s.max} step={0.01} value={params[s.key]} onPointerDown={ctx.mark} onChange={(e) => update(s.key, Number(e.target.value), "patch")} onPointerUp={() => ctx.commit((p) => p)} onDoubleClick={() => update(s.key, 0, "commit")} />
-          </label>
-        ))}
-        {changed && (
-          <button type="button" className="ts-link" onClick={reset}>
-            Reset {onClip ? "this clip's colour" : "the colour"}
-          </button>
-        )}
-        <span className="ts-group-title">LUT</span>
-        <input ref={lutRef} type="file" accept=".cube" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void ctx.colour.pickLut(f); e.target.value = ""; }} />
-        {ctx.project.lut ? (
-          <>
-            <p className="ve-clip-name">{ctx.project.lut.name} · {ctx.project.lut.size}³</p>
-            {!ctx.colour.lutName && <p className="ts-hint warn">The LUT file is not in this tab (a saved project keeps its name, not the table). Pick it again to see it and to export with it.</p>}
-            <label className="ts-slider">
-              <span>
-                Strength <em>{Math.round(ctx.project.lut.strength * 100)}%</em>
-              </span>
-              <input type="range" min={0} max={1} step={0.05} value={ctx.project.lut.strength} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => (p.lut ? { ...p, lut: { ...p.lut, strength: Number(e.target.value) } } : p))} onPointerUp={() => ctx.commit((p) => p)} />
-            </label>
-            <div className="ve-actions">
-              <button type="button" className="ts-mini" onClick={() => lutRef.current?.click()}>
-                Change LUT
-              </button>
-              <button type="button" className="ts-mini danger" onClick={ctx.colour.clearLut}>
-                <Trash2 size={12} /> Remove
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="ts-hint">A .cube file (a 3D table from DaVinci Resolve, Premiere or a LUT pack), applied after the sliders to the whole cut.</p>
-            <button type="button" className="ts-btn" onClick={() => lutRef.current?.click()}>
-              <Upload size={14} /> Load a .cube LUT
-            </button>
-          </>
-        )}
-      </fieldset>
     </div>
   );
 }

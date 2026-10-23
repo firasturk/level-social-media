@@ -9,7 +9,7 @@
 import type { CubeLut } from "@shared/cube-lut";
 import { totalLength, type VideoProject } from "@shared/video-project";
 import { MusicPreview } from "./audio";
-import { composeFrame, type Picture } from "./compose";
+import { composeFrame, projectLut, type Picture } from "./compose";
 import { Grader } from "./grader";
 import type { MediaStore } from "./media";
 import { OverlayLayer } from "./overlays";
@@ -32,9 +32,13 @@ export class Player {
   private startTime = 0;
   private music: MusicPreview | null = null;
   private drawing = false;
+  private tabLut: CubeLut | null = null;
+  private lutKey: unknown = null;
   time = 0;
   playing = false;
   bypass = false;
+  /** Split view: the footage before colour left of this fraction of the width; null for off. */
+  split: number | null = null;
   muted = false;
   onTime: ((t: number, playing: boolean) => void) | null = null;
 
@@ -49,6 +53,7 @@ export class Player {
     this.grader = new Grader(w, h);
     this.overlays = new OverlayLayer(w, h);
     void this.overlays.prepare(project.overlays);
+    this.syncLut();
     canvas.width = w;
     canvas.height = h;
     this.loop();
@@ -56,7 +61,9 @@ export class Player {
 
   setProject(p: VideoProject): void {
     const overlaysChanged = p.overlays !== this.project.overlays;
+    const lutChanged = p.lut !== this.project.lut;
     this.project = p;
+    if (lutChanged) this.syncLut();
     const { w, h } = previewSize(p);
     if (w !== this.grader.width || h !== this.grader.height) {
       this.grader.resize(w, h);
@@ -70,8 +77,19 @@ export class Player {
     this.music?.update(p, this.playing ? this.time : null);
   }
 
+  /** A table loaded in the tab (a phase-1 draft keeps only the LUT's name); the table a draft carries wins. */
   setLut(lut: CubeLut | null): void {
-    this.grader.setLut(lut);
+    this.tabLut = lut;
+    this.syncLut();
+  }
+
+  /** The LUT the grader uses: the project's stored table, else the tab's file for a name-only LUT, else none. */
+  private syncLut(): void {
+    const data = this.project.lut?.data ?? null;
+    const key = !this.project.lut ? null : data ? data : this.tabLut;
+    if (key === this.lutKey) return;
+    this.lutKey = key;
+    this.grader.setLut(!this.project.lut ? null : data ? projectLut(this.project) : this.tabLut);
   }
 
   setMusic(buffer: AudioBuffer | null): void {
@@ -156,7 +174,7 @@ export class Player {
       used.add(m.video);
       return this.keep(m.video, source, speed, audible) ? { image: m.video, width: m.width, height: m.height, rotation: 0 } : null;
     };
-    void composeFrame(this.grader, this.overlays, p, this.time, picture, { bypass: this.bypass })
+    void composeFrame(this.grader, this.overlays, p, this.time, picture, { bypass: this.bypass, split: this.split })
       .then(() => {
         for (const m of this.media.all()) if (!used.has(m.video) && !m.video.paused) m.video.pause();
         this.ctx.drawImage(this.grader.canvas, 0, 0, this.canvas.width, this.canvas.height);

@@ -153,7 +153,7 @@ export interface MusicTrack {
 /** The credit line for a track: the attribution text when the licence needs one, otherwise a courtesy line. */
 export function creditLine(t: Pick<MusicTrack, "title" | "artist" | "licence">): string {
   if (t.licence.attribution.trim()) return t.licence.attribution.trim();
-  return `"${t.title}"${t.artist ? ` by ${t.artist}` : ""}${t.licence.name ? ` (${t.licence.name}${t.licence.version ? ` ${t.licence.version}` : ""})` : ""}`;
+  return `"${t.title}"${t.artist ? ` by ${t.artist}` : ""}${t.licence.name ? ` (${t.licence.name}${t.licence.version && !t.licence.name.includes(t.licence.version) ? ` ${t.licence.version}` : ""})` : ""}`;
 }
 
 /* ───────────── Filters ───────────── */

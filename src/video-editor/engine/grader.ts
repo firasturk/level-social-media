@@ -1,11 +1,15 @@
 /**
  * The compositor's GPU half, one WebGL2 program shared by the preview and the export: up to two
  * sources (a crossfade) placed in the frame by the shared framing maths (Fill or Fit, zoom, pan,
- * display rotation; shared/video-compose.ts), the background around a Fit picture, then exposure,
- * temperature and tint, contrast, saturation, highlights and shadows, then an optional 3D LUT at
- * a strength, applied to the footage only; last, the overlay layer (text and logos, drawn by the
- * browser's text engine into a 2D canvas, src/video-editor/engine/overlays.ts) blended on top
- * ungraded. What the preview shows is what every exported frame is.
+ * display rotation; shared/video-compose.ts), the background around a Fit picture, then each
+ * clip's own grade (shared/video-looks.ts `resolveGrade`): the colour match to a reference (a Lab
+ * transfer, shared/colour-match.ts), exposure, temperature and tint, contrast, saturation,
+ * vibrance, highlights, shadows, whites and blacks (the preset at its intensity plus the sliders),
+ * an optional 3D LUT at a strength, and skin protection; applied to the footage only, each of the
+ * two clips of a crossfade with its own grade; last, the overlay layer (text and logos, drawn by
+ * the browser's text engine into a 2D canvas, src/video-editor/engine/overlays.ts) blended on top
+ * ungraded. What the preview shows is what every exported frame is; the CPU twin of the grade
+ * (`gradePixel`) states what a rendered pixel should be.
  *
  * For the export a second pass turns the finished RGB frame into I420 (BT.709, limited range) on
  * the GPU and reads it back, so the encoder gets YUV it does not convert again: the output's
@@ -16,6 +20,7 @@
  */
 import type { CubeLut } from "@shared/cube-lut";
 import type { ColourParams } from "@shared/video-project";
+import { addParams, type ClipGrade } from "@shared/video-looks";
 import { placementUniform, placeSource, type Framing, type Rotation } from "@shared/video-compose";
 
 const VERT = `#version 300 es
@@ -44,9 +49,25 @@ uniform int hasA;
 uniform int hasB;
 uniform int hasO;
 uniform vec3 bg;
-uniform float exposure, contrast, saturation, temperature, tint, highlights, shadows, lutStrength;
+uniform float lutStrength;
+uniform float lutSize;
 uniform int hasLut;
 uniform int bypass;
+uniform float splitX; // < 0: off; else the footage before colour left of this x (0 … 1), preview only
+uniform float outW;
+
+// One clip's grade (shared/video-looks.ts resolveGrade; gradePixel there is this, on the CPU).
+struct Grade {
+  float exposure, contrast, saturation, temperature, tint, highlights, shadows, vibrance, whites, blacks;
+  vec3 mScale;
+  vec3 mOffset;
+  float mAmount;
+  int protect;
+};
+uniform Grade gA;
+uniform Grade gB;
+
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
 // A display UV (top-left) to the coded picture's UV, for a clockwise display rotation.
 vec2 coded(vec2 s, int rot) {
@@ -56,38 +77,114 @@ vec2 coded(vec2 s, int rot) {
   return s;
 }
 
-vec3 grade(vec3 c) {
-  if (bypass == 1) return c;
-  c *= exp2(exposure);
-  c *= vec3(1.0 + 0.15 * temperature - 0.05 * tint, 1.0 - 0.1 * tint, 1.0 - 0.15 * temperature - 0.05 * tint);
-  c = (c - 0.5) * (1.0 + contrast) + 0.5;
-  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(vec3(luma), c, 1.0 + saturation);
-  float l = clamp(dot(c, vec3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+/* sRGB <-> CIE Lab (D65), as shared/colour-match.ts. */
+float toLin(float c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+float toSrgb(float c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(max(c, 0.0), 1.0 / 2.4) - 0.055; }
+const float EPS = 216.0 / 24389.0;
+const float KAPPA = 24389.0 / 27.0;
+const vec3 WHITE = vec3(0.95047, 1.0, 1.08883);
+float fLab(float t) { return t > EPS ? pow(t, 1.0 / 3.0) : (KAPPA * t + 16.0) / 116.0; }
+float fInv(float t) { return t * t * t > EPS ? t * t * t : (116.0 * t - 16.0) / KAPPA; }
+vec3 rgbToLab(vec3 c) {
+  vec3 l = vec3(toLin(c.r), toLin(c.g), toLin(c.b));
+  vec3 xyz = vec3(dot(l, vec3(0.4124564, 0.3575761, 0.1804375)), dot(l, vec3(0.2126729, 0.7151522, 0.072175)), dot(l, vec3(0.0193339, 0.119192, 0.9503041))) / WHITE;
+  vec3 fv = vec3(fLab(xyz.x), fLab(xyz.y), fLab(xyz.z));
+  return vec3(116.0 * fv.y - 16.0, 500.0 * (fv.x - fv.y), 200.0 * (fv.y - fv.z));
+}
+vec3 labToRgb(vec3 lab) {
+  float fy = (lab.x + 16.0) / 116.0;
+  float fx = fy + lab.y / 500.0;
+  float fz = fy - lab.z / 200.0;
+  vec3 xyz = vec3(fInv(fx), lab.x > KAPPA * EPS ? fy * fy * fy : lab.x / KAPPA, fInv(fz)) * WHITE;
+  vec3 l = vec3(dot(xyz, vec3(3.2404542, -1.5371385, -0.4985314)), dot(xyz, vec3(-0.969266, 1.8760108, 0.041556)), dot(xyz, vec3(0.0556434, -0.2040259, 1.0572252)));
+  return clamp(vec3(toSrgb(l.r), toSrgb(l.g), toSrgb(l.b)), 0.0, 1.0);
+}
+
+// How much an original colour counts as a skin tone: a hue-range heuristic (shared/video-looks.ts skinWeight).
+float skinWeight(vec3 c) {
+  float mx = max(c.r, max(c.g, c.b));
+  float mn = min(c.r, min(c.g, c.b));
+  float d = mx - mn;
+  float h = 0.0;
+  if (d > 1e-6) {
+    if (mx == c.r) h = 60.0 * mod((c.g - c.b) / d, 6.0);
+    else if (mx == c.g) h = 60.0 * ((c.b - c.r) / d + 2.0);
+    else h = 60.0 * ((c.r - c.g) / d + 4.0);
+  }
+  float s = mx > 0.0 ? d / mx : 0.0;
+  float d0 = abs(h - 20.0);
+  float dh = min(d0, 360.0 - d0);
+  float hw = 1.0 - smoothstep(15.0, 32.0, dh);
+  float sw = smoothstep(0.08, 0.16, s) * (1.0 - smoothstep(0.62, 0.8, s));
+  float vw = smoothstep(0.15, 0.3, mx);
+  return hw * sw * vw;
+}
+
+// On skin tones the grade keeps its brightness, the original's hue, and its chroma within ±15 %.
+vec3 protectSkin(vec3 o, vec3 g) {
+  float w = skinWeight(o) * 0.9;
+  if (w <= 0.0) return g;
+  float yo = dot(o, LUMA);
+  float yg = dot(g, LUMA);
+  vec3 co = o - yo;
+  vec3 cg = g - yg;
+  float mo = length(co);
+  if (mo < 1e-5) return g;
+  float k = clamp(length(cg) / mo, 0.85, 1.15);
+  return mix(g, clamp(yg + co * k, 0.0, 1.0), w);
+}
+
+vec3 sliders(vec3 c, Grade p) {
+  c *= exp2(p.exposure);
+  c *= vec3(1.0 + 0.15 * p.temperature - 0.05 * p.tint, 1.0 - 0.1 * p.tint, 1.0 - 0.15 * p.temperature - 0.05 * p.tint);
+  c = (c - 0.5) * (1.0 + p.contrast) + 0.5;
+  float luma = dot(c, LUMA);
+  c = mix(vec3(luma), c, 1.0 + p.saturation);
+  float sat = clamp(max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b)), 0.0, 1.0);
+  float l2 = dot(c, LUMA);
+  c = mix(vec3(l2), c, 1.0 + p.vibrance * (1.0 - sat));
+  float l = clamp(dot(c, LUMA), 0.0, 1.0);
   float sw = 1.0 - smoothstep(0.0, 0.6, l);
   float hw = smoothstep(0.4, 1.0, l);
-  c += shadows * 0.25 * sw;
-  c += highlights * 0.25 * hw;
-  c = clamp(c, 0.0, 1.0);
-  if (hasLut == 1) c = mix(c, texture(lut, c).rgb, lutStrength);
+  float ww = smoothstep(0.65, 1.0, l);
+  float bw = 1.0 - smoothstep(0.0, 0.35, l);
+  c += p.shadows * 0.25 * sw + p.highlights * 0.25 * hw + p.whites * 0.2 * ww + p.blacks * 0.15 * bw;
+  return clamp(c, 0.0, 1.0);
+}
+
+// match -> sliders -> LUT -> skin protection (measured against the original colour).
+vec3 grade(vec3 src, Grade p, bool before) {
+  if (before) return src;
+  vec3 c = src;
+  if (p.mAmount > 0.0) c = mix(c, labToRgb(rgbToLab(c) * p.mScale + p.mOffset), p.mAmount);
+  c = sliders(c, p);
+  if (hasLut == 1) {
+    // Texel centres: 0 and 1 land on the table's first and last entries.
+    vec3 lc = c * ((lutSize - 1.0) / lutSize) + 0.5 / lutSize;
+    c = mix(c, texture(lut, lc).rgb, lutStrength);
+  }
+  if (p.protect == 1) c = protectSkin(src, c);
   return c;
 }
 
 // The source at this output pixel, graded; the background where the picture does not reach.
-vec3 layer(sampler2D t, vec4 place, int rot, vec2 top) {
+vec3 layer(sampler2D t, vec4 place, int rot, vec2 top, Grade p) {
   vec2 s = (top - place.zw) * place.xy;
   if (s.x < 0.0 || s.y < 0.0 || s.x > 1.0 || s.y > 1.0) return bg;
-  return grade(texture(t, coded(s, rot)).rgb);
+  bool before = bypass == 1 || (splitX >= 0.0 && top.x < splitX);
+  return grade(texture(t, coded(s, rot)).rgb, p, before);
 }
 
 void main() {
   vec2 top = vec2(uv.x, 1.0 - uv.y);
-  vec3 c = hasA == 1 ? layer(texA, placeA, rotA, top) : bg;
-  if (hasB == 1) c = mix(c, layer(texB, placeB, rotB, top), mixAB);
+  vec3 c = hasA == 1 ? layer(texA, placeA, rotA, top, gA) : bg;
+  if (hasB == 1) c = mix(c, layer(texB, placeB, rotB, top, gB), mixAB);
   if (hasO == 1) {
     vec4 o = texture(texO, top);
     c = mix(c, o.rgb, o.a);
   }
+  // The split view's dividing line (the preview only: a render never sets splitX).
+  if (splitX >= 0.0 && abs(top.x - splitX) * outW < 1.0) c = vec3(1.0);
   color = vec4(c, 1.0);
 }`;
 
@@ -148,10 +245,15 @@ export interface GradeSource {
 }
 
 export interface GradeOptions {
-  params: ColourParams;
+  /** Source a's grade (the clip on screen, or the outgoing one in a crossfade). */
+  grade: ClipGrade;
+  /** Source b's grade (the incoming clip of a crossfade); a's when absent. */
+  gradeB?: ClipGrade;
   lutStrength: number;
   /** Show the footage untouched (the before of before/after). */
   bypass?: boolean;
+  /** Split view: the footage before colour left of this fraction of the width (preview only). */
+  split?: number | null;
   /** The colour around a Fit picture, "#rrggbb". */
   background?: string;
   /** The text and logo layer (a canvas the size of the output, transparent where empty). */
@@ -175,6 +277,9 @@ function link(gl: WebGL2RenderingContext, vert: string, frag: string): WebGLProg
   return p;
 }
 
+/** The slider fields of a grade, as the shader's `Grade` struct names them. */
+const GRADE_FIELDS: (keyof ColourParams)[] = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows", "vibrance", "whites", "blacks"];
+
 const hex = (s: string | undefined): [number, number, number] => {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(s ?? "");
   return m ? [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255] : [0, 0, 0];
@@ -189,6 +294,7 @@ export class Grader {
   private texB: WebGLTexture;
   private texO: WebGLTexture;
   private lutTex: WebGLTexture | null = null;
+  private lutSize = 2;
   private rgbTex: WebGLTexture | null = null;
   private yuvTex: WebGLTexture | null = null;
   private yuvFbo: WebGLFramebuffer | null = null;
@@ -216,7 +322,9 @@ export class Grader {
     this.texA = this.texture();
     this.texB = this.texture();
     this.texO = this.texture();
-    for (const name of ["texA", "texB", "texO", "lut", "placeA", "placeB", "rotA", "rotB", "mixAB", "hasA", "hasB", "hasO", "bg", "exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows", "lutStrength", "hasLut", "bypass"]) this.uniforms.set(name, gl.getUniformLocation(this.program, name));
+    const names = ["texA", "texB", "texO", "lut", "placeA", "placeB", "rotA", "rotB", "mixAB", "hasA", "hasB", "hasO", "bg", "lutStrength", "lutSize", "hasLut", "bypass", "splitX", "outW"];
+    for (const g of ["gA", "gB"]) for (const f of [...GRADE_FIELDS, "mScale", "mOffset", "mAmount", "protect"]) names.push(`${g}.${f}`);
+    for (const name of names) this.uniforms.set(name, gl.getUniformLocation(this.program, name));
     gl.uniform1i(this.uniforms.get("texA")!, 0);
     gl.uniform1i(this.uniforms.get("texB")!, 1);
     gl.uniform1i(this.uniforms.get("lut")!, 2);
@@ -265,6 +373,7 @@ export class Grader {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGB8, n, n, n, 0, gl.RGB, gl.UNSIGNED_BYTE, bytes);
     this.lutTex = t;
+    this.lutSize = n;
   }
 
   private upload(unit: number, tex: WebGLTexture, src: GradeSource, place: string, rot: string): void {
@@ -277,6 +386,19 @@ export class Grader {
     const rect = placeSource({ width: src.width, height: src.height }, { width: this.width, height: this.height }, src.framing);
     gl.uniform4f(this.uniforms.get(place)!, ...placementUniform(rect, { width: this.width, height: this.height }));
     gl.uniform1i(this.uniforms.get(rot)!, src.rotation ?? 0);
+  }
+
+  private setGrade(prefix: "gA" | "gB", g: ClipGrade): void {
+    const gl = this.gl;
+    const u = (n: string) => this.uniforms.get(`${prefix}.${n}`) ?? null;
+    for (const f of GRADE_FIELDS) gl.uniform1f(u(f), g.params[f] ?? 0);
+    const m = g.match;
+    const scale = m ? m.scale : [1, 1, 1];
+    const offset = m ? m.offset : [0, 0, 0];
+    gl.uniform3f(u("mScale"), scale[0], scale[1], scale[2]);
+    gl.uniform3f(u("mOffset"), offset[0], offset[1], offset[2]);
+    gl.uniform1f(u("mAmount"), m ? Math.min(1, Math.max(0, m.amount)) : 0);
+    gl.uniform1i(u("protect"), g.protectSkin ? 1 : 0);
   }
 
   /** Draws the frame: source a (or the background alone), blended with b at `mix`, graded, the overlay on top. */
@@ -300,17 +422,14 @@ export class Grader {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, opts.overlay);
     }
     gl.uniform1i(u("hasO"), opts.overlay ? 1 : 0);
-    const p = opts.params;
-    gl.uniform1f(u("exposure"), p.exposure);
-    gl.uniform1f(u("contrast"), p.contrast);
-    gl.uniform1f(u("saturation"), p.saturation);
-    gl.uniform1f(u("temperature"), p.temperature);
-    gl.uniform1f(u("tint"), p.tint);
-    gl.uniform1f(u("highlights"), p.highlights);
-    gl.uniform1f(u("shadows"), p.shadows);
+    this.setGrade("gA", opts.grade);
+    this.setGrade("gB", opts.gradeB ?? opts.grade);
     gl.uniform1i(u("hasLut"), this.lutTex ? 1 : 0);
+    gl.uniform1f(u("lutSize"), this.lutSize);
     gl.uniform1f(u("lutStrength"), opts.lutStrength);
     gl.uniform1i(u("bypass"), opts.bypass ? 1 : 0);
+    gl.uniform1f(u("splitX"), typeof opts.split === "number" ? Math.min(1, Math.max(0, opts.split)) : -1);
+    gl.uniform1f(u("outW"), this.width);
     if (this.lutTex) {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, this.lutTex);
@@ -394,8 +513,5 @@ export class Grader {
 
 /** The two colour sets combined: the project's (with its look as the base) plus a clip's own. */
 export function combineColour(base: ColourParams, extra: ColourParams | undefined): ColourParams {
-  if (!extra) return base;
-  const out = { ...base };
-  for (const k of Object.keys(out) as (keyof ColourParams)[]) out[k] = Math.max(-2, Math.min(2, base[k] + extra[k]));
-  return out;
+  return extra ? addParams(base, extra) : base;
 }

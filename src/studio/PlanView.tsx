@@ -78,6 +78,7 @@ import "./media-intake.css";
 import CardSession from "./CardSession";
 import { getSession, registerMonth, useSessionNotices, type WordsResult } from "./editing-session";
 import { clientHold } from "@shared/client-hold";
+import { postRefUrl, studioRefUrl } from "@/video-editor/ui/looks-ctx";
 
 /** The month of a client: its products, the plan of posts and their images. */
 export default function PlanView({
@@ -1992,6 +1993,11 @@ export default function PlanView({
               }
               approval={approvals[String(p.index)] ?? null}
               logoUrl={logoSrc}
+              client={{ id: client.id, name: client.name }}
+              references={[
+                ...(p.reference ? [{ kind: "post" as const, id: `${batchId}:${p.index}`, name: p.reference.name || "This post's reference", url: postRefUrl(batchId, p.index, p.reference.at) }] : []),
+                ...themeRefs.map((r) => ({ kind: "studio" as const, id: r.id, name: r.name || "Theme reference", url: studioRefUrl(r.id) })),
+              ]}
               fileBase={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
               onExported={() => void loadVideos()}
               onChanged={() => void loadVideos()}

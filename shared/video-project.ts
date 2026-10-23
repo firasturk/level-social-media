@@ -10,8 +10,20 @@
  */
 
 import { checkOverlays, DEFAULT_FRAMING, normaliseFraming, type Framing, type Overlay } from "./video-compose";
+import { checkMatch, type ColourMatch } from "./colour-match";
+import { MAX_STORED_LUT_SIZE, storedLutChars } from "./cube-lut";
+import { creditLine, isContentId, isLicenceId, type ContentIdStatus, type LicenceId, type MusicTrack } from "./music";
 
-export const PROJECT_VERSION = 1;
+/**
+ * 2 (phase 3): colour presets with an intensity (`lookAmount`, a clip's own `look`), vibrance,
+ * whites and blacks, skin protection, a clip's colour `match`, the LUT's table kept with the draft
+ * (`lut.data`), the library's music sources (`catalog`, `library`) with their licence, and the
+ * template a cut was started from. A version-1 document (phase 1) is read and migrated by
+ * `validateProject` (`migrateProject`): every new field takes the value that draws the same picture.
+ */
+export const PROJECT_VERSION = 2;
+/** The oldest document version this code still reads. */
+export const OLDEST_PROJECT_VERSION = 1;
 
 /** Where a clip's footage comes from: a stored version of the post, or a file picked in the browser. */
 export type ClipSource = { kind: "version"; batch: string; videoId: string } | { kind: "upload"; name: string; size: number };
@@ -30,11 +42,17 @@ export interface ColourParams {
   tint: number;
   highlights: number;
   shadows: number;
+  /** Colour on the muted parts only (saturated colours move less), -1 … 1. */
+  vibrance: number;
+  /** The brightest tones up or down (narrower than highlights), -1 … 1. */
+  whites: number;
+  /** The darkest tones lifted (+, a faded black) or crushed (-), -1 … 1. */
+  blacks: number;
 }
 
-export const DEFAULT_COLOUR: ColourParams = { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0 };
+export const DEFAULT_COLOUR: ColourParams = { exposure: 0, contrast: 0, saturation: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0, vibrance: 0, whites: 0, blacks: 0 };
 
-export const COLOUR_KEYS: (keyof ColourParams)[] = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows"];
+export const COLOUR_KEYS: (keyof ColourParams)[] = ["exposure", "contrast", "saturation", "temperature", "tint", "highlights", "shadows", "vibrance", "whites", "blacks"];
 
 /** A named look: a set of colour parameters the person can still adjust. Heuristics, not a film emulation. */
 export interface Look {
@@ -42,17 +60,35 @@ export interface Look {
   name: string;
   hint: string;
   params: ColourParams;
+  /** A phase-1 look kept so drafts that use it draw exactly as before; the panel offers `replacedBy` instead. */
+  legacy?: boolean;
+  replacedBy?: string;
 }
 
+/**
+ * The colour presets (phase 3): five originals, each a set of the sliders' parameters that the
+ * intensity scales (0 … 100 % toward the preset), plus None and Mono. Values chosen by eye on
+ * skin, product and outdoor footage; they are starting points, not film emulations. The phase-1
+ * looks (warm, cool, matte, punch) stay readable with their old values (`legacy`), so a saved draft
+ * renders exactly as it did; "clean" keeps its id and values.
+ */
 export const LOOKS: readonly Look[] = [
   { id: "none", name: "None", hint: "The footage as it is.", params: DEFAULT_COLOUR },
-  { id: "clean", name: "Clean", hint: "A touch more contrast and colour.", params: { ...DEFAULT_COLOUR, contrast: 0.12, saturation: 0.1 } },
-  { id: "warm", name: "Warm", hint: "Golden, soft shadows.", params: { ...DEFAULT_COLOUR, temperature: 0.3, saturation: 0.08, shadows: 0.12, contrast: 0.06 } },
-  { id: "cool", name: "Cool", hint: "Blue, crisp highlights.", params: { ...DEFAULT_COLOUR, temperature: -0.3, contrast: 0.1, highlights: -0.08 } },
-  { id: "matte", name: "Matte", hint: "Lifted blacks, muted colour.", params: { ...DEFAULT_COLOUR, shadows: 0.3, contrast: -0.1, saturation: -0.2 } },
-  { id: "punch", name: "Punch", hint: "Strong contrast and colour for product shots.", params: { ...DEFAULT_COLOUR, contrast: 0.3, saturation: 0.3, exposure: 0.1 } },
+  { id: "clean", name: "Clean", hint: "Neutral and crisp: a touch more contrast and colour, nothing else.", params: { ...DEFAULT_COLOUR, contrast: 0.12, saturation: 0.1 } },
+  { id: "warm-film", name: "Warm Film", hint: "Golden light, soft faded blacks, gentle highlights.", params: { ...DEFAULT_COLOUR, temperature: 0.28, tint: 0.04, contrast: 0.08, saturation: -0.06, vibrance: 0.12, shadows: 0.08, highlights: -0.08, whites: -0.06, blacks: 0.16 } },
+  { id: "cool-editorial", name: "Cool Editorial", hint: "Cool clean whites, restrained colour, crisp contrast.", params: { ...DEFAULT_COLOUR, exposure: 0.04, temperature: -0.24, tint: -0.03, contrast: 0.16, saturation: -0.14, vibrance: 0.04, highlights: -0.06, whites: 0.1, blacks: -0.06 } },
+  { id: "soft-matte", name: "Soft Matte", hint: "Low contrast, lifted blacks, muted pastel colour.", params: { ...DEFAULT_COLOUR, temperature: 0.04, contrast: -0.16, saturation: -0.18, vibrance: 0.06, shadows: 0.1, whites: -0.1, blacks: 0.32 } },
+  { id: "bold-sport", name: "Bold Sport", hint: "Punchy contrast and colour, deep blacks, bright whites.", params: { ...DEFAULT_COLOUR, exposure: 0.05, temperature: -0.04, contrast: 0.32, saturation: 0.18, vibrance: 0.28, highlights: -0.06, whites: 0.12, blacks: -0.14 } },
   { id: "mono", name: "Mono", hint: "Black and white with deep contrast.", params: { ...DEFAULT_COLOUR, saturation: -1, contrast: 0.2 } },
+  { id: "warm", name: "Warm (earlier look)", hint: "Golden, soft shadows.", params: { ...DEFAULT_COLOUR, temperature: 0.3, saturation: 0.08, shadows: 0.12, contrast: 0.06 }, legacy: true, replacedBy: "warm-film" },
+  { id: "cool", name: "Cool (earlier look)", hint: "Blue, crisp highlights.", params: { ...DEFAULT_COLOUR, temperature: -0.3, contrast: 0.1, highlights: -0.08 }, legacy: true, replacedBy: "cool-editorial" },
+  { id: "matte", name: "Matte (earlier look)", hint: "Lifted blacks, muted colour.", params: { ...DEFAULT_COLOUR, shadows: 0.3, contrast: -0.1, saturation: -0.2 }, legacy: true, replacedBy: "soft-matte" },
+  { id: "punch", name: "Punch (earlier look)", hint: "Strong contrast and colour for product shots.", params: { ...DEFAULT_COLOUR, contrast: 0.3, saturation: 0.3, exposure: 0.1 }, legacy: true, replacedBy: "bold-sport" },
 ];
+
+/** The five presets the Colour panel shows with thumbnails, in order. */
+export const PRESET_IDS = ["clean", "warm-film", "cool-editorial", "soft-matte", "bold-sport"] as const;
+export type PresetId = (typeof PRESET_IDS)[number];
 
 export const lookOf = (id: string | undefined): Look => LOOKS.find((l) => l.id === id) ?? LOOKS[0];
 
@@ -72,11 +108,49 @@ export interface Clip {
   transitionDuration: number;
   /** Per-clip colour on top of the project's; absent = none. */
   colour?: ColourParams;
+  /** This clip's own preset and intensity, in place of the project's; absent = the project's. */
+  look?: ClipLook;
+  /** This clip's colour matched to a reference picture (shared/colour-match.ts); absent = none. */
+  match?: ColourMatch;
   /** How this clip sits in the frame (Fill/Fit, zoom, pan); absent = the project's framing. */
   framing?: Framing;
 }
 
-export type MusicSource = { kind: "audioKey"; key: string; name?: string } | { kind: "upload"; name: string; size: number };
+/** A preset at an intensity (0 … 1 toward the preset). */
+export interface ClipLook {
+  id: string;
+  amount: number;
+}
+
+/**
+ * What a library track's licence asks of the published video, kept with the project when the
+ * track is picked (shared/music.ts has the full licence; this is what the render and the caption
+ * need): the licence, the credit line, and what is known about Content ID.
+ */
+export interface MusicRights {
+  licence: { id: LicenceId; name: string; version: string; url: string };
+  /** The licence asks for the credit wherever the video is published (CC BY). */
+  attributionRequired: boolean;
+  /** The line to publish with the video (the caption or description); a courtesy line when not required. */
+  credit: string;
+  author: string;
+  /** The page that states the licence. */
+  sourcePage: string;
+  contentId: { status: ContentIdStatus; note: string; url?: string };
+  /** Generated test audio: never for a client's video. */
+  test?: boolean;
+}
+
+/**
+ * Where the music comes from: one of the post's licensed tracks (`audioKey`), a file in this tab
+ * (`upload`), the studio's catalog (`catalog`, id "cat:<slug>") or a client's imported track
+ * (`library`, id "lib:<uuid>"), both from the music library (docs/music-library.md) with the rights.
+ */
+export type MusicSource =
+  | { kind: "audioKey"; key: string; name?: string }
+  | { kind: "upload"; name: string; size: number }
+  | { kind: "catalog"; trackId: string; name: string; rights: MusicRights }
+  | { kind: "library"; trackId: string; client: string; name: string; rights: MusicRights };
 
 export interface Music {
   source: MusicSource;
@@ -109,9 +183,16 @@ export interface VideoProject {
   clips: Clip[];
   /** The project-wide colour, then the look's params are its starting point. */
   look: string;
+  /** The project look's intensity, 0 … 1 toward the preset (1 for phase-1 drafts). */
+  lookAmount: number;
   colour: ColourParams;
-  /** A .cube LUT by name (the editor keeps the parsed table in memory; the file is not stored). */
-  lut?: { name: string; size: number; strength: number } | null;
+  /** Limit hue and saturation changes on skin tones (a hue-range heuristic in the shader; shared/video-looks.ts). */
+  protectSkin: boolean;
+  /**
+   * A .cube LUT: its name, size and strength, and since phase 3 its table (`data`: 8-bit RGB,
+   * base64, at most 33³; shared/cube-lut.ts). A phase-1 draft has the name only.
+   */
+  lut?: { name: string; size: number; strength: number; data?: string } | null;
   music?: Music | null;
   output: Output;
   /** Cuts snap to the music's beats when they are moved. */
@@ -122,6 +203,8 @@ export interface VideoProject {
   background: string;
   /** Text and logo layers over the video, bottom first (shared/video-compose.ts). */
   overlays: Overlay[];
+  /** The template the cut was started from (shared/video-templates.ts), when it was. */
+  template?: { id: string; at: number } | null;
 }
 
 export interface OutputPreset {
@@ -169,7 +252,9 @@ export function newProject(name: string, now = Date.now()): VideoProject {
     name,
     clips: [],
     look: "none",
+    lookAmount: 1,
     colour: { ...DEFAULT_COLOUR },
+    protectSkin: false,
     lut: null,
     music: null,
     output: { width: 1080, height: 1920, fps: OUTPUT_FPS, bitrate: 8_000_000 },
@@ -216,9 +301,86 @@ function checkSource(x: unknown): ClipSource | string {
   return "a clip's source must be a version or an upload.";
 }
 
-/** The document a save carries, checked field by field; the reason says what is wrong in plain words. */
-export function validateProject(x: unknown): Check {
-  if (!isObj(x)) return { ok: false, reason: "The project must be an object." };
+/**
+ * An older document brought to the current version, field by field, so it draws the same picture:
+ * 1 → 2 adds the look's intensity (1, the full look as before), skin protection (off), and nothing
+ * else (a clip without `look`/`match` uses the project's colour as it always did; the new sliders
+ * default to 0 in validation; a LUT without `data` keeps asking for its file). Unknown versions are
+ * returned as they are (validation refuses them).
+ */
+export function migrateProject(x: Record<string, unknown>): Record<string, unknown> {
+  let doc = x;
+  if (doc.v === 1) doc = { ...doc, v: 2, lookAmount: doc.lookAmount ?? 1, protectSkin: doc.protectSkin ?? false };
+  return doc;
+}
+
+const TRACK_ID = { catalog: /^cat:[a-z0-9-]{1,80}$/, library: /^lib:[A-Za-z0-9-]{4,80}$/ } as const;
+
+/** The project's music source for a track picked in the music library, with what its licence asks (credit, Content ID). */
+export function musicSourceFromTrack(track: MusicTrack): MusicSource {
+  const rights: MusicRights = {
+    licence: { id: track.licence.id, name: track.licence.name, version: track.licence.version, url: track.licence.url },
+    attributionRequired: track.licence.attributionRequired,
+    credit: creditLine(track).slice(0, 1000),
+    author: track.source.author.slice(0, 200),
+    sourcePage: track.source.page.slice(0, 500),
+    contentId: { status: track.contentId.status, note: track.contentId.note.slice(0, 1000), ...(track.contentId.url ? { url: track.contentId.url } : {}) },
+    ...(track.test ? { test: true } : {}),
+  };
+  const name = track.title.slice(0, 200) || "Track";
+  return track.kind === "library" ? { kind: "library", trackId: track.id, client: track.client ?? "", name, rights } : { kind: "catalog", trackId: track.id, name, rights };
+}
+
+/** Where the editor reads a library or catalog track's file (the music library's Range route). */
+export const musicFileUrl = (trackId: string): string => `/api/studio/music/file?id=${encodeURIComponent(trackId)}`;
+
+function checkRights(x: unknown): MusicRights | string {
+  if (!isObj(x)) return "music.source.rights must say the licence.";
+  const l = x.licence;
+  if (!isObj(l) || !isLicenceId(l.id) || !str(l.name, 120) || !str(l.version ?? "", 20) || !str(l.url ?? "", 500)) return "music.source.rights.licence needs an id, a name, a version and a link.";
+  if (!str(x.credit ?? "", 1000)) return "music.source.rights.credit is too long (1000 characters at most).";
+  if (x.attributionRequired === true && !String(x.credit ?? "").trim()) return "music.source.rights.credit is required for a licence that asks for credit.";
+  const cid = x.contentId;
+  if (!isObj(cid) || !isContentId(cid.status) || !str(cid.note ?? "", 1000) || !str(cid.url ?? "", 500)) return "music.source.rights.contentId needs a status (unknown, registered or not_registered).";
+  return {
+    licence: { id: l.id, name: l.name, version: (l.version as string | undefined) ?? "", url: (l.url as string | undefined) ?? "" },
+    attributionRequired: x.attributionRequired === true,
+    credit: (x.credit as string | undefined) ?? "",
+    author: str(x.author, 200) ? x.author : "",
+    sourcePage: str(x.sourcePage, 500) ? x.sourcePage : "",
+    contentId: { status: cid.status, note: (cid.note as string | undefined) ?? "", ...(typeof cid.url === "string" && cid.url ? { url: cid.url } : {}) },
+    ...(x.test === true ? { test: true } : {}),
+  };
+}
+
+function checkMusicSource(s: Record<string, unknown>): MusicSource | string {
+  if (s.kind === "audioKey" && str(s.key, 300) && s.key) return { kind: "audioKey", key: s.key, ...(str(s.name, 200) && s.name ? { name: s.name } : {}) };
+  if (s.kind === "upload" && str(s.name, 200)) return { kind: "upload", name: s.name, size: num(s.size, 0, 1e10) ? s.size : 0 };
+  if (s.kind === "catalog" || s.kind === "library") {
+    if (typeof s.trackId !== "string" || !TRACK_ID[s.kind].test(s.trackId)) return `music.source.trackId must be a ${s.kind} track id.`;
+    if (!str(s.name, 200) || !s.name) return "music.source needs the track's name.";
+    const rights = checkRights(s.rights);
+    if (typeof rights === "string") return rights;
+    if (s.kind === "catalog") return { kind: "catalog", trackId: s.trackId, name: s.name, rights };
+    if (!str(s.client, 80) || !s.client) return "a library track needs its client.";
+    return { kind: "library", trackId: s.trackId, client: s.client, name: s.name, rights };
+  }
+  return "music.source must be an audioKey, an upload, a catalog track or a library track.";
+}
+
+function checkClipLook(x: unknown, where: string): ClipLook | string {
+  if (!isObj(x) || !str(x.id, 40) || !x.id) return `${where}: look needs a preset id.`;
+  const amount = x.amount ?? 1;
+  if (!num(amount, 0, 1)) return `${where}: look.amount must be between 0 and 1.`;
+  return { id: x.id, amount };
+}
+
+/** The document a save carries, checked field by field; the reason says what is wrong in plain words. Older versions are migrated first. */
+export function validateProject(input: unknown): Check {
+  if (!isObj(input)) return { ok: false, reason: "The project must be an object." };
+  if (typeof input.v === "number" && input.v > PROJECT_VERSION) return { ok: false, reason: `This project was saved by a newer editor (version ${input.v}); reload the studio to open it.` };
+  if (typeof input.v !== "number" || !Number.isInteger(input.v) || input.v < OLDEST_PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION}.` };
+  const x = migrateProject(input);
   if (x.v !== PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION}.` };
   if (!num(x.rev, 0, 1e9) || !Number.isInteger(x.rev)) return { ok: false, reason: "rev must be a whole number." };
   if (!num(x.createdAt, 0, 1e14) || !num(x.updatedAt ?? x.createdAt, 0, 1e14)) return { ok: false, reason: "createdAt and updatedAt must be timestamps." };
@@ -250,24 +412,42 @@ export function validateProject(x: unknown): Check {
       if (!isObj(c.framing)) return { ok: false, reason: `${where}: framing must be an object.` };
       framing = normaliseFraming(c.framing as Partial<Framing>);
     }
-    clips.push({ id: c.id, source, duration: c.duration, in: c.in, out: c.out, speed: c.speed, transition: c.transition, transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5, ...(colour ? { colour } : {}), ...(framing ? { framing } : {}) });
+    let look: ClipLook | undefined;
+    if (c.look !== undefined && c.look !== null) {
+      const r = checkClipLook(c.look, where);
+      if (typeof r === "string") return { ok: false, reason: r };
+      look = r;
+    }
+    let match: ColourMatch | undefined;
+    if (c.match !== undefined && c.match !== null) {
+      const r = checkMatch(c.match, where);
+      if (typeof r === "string") return { ok: false, reason: r };
+      match = r;
+    }
+    clips.push({ id: c.id, source, duration: c.duration, in: c.in, out: c.out, speed: c.speed, transition: c.transition, transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5, ...(colour ? { colour } : {}), ...(framing ? { framing } : {}), ...(look ? { look } : {}), ...(match ? { match } : {}) });
   }
   if (!str(x.look ?? "none", 40)) return { ok: false, reason: "look must be a short name." };
+  const lookAmount = x.lookAmount ?? 1;
+  if (!num(lookAmount, 0, 1)) return { ok: false, reason: "lookAmount must be between 0 and 1." };
   const colour = checkColour(x.colour ?? DEFAULT_COLOUR, "project");
   if (typeof colour === "string") return { ok: false, reason: colour };
   let lut: VideoProject["lut"] = null;
   if (x.lut !== undefined && x.lut !== null) {
     if (!isObj(x.lut) || !str(x.lut.name, 200) || !num(x.lut.size, 2, 128) || !num(x.lut.strength ?? 1, 0, 1)) return { ok: false, reason: "lut needs a name, a size (2–128) and a strength (0–1)." };
     lut = { name: x.lut.name, size: x.lut.size, strength: (x.lut.strength as number | undefined) ?? 1 };
+    if (x.lut.data !== undefined && x.lut.data !== null) {
+      // The stored table: at most 33³, exactly size³ RGB bytes as base64 (a larger .cube is resampled before it is stored).
+      if (!num(x.lut.size, 2, MAX_STORED_LUT_SIZE) || typeof x.lut.data !== "string" || x.lut.data.length !== storedLutChars(x.lut.size) || !/^[A-Za-z0-9+/]*={0,2}$/.test(x.lut.data))
+        return { ok: false, reason: `lut.data must be the table as base64, ${MAX_STORED_LUT_SIZE}³ at most, matching its size.` };
+      lut.data = x.lut.data;
+    }
   }
   let music: Music | null = null;
   if (x.music !== undefined && x.music !== null) {
     const m = x.music;
     if (!isObj(m) || !isObj(m.source)) return { ok: false, reason: "music needs a source." };
-    let source: MusicSource;
-    if (m.source.kind === "audioKey" && str(m.source.key, 300) && m.source.key) source = { kind: "audioKey", key: m.source.key, ...(str(m.source.name, 200) && m.source.name ? { name: m.source.name } : {}) };
-    else if (m.source.kind === "upload" && str(m.source.name, 200)) source = { kind: "upload", name: m.source.name, size: num(m.source.size, 0, 1e10) ? m.source.size : 0 };
-    else return { ok: false, reason: "music.source must be an audioKey or an upload." };
+    const source = checkMusicSource(m.source);
+    if (typeof source === "string") return { ok: false, reason: source };
     if (!num(m.offset ?? 0, 0, 36000) || !num(m.volume ?? 1, 0, 1) || !num(m.fadeIn ?? 0, 0, 30) || !num(m.fadeOut ?? 0, 0, 30)) return { ok: false, reason: "music offset, volume and fades are out of range." };
     if (m.duration !== undefined && !num(m.duration, 0, 36000)) return { ok: false, reason: "music.duration must be seconds." };
     if (m.beats !== undefined && (!Array.isArray(m.beats) || m.beats.length > 5000 || !m.beats.every((b) => num(b, 0, 36000)))) return { ok: false, reason: "music.beats must be a list of seconds." };
@@ -281,6 +461,11 @@ export function validateProject(x: unknown): Check {
   if (typeof background !== "string" || !/^#[0-9a-f]{6}$/i.test(background)) return { ok: false, reason: "background must be a hex colour like #000000." };
   const overlays = checkOverlays(x.overlays);
   if (typeof overlays === "string") return { ok: false, reason: overlays };
+  let template: VideoProject["template"] = null;
+  if (x.template !== undefined && x.template !== null) {
+    if (!isObj(x.template) || !str(x.template.id, 40) || !x.template.id || !num(x.template.at ?? 0, 0, 1e14)) return { ok: false, reason: "template needs an id." };
+    template = { id: x.template.id, at: (x.template.at as number | undefined) ?? 0 };
+  }
   const project: VideoProject = {
     v: PROJECT_VERSION,
     rev: x.rev,
@@ -289,7 +474,9 @@ export function validateProject(x: unknown): Check {
     name: x.name,
     clips,
     look: (x.look as string | undefined) ?? "none",
+    lookAmount,
     colour,
+    protectSkin: x.protectSkin === true,
     lut,
     music,
     output: { width: o.width, height: o.height, fps: o.fps, bitrate: o.bitrate },
@@ -297,6 +484,7 @@ export function validateProject(x: unknown): Check {
     framing: normaliseFraming(x.framing as Partial<Framing> | undefined),
     background,
     overlays,
+    ...(template ? { template } : {}),
   };
   const total = totalLength(project);
   if (total > MAX_TIMELINE_SECONDS + 1e-6) return { ok: false, reason: `The timeline is ${total.toFixed(1)} s; the editor renders up to ${MAX_TIMELINE_SECONDS} s.` };
