@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS campaign_steps (
   ref_id TEXT,
   output_key TEXT,                      -- a picture or clip this step produced (R2)
   note TEXT,
+  data TEXT,                            -- kind-specific JSON (a render step: the photo shots the browser draws as clips)
   error TEXT,
   started INTEGER,
   finished INTEGER,

@@ -31,7 +31,7 @@ import type { MusicTrack } from "@shared/music";
 import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
-import { assembleReel, type AssembleShot } from "../shared/campaign-assemble";
+import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -518,7 +518,7 @@ async function assembleStep(ctx: Ctx, s: StepRow, b: BatchRow): Promise<void> {
   }
   const client = config.client ? await first<{ logo_key: string | null; name: string }>(env.DB, "SELECT logo_key, name FROM clients WHERE id = ?", config.client) : null;
   const music = await musicFor(env, config.client ?? null, v);
-  const project = assembleReel({
+  const input = {
     name: `${v.hook || v.concept.slice(0, 40)} · Autopilot`,
     batch: b.id,
     shots,
@@ -530,7 +530,8 @@ async function assembleStep(ctx: Ctx, s: StepRow, b: BatchRow): Promise<void> {
     look: v.look,
     logo: client?.logo_key && config.client ? { src: `/api/studio/clients/${config.client}/logo`, name: `${client.name} logo` } : null,
     music,
-  });
+  };
+  const project = assembleReel(input);
   const checked = validateProject(project);
   if (!checked.ok) throw new StudioError(`The assembled project is not valid: ${checked.reason}`, 500);
   // One project per Reel and campaign: a second assembly (after an edit) saves a new revision of it.
@@ -546,7 +547,7 @@ async function assembleStep(ctx: Ctx, s: StepRow, b: BatchRow): Promise<void> {
   }
   await patchStep(env, s, { status: "done", post: index, ref_kind: "project", ref_id: projectId, finished: now(), note: `Editable project with ${shots.length} shots${music ? ` · music: ${music.title}` : ""}${row.simulate ? ` · ${SIMULATED}` : ""}` });
   const render = ctx.steps.get(`${v.key}:-:render`);
-  if (render) await patchStep(env, render, { ref_kind: "project", ref_id: projectId, post: index });
+  if (render) await patchStep(env, render, { ref_kind: "project", ref_id: projectId, post: index, data: JSON.stringify({ stills: stillShots(input) }) });
 }
 
 /** The browser stored a render of the Reel's project on its card: the render step is done. */

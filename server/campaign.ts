@@ -119,6 +119,7 @@ export interface StepRow {
   ref_id: string | null;
   output_key: string | null;
   note: string | null;
+  data: string | null;
   error: string | null;
   started: number | null;
   finished: number | null;
@@ -444,6 +445,7 @@ export async function campaignJson(env: Env, row: CampaignRow, items?: string[],
       ref: s.ref_kind && s.ref_id ? { kind: s.ref_kind, id: s.ref_id } : null,
       output: s.output_key ? `/api/studio/campaigns/${row.id}/file?step=${encodeURIComponent(s.step)}&v=${s.finished ?? s.updated}` : null,
       note: s.note,
+      stills: s.kind === "render" && s.data ? (JSON.parse(s.data) as { stills?: unknown[] }).stills ?? [] : undefined,
       error: s.error,
       stale: s.status === "done" && !!s.run_sig && s.run_sig !== stepSignature(plan, s),
     })),
