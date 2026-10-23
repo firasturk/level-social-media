@@ -70,6 +70,7 @@ const DeliverDialog = lazyScreen(() => import("./DeliverDialog"));
 const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
 const PhotoStudio = lazyScreen(() => import("./photo/PhotoStudio"));
 import type { PhotoPanel } from "./photo/types";
+import { clientHold } from "@shared/client-hold";
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -1278,13 +1279,19 @@ export default function Workspace({
       toast.error((e as Error).message);
     }
   };
-  /** An earlier picture back on its post. */
+  /** An earlier picture back on its post (asked first when the client holds the current one: it is then sent for review). */
   const restorePicture = async (index: number, key: string) => {
     if (!batch) return;
+    const hold = clientHold(config, index);
+    if (hold) {
+      const ok = await askConfirm(`${hold === "approved" ? "The client approved the current picture of this post." : "The client's review link shows the current picture of this post."} Using this picture replaces what the client sees, and the client is asked to review the post again. The current picture stays under Versions.`, { ok: "Use it and send for review", danger: false, cancel: "Keep the client's" });
+      if (!ok) return;
+    }
     try {
       await post("/api/studio/posts/versions/restore", { batch: batch.id, index, key });
+      if (hold) await post("/api/studio/posts/versions/send-for-review", { batch: batch.id, index });
       await refresh();
-      toast.success(`Post ${index}: the previous picture is back.`);
+      toast.success(hold ? `Post ${index}: the picture is back and sent to the client for review.` : `Post ${index}: the previous picture is back.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1436,7 +1443,7 @@ export default function Workspace({
   const reviewable = tasks.filter((t) => !!t.output);
   const selectedIndex = selected ? reviewable.findIndex((t) => t.id === selected.id) : -1;
   /** A tool of the card asked for from the editor: the Text studio, Animate or Video open on that post. */
-  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video" | "edit-video"; index: number; at: number; videoId?: string } | null>(null);
+  const [requested, setRequested] = useState<{ kind: "text" | "animate" | "video" | "edit-video" | "video-studio"; index: number; at: number; videoId?: string } | null>(null);
   const prevOutputKey = (t: Task) => `lsm-prev-output:${t.id}`;
   const prevOutputOf = (t: Task): string | null => {
     try {
@@ -2052,6 +2059,7 @@ export default function Workspace({
                 monthLanguage={config?.language}
                 wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
+                shared={!!config?.shareToken}
                 onRefresh={refresh}
                 outputThumb={outputThumb}
                 onStyles={assignStyles}
@@ -2326,6 +2334,12 @@ export default function Workspace({
             resultUrl={outputUrl(selected)}
             clientId={config?.client ?? null}
             initialPanel={photoStudio.panel}
+            hold={clientHold(config, selected.post)}
+            onVideoStudio={() => {
+              const i = selected.post!;
+              closeEditor();
+              setRequested({ kind: "video-studio", index: i, at: Date.now() });
+            }}
             onRevise={revise}
             onRemake={() => {
               const i = selected.post!;

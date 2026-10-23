@@ -35,6 +35,7 @@ import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styl
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { isMediaPost, olderIdea, planShape, postRevision } from "@shared/posts";
+import { clientHold, heldMessage } from "@shared/client-hold";
 import { resolveLanguage } from "@shared/language";
 import { monthIssues, sceneContext } from "@shared/issues";
 import { campaignSizeSchema, postSchema } from "@shared/config-schema";
@@ -3185,6 +3186,24 @@ postRoutes.post("/picture/upload", async (c) => {
   await c.env.BUCKET.delete(stored.image).catch(() => undefined);
   // The designer adjusted and took this picture now: it is the picture of the idea as it is now.
   const madeFor = postRevision(post, config);
+  // The client approved the current picture, or sees it on the review link: the edit is kept as a
+  // new version beside it and the post's picture stays as it is until the team sends it for review.
+  const hold = clientHold(config, index);
+  if (hold) {
+    await run(
+      c.env.DB,
+      "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)",
+      uuid(),
+      b.id,
+      index,
+      t.id,
+      key,
+      `${note} · new version (the client's version stays)`.slice(0, 500),
+      madeFor,
+      now(),
+    );
+    return c.json({ ok: true, task: t.id, key, thumb: stored.thumb, width: stored.w, height: stored.h, previous: t.output, current: t.output, held: hold, message: heldMessage(hold) });
+  }
   await run(
     c.env.DB,
     "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, made_for = ?, updated = ? WHERE id = ?",
@@ -3216,7 +3235,56 @@ postRoutes.post("/picture/upload", async (c) => {
       JSON.stringify([{ post: index, key: t.output, at: now() }]),
       now(),
     );
-  return c.json({ ok: true, task: t.id, key, thumb: stored.thumb, width: stored.w, height: stored.h, previous: t.output });
+  return c.json({ ok: true, task: t.id, key, thumb: stored.thumb, width: stored.w, height: stored.h, previous: t.output, current: key, held: null });
+});
+
+/**
+ * "Send it for review": a new picture kept beside the client's becomes the post's picture on the
+ * review link; the one it replaces stays with the month's earlier pictures and under Versions, and
+ * the client's earlier answer on the post is cleared so they answer the new version. Without a key
+ * it only asks the client to review the post again (its words changed). Nothing is generated.
+ * (Clips go to the client through the video routes.)
+ */
+postRoutes.post("/versions/send-for-review", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1), key: z.string().max(400).optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  if (!(config.plan ?? []).some((p) => p.index === d.index)) throw new StudioError("That post is not in the month.", 404);
+  let picture: string | null = null;
+  if (d.key) {
+    const take = await first<{ key: string; made_for: number | null }>(c.env.DB, "SELECT key, made_for FROM post_takes WHERE batch = ? AND post = ? AND key = ? AND status = 'made' LIMIT 1", b.id, d.index, d.key);
+    if (!take || !d.key.startsWith(`${b.owner}/${b.id}/output/`)) throw new StudioError("That version is not one of this post's pictures.", 404);
+    if (!(await c.env.BUCKET.head(d.key))) throw new StudioError("That picture is no longer in storage.", 404);
+    const t = await first<{ id: string; output: string | null; status: string }>(c.env.DB, "SELECT id, output, status FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, d.index);
+    if (!t) throw new StudioError(`Post ${d.index} has no picture yet.`, 409);
+    if (["queued", "processing", "finalizing"].includes(t.status)) throw new StudioError("This post is being made: wait for it first.", 409);
+    if (t.output !== d.key) {
+      await run(c.env.DB, "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, made_for = ?, updated = ? WHERE id = ?", d.key, take.made_for, now() + 1, t.id);
+      if (t.output)
+        await run(
+          c.env.DB,
+          "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)",
+          uuid(),
+          b.id,
+          `Post ${d.index}: the client's version before`,
+          JSON.stringify({ [String(d.index)]: t.output }),
+          JSON.stringify([{ post: d.index, key: t.output, at: now() }]),
+          now(),
+        );
+    }
+    picture = d.key;
+  }
+
+  // The client answers the new version: their earlier answer on this post is cleared (the month
+  // is read again so an answer that just landed on another post is kept).
+  const fresh = await first<{ config: string }>(c.env.DB, "SELECT config FROM batches WHERE id = ?", b.id);
+  const cfg = JSON.parse(fresh?.config ?? b.config) as Config;
+  const reopened = !!cfg.approvals?.[String(d.index)];
+  if (reopened) {
+    delete cfg.approvals![String(d.index)];
+    await saveConfig(c.env, b, cfg);
+  }
+  return c.json({ ok: true, picture, reopened });
 });
 
 /** One picture of an earlier version (only the month's own pictures). */

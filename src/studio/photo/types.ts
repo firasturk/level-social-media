@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Task } from "@shared/types";
+import type { Take, Task } from "@shared/types";
 import type { AdjustParams, CropRect } from "@shared/photo-adjust";
 import type { PostEditorTools } from "../ReviewDialog";
 import type { PhotoLab } from "../photolab/usePhotoLab";
@@ -70,6 +70,10 @@ export interface StudioCtx {
   /* Versions: the takes picked for the compare (at most two keys) */
   comparePick: string[];
   toggleComparePick: (key: string) => void;
+  /** The take the studios work on instead of the post's picture (picked under Versions), or null. */
+  picked?: string | null;
+  /** Works on a take in every studio of this post (null: back to the post's picture). */
+  pickVersion?: (take: Take | null) => void;
 
   /* Panels mounted by the post editor's owner, reused here */
   ocrPanel?: ReactNode;

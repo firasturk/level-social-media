@@ -75,6 +75,9 @@ import type { StyleItem } from "@shared/styles";
 import { CombineDialog, restyleInstruction, SelectionBar } from "./MediaSelection";
 import { takeNewCards } from "./mediaApi";
 import "./media-intake.css";
+import CardSession from "./CardSession";
+import { getSession, registerMonth, useSessionNotices, type WordsResult } from "./editing-session";
+import { clientHold } from "@shared/client-hold";
 
 /** The month of a client: its products, the plan of posts and their images. */
 export default function PlanView({
@@ -145,9 +148,12 @@ export default function PlanView({
   wordsRequest,
   monthLanguage,
   admin = false,
+  shared = false,
 }: {
   /** The viewer is an admin (combining cards into one video is the Video editor's admins-only step). */
   admin?: boolean;
+  /** The month's client review link is out: what it shows is the client's version of each post. */
+  shared?: boolean;
   /** Another screen (the review dialog) asks for the Text studio on a post: a new token opens it. */
   wordsRequest?: { index: number; at: number } | null;
   /** The month's content language when it overrides the brand kit's (config.language); the Text studio follows it. */
@@ -191,7 +197,7 @@ export default function PlanView({
   /** The month's revision stamps (plannedAt, gridAt): a picture made for an earlier revision is due again. */
   revision: RevisionConfig | null;
   /** The post editor asks for one of this view's own screens (the Text studio, Animate, Video) on a post. */
-  requested?: { kind: "text" | "animate" | "video" | "edit-video"; index: number; at: number; videoId?: string } | null;
+  requested?: { kind: "text" | "animate" | "video" | "edit-video" | "video-studio"; index: number; at: number; videoId?: string } | null;
   onGridIdeas: (refId: string, notes: string) => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
@@ -264,6 +270,7 @@ export default function PlanView({
     if (requested.kind === "text") setEditing(requested.index);
     else if (requested.kind === "animate") setAnimating(requested.index);
     else if (requested.kind === "edit-video") setVideoEditing({ index: requested.index, videoId: requested.videoId ?? null, panel: "edit" });
+    else if (requested.kind === "video-studio") openVideoEditor(requested.index);
     else setVideoFor(requested.index);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested?.at]);
@@ -280,8 +287,34 @@ export default function PlanView({
   const openVideoEditor = (index: number, videoId?: string | null, panel?: StudioPanel) => {
     const s = videos[String(index)];
     setVideoFor(null);
-    setVideoEditing({ index, videoId: videoId ?? s?.client?.id ?? s?.done?.id ?? null, panel: panel ?? (videoId ? "edit" : undefined) });
+    // The clip the card's editing session last showed, else the client's version, else the newest finished clip.
+    setVideoEditing({ index, videoId: videoId ?? getSession(batchId, index)?.videoId ?? s?.client?.id ?? s?.done?.id ?? null, panel: panel ?? (videoId ? "edit" : undefined) });
   };
+  /**
+   * The editing sessions of the month's cards (what the studios carry between them): the cards
+   * re-render when one changes; the month lends the sessions its words saver and its refresh.
+   */
+  useSessionNotices(batchId);
+  const holdOf = (index: number) => clientHold({ approvals, shareToken: shared ? "shared" : undefined }, index);
+  /** The picture the studios work on for a post: a version picked under Versions, else the card's. */
+  const pictureOf = (index: number, t: Task) => getSession(batchId, index)?.picture?.url ?? outputUrl(t);
+  const sessionHooks = useRef<{ saveWords: (index: number, r: WordsResult) => Promise<void>; refresh: () => Promise<void> } | null>(null);
+  sessionHooks.current = {
+    saveWords: async (index, r) => {
+      const next = draftRef.current.map((x) => (x.index === index ? { ...x, headline: r.headline || undefined, subline: r.subline || undefined, ov: r.ov } : x));
+      draftRef.current = next;
+      setDraft(next);
+      await onSavePlan(next);
+    },
+    refresh: async () => {
+      await onRefresh?.();
+      await loadVideos();
+    },
+  };
+  useEffect(() => {
+    if (!batchId) return;
+    return registerMonth(batchId, { saveWords: (i, r) => sessionHooks.current!.saveWords(i, r), refresh: () => sessionHooks.current!.refresh() });
+  }, [batchId]);
   // Publishing to Instagram: which post's dialog is open, and the month's publications for the pills.
   const [publishFor, setPublishFor] = useState<number | null>(null);
   const { list: publications, refresh: refreshPublications } = usePublications(batchId);
@@ -1042,6 +1075,13 @@ export default function PlanView({
                       }
                       extra={
                         <>
+                          {batchId && (
+                            <CardSession
+                              session={getSession(batchId, p.index)}
+                              open={(kind) => (kind === "photo" && onPhotoStudio && t?.output ? onPhotoStudio(p.index, "edit") : kind === "text" ? setEditing(p.index) : openVideoEditor(p.index))}
+                              onSent={() => sessionHooks.current?.refresh()}
+                            />
+                          )}
                           {rewriting.includes(p.index) && (
                             <small className="pc-meta">
                               <Orb variant="caption" size={14} status={null} /> Writing the words and the idea again…
@@ -1803,7 +1843,12 @@ export default function PlanView({
           <TextStudio
             key={p.index}
             open
-            src={outputUrl(t)}
+            src={pictureOf(p.index, t)}
+            hold={holdOf(p.index)}
+            onVideoStudio={() => {
+              setEditing(null);
+              openVideoEditor(p.index);
+            }}
             spec={overlay}
             logoSrc={logoSrc}
             headline={p.headline ?? ""}
@@ -1935,12 +1980,12 @@ export default function PlanView({
               post={{ batch: batchId, index: p.index, title: p.title }}
               initialVideoId={videoEditing.videoId}
               initialPanel={videoEditing.panel}
-              pictureUrl={t?.output ? outputUrl(t) : null}
+              pictureUrl={t?.output ? pictureOf(p.index, t) : null}
               // The post as it will be published, words and logo drawn by the browser: the clip's first frame when asked.
               composeArtwork={
                 t?.output
                   ? async () => {
-                      const canvas = await renderOverlay(outputUrl(t), overlay, { headline: p.headline, subline: p.subline }, p.overlay === false ? null : logoSrc, 1080, { patch: p.ov, faces: facesOf(t.qa) });
+                      const canvas = await renderOverlay(pictureOf(p.index, t), overlay, { headline: p.headline, subline: p.subline }, p.overlay === false ? null : logoSrc, 1080, { patch: p.ov, faces: facesOf(t.qa) });
                       return canvas.toDataURL("image/jpeg", 0.92);
                     }
                   : undefined

@@ -44,6 +44,7 @@ import CheckPanel from "./studio/CheckPanel";
 import VersionStage from "./studio/VersionStage";
 import type { GeneratePrefill, StudioPanel, StudioShared } from "./studio/types";
 import "./video-studio.css";
+import { getSession, patchSession, videoMemory } from "@/studio/editing-session";
 
 export type { StudioPanel } from "./studio/types";
 
@@ -133,6 +134,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /** The project is loaded: from now on the unsaved cut, its music and LUT travel in the card's editing session. */
+  const [ready, setReady] = useState(false);
 
   /* The studio around the editor */
   // A post opens on Generate (or the panel asked for); once its versions are read, a post with no clip opens on Presets instead.
@@ -205,6 +208,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         setCaps(c);
         let doc: VideoProject | null = null;
         let vids: VideoItem[] = [];
+        let latestId: string | null = null;
         if (post) {
           setLoading("Reading the post's versions…");
           const [list, projects] = await Promise.all([listVideos(post.batch, post.index), listProjects(post.batch, post.index)]);
@@ -229,6 +233,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
             }
           }
           const latest = projects.projects[0];
+          latestId = latest?.id ?? null;
           if (latest) {
             setLoading("Opening the project…");
             const r = await getProject(latest.id);
@@ -246,6 +251,16 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         }
         if (!alive) return;
         history.load(doc);
+        // A cut not saved yet (left for the Photo or Text studio) comes back on top of the saved one: undo goes back to it.
+        const kept = post ? getSession(post.batch, post.index)?.video : null;
+        if (post && kept) {
+          history.commit(kept.project);
+          const mem = videoMemory(post.batch, post.index);
+          if (kept.project.music && mem.music && "name" in kept.project.music.source && mem.music.name === kept.project.music.source.name) setMusicFile(mem.music);
+          if (kept.project.lut && mem.lut && mem.lut.name === kept.project.lut.name) setLut(mem.lut);
+          if (kept.projectId && kept.projectId !== latestId) toast.message("Your unsaved cut is back; it was started on another project of this post.");
+        }
+        setReady(true);
         setLoading("");
       } catch (e) {
         if (alive) setFatal((e as Error).message);
@@ -256,6 +271,36 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, post?.batch, post?.index]);
+
+  /* ───────────── The card's editing session: the unsaved cut, its files and the version shown travel with a switch ───────────── */
+  // The post arrives as a new object on every render of the month: the session follows its batch and index.
+  const pb = post?.batch ?? null;
+  const pi = post?.index ?? 0;
+  useEffect(() => {
+    if (!open || !pb) return;
+    patchSession(pb, pi, { studio: "video" });
+    return () => {
+      patchSession(pb, pi, (s) => ({ studio: s.studio === "video" ? null : s.studio }));
+    };
+  }, [open, pb, pi]);
+  const dirty = history.dirty;
+  useEffect(() => {
+    if (!open || !pb || !ready || readOnly || !project) return;
+    const cur = getSession(pb, pi)?.video ?? null;
+    if (dirty) {
+      if (cur?.project !== project || cur.projectId !== projectId || cur.rev !== rev) patchSession(pb, pi, { video: { project, projectId, rev } });
+    } else if (cur) patchSession(pb, pi, { video: null });
+  }, [open, pb, pi, ready, readOnly, project, projectId, rev, dirty]);
+  useEffect(() => {
+    if (!pb || !ready) return;
+    const mem = videoMemory(pb, pi);
+    mem.music = musicFile;
+    mem.lut = lut;
+  }, [pb, pi, ready, musicFile, lut]);
+  useEffect(() => {
+    if (!open || !pb || !ready || !shownId) return;
+    if (getSession(pb, pi)?.videoId !== shownId) patchSession(pb, pi, { videoId: shownId });
+  }, [open, pb, pi, ready, shownId]);
 
   // While a clip is being made, the versions are read again every few seconds (the server reconnects to the job).
   const pending = videos.some(inFlight);
@@ -515,6 +560,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     } else if (history.dirty && !readOnly && post) {
       const ok = await askConfirm("Save this cut before closing?", { ok: "Save and close", danger: false, cancel: "Close without saving" });
       if (ok && !(await save())) return;
+      // "Close without saving" is the designer's choice: the cut is not kept for the card either.
+      if (!ok) patchSession(post.batch, post.index, { video: null });
     }
     onClose();
   };

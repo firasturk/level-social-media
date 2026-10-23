@@ -24,14 +24,20 @@ admins run (docs/integrations.md).
   dialog closes, the studio opens on Generate).
 - `/video-editor` (the Sidebar's "Video editor"): the standalone editor with no post, footage from
   this computer only, the export saved as a file. It shows the Edit tool alone.
-- The top bar's **Photo studio** and **Text studio** switch to those on the same post.
+- The top bar's **Photo studio** and **Text studio** switch to those on the same post; the Photo
+  and Text studios have **Video studio** (the card's clapperboard under the T) back. The cut not
+  saved yet, its music file and LUT, and the version shown travel with the switch (the card's
+  editing session, `docs/photo-studio.md` → *Moving between editors*).
 
 ## The top bar
 
 The post number and title, the clips' state (*No clip yet*, *3 clips*, *Making…*, *Failed*),
 undo / redo (over the timeline; the scissors split at the playhead), **Versions · n**,
 **Photo studio**, **Text studio**, **Save cut** (on Edit, admins), **Close**. Closing with an
-unsaved cut asks *Save and close* or *Close without saving*; closing during an export asks first.
+unsaved cut asks *Save and close* or *Close without saving* (which also drops the cut from the
+card's session); closing during an export asks first. Switching to the Photo or Text studio keeps
+the unsaved cut in the session, and the Photo / Text studios' **Save & return** saves it with the
+rest of the post's edits (admins; the server decides).
 
 ## The seven panels
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Clapperboard, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { postForm } from "@/api";
@@ -20,6 +20,12 @@ import { Assistant, BrandAssets, LayersList, LayoutsList, PresetsList, type Asse
 import Properties, { type Align } from "./Properties";
 import { applyLayout, brandFonts, contrastOf, designFromLegacy, directionFor, hitLayer, languageWithSource, layoutsFor, patchWith, round3, sampleContent, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type ClientLanguage, type Guide, type LayoutPreset } from "./model";
 import "./text-studio.css";
+import { heldMessage, holdNote, type HoldReason } from "@shared/client-hold";
+import { commitSession, flashCard, getSession, patchSession, pendingLabel, pendingParts } from "../editing-session";
+import "../editing-session.css";
+
+/** What the design was opened from: a draft kept in the session is used only on the same words and design. */
+const basisOf = (headline: string, subline: string, patch: PostOverlayPatch | undefined) => JSON.stringify([headline, subline, patch?.design ?? null]);
 
 export interface EditorResult {
   headline: string;
@@ -50,6 +56,14 @@ interface Props {
   onClose: () => void;
   /** Switches to the Photo studio on the same post (the design is saved first). */
   onPhotoStudio?: () => void;
+  /** Switches to the Video studio on the same post (the design is saved first). */
+  onVideoStudio?: () => void;
+  /**
+   * The client holds the post's current version (approved it, or sees it on the review link): the
+   * words and layers are kept as a draft in the card's session, never saved over the client's
+   * version without the designer choosing it at "Save & return".
+   */
+  hold?: HoldReason | null;
   /** keepOpen: an auto-save while the designer keeps working. */
   onSave: (r: EditorResult, keepOpen: boolean) => void;
   /** Pictures a picture layer can show: the month's product photos and the brand's own assets. */
@@ -137,6 +151,10 @@ export default function TextStudio(p: Props) {
   const [previewOn, setPreviewOn] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const hold = p.hold ?? null;
+  const batch = p.batchId ?? null;
+  const basis = basisOf(p.headline, p.subline, p.patch);
 
   const W = size?.W ?? 1080;
   const H = size?.H ?? 1350;
@@ -195,6 +213,9 @@ export default function TextStudio(p: Props) {
           const layout: OverlayLayout = await paintFrame(probe, img, spec, { headline: p.headline, subline: p.subline }, logoSrc, { patch: legacy, faces: p.faces });
           d = designFromLegacy(spec, p.headline, p.subline, p.patch, layout.text, w, h);
         }
+        // A draft kept in the card's session (a switch to another studio, or held for the client) comes back.
+        const kept = getSession(batch, p.index)?.text;
+        const keptDesign = kept && kept.basis === basis && kept.result.ov?.design ? upgradeDesign(kept.result.ov.design) : null;
         // The undo history of an earlier session on this very design.
         try {
           const raw = sessionStorage.getItem(histKey);
@@ -206,10 +227,14 @@ export default function TextStudio(p: Props) {
           /* no history */
         }
         if (!alive) return;
+        if (keptDesign) {
+          pastRef.current = [...pastRef.current, d];
+          d = keptDesign;
+        }
         setDesign(d);
         setSelected(d.layers.length ? [d.layers[d.layers.length - 1].id] : []);
-        dirtyRef.current = false;
-        setSaving("saved");
+        dirtyRef.current = !!keptDesign;
+        setSaving(keptDesign ? "dirty" : "saved");
       } catch (e) {
         toast.error((e as Error).message);
         p.onClose();
@@ -334,13 +359,20 @@ export default function TextStudio(p: Props) {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       saveTimer.current = null;
       if (!dirtyRef.current && keepOpen) return;
+      // The client holds this post: the words and layers wait in the card's session as a draft.
+      if (hold && batch) {
+        patchSession(batch, p.index, { text: { result: result(d), basis } });
+        if (!keepOpen) p.onClose();
+        return;
+      }
       dirtyRef.current = false;
       setSaving("saving");
       p.onSave(result(d), keepOpen);
       setSaving("saved");
+      if (batch && getSession(batch, p.index)?.text) patchSession(batch, p.index, { text: null });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [p.onSave, p.patch],
+    [p.onSave, p.patch, hold, batch, basis],
   );
   useEffect(() => {
     if (!open || !design || !dirtyRef.current) return;
@@ -350,10 +382,41 @@ export default function TextStudio(p: Props) {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
   }, [design, open, flushSave]);
-  const close = () => {
+  /* ───────────── The card's session: this studio is open; Save & return ───────────── */
+  useEffect(() => {
+    if (!open || !batch) return;
+    patchSession(batch, p.index, { studio: "text" });
+    return () => {
+      patchSession(batch, p.index, (s) => ({ studio: s.studio === "text" ? null : s.studio }));
+    };
+  }, [open, batch, p.index]);
+  /** "Save & return": the words (and whatever else the card's session holds) are saved, then the card comes back into view. */
+  const saveAndReturn = async () => {
     if (editing) setEditing(null);
-    if (dirtyRef.current) flushSave(false);
-    else p.onClose();
+    if (dirtyRef.current) flushSave(true);
+    if (!batch) return p.onClose();
+    setReturning(true);
+    try {
+      const r = await commitSession(batch, p.index, { hold });
+      if (!r.ok) return;
+      if (!r.kept.includes("text")) dirtyRef.current = false;
+      patchSession(batch, p.index, { studio: null, picture: null });
+      p.onClose();
+      flashCard(p.index);
+    } finally {
+      setReturning(false);
+    }
+  };
+  /** Closing never drops work: the words save themselves (or wait as a draft); other studios' work is saved now or kept. */
+  const close = async () => {
+    if (editing) setEditing(null);
+    if (dirtyRef.current) flushSave(true);
+    const parts = pendingParts(getSession(batch, p.index));
+    if (parts.length) {
+      const ok = await askConfirm(`Not saved yet: ${pendingLabel(parts)}. Save now and go back to the card, or keep them for later? Kept edits wait on the card until you save or discard them.`, { ok: "Save & return", danger: false, cancel: "Keep for later" });
+      if (ok) return saveAndReturn();
+    }
+    p.onClose();
   };
 
   /* ───────────── Layer operations ───────────── */
@@ -774,7 +837,7 @@ export default function TextStudio(p: Props) {
         else if (editing) setEditing(null);
         else if (shortcuts) setShortcuts(false);
         else if (selected.length) setSelected([]);
-        else close();
+        else void close();
         return;
       }
       if (mod && e.key.toLowerCase() === "z") {
@@ -1109,7 +1172,14 @@ export default function TextStudio(p: Props) {
     const ov: PostOverlayPatch = { ...(p.patch ?? {}) };
     delete ov.design;
     dirtyRef.current = false;
-    p.onSave({ headline: p.headline, subline: p.subline, ov: Object.keys(ov).length ? ov : undefined }, false);
+    const r = { headline: p.headline, subline: p.subline, ov: Object.keys(ov).length ? ov : undefined };
+    // The client holds this post: the automatic layout waits as a draft too.
+    if (hold && batch) {
+      patchSession(batch, p.index, { text: { result: r, basis } });
+      p.onClose();
+      return;
+    }
+    p.onSave(r, false);
   };
   const warnings = useMemo(() => {
     const s = new Set<string>();
@@ -1235,13 +1305,18 @@ export default function TextStudio(p: Props) {
       {/* Top toolbar */}
       <header className="ts-top">
         <div className="ts-top-left">
-          <button type="button" className="ts-icon" onClick={close} title="Close (Esc)" aria-label="Close">
+          <button type="button" className="ts-icon" onClick={() => void close()} title="Close (Esc)" aria-label="Close">
             <X size={16} />
           </button>
           <span className="ts-title">
             Text studio <small>· post {p.index}</small>
           </span>
-          <span className={`ts-save ${saving}`}>{saving === "saved" ? "Saved" : saving === "saving" ? "Saving…" : "Unsaved changes"}</span>
+          <span className={`ts-save ${saving}`}>{hold && saving !== "saved" ? "Draft: not on the client's link yet" : saving === "saved" ? "Saved" : saving === "saving" ? "Saving…" : "Unsaved changes"}</span>
+          {hold && (
+            <span className="ts-hold" title={heldMessage(hold)}>
+              {holdNote(hold)}
+            </span>
+          )}
         </div>
         <div className="ts-top-right">
           <span className="ts-tool-group" aria-label="History">
@@ -1269,6 +1344,19 @@ export default function TextStudio(p: Props) {
               <Aperture size={14} /> <span>Photo studio</span>
             </button>
           )}
+          {p.onVideoStudio && (
+            <button
+              type="button"
+              className="ts-btn"
+              onClick={() => {
+                if (dirtyRef.current) flushSave(true);
+                p.onVideoStudio!();
+              }}
+              title="This post's videos, in the Video studio (the words are kept)"
+            >
+              <Clapperboard size={14} /> <span>Video studio</span>
+            </button>
+          )}
           <PopoverPrimitive.Root>
             <PopoverPrimitive.Trigger asChild>
               <button type="button" className="ts-btn" title="Export this post"><Download size={14} /> Export <ChevronDown size={12} /></button>
@@ -1285,7 +1373,7 @@ export default function TextStudio(p: Props) {
               </PopoverPrimitive.Content>
             </PopoverPrimitive.Portal>
           </PopoverPrimitive.Root>
-          <button type="button" className="ts-btn primary" onClick={close}>Done</button>
+          <button type="button" className="ts-btn primary ts-save-return" onClick={() => void saveAndReturn()} disabled={returning} title="Save every edit of this post (words, picture, video cut) and go back to its card">{returning ? "Saving…" : "Save & return"}</button>
         </div>
       </header>
 

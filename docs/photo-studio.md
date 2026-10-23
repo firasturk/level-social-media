@@ -25,14 +25,64 @@ its Image group and **Open in the Photo studio** on its Versions group). It adds
 - The post editor's Image group: **Open the Photo studio** (Edit panel); its Versions group:
   **Open in the Photo studio** (Versions panel).
 - The Text studio's top bar: **Photo studio** switches to it on the same post (the design is saved
-  first). The Photo studio's top bar has **Text studio** back.
+  first). The Photo studio's top bar has **Text studio** and **Video studio** back.
 
 ## The top bar
 
-The post number and title, the picture's state (Ready, Review, Making…, Failed), undo / redo (over
-the Adjust parameters), **Versions · n** (the count of takes; opens the Versions panel),
-**Text studio**, **Close**. Closing with adjustments not yet applied asks: *Apply and close* or
-*Leave without applying*.
+The post number and title, the picture's state (Ready, Review, Making…, Failed), a note when the
+client holds the picture (*Client approved: saving makes a new version*), undo / redo (over the
+Adjust parameters), **Versions · n** (the count of takes; opens the Versions panel),
+**Text studio**, **Video studio**, and **Save & return** (always on screen, also at 390 px). The ✕
+closes; with work not saved (here or in another studio of the same post) it asks once:
+*Save & return* or *Keep for later* (kept edits wait on the card, nothing is dropped).
+
+## Moving between editors: the card's editing session
+
+The Photo, Text and Video studios are separate overlays, so each card has a small **editing
+session** (`src/studio/editing-session.ts`, plain parts in `shared/editing-session.ts`), one per
+month + post, kept in memory and in the tab's `sessionStorage`:
+
+| Part | What it holds | Carried across a switch |
+| --- | --- | --- |
+| `picture` | a take picked under Versions (**Edit this version**) | yes: Photo (canvas, Adjust), Text (the picture under the layers) and Video (first frame, artwork) open on it |
+| `videoId` | the clip the Video studio last showed | yes: the Video studio reopens on it |
+| `photo` | Adjust settings not applied yet, and the picture they apply to | yes |
+| `text` | words and layers not saved yet (only while the client holds the post; otherwise the Text studio saves itself within ~1 s and on every switch) | yes |
+| `video` | the cut not saved yet (document, project, save number); its music file and LUT stay in memory only | yes (the music and LUT within the same tab) |
+| `held` | the last save kept as a new version because the client holds the current one | shown on the card |
+
+Not carried: the AI edit's instruction text, a marked area, the compare picks, a Photo lab or AI
+tool result not yet used (those live on the server's job list and come back with the panel), the
+playhead, and anything after a reload of the tab for the music file and LUT (pick them again).
+
+**Save & return** (in the Photo and Text studios) saves every pending part of the session, whichever studio it
+was started in — the adjustments are uploaded, the words saved to the plan, the cut saved with the
+post (admins; nothing is rendered) — then closes, scrolls
+the same card into view and highlights it. A part that fails stays in the session and the editor
+stays open with what failed. Closing without saving keeps the parts on the card (*Unsaved edits
+kept: … · Open to finish · Discard*); only **Discard** drops them.
+
+## Client-approved and shared versions
+
+`shared/client-hold.ts` says when the client holds a post's current version: they **approved** it
+on the review link, or the month's **review link is out** (it shows the current picture). Then:
+
+- a picture save (`POST /picture/upload`) stores the picture and a take but leaves the post's
+  picture, the client's answer and the link untouched; it answers `held: "approved" | "shared"`
+  and the sentence *"The client approved the current version; your edit is saved as a new version.
+  Send it for review to replace it."* (or the review-link variant);
+- words and layers wait as a draft; Save & return asks *Save and send for review* or *Keep as a
+  draft*;
+- "Use this picture" / "Previous picture" ask first, then send the post for review;
+- the card shows the sentence with **Send it for review** (`POST /versions/send-for-review`
+  `{batch, index, key?}`: the new picture becomes the client's, the one it replaces stays under
+  Versions and in the month's earlier pictures, the client's earlier answer is cleared) and
+  **Keep the client's**.
+
+Clips are out of this file's scope: the video editor's save, render and client-version rules are
+documented with the video editor.
+
+Originals (product uploads, Drive photos) are never written by any of this.
 
 ## The eight panels
 
@@ -288,6 +338,16 @@ the task's picture, the snapshot, the note, 415 / 413 / 400 / 409, and asserts z
 
 - Unit: `tests/photo-adjust.test.ts` (19 tests) and `tests/photo-upload.test.ts` (5 tests), with the
   rest of the suite.
+- `tests/editor-continuity.test.ts` (7 tests, under the paid-route guard): who holds a version; a
+  picture save on an approved post (and on a shared one) keeps the post's picture, the answer and
+  the share link exactly as before, stores the new take, then **Send it for review** swaps it in,
+  clears the answer and keeps the old picture; a picture that is not a take is refused; the
+  session store carries, persists and clears each part.
+- Browser (`scripts/editor-continuity-smoke.mjs`, 1440 and 390 px): Photo studio adjust → Text
+  studio (nothing uploaded; a layer added and saved) → Video studio → Photo studio (exposure still
+  +60) → **Save & return** (one upload, the card in view, highlighted, showing the new picture);
+  reopening shows the saved state; an approved card keeps its picture and offers **Send it for
+  review**; **Save & return** stays on screen in the Photo and Text studios at 390 px.
 - `tests/photo-presets.test.ts` (11 tests, under the paid-route guard): Soul styles, product shots,
   Magnific looks and recipes normalised (pseudo entries, video entries and entries without a sample
   dropped); Not signed in with no call; a member browsing the styles, the encrypted cache row, the
