@@ -13,8 +13,8 @@ import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
-import { NO_MAGNIFIC_SAMPLE, PHOTO_PRESET_CATEGORIES, type PhotoPresetCard, type PhotoPresetCategoryId, type PhotoPresetDetail } from "@shared/photo-presets";
-import { listPhotoPresets, photoPresetDetail, runPhotoPreset, type ConfirmAsk, type PhotoPresetList } from "../photoApi";
+import { NO_MAGNIFIC_SAMPLE, PHOTO_PRESET_CATEGORIES, presetPrompt, wordsFieldOf, type PhotoPresetCard, type PhotoPresetCategoryId, type PhotoPresetDetail } from "@shared/photo-presets";
+import { listPhotoPresets, photoPresetDetail, presetProduct, runPhotoPreset, type ConfirmAsk, type PhotoPresetList } from "../photoApi";
 import type { StudioCtx } from "../types";
 
 /** A search across what a card says: the same rule as the server's. */
@@ -261,6 +261,9 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [product, setProduct] = useState("");
+  const [productFrom, setProductFrom] = useState<string[]>([]);
+  const [productBusy, setProductBusy] = useState(false);
   useEffect(() => {
     setInputs({});
     setError("");
@@ -268,6 +271,27 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
   }, [ps.selected?.id]);
   const post = ctx.editor.batchId ? { batch: ctx.editor.batchId, index: ctx.editor.post.index } : null;
   const admin = !!ps.list?.admin;
+  const wantsProduct = admin && !!post && ps.selected?.kind === "preset";
+  // The product in words, filled in once per preset and post (what the studio already knows; nothing paid).
+  useEffect(() => {
+    setProduct("");
+    setProductFrom([]);
+    if (!wantsProduct || !post) return;
+    let live = true;
+    setProductBusy(true);
+    presetProduct(post)
+      .then((r) => {
+        if (!live) return;
+        setProduct(r.text);
+        setProductFrom(r.from);
+      })
+      .catch(() => {})
+      .finally(() => live && setProductBusy(false));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsProduct, ps.selected?.id, post?.batch, post?.index]);
   if (!card) {
     return (
       <div className="ps-panel">
@@ -284,13 +308,15 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
   }
   const detail = ps.detail;
   const fields = detail ? textInputs(detail) : [];
+  const wordsField = wordsFieldOf(fields);
   const readiness = detail?.readiness as { ready?: boolean; missing?: string[]; message?: string } | null;
   async function run(confirm = false) {
     if (!post || !card) return;
     setRunning(true);
     setError("");
     try {
-      const r = await runPhotoPreset({ batch: post.batch, index: post.index, presetId: card.id, source: card.source, inputs: Object.fromEntries(Object.entries(inputs).filter(([, v]) => v.trim())), confirm });
+      const sent = wordsField ? { ...inputs, [wordsField]: presetPrompt(product, inputs[wordsField] ?? "") } : inputs;
+      const r = await runPhotoPreset({ batch: post.batch, index: post.index, presetId: card.id, source: card.source, inputs: Object.fromEntries(Object.entries(sent).filter(([, v]) => v.trim())), confirm });
       await ctx.tools.reloadJobs();
       ctx.tools.setJob(r.job);
       toast.success(`“${card.title}” is being made from this post's picture; it takes a few seconds to a minute.`);
@@ -386,13 +412,22 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
             </div>
           ) : (
             <fieldset className="ps-fields" disabled={running}>
+              {wordsField ? (
+                <label className="ps-field">
+                  <span>The product (sent first, so the engine keeps it)</span>
+                  <textarea rows={4} value={product} onChange={(e) => setProduct(e.target.value)} placeholder={productBusy ? "Reading the post…" : "What the product is: its name, cup or pack, label and colours"} />
+                  <small className="ts-hint">{productFrom.length ? `Filled in from ${productFrom.join(", ")}; correct it if anything is wrong.` : productBusy ? "" : "The studio knows nothing about this product yet: write a line about it."}</small>
+                </label>
+              ) : (
+                <p className="ts-hint">This preset takes no words: the engine sees only the post's picture.</p>
+              )}
               {fields.map((f) => (
                 <label key={f.name} className="ps-field">
                   <span>
-                    {f.label}
+                    {f.name === wordsField ? `${f.label}: your change` : f.label}
                     {f.required ? "" : " (optional)"}
                   </span>
-                  <textarea rows={2} value={inputs[f.name] ?? ""} onChange={(e) => setInputs((i) => ({ ...i, [f.name]: e.target.value }))} placeholder={/prompt|idea|words/i.test(f.name) ? "A few words" : ""} />
+                  <textarea rows={2} value={inputs[f.name] ?? ""} onChange={(e) => setInputs((i) => ({ ...i, [f.name]: e.target.value }))} placeholder={f.name === wordsField ? "What to change, e.g. mixed fruit instead of one fruit" : ""} />
                 </label>
               ))}
               {!ctx.task.output && <p className="ts-hint warn">This post has no picture yet; the preset needs one.</p>}

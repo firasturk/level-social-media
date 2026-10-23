@@ -41,6 +41,11 @@ export function photoPresetDetail(id: string, source: string, post?: { batch: st
   return get(`/api/studio/photo/presets/${encodeURIComponent(id)}?${qs}`);
 }
 
+/** The post's product in words (the Drive photo's name and note, the product photo, or the title; the brand kit's look), for the engine. Nothing is called or paid. */
+export function presetProduct(p: { batch: string; index: number }): Promise<{ text: string; from: string[] }> {
+  return get(`/api/studio/photo/presets/product?batch=${encodeURIComponent(p.batch)}&index=${p.index}`);
+}
+
 export function runPhotoPreset(body: { batch: string; index: number; presetId: string; source: string; inputs?: Record<string, string>; confirm?: boolean }): Promise<{ job: PhotoToolJob }> {
   return post("/api/studio/photo/presets/run", body);
 }

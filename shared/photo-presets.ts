@@ -73,3 +73,16 @@ export interface PhotoPresetDetail extends PhotoPresetCard {
 
 export const NOTHING_IN_PHOTO_CATEGORY = "Nothing in this category on your plan yet.";
 export const NO_MAGNIFIC_SAMPLE = "No sample from Magnific";
+
+/** The words a preset run sends: the product first (so the engine keeps it), then the change asked for. */
+export function presetPrompt(product: string, change: string): string {
+  const p = product.trim();
+  const c = change.trim();
+  if (!p) return c;
+  return c ? `${p}\n\nChange for this picture: ${c}` : p;
+}
+
+/** The input the product's words go into: the preset's prompt (its "Describe your result"), else its first text input. */
+export function wordsFieldOf(fields: { name: string; label: string }[]): string | null {
+  return (fields.find((f) => /prompt|idea|words|describ/i.test(`${f.name} ${f.label}`)) ?? fields[0])?.name ?? null;
+}

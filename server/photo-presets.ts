@@ -26,7 +26,8 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError, errorMessage } from "./errors";
-import { first } from "./db";
+import { all, first } from "./db";
+import type { Config } from "../shared/config";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
@@ -346,6 +347,68 @@ async function cardFromCache(env: Env, id: string, source: string): Promise<Phot
   const hit = await readCache(env, photoCacheKey(category, ""));
   return hit?.items.find((c) => c.id === id) ?? null;
 }
+
+/**
+ * What the product in the post's picture is, in words for the engine, from what the studio already
+ * knows (no text call, nothing paid): the Drive file's name and note when the picture came from the
+ * client's Drive (the copy keeps its Drive id; an edited picture is traced to the post's first
+ * take), else the post's product photo and its note, else the post's title; then the brand kit's
+ * first rule about how the product looks. A preset run sends it with the person's own words so the
+ * product comes back as it is. (Live: an Abu Saleh cup preset ran with only "mixed fruit instead
+ * of one fruit", and the engine had nothing saying what the product was.)
+ */
+export async function productBrief(env: Env, user: User, batchId: string, index: number): Promise<{ text: string; from: string[] }> {
+  const b = await ownedPlan(env, user, batchId);
+  const config = JSON.parse(b.config) as Config;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  const from: string[] = [];
+  let name = "";
+  let note = "";
+  const keys = [
+    ...(await all<{ output: string | null }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, index)).map((r) => r.output),
+    ...(await all<{ key: string | null }>(env.DB, "SELECT key FROM post_takes WHERE batch = ? AND post = ? AND key IS NOT NULL ORDER BY created ASC LIMIT 3", b.id, index)).map((r) => r.key),
+  ].filter((k): k is string => !!k);
+  for (const key of [...new Set(keys)]) {
+    const head = await env.BUCKET.head(key).catch(() => null);
+    const drive = head?.customMetadata?.drive;
+    if (!drive) continue;
+    const photo = await first<{ name: string; note: string }>(env.DB, "SELECT name, note FROM drive_photos WHERE id = ?", drive);
+    if (photo && (photo.name || photo.note)) {
+      name = photo.name.replace(/\.[a-z0-9]+$/i, "");
+      note = photo.note;
+      from.push("the client's Drive");
+      break;
+    }
+  }
+  if (!name && post?.product) {
+    const src = await first<{ name: string; note: string | null }>(env.DB, "SELECT name, note FROM sources WHERE batch = ? AND kind = 'product' AND (lower(stem) = lower(?) OR lower(name) = lower(?)) LIMIT 1", b.id, post.product, post.product);
+    name = src?.name?.replace(/\.[a-z0-9]+$/i, "") ?? post.product;
+    note = src?.note ?? "";
+    from.push("the post's product photo");
+  }
+  // "Post 3" and a file's name ("01-talk", "IMG_2041") say nothing about the product.
+  if (!name && post?.title && !/^post \d+$/i.test(post.title) && !/^[\w.-]*\d[\w.-]*$/.test(post.title.trim())) {
+    name = post.title;
+    from.push("the post's title");
+  }
+  const client = config.client ? await first<{ name: string; dos: string | null }>(env.DB, "SELECT name, dos FROM clients WHERE id = ?", config.client) : null;
+  const rule = (client?.dos ?? "").split(/\n+/).map((l) => l.trim()).find((l) => /cup|bottle|can|pack|label|logo|wordmark|product|jar|box|glass/i.test(l)) ?? "";
+  if (rule) from.push("the brand kit");
+  const parts: string[] = [];
+  const who = client?.name ? `${client.name}'s product` : "The product";
+  if (name || note) parts.push(`${who}: ${[name, note].filter(Boolean).join(" — ")}.`);
+  parts.push("It is the item in the input picture: keep it exactly as it is (shape, cup or packaging, label, logo, colours and proportions); do not redraw, replace or relabel it.");
+  if (post?.brief?.trim()) parts.push(`Post idea: ${post.brief.trim()}`);
+  if (rule) parts.push(`Brand look: ${rule}`);
+  return { text: parts.join(" ").slice(0, 900), from };
+}
+
+/** The product, in words, for the "The product" box of a preset run (filled in, editable). Every member; nothing is called. */
+photoPresetRoutes.get("/product", async (c) => {
+  const index = Number(c.req.query("index"));
+  if (!Number.isInteger(index) || index < 1) throw new StudioError("Which post?");
+  return c.json({ ok: true, ...(await productBrief(c.env, c.get("user"), c.req.query("batch") ?? "", index)) });
+});
 
 /** One entry in full: a product shot's inputs, readiness (the post's picture prefilled for an admin), price and instructions; a style or a look from the cached list; a recipe's instructions. Every member. */
 photoPresetRoutes.get("/:id", async (c) => {
