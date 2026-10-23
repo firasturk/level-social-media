@@ -324,7 +324,7 @@ export interface MagnificEntry {
 const VIDEO_URL_RE = /\.(mp4|webm|mov|m3u8)(\?|#|$)/i;
 
 function imageIn(o: Record<string, unknown>): string | null {
-  for (const k of ["sample", "sample_url", "sampleUrl", "preview", "preview_url", "previewUrl", "thumbnail", "thumbnail_url", "thumbnailUrl", "image", "image_url", "imageUrl", "cover", "coverUrl", "example", "exampleUrl", "samples", "examples", "previews", "images"]) {
+  for (const k of ["sample", "sample_url", "sampleUrl", "preview", "preview_url", "previewUrl", "previewImageUrl", "preview_image_url", "previewImage", "thumbnail", "thumbnail_url", "thumbnailUrl", "image", "image_url", "imageUrl", "cover", "coverUrl", "example", "exampleUrl", "samples", "examples", "previews", "images"]) {
     const v = o[k];
     const candidates = Array.isArray(v) ? v : [v];
     for (const c of candidates) {

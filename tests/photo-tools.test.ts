@@ -74,6 +74,11 @@ describe("mapping options onto a tool's arguments", () => {
     expect(dropped.notes).toEqual(["the light wanted not taken by relight_image"]);
   });
 
+  it("reads a Magnific picture model's sample from previewImageUrl (the live field with includePreviews)", () => {
+    const r = { content: [{ type: "text" as const, text: JSON.stringify({ models: [{ slug: "seedream-5-pro", name: "Seedream 5 Pro", tool: "text-to-image", previewImageUrl: "https://pikaso.test/seedream-5-pro.jpg" }, { slug: "plain", name: "Plain" }] }) }] };
+    expect(parseMagnificEntries(r).map((e) => [e.id, e.image])).toEqual([["seedream-5-pro", "https://pikaso.test/seedream-5-pro.jpg"], ["plain", null]]);
+  });
+
   it("builds Magnific option arguments under the schema's names and reads the option lists in several shapes", () => {
     expect(magnificOptionArgs(photoTool("mg-upscale")!, ["imageUrl", "preset", "mode"], { preset: "portrait", mode: "precision" }).args).toEqual({ preset: "portrait", mode: "precision" });
     expect(magnificOptionArgs(photoTool("mg-replace-bg")!, ["imageUrl", "backgroundPrompt"], { prompt: "marble" }).args).toEqual({ backgroundPrompt: "marble" });

@@ -294,6 +294,16 @@ export function parseJobs(r: McpCallResult): JobEntry[] {
     const error = findString(o, ["error", "error_message", "failure_reason", "reason", "message"]);
     if (!out.some((x) => x.jobId === jobId)) out.push({ index, jobId, status, url, error });
   }
+  // The picture tools answer prose ("Submitted 1 job. … \n- 30eade26-…"): the job ids are the UUIDs listed after "Submitted".
+  if (!out.length) {
+    const text = resultText(r);
+    if (/\bsubmitted\b|\bjob\b/i.test(text)) {
+      for (const m of text.matchAll(/(?:^|\s|-)\s*([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/gi)) {
+        const jobId = m[1].toLowerCase();
+        if (!out.some((x) => x.jobId === jobId)) out.push({ index: out.length, jobId, status: "queued", url: null, error: null });
+      }
+    }
+  }
   return out;
 }
 
