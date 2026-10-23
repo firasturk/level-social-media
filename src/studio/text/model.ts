@@ -4,7 +4,7 @@
  */
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import { BODY_FONTS, HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
-import { contrastRatio, fillColor, luminance, newTextLayer, type Layer, type TextDesign, type TextLayer } from "@shared/layers";
+import { contrastRatio, fillColor, luminance, newLogoLayer, newTextLayer, type Layer, type TextDesign, type TextLayer } from "@shared/layers";
 import { layoutBox, luminanceUnder, type LayerBox } from "@/lib/textLayers";
 
 export interface Brand {
@@ -26,7 +26,12 @@ export function brandFonts(b: Brand): string[] {
  * A post that was never opened in the studio: its headline and second line become two layers
  * exactly where the automatic layout put them, and the fade becomes a gradient helper.
  */
-export function designFromLegacy(spec: OverlaySpec, headline: string, subline: string, patch: PostOverlayPatch | undefined, textRect: { x: number; y: number; w: number; h: number } | null, W: number, H: number): TextDesign {
+/**
+ * The automatic layout as layers. `logoRect` is where the client's layout drew the logo (when it drew
+ * one): it becomes a logo layer in that very place, so the logo can be selected, moved, resized or
+ * hidden like any layer instead of being drawn under the design where nothing reaches it.
+ */
+export function designFromLegacy(spec: OverlaySpec, headline: string, subline: string, patch: PostOverlayPatch | undefined, textRect: { x: number; y: number; w: number; h: number } | null, W: number, H: number, logoRect: { x: number; y: number; w: number; h: number } | null = null): TextDesign {
   const h = spec.headline;
   const p = patch ?? {};
   const scale = p.scale ?? 1;
@@ -37,7 +42,7 @@ export function designFromLegacy(spec: OverlaySpec, headline: string, subline: s
   const x = textRect ? textRect.x / W : margin;
   const w = textRect ? textRect.w / W : 1 - margin * 2;
   const y0 = textRect ? textRect.y / H : h.position === "top" ? h.inset * (W / H) : h.position === "center" ? 0.4 : 1 - (h.inset * W) / H - 0.25;
-  const layers: TextLayer[] = [];
+  const layers: Layer[] = [];
   const shadow = h.shadow ? { color: h.shadow, blur: 0, x: 0, y: (h.shadowOffset * scale) / size } : undefined;
   const head = newTextLayer(headline, {
     name: "Headline",
@@ -79,6 +84,8 @@ export function designFromLegacy(spec: OverlaySpec, headline: string, subline: s
     );
   }
   const fade = spec.scrim > 0 && p.fade !== false && layers.length;
+  // The logo first: the layout draws it under the words.
+  if (logoRect && logoRect.w > 0) layers.unshift(newLogoLayer({ x: logoRect.x / W, y: logoRect.y / H, w: logoRect.w / W }));
   const position = p.position ?? h.position;
   return {
     version: 1,

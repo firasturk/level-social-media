@@ -223,15 +223,23 @@ export default function TextStudio(p: Props) {
         for (const f of brand.fontFiles) void loadFont(f.name, `/api/studio/clients/${brand.id}/fonts/${f.id}/file`);
         // A stored design of any earlier shape is read into the current one (text-only designs come back as they were).
         let d = p.patch?.design ? (upgradeDesign(p.patch.design) ?? undefined) : undefined;
-        if (!d) {
-          // The first visit: the automatic layout's words become layers exactly where they were.
+        // Where the client's automatic layout puts the words and the logo on this picture.
+        const automatic = async (): Promise<OverlayLayout> => {
           const probe = document.createElement("canvas");
           probe.width = w;
           probe.height = h;
           const { design: _d, ...legacy } = p.patch ?? {};
           void _d;
-          const layout: OverlayLayout = await paintFrame(probe, img, spec, { headline: p.headline, subline: p.subline }, logoSrc, { patch: legacy, faces: p.faces });
-          d = designFromLegacy(spec, p.headline, p.subline, p.patch, layout.text, w, h);
+          return paintFrame(probe, img, spec, { headline: p.headline, subline: p.subline }, logoSrc, { patch: legacy, faces: p.faces });
+        };
+        if (!d) {
+          // The first visit: the automatic layout's words and logo become layers exactly where they were.
+          const layout = await automatic();
+          d = designFromLegacy(spec, p.headline, p.subline, p.patch, layout.text, w, h, layout.logo);
+        } else if (logoSrc && !d.layers.some((l) => l.type === "logo")) {
+          // A design saved before the logo was a layer: the logo the layout draws becomes one, in place.
+          const at = (await automatic()).logo;
+          if (at) d = { ...d, layers: [newLogoLayer({ x: at.x / w, y: at.y / h, w: at.w / w }), ...d.layers] };
         }
         // A draft kept in the card's session (a switch to another studio, or held for the client) comes back.
         const kept = getSession(batch, p.index)?.text;
