@@ -6,6 +6,7 @@ import AuthScreen from "./auth/AuthScreen";
 import Workspace from "./studio/Workspace";
 import BootScreen from "./studio/BootScreen";
 import SharePage from "./share/SharePage";
+import HelpAssistant from "./components/HelpAssistant";
 
 type Session = { user: User | null; registrationOpen: boolean };
 
@@ -44,9 +45,12 @@ function Studio() {
     );
   }
   return (
-    <Workspace
-      user={session.user}
-      onSignedOut={() => setSession({ user: null, registrationOpen: session.registrationOpen })}
-    />
+    <>
+      <Workspace
+        user={session.user}
+        onSignedOut={() => setSession({ user: null, registrationOpen: session.registrationOpen })}
+      />
+      <HelpAssistant user={session.user} />
+    </>
   );
 }
