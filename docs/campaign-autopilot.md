@@ -78,3 +78,37 @@ approved for the client, shared or published by the autopilot.
 The preview (pictures switched off) runs production in a simulated mode: no provider is called;
 each step takes the month's existing demo pictures and clips, labelled "simulated", so the whole
 flow (approval, steps, assembly, the browser render, the card) can be walked without spending.
+
+## Implementation checklist (October 2026)
+
+What is built, and how far each part has been proven. "Mocked" means the provider was replaced
+at the studio's own tool function in a test; "simulated" means the preview's no-provider mode;
+"live" means a real provider answered. Nothing here has been run against a paid provider.
+
+| Requirement | Built | Tested with fixtures / mocks | Needs a live test |
+| --- | --- | --- | --- |
+| Setup: objective, audience, offer, message, counts, platforms, formats, length, period, language, products (month + Drive, manual or suggested), direction, references | yes (`src/studio/campaign/`, `normalizeSetup`) | preview walk; `tests/campaign-autopilot.test.ts` | the planner with a real text key (Google or OpenAI) |
+| Plan: summary, per post (idea, objective, real product thumbnail, visual, labelled reference, words, engine, cost), per Reel (concept, hook, product, length, frame, ordered storyboard with seconds, action, framing, camera, source, reference, on-screen text, voiceover, music, transitions, engines, cost per step) | yes | 3 posts + 4 Reels: 16 shots, clips, starting images and key frames counted (`tests/campaign-plan.test.ts`, autopilot tests); preview walk | quality of a real planner's ideas |
+| Labels: reference vs client asset vs generated preview; no inspiration shown as the result | yes (`PlanRef.kind`, badges) | preview walk | — |
+| Nothing paid before approval; billable planning said apart | yes | paid guard: no network call before approval; no tasks, clips or ledger rows | — |
+| Editable plan: idea, product, reference, shot (add, delete, reorder, length, source, asset), engine; regenerate one item or one shot | yes (`PUT /plan`, `/regenerate`) | edit tests (words vs material, stale page refused) | regenerate with a real text key |
+| Totals and costs: posts, videos, shots, starting images, other assets; per provider and unit, never added together; caps with retry allowance; outside the cap listed; unknown costs flagged and accepted only at a stated amount | yes (`planCosts`, `budgetCaps`, `proposalFor`) | unit tests; preview walk (dollars and Magnific credits apart) | Higgsfield `get_cost` and Magnific `simulate_cost` answers (free questions) once signed in |
+| Approval: all or selected, tied to revision, items, products, references, engines and caps; duplicate presses do nothing; material edit pauses that item until approved again; words-only edits apply at once | yes (`approvalSignature`, `stepSignature`) | stale and duplicate approvals, material edit re-making only the changed shot | — |
+| Budget: reserve before each request in the campaign's scope per unit; retries capped; pause when the allowance is short; reported costs settle the reservation | yes (`campaign:<id>:<unit>` scopes) | budget stop and resume; reservations made before every mocked call; Magnific reported credits settle | real balances moving as reported |
+| No silent switch of engine, billing or quality | yes | month engine changed → pauses; Higgsfield billing changed → pauses | — |
+| Production: cards, post pictures and key frames (image engine), other angles (Magnific Change camera), clips from each shot's own starting picture (Higgsfield), client media used as is, assembly (shots, words, logo, look, licensed music, beat-snapped cuts, transitions), browser render onto the card | yes | `tests/campaign-live-path.test.ts` (tools mocked: 7 pictures, 12 angles, 16 clips, each clip's start picture checked); preview: whole campaign simulated and 4 Reels rendered in the browser onto cards | one real run of each provider step (a small campaign: 1 post + 1 Reel of 2 shots) |
+| Failure recovery: a failed step retried alone, finished work kept | yes | retry test (others' outputs and attempts unchanged); extra attempt needs explicit approval | a real provider failure |
+| Editable afterwards: cards open in the existing editors; Reels keep an editable project (timeline, shots, text, music, colour); renders add versions, earlier ones recoverable; done = ready for review, nothing sent or published | yes | projects validated; render step stores a version on the card | — |
+| Admin-only | yes (routes and entry) | member refused | — |
+
+### Connections needed for a live run
+
+- A text key (Google or OpenAI) under Connection: the planner and "Regenerate".
+- The image engine of the month (already connected on production).
+- Higgsfield: either the subscription sign-in (credits; `get_cost` estimates) or the Cloud API key
+  with a price per clip set under Connection → Higgsfield (the docs publish none), matching the
+  billing chosen there.
+- Magnific sign-in (Change camera for the other angles; `simulate_cost` estimates).
+- The client's Drive folders (products, photos and clips used as they are), already read through the
+  service account.
+- A music library track (catalog or the client's own, rights confirmed) for the Reels' music.
