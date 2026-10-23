@@ -20528,6 +20528,10 @@ a.publish-pill.published:hover {
   cursor: pointer;
 }
 .help-fab:hover { border-color: var(--accent); color: var(--accent); }
+.help-fab { padding-left: 6px; height: 42px; }
+.help-face { width: 34px; height: 34px; object-fit: contain; flex: none; display: block; margin: -4px 0; }
+.help-face.small { width: 26px; height: 26px; margin: -2px 0; align-self: center; }
+.help-fab:hover .help-face { transform: rotate(-8deg) scale(1.08); transition: transform 0.15s; }
 .help-fab-n {
   font-style: normal;
   min-width: 18px;

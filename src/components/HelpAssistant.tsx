@@ -7,7 +7,7 @@
  * done with a reply the sender sees under "My requests". The conversation is kept for the tab only.
  */
 import { useEffect, useRef, useState } from "react";
-import { CircleHelp, Inbox, Send, X } from "lucide-react";
+import { Inbox, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { get, post } from "@/api";
 import { Orb } from "@/components/Orb";
@@ -149,7 +149,7 @@ export default function HelpAssistant({ user }: { user: User }) {
     <>
       {!open && (
         <button type="button" className="help-fab" onClick={() => setOpen(true)} aria-label="Ask Firas" title="Ask Firas, the studio's assistant, how to do something">
-          <CircleHelp size={18} />
+          <img src="/firas-face.png" className="help-face" alt="" width={34} height={34} />
           <span>Ask Firas</span>
           {admin && openCount > 0 && <em className="help-fab-n">{openCount}</em>}
         </button>
@@ -158,7 +158,7 @@ export default function HelpAssistant({ user }: { user: User }) {
         <aside className="help-panel" aria-label="Firas, the studio's assistant">
           <header className="help-head">
             <b>
-              <CircleHelp size={16} /> Firas
+              <img src="/firas-face.png" className="help-face small" alt="" width={26} height={26} /> Firas
               <small>the studio's assistant</small>
             </b>
             <nav className="help-tabs" role="tablist">
