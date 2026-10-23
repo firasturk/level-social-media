@@ -1,12 +1,17 @@
 /**
  * Undo and redo for the project document: a past and a future stack, like the Text Studio's.
+ * Every change to the cut goes through here, so every operation can be undone: trims, splits,
+ * moves, deletes (ripple or not), speed, sound, locks, transitions, keyframes, layers, music,
+ * voice-over, colour, frame, an automatic cut, a beat alignment and a recovered autosave.
+ *
  * `commit` records a step; `patch` changes the document without a step (used while a slider or a
- * handle is being dragged, with one `commit` at the end).
+ * handle is being dragged): `mark` before the drag records the state it started from, and the
+ * `commit` that ends it closes that one step (a drag is one undo, never two). A commit that
+ * changes nothing records nothing. The stacks' rules live in shared/video-history.ts (tested).
  */
 import { useCallback, useRef, useState } from "react";
 import type { VideoProject } from "@shared/video-project";
-
-const MAX_HISTORY = 80;
+import { HistoryStacks } from "@shared/video-history";
 
 export interface History {
   project: VideoProject | null;
@@ -29,8 +34,7 @@ export interface History {
 export function useHistory(): History {
   const [project, setProject] = useState<VideoProject | null>(null);
   const ref = useRef<VideoProject | null>(null);
-  const past = useRef<VideoProject[]>([]);
-  const future = useRef<VideoProject[]>([]);
+  const stacks = useRef(new HistoryStacks<VideoProject>());
   const savedRef = useRef<VideoProject | null>(null);
   const [, tick] = useState(0);
   const bump = () => tick((n) => n + 1);
@@ -40,44 +44,43 @@ export function useHistory(): History {
   };
   const resolve = (next: VideoProject | ((p: VideoProject) => VideoProject)): VideoProject | null => (ref.current ? (typeof next === "function" ? next(ref.current) : next) : null);
   const load = useCallback((p: VideoProject | null) => {
-    past.current = [];
-    future.current = [];
+    stacks.current.reset();
     savedRef.current = p;
     set(p);
     bump();
   }, []);
   const mark = useCallback(() => {
     if (!ref.current) return;
-    past.current = [...past.current.slice(-(MAX_HISTORY - 1)), ref.current];
-    future.current = [];
+    stacks.current.mark(ref.current);
     bump();
   }, []);
   const commit = useCallback((next: VideoProject | ((p: VideoProject) => VideoProject)) => {
     const r = resolve(next);
     if (!r || !ref.current) return;
-    past.current = [...past.current.slice(-(MAX_HISTORY - 1)), ref.current];
-    future.current = [];
-    set({ ...r, updatedAt: Date.now() });
+    const changed = r !== ref.current;
+    if (!stacks.current.commit(ref.current, r)) return;
+    if (changed) set({ ...r, updatedAt: Date.now() });
+    bump();
   }, []);
   const patch = useCallback((next: VideoProject | ((p: VideoProject) => VideoProject)) => {
     const r = resolve(next);
     if (r) set(r);
   }, []);
   const undo = useCallback(() => {
-    const prev = past.current.pop();
-    if (!prev || !ref.current) return;
-    future.current.push(ref.current);
-    set(prev);
+    if (!ref.current) return;
+    const prev = stacks.current.undo(ref.current);
+    if (prev) set(prev);
+    bump();
   }, []);
   const redo = useCallback(() => {
-    const next = future.current.pop();
-    if (!next || !ref.current) return;
-    past.current.push(ref.current);
-    set(next);
+    if (!ref.current) return;
+    const next = stacks.current.redo(ref.current);
+    if (next) set(next);
+    bump();
   }, []);
   const markSaved = useCallback(() => {
     savedRef.current = ref.current;
     bump();
   }, []);
-  return { project, load, commit, patch, mark, undo, redo, canUndo: past.current.length > 0, canRedo: future.current.length > 0, dirty: project !== savedRef.current, markSaved };
+  return { project, load, commit, patch, mark, undo, redo, canUndo: stacks.current.past.length > 0, canRedo: stacks.current.future.length > 0, dirty: project !== savedRef.current, markSaved };
 }

@@ -8,10 +8,22 @@ import { exportProject, type ExportResult } from "@/video-editor/engine/export";
 import { Player } from "@/video-editor/engine/preview";
 import { decodeAudio } from "@/video-editor/engine/audio";
 import { TEST_CODECS } from "@/video-editor/engine/capabilities";
-import type { VideoProject } from "@shared/video-project";
+import { newClip, type VideoProject } from "@shared/video-project";
+import { alignCutsToBeats, deleteClips, moveClips, splitAt } from "@shared/video-timeline";
 
 const media = new MediaStore();
 let music: AudioBuffer | null = null;
+/** Voice-over recordings by voice id (phase 2). */
+const voices = new Map<string, AudioBuffer | null>();
+
+async function setVoice(id: string, url: string): Promise<number> {
+  const b = await decodeAudio(await (await fetch(url)).arrayBuffer());
+  voices.set(id, b);
+  return b?.duration ?? 0;
+}
+
+/** The editor's own timeline operations, so the check edits a project the way the editor does. */
+const ops = { newClip, splitAt, deleteClips, moveClips, alignCutsToBeats };
 
 async function addSource(name: string, url: string): Promise<{ key: string; duration: number; width: number; height: number }> {
   const blob = await (await fetch(url)).blob();
@@ -33,7 +45,7 @@ function b64(bytes: Uint8Array): string {
 
 async function render(project: VideoProject): Promise<Omit<ExportResult, "blob" | "still"> & { mp4: string; still: string | null; ms: number }> {
   const t0 = performance.now();
-  const r = await exportProject({ project, media, music, lut: null, codecs: TEST_CODECS, onProgress: () => undefined });
+  const r = await exportProject({ project, media, music, voices, lut: null, codecs: TEST_CODECS, onProgress: () => undefined });
   const mp4 = b64(new Uint8Array(await r.blob.arrayBuffer()));
   const still = r.still ? b64(new Uint8Array(await r.still.arrayBuffer())) : null;
   return { width: r.width, height: r.height, duration: r.duration, frames: r.frames, videoCodec: r.videoCodec, colour: r.colour, sources: r.sources, mp4, still, ms: Math.round(performance.now() - t0) };
@@ -61,11 +73,29 @@ async function previewPixels(project: VideoProject, t: number, points: [number, 
   return { size, pixels };
 }
 
+/** The preview's canvas at t as a PNG data URL (to look at next to the render's frame). */
+async function previewPng(project: VideoProject, t: number): Promise<string> {
+  const canvas = document.createElement("canvas");
+  document.body.appendChild(canvas);
+  const player = new Player(canvas, media, project);
+  player.seek(t);
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    if (media.all().every((m) => !m.video.seeking) && i > 10) break;
+  }
+  player.draw();
+  await new Promise((r) => setTimeout(r, 250));
+  const url = canvas.toDataURL("image/png");
+  player.dispose();
+  canvas.remove();
+  return url;
+}
+
 /** The rotation and size a <video> element reports for a source (what a player shows). */
 function elementOf(key: string) {
   const m = media.all().find((x) => x.key === key);
   return m ? { videoWidth: m.video.videoWidth, videoHeight: m.video.videoHeight } : null;
 }
 
-Object.assign(window, { harness: { addSource, setMusic, render, previewPixels, elementOf } });
+Object.assign(window, { harness: { addSource, setMusic, setVoice, render, previewPixels, previewPng, elementOf, ops } });
 document.title = "ready";

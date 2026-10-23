@@ -1,14 +1,19 @@
 /**
  * The preview: the timeline played on a canvas at reduced size through the same compositor as the
- * export (compose.ts: framing, colour, background, text and logo layers). Each clip's hidden
- * <video> is kept near the source time the timeline asks for (the browser's own decoder does the
- * work here, and turns phone footage upright itself; WebCodecs is used by the export). Without
- * music the clip on screen is heard; with music, the music plays from the timeline time with its
- * volume and fades, as the export mixes it.
+ * export (compose.ts: framing and its keyframes, dips, colour, background, text and logo layers
+ * with their keyframes). Each clip's hidden <video> is kept near the source time the timeline asks
+ * for (the browser's own decoder does the work here, and turns phone footage upright itself;
+ * WebCodecs is used by the export).
+ *
+ * Sound, as the export mixes it (shared/video-mix.ts): each clip's own sound plays from its
+ * <video> at the level `clipGainAt` gives for the current time (its volume, 0 when muted, the
+ * crossfade and dip ramps, updated every frame); the music and the voice-overs play through
+ * `MixPreview` with the render's own gain curve (fades and ducking under speech).
  */
 import type { CubeLut } from "@shared/cube-lut";
-import { totalLength, type VideoProject } from "@shared/video-project";
-import { MusicPreview } from "./audio";
+import { placeClips, totalLength, type VideoProject } from "@shared/video-project";
+import { clipGainAt } from "@shared/video-mix";
+import { MixPreview } from "./audio";
 import { composeFrame, type Picture } from "./compose";
 import { Grader } from "./grader";
 import type { MediaStore } from "./media";
@@ -30,7 +35,7 @@ export class Player {
   private raf = 0;
   private startedAt = 0;
   private startTime = 0;
-  private music: MusicPreview | null = null;
+  private mix = new MixPreview();
   private drawing = false;
   time = 0;
   playing = false;
@@ -56,6 +61,7 @@ export class Player {
 
   setProject(p: VideoProject): void {
     const overlaysChanged = p.overlays !== this.project.overlays;
+    const soundChanged = p.music !== this.project.music || p.voices !== this.project.voices || p.clips !== this.project.clips;
     this.project = p;
     const { w, h } = previewSize(p);
     if (w !== this.grader.width || h !== this.grader.height) {
@@ -67,7 +73,7 @@ export class Player {
     if (overlaysChanged) void this.overlays.prepare(p.overlays);
     const len = totalLength(p);
     if (this.time > len) this.time = len;
-    this.music?.update(p, this.playing ? this.time : null);
+    if (soundChanged) this.mix.update(p, this.playing ? this.time : null);
   }
 
   setLut(lut: CubeLut | null): void {
@@ -75,15 +81,19 @@ export class Player {
   }
 
   setMusic(buffer: AudioBuffer | null): void {
-    this.music?.dispose();
-    this.music = buffer ? new MusicPreview(buffer) : null;
-    this.music?.setMuted(this.muted);
-    if (this.playing && this.music) this.music.start(this.project, this.time);
+    this.mix.setMusic(buffer);
+    if (this.playing) this.mix.start(this.project, this.time);
+  }
+
+  /** The voice-over recordings, by voice id. */
+  setVoices(buffers: Map<string, AudioBuffer>): void {
+    this.mix.setVoices(buffers);
+    if (this.playing) this.mix.start(this.project, this.time);
   }
 
   setMuted(m: boolean): void {
     this.muted = m;
-    this.music?.setMuted(m);
+    this.mix.setMuted(m);
   }
 
   play(): void {
@@ -92,13 +102,13 @@ export class Player {
     this.playing = true;
     this.startedAt = performance.now();
     this.startTime = this.time;
-    this.music?.start(this.project, this.time);
+    this.mix.start(this.project, this.time);
   }
 
   pause(): void {
     if (!this.playing) return;
     this.playing = false;
-    this.music?.stop();
+    this.mix.stop();
     for (const m of this.media.all()) m.video.pause();
   }
 
@@ -124,11 +134,12 @@ export class Player {
     this.onTime?.(this.time, this.playing);
   };
 
-  private keep(video: HTMLVideoElement, source: number, speed: number, audible: boolean): boolean {
+  private keep(video: HTMLVideoElement, source: number, speed: number, gain: number): boolean {
     const drift = Math.abs(video.currentTime - source);
     if (this.playing) {
       video.playbackRate = Math.min(4, Math.max(0.25, speed));
-      video.muted = !audible || this.muted;
+      video.muted = gain <= 0 || this.muted;
+      video.volume = Math.min(1, Math.max(0, gain));
       if (drift > 0.25) video.currentTime = source;
       if (video.paused) void video.play().catch(() => undefined);
     } else {
@@ -144,19 +155,18 @@ export class Player {
     this.drawing = true;
     const p = this.project;
     const used = new Set<HTMLVideoElement>();
-    let first = true;
+    const placed = placeClips(p.clips);
+    const t = this.time;
     const picture = (clipIndex: number, source: number, speed: number): Picture | null => {
       const clip = p.clips[clipIndex];
       const m = clip ? this.media.get(clip.source) : null;
       if (!m) return null;
-      const audible = first && !p.music;
-      first = false;
       // The same footage twice in a crossfade: one element, the incoming clip waits for it.
       if (used.has(m.video)) return null;
       used.add(m.video);
-      return this.keep(m.video, source, speed, audible) ? { image: m.video, width: m.width, height: m.height, rotation: 0 } : null;
+      return this.keep(m.video, source, speed, clipGainAt(p.clips, clipIndex, t, placed)) ? { image: m.video, width: m.width, height: m.height, rotation: 0 } : null;
     };
-    void composeFrame(this.grader, this.overlays, p, this.time, picture, { bypass: this.bypass })
+    void composeFrame(this.grader, this.overlays, p, t, picture, { bypass: this.bypass })
       .then(() => {
         for (const m of this.media.all()) if (!used.has(m.video) && !m.video.paused) m.video.pause();
         this.ctx.drawImage(this.grader.canvas, 0, 0, this.canvas.width, this.canvas.height);
@@ -170,7 +180,7 @@ export class Player {
   dispose(): void {
     cancelAnimationFrame(this.raf);
     this.pause();
-    this.music?.dispose();
+    this.mix.dispose();
     this.grader.dispose();
   }
 }

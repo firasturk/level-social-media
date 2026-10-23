@@ -9,7 +9,7 @@ import { isHdr, type Rotation, type SourceColour } from "@shared/video-compose";
 import { decodeAudio } from "./audio";
 import { motionEnergy } from "./energy";
 
-export const sourceKey = (s: ClipSource): string => (s.kind === "version" ? `version:${s.batch}:${s.videoId}` : `upload:${s.name}:${s.size}`);
+export const sourceKey = (s: ClipSource): string => (s.kind === "version" ? `version:${s.batch}:${s.videoId}` : s.kind === "gap" ? "gap" : `upload:${s.name}:${s.size}`);
 
 export interface Media {
   key: string;

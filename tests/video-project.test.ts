@@ -46,7 +46,7 @@ describe("validateProject", () => {
 
   it("refuses what cannot be rendered, with a plain reason", () => {
     const p = newProject("x");
-    expect(validateProject({ ...p, v: 2 })).toMatchObject({ ok: false, reason: expect.stringContaining("version") });
+    expect(validateProject({ ...p, v: 99 })).toMatchObject({ ok: false, reason: expect.stringContaining("version") });
     expect(validateProject({ ...p, clips: [clip("a", 5, { in: 4, out: 2 })] })).toMatchObject({ ok: false, reason: expect.stringContaining("in before out") });
     expect(validateProject({ ...p, clips: [clip("a", 5, { speed: 9 })] })).toMatchObject({ ok: false, reason: expect.stringContaining("speed") });
     expect(validateProject({ ...p, clips: [clip("a", 5), clip("a", 5)] })).toMatchObject({ ok: false, reason: expect.stringContaining("unique id") });
