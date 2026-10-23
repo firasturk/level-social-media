@@ -1,8 +1,14 @@
 /**
- * Sound, through Web Audio: a music file or a clip's own track decoded with `decodeAudioData`,
- * its energy envelope for the beat detector (shared/video-project's `detectBeats`), the final mix
- * rendered offline (clips' sound or the music with its fades and volume), and the AAC encoding of
- * that mix with WebCodecs' AudioEncoder for the mp4.
+ * Sound, through Web Audio: a music file, a voice-over or a clip's own track decoded with
+ * `decodeAudioData`, its energy envelope for the beat detector (shared/video-project's
+ * `detectBeats`), the final mix rendered offline, and the encoding of that mix with WebCodecs'
+ * AudioEncoder for the mp4.
+ *
+ * The mix (phase 2) is defined in shared/video-mix.ts and is the same for the render and the
+ * preview: every clip's own sound at its volume (0 when muted; fading under crossfades and dips),
+ * the music from its start to its end on the timeline with its volume, fades and ducking under
+ * speech (one gain curve, `musicGainCurve`, handed to Web Audio as it is in both places), and each
+ * voice-over at its place and volume. Music and the clips' sound are now mixed together.
  *
  * Beat detection is onset-based: the envelope is the RMS of 20 ms hops of a mono mixdown; a beat
  * is a hop that rises well above the second before it, and a steady grid is fitted to the most
@@ -10,7 +16,8 @@
  * downbeats, and a quiet, rubato or very dense track gets a rough grid (the person can switch
  * snapping off).
  */
-import { AUDIO_BITRATE, AUDIO_SAMPLE_RATE, detectBeats, placeClips, totalLength, type VideoProject } from "@shared/video-project";
+import { AUDIO_BITRATE, AUDIO_SAMPLE_RATE, clipVolume, detectBeats, musicSpan, placeClips, totalLength, type VideoProject, type VoiceClip } from "@shared/video-project";
+import { clipGainPoints, CURVE_RATE, curveFrom, musicGainCurve } from "@shared/video-mix";
 
 export const BEAT_HOP = 0.02;
 
@@ -49,50 +56,76 @@ export function beatsOf(buffer: AudioBuffer): number[] {
   return detectBeats(energyEnvelope(buffer), BEAT_HOP, { minGap: 0.25, window: 1, threshold: 1.3 });
 }
 
+/** The music's buffer source and where it plays: from timeline time `from`, when to start (seconds after `from`), where in the track, for how long. */
+function musicPlan(project: VideoProject, buffer: AudioBuffer, from: number): { delay: number; offset: number; duration: number } | null {
+  const m = project.music;
+  if (!m) return null;
+  const length = totalLength(project);
+  const span = musicSpan({ ...m, duration: m.duration ?? buffer.duration }, length);
+  if (from >= span.end || span.end <= span.start) return null;
+  const startAt = Math.max(from, span.start);
+  const offset = m.offset + (startAt - span.start);
+  if (offset >= buffer.duration) return null;
+  return { delay: startAt - from, offset, duration: Math.min(span.end - startAt, buffer.duration - offset) };
+}
+
+/** A voice-over from timeline time `from`: the delay, the second in the recording, how long. Null once it is over. */
+function voicePlan(v: VoiceClip, buffer: AudioBuffer, from: number): { delay: number; offset: number; duration: number } | null {
+  const end = v.start + (v.out - v.in);
+  if (from >= end) return null;
+  const startAt = Math.max(from, v.start);
+  const offset = v.in + (startAt - v.start);
+  const stop = Math.min(v.out, buffer.duration);
+  if (offset >= stop) return null;
+  return { delay: startAt - from, offset, duration: stop - offset };
+}
+
 /**
- * The export's sound, rendered offline at 48 kHz stereo: with music, the track from its offset
- * with its volume and fades (the clips' own sound is left out); without, each clip's own sound
- * trimmed and sped like its picture, crossfaded where the pictures are.
+ * The render's sound, offline at 48 kHz stereo: the clips' own sound (trimmed and sped like the
+ * pictures, at their volumes, faded under crossfades and dips), the music (its span, volume, fades
+ * and ducking as one curve) and the voice-overs.
  */
-export async function renderMix(project: VideoProject, clipAudio: Map<string, AudioBuffer | null>, music: AudioBuffer | null): Promise<AudioBuffer> {
+export async function renderMix(project: VideoProject, clipAudio: Map<string, AudioBuffer | null>, music: AudioBuffer | null, voices: Map<string, AudioBuffer | null> = new Map()): Promise<AudioBuffer> {
   const length = Math.max(0.1, totalLength(project));
   const ctx = new OfflineAudioContext(2, Math.ceil(length * AUDIO_SAMPLE_RATE), AUDIO_SAMPLE_RATE);
-  const m = project.music;
-  if (m && music) {
+  const placed = placeClips(project.clips);
+  placed.forEach((pl, i) => {
+    const buf = clipAudio.get(pl.clip.id);
+    if (!buf || clipVolume(pl.clip) <= 0) return;
     const src = ctx.createBufferSource();
-    src.buffer = music;
+    src.buffer = buf;
+    src.playbackRate.value = pl.clip.speed;
     const gain = ctx.createGain();
-    const v = m.volume;
-    gain.gain.setValueAtTime(m.fadeIn > 0 ? 0 : v, 0);
-    if (m.fadeIn > 0) gain.gain.linearRampToValueAtTime(v, Math.min(length, m.fadeIn));
-    if (m.fadeOut > 0) {
-      gain.gain.setValueAtTime(v, Math.max(0, length - m.fadeOut));
-      gain.gain.linearRampToValueAtTime(0, length);
-    }
+    const points = clipGainPoints(project.clips, i, placed);
+    points.forEach(([t, g], k) => (k === 0 ? gain.gain.setValueAtTime(g, t) : gain.gain.linearRampToValueAtTime(g, t)));
     src.connect(gain).connect(ctx.destination);
-    const offset = Math.min(m.offset, Math.max(0, music.duration - 0.01));
-    src.start(0, offset, Math.min(length, music.duration - offset));
-  } else {
-    const placed = placeClips(project.clips);
-    placed.forEach((pl, i) => {
-      const buf = clipAudio.get(pl.clip.id);
-      if (!buf) return;
+    const inPoint = Math.min(pl.clip.in, Math.max(0, buf.duration - 0.01));
+    src.start(pl.start, inPoint, Math.max(0.01, Math.min(pl.clip.out, buf.duration) - inPoint));
+  });
+  if (project.music && music) {
+    const plan = musicPlan(project, music, 0);
+    if (plan) {
       const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.playbackRate.value = pl.clip.speed;
+      src.buffer = music;
       const gain = ctx.createGain();
-      // Fades in under the crossfade that starts it, and out under the one that ends it.
-      gain.gain.setValueAtTime(pl.overlap > 0 ? 0 : 1, pl.start);
-      if (pl.overlap > 0) gain.gain.linearRampToValueAtTime(1, pl.start + pl.overlap);
-      const next = placed[i + 1];
-      if (next && next.overlap > 0) {
-        gain.gain.setValueAtTime(1, Math.max(pl.start, pl.end - next.overlap));
-        gain.gain.linearRampToValueAtTime(0, pl.end);
-      }
+      // Sample k of the curve is at k / CURVE_RATE seconds, exactly as in the preview.
+      const curve = musicGainCurve(project);
+      gain.gain.setValueCurveAtTime(curve, 0, (curve.length - 1) / CURVE_RATE);
       src.connect(gain).connect(ctx.destination);
-      const inPoint = Math.min(pl.clip.in, Math.max(0, buf.duration - 0.01));
-      src.start(pl.start, inPoint, Math.max(0.01, Math.min(pl.clip.out, buf.duration) - inPoint));
-    });
+      src.start(plan.delay, plan.offset, plan.duration);
+    }
+  }
+  for (const v of project.voices ?? []) {
+    const buf = voices.get(v.id);
+    if (!buf || v.volume <= 0) continue;
+    const plan = voicePlan(v, buf, 0);
+    if (!plan) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = ctx.createGain();
+    gain.gain.value = v.volume;
+    src.connect(gain).connect(ctx.destination);
+    src.start(plan.delay, plan.offset, plan.duration);
   }
   return ctx.startRendering();
 }
@@ -128,77 +161,138 @@ export async function encodeAac(buffer: AudioBuffer, onChunk: (chunk: EncodedAud
 }
 
 /**
- * Plays the music for the preview from a timeline time, with the volume and fades the export mixes
- * (renderMix above), so what is heard is what is written. A tiny player the editor starts and stops.
+ * The preview's music and voice-over, played from a timeline time with the same gain curve and the
+ * same places the render mixes (renderMix above), so what is heard is what is written. The clips'
+ * own sound plays from their <video> elements in the player (preview.ts), at the same levels.
  */
-export class MusicPreview {
+export class MixPreview {
   private ctx: AudioContext | null = null;
-  private node: AudioBufferSourceNode | null = null;
-  private gain: GainNode | null = null;
   private master: GainNode | null = null;
+  private music: AudioBuffer | null = null;
+  private voices = new Map<string, AudioBuffer>();
+  private musicNode: AudioBufferSourceNode | null = null;
+  private musicGain: GainNode | null = null;
+  private voiceNodes: { id: string; node: AudioBufferSourceNode; gain: GainNode }[] = [];
+  /** What the scheduled voices were made from: a change restarts them. */
+  private voiceKey = "";
   private muted = false;
-  constructor(private buffer: AudioBuffer) {}
-  start(project: VideoProject, timelineAt: number): void {
-    this.stop();
-    const m = project.music;
-    if (!m) return;
+
+  setMusic(buffer: AudioBuffer | null): void {
+    this.music = buffer;
+  }
+
+  setVoices(map: Map<string, AudioBuffer>): void {
+    this.voices = map;
+  }
+
+  get hasSound(): boolean {
+    return !!this.music || this.voices.size > 0;
+  }
+
+  private context(): { ctx: AudioContext; master: GainNode } {
     this.ctx ??= new AudioContext();
     if (!this.master) {
       this.master = this.ctx.createGain();
       this.master.connect(this.ctx.destination);
     }
     this.master.gain.value = this.muted ? 0 : 1;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.buffer;
-    const gain = this.ctx.createGain();
-    src.connect(gain).connect(this.master);
-    const offset = m.offset + timelineAt;
-    if (offset >= this.buffer.duration) return;
-    this.envelope(gain, project, timelineAt);
-    src.start(0, offset);
-    this.node = src;
-    this.gain = gain;
-    void this.ctx.resume();
+    return { ctx: this.ctx, master: this.master };
   }
-  /** The fades and volume from timeline time `from`, on the context's clock. */
-  private envelope(gain: GainNode, project: VideoProject, from: number): void {
-    const m = project.music;
-    if (!m || !this.ctx) return;
-    const length = Math.max(0.1, totalLength(project));
-    const now = this.ctx.currentTime;
-    const at = (t: number) => now + Math.max(0, t - from);
-    const level = (t: number) => {
-      let v = m.volume;
-      if (m.fadeIn > 0 && t < m.fadeIn) v *= Math.max(0, t / m.fadeIn);
-      if (m.fadeOut > 0 && t > length - m.fadeOut) v *= Math.max(0, (length - t) / m.fadeOut);
-      return v;
-    };
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(level(from), now);
-    if (m.fadeIn > 0 && from < m.fadeIn) gain.gain.linearRampToValueAtTime(m.volume, at(m.fadeIn));
-    if (m.fadeOut > 0) {
-      const s = Math.max(from, length - m.fadeOut);
-      gain.gain.setValueAtTime(level(s), at(s));
-      gain.gain.linearRampToValueAtTime(0, at(length));
+
+  /** Starts the music and the voices from timeline time `from`. */
+  start(project: VideoProject, from: number): void {
+    this.stop();
+    if (!this.hasSound) return;
+    const { ctx, master } = this.context();
+    const now = ctx.currentTime;
+    if (this.music && project.music) {
+      const plan = musicPlan(project, this.music, from);
+      if (plan) {
+        const src = ctx.createBufferSource();
+        src.buffer = this.music;
+        const gain = this.curveGain(ctx, project, from, now);
+        src.connect(gain).connect(master);
+        src.start(now + plan.delay, plan.offset, plan.duration);
+        this.musicNode = src;
+        this.musicGain = gain;
+      }
     }
+    this.startVoices(project, from, now);
+    void ctx.resume();
   }
-  /** The project changed while playing (a volume or fade moved): the envelope follows. */
+
+  private curveGain(ctx: AudioContext, project: VideoProject, from: number, now: number): GainNode {
+    const gain = ctx.createGain();
+    // The render's curve from this time on (to within one sample, 10 ms), at the same spacing.
+    const curve = curveFrom(musicGainCurve(project), from);
+    gain.gain.setValueCurveAtTime(curve, now, Math.max(0.02, (curve.length - 1) / CURVE_RATE));
+    return gain;
+  }
+
+  private startVoices(project: VideoProject, from: number, now: number): void {
+    const { ctx, master } = this.context();
+    for (const v of project.voices ?? []) {
+      const buf = this.voices.get(v.id);
+      if (!buf) continue;
+      const plan = voicePlan(v, buf, from);
+      if (!plan) continue;
+      const node = ctx.createBufferSource();
+      node.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.value = v.volume;
+      node.connect(gain).connect(master);
+      node.start(now + plan.delay, plan.offset, plan.duration);
+      this.voiceNodes.push({ id: v.id, node, gain });
+    }
+    this.voiceKey = voiceKeyOf(project);
+  }
+
+  /** The project changed while playing: the music's curve and the voices' volumes follow; a moved voice is rescheduled. */
   update(project: VideoProject, playingAt: number | null): void {
-    if (this.gain && playingAt !== null) this.envelope(this.gain, project, playingAt);
+    if (playingAt === null || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    if (this.musicNode && this.musicGain && this.master) {
+      // A fresh gain node with the new curve (a running curve cannot be replaced in place everywhere).
+      const gain = this.curveGain(this.ctx, project, playingAt, now);
+      gain.connect(this.master);
+      this.musicNode.disconnect();
+      this.musicNode.connect(gain);
+      this.musicGain.disconnect();
+      this.musicGain = gain;
+    }
+    if (voiceKeyOf(project) !== this.voiceKey) {
+      this.stopVoices();
+      this.startVoices(project, playingAt, now);
+    } else for (const v of this.voiceNodes) v.gain.gain.value = project.voices.find((x) => x.id === v.id)?.volume ?? 0;
   }
+
   setMuted(m: boolean): void {
     this.muted = m;
     if (this.master) this.master.gain.value = m ? 0 : 1;
   }
+
+  private stopVoices(): void {
+    for (const v of this.voiceNodes) {
+      try {
+        v.node.stop();
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.voiceNodes = [];
+  }
+
   stop(): void {
     try {
-      this.node?.stop();
+      this.musicNode?.stop();
     } catch {
       /* already stopped */
     }
-    this.node = null;
-    this.gain = null;
+    this.musicNode = null;
+    this.musicGain = null;
+    this.stopVoices();
   }
+
   dispose(): void {
     this.stop();
     void this.ctx?.close();
@@ -206,3 +300,5 @@ export class MusicPreview {
     this.master = null;
   }
 }
+
+const voiceKeyOf = (p: VideoProject): string => (p.voices ?? []).map((v) => `${v.id}:${v.start}:${v.in}:${v.out}`).join("|");

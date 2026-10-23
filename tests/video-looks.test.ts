@@ -508,6 +508,21 @@ describe("drafts saved before phase 3", () => {
     expect(again).toEqual({ ok: true, project: p });
   });
 
+  it("opens a phase-2 (version 2) draft as version 3, keeping its phase-2 fields, and chains 1 → 2 → 3", () => {
+    const v2 = { ...newProject("Phase 2 cut", 1000), v: 2, look: "punch", clips: [{ ...clip("a", 5), muted: true, volume: 0.5 }], voices: [{ id: "vo", source: { kind: "audioKey", key: "k", name: "VO" }, name: "VO", start: 1, in: 0, out: 2, duration: 3, volume: 0.8 }] } as Record<string, unknown>;
+    delete v2.lookAmount;
+    delete v2.protectSkin;
+    const r = validateProject(v2);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.project).toMatchObject({ v: 3, look: "punch", lookAmount: 1, protectSkin: false, voices: [{ id: "vo", volume: 0.8 }] });
+    expect(r.project.clips[0]).toMatchObject({ muted: true, volume: 0.5 });
+    expect(resolveGrade(r.project, r.project.clips[0]).params).toEqual(addParams(lookOf("punch").params));
+    // Version 1 goes through phase 2's step (its clips muted under the music) and then phase 3's.
+    const one = validateProject(v1);
+    expect(one.ok && one.project).toMatchObject({ v: 3, lookAmount: 1, clips: [{ muted: true }, { muted: true }], voices: [] });
+  });
+
   it("draws a phase-1 document handed straight to the engine (no lookAmount, no protectSkin) like phase 1", () => {
     const raw = { ...v1, v: 1 } as unknown as VideoProject;
     expect(resolveGrade(raw, raw.clips[1]).params).toEqual(addParams(lookOf("warm").params, v1.colour));

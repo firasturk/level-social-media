@@ -23,7 +23,9 @@ import { saveBlob } from "@/lib/zip";
 import { Orb } from "@/components/Orb";
 import type { Approval } from "@shared/config";
 import { parseCube, serialiseCube, type CubeLut } from "@shared/cube-lut";
-import { moveClip, musicFileUrl, musicSourceFromTrack, newClip, newProject, placeClips, planAutoEdit, snapCutsToBeats, splitClip, timelineBeats, totalLength, validateProject, type AutoStyle, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { cutTimes, DEFAULT_DUCKING, musicFileUrl, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { alignCutsToBeats, clickSelect, deleteClips, formatTimecode, moveClips, splitAt, stepFrames } from "@shared/video-timeline";
+import { planFirstCut, type FirstCutInput, type Pace, type Purpose } from "@shared/video-autoedit";
 import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
 import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
@@ -36,7 +38,10 @@ import { Player } from "../engine/preview";
 import { exportProject, overallProgress, type ExportProgress } from "../engine/export";
 import { useHistory } from "./history";
 import Timeline from "./Timeline";
-import { AutoEditPanel, ClipsPanel, ExportPanel, LogoPanel, MusicPanel, TextPanel, type PanelCtx } from "./Panels";
+import { ClipsPanel, ExportPanel, LogoPanel, MusicPanel, TextPanel, type PanelCtx } from "./Panels";
+import { AutoEditPanel } from "./AutoEditPanel";
+import { VoicePanel } from "./MusicMix";
+import { AUTOSAVE_MS, clearDraft, draftKey, draftTime, readDraft, recoveryOffer, setDraftAside, writeDraft } from "./autosave";
 import { ColourPanel } from "./ColourPanel";
 import type { MusicPick } from "./MusicLibrary";
 import type { LooksCtx, RefPicture } from "./looks-ctx";
@@ -119,8 +124,6 @@ const testCodecs = () => {
   }
 };
 
-const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-
 const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; paid?: boolean }[] = [
   { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; running one is admins only)" },
   { id: "generate", label: "Generate", icon: <Sparkles size={18} />, title: "Generate: a clip from this post's picture (Higgsfield or Magnific; the cost is said first)", paid: true },
@@ -149,7 +152,15 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const [sources, setSources] = useState<Media[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  /** The selected clips (shift / cmd clicks on the timeline); the last one is the one the panels show. */
+  const [selection, setSelection] = useState<string[]>([]);
+  const selected = selection.length ? selection[selection.length - 1] : null;
+  const [snapping, setSnapping] = useState(true);
+  const [autoNotes, setAutoNotes] = useState<string[]>([]);
+  /** The voice-over recordings' sound, by voice id (the project keeps where they are, the tab keeps the sound). */
+  const [voiceBuffers, setVoiceBuffers] = useState<Map<string, AudioBuffer>>(() => new Map());
+  const [voiceBusy, setVoiceBusy] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState<string | null>(null);
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [tab, setTab] = useState<Tab>("clips");
@@ -203,6 +214,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
 
   /* ───────────── Loading: capabilities, the post's versions, the project ───────────── */
   const labelOf = useCallback((clip: Clip): string => {
+    if (clip.source.kind === "gap") return "Gap";
     const m = mediaRef.current.get(clip.source);
     if (m) return m.label;
     return clip.source.kind === "version" ? "Version" : clip.source.name;
@@ -249,6 +261,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         let doc: VideoProject | null = null;
         let vids: VideoItem[] = [];
         let latestId: string | null = null;
+        let canWrite = false;
+        let serverUpdatedAt = 0;
         if (post) {
           setLoading("Reading the post's versions…");
           const [list, projects] = await Promise.all([listVideos(post.batch, post.index), listProjects(post.batch, post.index)]);
@@ -258,6 +272,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           setVideosLoaded(true);
           vids = list.videos.filter((v) => v.status === "done" && v.url);
           setAccess(projects.access);
+          canWrite = projects.access.admin && projects.access.enabled;
           // The stage shows the version asked for, else the client's, else the newest finished clip; a post with no clip opens on Presets.
           const start = vids.find((v) => v.id === initialVideoId) ?? vids.find((v) => v.forClient) ?? vids[0] ?? null;
           setShownId(start?.id ?? null);
@@ -281,6 +296,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
             doc = r.document;
             setProjectId(r.project.id);
             setRev(r.project.rev);
+            serverUpdatedAt = r.project.updated;
             void listRenders(r.project.id)
               .then((x) => alive && setRenders(x.renders))
               .catch(() => undefined);
@@ -317,11 +333,45 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
               console.warn("[video-editor] music", (e as Error).message);
             }
           }
+          // The voice-overs kept with the post, read back the same way.
+          const voiceMap = new Map<string, AudioBuffer>();
+          for (const v of doc.voices ?? []) {
+            const vt = v.source.kind === "audioKey" ? audio?.tracks.find((t) => t.id === (v.source as { key: string }).key) : null;
+            if (!vt?.url) continue;
+            try {
+              const buffer = await decodeAudio(await (await fetch(vt.url, { credentials: "same-origin" })).arrayBuffer());
+              if (buffer) voiceMap.set(v.id, buffer);
+            } catch (e) {
+              console.warn("[video-editor] voice-over", (e as Error).message);
+            }
+          }
+          if (alive && voiceMap.size) setVoiceBuffers(voiceMap);
         } else {
           doc = newProject("New cut");
         }
         if (!alive) return;
         history.load(doc);
+        // An autosaved copy newer than the server's draft: ask before using it; the server's draft is never touched without Save.
+        if (post && canWrite) {
+          const key = draftKey(post, latestId);
+          const local = readDraft(key);
+          const server = latestId ? { id: latestId, rev: doc.rev, updated: serverUpdatedAt, document: doc } : null;
+          const offer = recoveryOffer(local, server);
+          if (local && offer.offer) {
+            const ok = await askConfirm(
+              `Recover unsaved changes from ${draftTime(local.savedAt)}? They were kept in this browser and never saved to the studio.${offer.stale ? ` The draft has been saved again since (now save ${doc.rev}); recovering and then saving would replace that save.` : ""}`,
+              { ok: "Recover", danger: false, cancel: "Keep the saved draft" },
+            );
+            if (!alive) return;
+            if (ok) {
+              const checked = validateProject({ ...local.project, rev: doc.rev });
+              if (checked.ok) {
+                history.commit(checked.project);
+                toast.message("Unsaved changes recovered: Save draft to keep them.");
+              } else toast.error(`The kept copy cannot be opened: ${checked.reason}`);
+            } else setDraftAside(key);
+          } else if (local && !offer.offer && latestId) clearDraft(key);
+        }
         // A cut not saved yet (left for the Photo or Text studio) comes back on top of the saved one: undo goes back to it.
         const kept = post ? getSession(post.batch, post.index)?.video : null;
         if (post && kept) {
@@ -373,6 +423,21 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     if (getSession(pb, pi)?.videoId !== shownId) patchSession(pb, pi, { videoId: shownId });
   }, [open, pb, pi, ready, shownId]);
 
+  /* ───────────── Autosave: a local copy of unsaved changes every few seconds (never sent without Save) ───────────── */
+  const lastWritten = useRef<VideoProject | null>(null);
+  const autosaveRef = useRef({ pb, pi, projectId, rev, dirty });
+  autosaveRef.current = { pb, pi, projectId, rev, dirty };
+  useEffect(() => {
+    if (!open || !pb || !ready || readOnly) return;
+    const t = setInterval(() => {
+      const a = autosaveRef.current;
+      const p = projectRef.current;
+      if (!a.pb || !a.dirty || !p || p === lastWritten.current) return;
+      if (writeDraft({ key: draftKey({ batch: a.pb, index: a.pi }, a.projectId), projectId: a.projectId, rev: a.rev, savedAt: Date.now(), project: p })) lastWritten.current = p;
+    }, AUTOSAVE_MS);
+    return () => clearInterval(t);
+  }, [open, pb, ready, readOnly]);
+
   // While a clip is being made, the versions are read again every few seconds (the server reconnects to the job).
   const pending = videos.some(inFlight);
   useEffect(() => {
@@ -417,6 +482,9 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   useEffect(() => {
     playerRef.current?.setMusic(musicFile?.buffer ?? null);
   }, [musicFile]);
+  useEffect(() => {
+    playerRef.current?.setVoices(voiceBuffers);
+  }, [voiceBuffers]);
   useEffect(() => {
     if (playerRef.current) playerRef.current.bypass = bypass;
   }, [bypass]);
@@ -482,49 +550,92 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     const p = projectRef.current;
     if (!p) return;
     const t = playerRef.current?.time ?? time;
-    const pl = placeClips(p.clips).find((x) => t > x.start && t < x.end && (!selected || x.clip.id === selected));
-    if (!pl) return toast.message("Put the playhead inside a clip to split it.");
-    const parts = splitClip(pl.clip, t - pl.start);
-    if (!parts) return toast.message("Too close to the clip's edge to split.");
-    history.commit((q) => ({ ...q, clips: q.clips.flatMap((c) => (c.id === pl.clip.id ? parts : [c])) }));
-    setSelected(parts[1].id);
+    const under = placeClips(p.clips).some((x) => t > x.start && t < x.end);
+    if (!under) return toast.message("Put the playhead inside a clip to split it.");
+    // The selected clip under the playhead, else whichever clip is under it.
+    const r = splitAt(p.clips, t, selection.filter((id) => placeClips(p.clips).some((x) => x.clip.id === id && t > x.start && t < x.end)));
+    if (!r) return toast.message("Too close to the clip's edge to split.");
+    const speech = p.clips.find((c) => c.speech && !r.clips.some((x) => x.id === c.id && x.out === c.out));
+    history.commit((q) => ({ ...q, clips: r.clips }));
+    setSelection(r.right);
+    if (speech) toast.message("This clip has speech: the split may cut a word in two.");
   };
-  const remove = () => {
-    if (!selected) return;
-    history.commit((p) => ({ ...p, clips: p.clips.filter((c) => c.id !== selected) }));
-    setSelected(null);
+  /** Deletes the selected clips: closing the gap (ripple: what follows moves left with its text and voice-over) or leaving it. */
+  const remove = (ripple = true) => {
+    if (!selection.length) return;
+    history.commit((p) => deleteClips(p, selection, ripple));
+    setSelection([]);
   };
   const move = (dir: -1 | 1) => {
-    if (!selected) return;
+    if (!selection.length) return;
     history.commit((p) => {
-      const i = p.clips.findIndex((c) => c.id === selected);
-      return i < 0 ? p : { ...p, clips: moveClip(p.clips, i, i + dir) };
+      const idx = p.clips.map((c, i) => (selection.includes(c.id) ? i : -1)).filter((i) => i >= 0);
+      if (!idx.length) return p;
+      const to = dir < 0 ? Math.max(0, idx[0] - 1) : Math.min(p.clips.length, idx[idx.length - 1] + 2);
+      return { ...p, clips: moveClips(p.clips, selection, to) };
     });
   };
+  const toggleLock = () => {
+    if (!selection.length) return;
+    history.commit((p) => {
+      const chosen = p.clips.filter((c) => selection.includes(c.id));
+      const lock = !chosen.every((c) => c.locked);
+      return { ...p, clips: p.clips.map((c) => (selection.includes(c.id) ? { ...c, locked: lock || undefined } : c)) };
+    });
+  };
+  const clipClick = (id: string, mods: { shift: boolean; toggle: boolean }) => {
+    const p = projectRef.current;
+    if (!p) return;
+    setSelection((s) => clickSelect(s, id, mods, p.clips.map((c) => c.id)));
+    setSelectedOverlay(null);
+    setSelectedVoice(null);
+    if (!mods.shift && !mods.toggle) setTab("clips");
+  };
+  const alignBeats = () => {
+    const p = projectRef.current;
+    if (!p) return;
+    const grid = timelineBeats(p.music, totalLength(p));
+    const r = alignCutsToBeats(p.clips, grid);
+    if (!r.moved) return toast.message(r.kept ? "No cut could move: the ones near a beat touch a locked clip or speech, or have no footage to give." : "Every cut is already on a beat or too far from one (a quarter second).");
+    history.commit((q) => ({ ...q, clips: r.clips }));
+    toast.success(`${r.moved} cut${r.moved === 1 ? "" : "s"} moved onto the beat${r.kept ? `; ${r.kept} left where ${r.kept === 1 ? "it was" : "they were"} (locked or speech)` : ""}.`);
+  };
 
-  const runAuto = async (target: number, style: AutoStyle) => {
+  /**
+   * Auto edit: the footage's motion measured, then a first cut for the purpose, length and pace
+   * (shared/video-autoedit.ts), on the music's beats when there is music. Locked clips stay at
+   * their place; the source seconds of clips marked "has speech" come back whole.
+   */
+  const runAuto = async (opts: { purpose: Purpose; pace: Pace; target: number }) => {
     const media = mediaRef.current.all();
     if (!media.length) return;
     try {
-      const inputs = [];
+      const p0 = projectRef.current!;
+      const inputs: FirstCutInput[] = [];
       for (const [i, m] of media.entries()) {
         setAutoBusy(`Measuring motion in ${m.label} (${i + 1}/${media.length})…`);
         const energy = await mediaRef.current.energy(m).catch(() => new Float32Array(0));
-        inputs.push({ id: m.key.replace(/[^a-z0-9]/gi, "").slice(-12) || `s${i}`, source: m.source, duration: m.duration, energy, step: 0.5 });
+        const speech = p0.clips.filter((c) => c.speech && c.source.kind !== "gap" && mediaRef.current.get(c.source)?.key === m.key).map((c) => ({ in: c.in, out: c.out }));
+        inputs.push({ id: `s${i}`, source: m.source, duration: m.duration, energy, step: 0.5, ...(speech.length ? { speech } : {}) });
       }
       setAutoBusy("Building the cut…");
       const p = projectRef.current!;
-      const grid = timelineBeats(p.music, target + 5);
-      let clips = planAutoEdit(inputs, { target, style, beats: grid.length ? grid : undefined });
-      if (p.snapToBeats && grid.length) clips = snapCutsToBeats(clips, grid);
+      const grid = timelineBeats(p.music, Math.max(opts.target, totalLength(p)) + 5);
+      const locked = placeClips(p.clips)
+        .filter((pl) => pl.clip.locked)
+        .map((pl) => ({ clip: pl.clip, start: pl.start }));
+      const plan = planFirstCut(inputs, { ...opts, beats: grid.length ? grid : undefined, locked });
+      // Fresh ids for the new shots; locked clips keep theirs.
+      const clips = plan.clips.map((c) => (c.locked ? c : { ...c, id: newClipId() }));
       if (!clips.length) {
         toast.error("Nothing could be cut from this footage.");
         return;
       }
-      history.commit((q) => ({ ...q, clips, look: q.look === "none" ? (style === "energetic" ? "punch" : "clean") : q.look }));
-      setSelected(null);
+      history.commit((q) => ({ ...q, clips, look: q.look === "none" ? plan.look : q.look }));
+      setAutoNotes(plan.notes);
+      setSelection([]);
       seek(0);
-      toast.success(`A ${style} cut of ${clips.length} shots, ${totalLength({ clips }).toFixed(1)} s.`);
+      toast.success(`A first cut of ${clips.length} shots, ${totalLength({ clips }).toFixed(1)} s.`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -557,7 +668,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         }
       }
       setMusicFile({ name: source.kind === "audioKey" ? (source.name ?? name) : file.name, buffer, beats: found });
-      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found, start: p.music?.start ?? 0, ...(p.music?.end !== undefined ? { end: p.music.end } : {}), duck: p.music?.duck ?? { ...DEFAULT_DUCKING } } }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -573,7 +684,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       if (!buffer) throw new Error(`${track.name} could not be decoded as audio.`);
       const found = beatsOf(buffer);
       setMusicFile({ name: track.name, buffer, beats: found });
-      history.commit((p) => ({ ...p, music: { source: { kind: "audioKey", key: track.id, name: track.name }, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+      history.commit((p) => ({ ...p, music: { source: { kind: "audioKey", key: track.id, name: track.name }, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found, start: p.music?.start ?? 0, ...(p.music?.end !== undefined ? { end: p.music.end } : {}), duck: p.music?.duck ?? { ...DEFAULT_DUCKING } } }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -594,13 +705,49 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       const found = beatsOf(buffer);
       const source = musicSourceFromTrack(pick.track);
       setMusicFile({ name: pick.track.title, buffer, beats: found });
-      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found, start: p.music?.start ?? 0, ...(p.music?.end !== undefined ? { end: p.music.end } : {}), duck: p.music?.duck ?? { ...DEFAULT_DUCKING } } }));
       if (source.kind !== "audioKey" && source.kind !== "upload" && source.rights.attributionRequired) toast.message("This track's licence asks for credit: copy the credit line under Music into the post's caption.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setMusicBusy("");
     }
+  };
+  /**
+   * A voice-over at the playhead on the Voice lane. With a post open (admins) the recording is kept
+   * with the post's audio (so the saved draft reopens with it), otherwise it lives in this tab.
+   */
+  const addVoice = async (file: File) => {
+    try {
+      setVoiceBusy(`Reading ${file.name}…`);
+      const buffer = await decodeAudio(await file.arrayBuffer());
+      if (!buffer) throw new Error(`${file.name} could not be decoded as audio.`);
+      const name = file.name.replace(/\.[a-z0-9]+$/i, "");
+      let source: NonNullable<VideoProject["music"]>["source"] = { kind: "upload", name: file.name, size: file.size };
+      if (post && !readOnly) {
+        setVoiceBusy(`Keeping ${file.name} with the post…`);
+        try {
+          const r = await uploadAudio(post.batch, post.index, file, { name: `${name} (voice-over)`, license: "Voice-over recording", durationMs: Math.round(buffer.duration * 1000) });
+          setTracks(r.tracks);
+          source = { kind: "audioKey", key: r.track.id, name: r.track.name };
+        } catch (e) {
+          toast.message(`The voice-over plays in this tab only: ${(e as Error).message}`);
+        }
+      }
+      const id = `v${Math.random().toString(36).slice(2, 10)}`;
+      const at = Math.max(0, Math.min(playerRef.current?.time ?? time, Math.max(0, (projectRef.current ? totalLength(projectRef.current) : 0) - 0.25)));
+      setVoiceBuffers((m) => new Map(m).set(id, buffer));
+      history.commit((p) => ({ ...p, voices: [...p.voices, { id, source, name, start: at, in: 0, out: buffer.duration, duration: buffer.duration, volume: 1 }] }));
+      setSelectedVoice(id);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setVoiceBusy("");
+    }
+  };
+  const removeVoice = (id: string) => {
+    history.commit((p) => ({ ...p, voices: p.voices.filter((v) => v.id !== id) }));
+    setSelectedVoice(null);
   };
 
   /* ───────────── Frame, framing, text and logo layers ───────────── */
@@ -653,13 +800,6 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     setMusicFile(null);
     history.commit((p) => ({ ...p, music: null, snapToBeats: false }));
   };
-  const snap = () => {
-    history.commit((p) => {
-      const grid = timelineBeats(p.music, totalLength(p) + 5);
-      const on = !p.snapToBeats;
-      return { ...p, snapToBeats: on, clips: on && grid.length ? snapCutsToBeats(p.clips, grid) : p.clips };
-    });
-  };
 
   const pickLut = async (file: File) => {
     const r = parseCube(await file.text());
@@ -700,6 +840,10 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       }
       setRev(saved.rev);
       history.markSaved();
+      // Saved to the studio: the local copies are no longer needed.
+      clearDraft(draftKey(post, saved.id));
+      clearDraft(draftKey(post, null));
+      lastWritten.current = p;
       if (!opts.quiet) toast.success("Draft saved.");
       return saved;
     } catch (e) {
@@ -733,6 +877,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     if (!check.ok) return setExportError(check.reason);
     if (p.music && !musicFile) return setExportError("The music is not loaded in this tab: pick the track again under Music before rendering.");
     if (p.lut && !p.lut.data && !lut) return setExportError("Load the LUT file again before rendering: this draft was saved before LUT tables were kept with it.");
+    const lostVoice = p.voices.find((v) => !voiceBuffers.has(v.id));
+    if (lostVoice) return setExportError(`The voice-over “${lostVoice.name}” is not loaded in this tab: add it again under Music (Voice-over) or remove it before rendering.`);
     playerRef.current?.pause();
     setExportError(null);
     setExportResult(null);
@@ -742,7 +888,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     if (!post || readOnly) {
       try {
         setRunning({ id: null, progress: 0 });
-        const r = await exportProject({ project: p, media: mediaRef.current, music: musicFile?.buffer ?? null, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
+        const r = await exportProject({ project: p, media: mediaRef.current, music: musicFile?.buffer ?? null, voices: voiceBuffers, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
           setProgress(x);
           setRunning({ id: null, progress: overallProgress(x) });
         } });
@@ -770,7 +916,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       setRunning({ id: job.id, progress: 0 });
       const jobId = job.id;
       // 3. The frames, rendered here; the job hears how far it is every two seconds.
-      const result = await exportProject({ project: started.document, media: mediaRef.current, music: musicFile?.buffer ?? null, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
+      const result = await exportProject({ project: started.document, media: mediaRef.current, music: musicFile?.buffer ?? null, voices: voiceBuffers, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
         setProgress(x);
         const f = overallProgress(x) * 0.95;
         setRunning({ id: jobId, progress: f });
@@ -902,10 +1048,26 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       if (e.key === " ") {
         e.preventDefault();
         togglePlay();
-      } else if (e.key === "s" && !readOnly) split();
-      else if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) remove();
-      else if (e.key === "ArrowLeft") seek((playerRef.current?.time ?? 0) - (e.shiftKey ? 1 : 1 / 30));
-      else if (e.key === "ArrowRight") seek((playerRef.current?.time ?? 0) + (e.shiftKey ? 1 : 1 / 30));
+      } else if (e.key === "s" && !mod && !readOnly) split();
+      // Delete closes the gap (ripple); Shift + Delete leaves it.
+      else if ((e.key === "Delete" || e.key === "Backspace") && !readOnly) remove(!e.shiftKey);
+      else if (e.key === "l" && !mod && !readOnly) toggleLock();
+      else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        const p = projectRef.current;
+        const len = p ? totalLength(p) : 0;
+        const now = playerRef.current?.time ?? 0;
+        const dir = e.key === "ArrowLeft" ? -1 : 1;
+        seek(e.shiftKey ? Math.min(len, Math.max(0, now + dir)) : stepFrames(now, dir, len));
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && projectRef.current) {
+        // The previous or next cut.
+        e.preventDefault();
+        const p = projectRef.current;
+        const now = playerRef.current?.time ?? 0;
+        const marks = [0, ...cutTimes(p.clips), totalLength(p)];
+        const to = e.key === "ArrowUp" ? [...marks].reverse().find((t) => t < now - 1e-3) : marks.find((t) => t > now + 1e-3);
+        if (to !== undefined) seek(to);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -951,8 +1113,12 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         onSplit: split,
         onDelete: remove,
         onMove: move,
-        auto: { busy: autoBusy, run: runAuto },
-        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, snap, tracks, choose: chooseTrack, keeps: !!post && !readOnly },
+        selection,
+        onToggleLock: toggleLock,
+        seek,
+        auto: { busy: autoBusy, run: runAuto, notes: autoNotes },
+        voice: { busy: voiceBusy, add: addVoice, remove: removeVoice, selected: selectedVoice, select: setSelectedVoice, loaded: (id) => voiceBuffers.has(id) },
+        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, tracks, choose: chooseTrack, keeps: !!post && !readOnly, align: alignBeats },
         colour: { lutName: lut?.name ?? null, pickLut, clearLut, bypass, setBypass },
         exporting: { progress, result: exportResult, error: exportError, run: runExport, stop: () => abortRef.current?.abort(), canExport: !!caps?.canExport, capsMessage: caps?.message ?? "", standalone, running: !!running, renders, chip: chip?.text ?? "", sendForReview, videoLabel: (id) => { const v = videos.find((x) => x.id === id); return v ? versionLabel(v) : "the new version"; }, clientId: videos.find((v) => v.forClient)?.id ?? null },
         layers: { selected: selectedOverlay, select: setSelectedOverlay, addText, addLogo, patch: patchOverlay, remove: removeOverlay, logoUrl: logoUrl ?? null },
@@ -961,7 +1127,12 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       }
     : null;
 
-  const editBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "text" ? <TextPanel ctx={ctx} /> : tab === "logo" ? <LogoPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? <MusicPanel ctx={ctx} /> : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
+  const editBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "text" ? <TextPanel ctx={ctx} /> : tab === "logo" ? <LogoPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? (
+      <>
+        <MusicPanel ctx={ctx} />
+        <VoicePanel ctx={ctx} />
+      </>
+    ) : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
   const sideBody = !post || editing ? (
     <>
       <div className="ts-tabs vs-tabs">
@@ -1135,8 +1306,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                 <button type="button" className="ts-icon" onClick={togglePlay} disabled={!project?.clips.length} title={playing ? "Pause (space)" : "Play (space)"} aria-label={playing ? "Pause" : "Play"}>
                   {playing ? <Pause size={16} /> : <Play size={16} />}
                 </button>
-                <span className="ve-time" aria-label="Time">
-                  {clock(time)} <small>/ {clock(length)}</small>
+                <span className="ve-time" aria-label="Time (minutes:seconds:frames at 30 fps)">
+                  {formatTimecode(time)} <small>/ {formatTimecode(length)}</small>
                 </span>
                 <input className="ve-scrub" type="range" min={0} max={Math.max(0.01, length)} step={1 / 30} value={Math.min(time, length)} onChange={(e) => seek(Number(e.target.value))} aria-label="Scrub" disabled={!project?.clips.length} />
                 {selectedClip && <span className="ve-selected">{labelOf(selectedClip)}</span>}
@@ -1155,22 +1326,40 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                   project={project}
                   time={time}
                   beats={beats}
-                  selected={selected}
+                  selection={selection}
                   readOnly={readOnly}
-                  onSelect={setSelected}
+                  snapping={snapping}
+                  setSnapping={setSnapping}
+                  onClipClick={clipClick}
+                  onClearSelection={() => setSelection([])}
                   onSeek={seek}
-                  onTrimStart={history.mark}
-                  onTrim={(id, patch) => history.patch((p) => ({ ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))}
-                  onTrimEnd={() => history.commit((p) => p)}
+                  mark={history.mark}
+                  patch={history.patch}
+                  commit={history.commit}
+                  onSplit={split}
+                  onDelete={remove}
+                  onToggleLock={toggleLock}
                   labelOf={labelOf}
                   selectedOverlay={selectedOverlay}
+                  selectedVoice={selectedVoice}
                   onSelectOverlay={(id) => {
                     setSelectedOverlay(id);
+                    setSelectedVoice(null);
                     const o = project.overlays.find((x) => x.id === id);
                     if (o) {
                       setTab(o.kind === "text" ? "text" : "logo");
                       setPanelOpen(true);
                     }
+                  }}
+                  onSelectVoice={(id) => {
+                    setSelectedVoice(id);
+                    setSelectedOverlay(null);
+                    setTab("music");
+                    setPanelOpen(true);
+                  }}
+                  onSelectMusic={() => {
+                    setTab("music");
+                    setPanelOpen(true);
                   }}
                   musicName={musicFile?.name ?? (project.music ? (project.music.source.kind === "upload" ? project.music.source.name : (project.music.source.name ?? "Track")) : null)}
                 />

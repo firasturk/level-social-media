@@ -68,6 +68,8 @@ uniform Grade gA;
 uniform Grade gB;
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+uniform vec3 dipColor;
+uniform float dipAmount;
 
 // A display UV (top-left) to the coded picture's UV, for a clockwise display rotation.
 vec2 coded(vec2 s, int rot) {
@@ -179,6 +181,8 @@ void main() {
   vec2 top = vec2(uv.x, 1.0 - uv.y);
   vec3 c = hasA == 1 ? layer(texA, placeA, rotA, top, gA) : bg;
   if (hasB == 1) c = mix(c, layer(texB, placeB, rotB, top, gB), mixAB);
+  // A dip to black or white covers the footage (and its background), never the text and logos.
+  c = mix(c, dipColor, dipAmount);
   if (hasO == 1) {
     vec4 o = texture(texO, top);
     c = mix(c, o.rgb, o.a);
@@ -258,6 +262,8 @@ export interface GradeOptions {
   background?: string;
   /** The text and logo layer (a canvas the size of the output, transparent where empty). */
   overlay?: TexImageSource | null;
+  /** A dip to black or white: the colour and how much of it covers the footage (0 … 1). */
+  dip?: { colour: "black" | "white"; amount: number } | null;
 }
 
 function link(gl: WebGL2RenderingContext, vert: string, frag: string): WebGLProgram {
@@ -322,7 +328,7 @@ export class Grader {
     this.texA = this.texture();
     this.texB = this.texture();
     this.texO = this.texture();
-    const names = ["texA", "texB", "texO", "lut", "placeA", "placeB", "rotA", "rotB", "mixAB", "hasA", "hasB", "hasO", "bg", "lutStrength", "lutSize", "hasLut", "bypass", "splitX", "outW"];
+    const names = ["texA", "texB", "texO", "lut", "placeA", "placeB", "rotA", "rotB", "mixAB", "hasA", "hasB", "hasO", "bg", "lutStrength", "lutSize", "hasLut", "bypass", "splitX", "outW", "dipColor", "dipAmount"];
     for (const g of ["gA", "gB"]) for (const f of [...GRADE_FIELDS, "mScale", "mOffset", "mAmount", "protect"]) names.push(`${g}.${f}`);
     for (const name of names) this.uniforms.set(name, gl.getUniformLocation(this.program, name));
     gl.uniform1i(this.uniforms.get("texA")!, 0);
@@ -430,6 +436,9 @@ export class Grader {
     gl.uniform1i(u("bypass"), opts.bypass ? 1 : 0);
     gl.uniform1f(u("splitX"), typeof opts.split === "number" ? Math.min(1, Math.max(0, opts.split)) : -1);
     gl.uniform1f(u("outW"), this.width);
+    const dipV = opts.dip?.colour === "white" ? 1 : 0;
+    gl.uniform3f(u("dipColor"), dipV, dipV, dipV);
+    gl.uniform1f(u("dipAmount"), Math.max(0, Math.min(1, opts.dip?.amount ?? 0)));
     if (this.lutTex) {
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, this.lutTex);

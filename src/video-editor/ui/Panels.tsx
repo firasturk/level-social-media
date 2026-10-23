@@ -6,13 +6,17 @@
  * (TemplatesGallery.tsx) and the music source (MusicSourcePanel.tsx) are phase 3's own files.
  */
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Music, Plus, RotateCcw, Scissors, Send, Sparkles, Trash2, Type, Upload, Wand2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Lock, Music, Plus, RotateCcw, Scissors, Send, Trash2, Type, Unlock, Upload } from "lucide-react";
 import { Orb } from "@/components/Orb";
-import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, MAX_TIMELINE_SECONDS, totalLength, type AutoStyle, type Clip, type VideoProject } from "@shared/video-project";
+import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, isGap, placeClips, totalLength, TRANSITIONS, type Clip, type VideoProject } from "@shared/video-project";
 import type { LooksCtx } from "./looks-ctx";
 import TemplatesGallery from "./TemplatesGallery";
 import MusicSourcePanel from "./MusicSourcePanel";
 import { DEFAULT_FRAMING, MAX_LOGO_DATA_URL, MAX_ZOOM, textDirection, type Framing, type LogoOverlay, type Overlay, type TextOverlay } from "@shared/video-compose";
+import type { Pace, Purpose } from "@shared/video-autoedit";
+import type { Keyframes } from "@shared/video-keyframes";
+import KeyframeControls, { isAnimated } from "./KeyframeControls";
+import { MusicMixControls, type VoiceCtx } from "./MusicMix";
 import { frameLabel, FRAMES, type FrameId } from "@shared/video-frame";
 import type { AudioTrack } from "@/studio/videoApi";
 import { metaLine, type Media } from "../engine/media";
@@ -35,9 +39,17 @@ export interface PanelCtx {
   onAddFootage: (files: FileList) => Promise<void>;
   footageBusy: string;
   onSplit: () => void;
-  onDelete: () => void;
+  /** Deletes the selected clips: closing the gap (ripple) or leaving it. */
+  onDelete: (ripple?: boolean) => void;
   onMove: (dir: -1 | 1) => void;
-  auto: { busy: string; run: (target: number, style: AutoStyle) => Promise<void> };
+  /** The selected clips (several with shift or cmd clicks). */
+  selection: string[];
+  onToggleLock: () => void;
+  /** Moves the playhead (timeline seconds). */
+  seek: (t: number) => void;
+  auto: { busy: string; run: (opts: { purpose: Purpose; pace: Pace; target: number }) => Promise<void>; notes: string[] };
+  /** The voice-over lane. */
+  voice: VoiceCtx;
   music: {
     name: string | null;
     duration: number;
@@ -45,12 +57,13 @@ export interface PanelCtx {
     busy: string;
     pick: (file: File, license?: string) => Promise<void>;
     remove: () => void;
-    snap: () => void;
     /** The post's licensed tracks. */
     tracks: AudioTrack[];
     choose: (t: AudioTrack) => Promise<void>;
     /** A picked track is kept with the post (a post is open and the person may). */
     keeps: boolean;
+    /** "Align cuts to beats": every cut near a beat moved onto it (locked clips and speech untouched). */
+    align: () => void;
   };
   colour: { lutName: string | null; pickLut: (file: File) => Promise<void>; clearLut: () => void; bypass: boolean; setBypass: (b: boolean) => void };
   exporting: {
@@ -123,14 +136,47 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
       {!ctx.exporting.standalone && !ctx.readOnly && <p className="ts-hint">Footage you add is kept with the post as an uploaded version, so this cut can be reopened later.</p>}
       {ctx.exporting.standalone && <p className="ts-hint">With no post open, footage stays in this tab only; the export is saved as a file.</p>}
 
-      <span className="ts-group-title">Selected clip</span>
+      <span className="ts-group-title">{ctx.selection.length > 1 ? `${ctx.selection.length} clips selected` : "Selected clip"}</span>
+      {ctx.selection.length > 1 && (
+        <fieldset className="ve-fields" disabled={ctx.readOnly}>
+          <p className="ts-hint">Drag them together on the timeline, or delete, lock, mute them at once. The settings below are the last one's ({c ? ctx.labelOf(c) : ""}).</p>
+          <div className="ve-actions">
+            <button type="button" className="ts-mini" onClick={ctx.onToggleLock}>
+              <Lock size={12} /> Lock / unlock
+            </button>
+            <button type="button" className="ts-mini" onClick={() => ctx.commit((p) => ({ ...p, clips: p.clips.map((x) => (ctx.selection.includes(x.id) ? { ...x, muted: !x.muted || undefined } : x)) }))}>
+              Mute / unmute
+            </button>
+            <button type="button" className="ts-mini danger" onClick={() => ctx.onDelete(true)} title="Delete and close the gap (Delete)">
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+        </fieldset>
+      )}
       {!c ? (
-        <p className="ts-hint">Select a clip on the timeline to trim it, change its speed or the way it joins the clip before.</p>
+        <p className="ts-hint">Select a clip on the timeline to trim it, change its speed, its sound or the way it joins the clip before. Shift-click selects a run of clips, cmd/ctrl-click adds one.</p>
+      ) : isGap(c) ? (
+        <fieldset className="ve-fields" disabled={ctx.readOnly}>
+          <p className="ve-clip-name">A gap · {fmt(clipLength(c))} of background, no sound</p>
+          <div className="ve-actions">
+            <button type="button" className="ts-mini danger" onClick={() => ctx.onDelete(true)} title="Close the gap (Delete)">
+              <Trash2 size={12} /> Close the gap
+            </button>
+          </div>
+        </fieldset>
       ) : (
         <fieldset className="ve-fields" disabled={ctx.readOnly}>
           <p className="ve-clip-name">
             <Clapperboard size={13} /> {ctx.labelOf(c)} · {fmt(clipLength(c))} on the timeline
           </p>
+          <div className="ve-choice">
+            <button type="button" className={`ts-mini ${c.locked ? "primary" : ""}`} onClick={() => set({ locked: !c.locked || undefined })} aria-pressed={!!c.locked} title="Locked: auto edit, beat alignment and dragging never move or trim it">
+              {c.locked ? <Lock size={12} /> : <Unlock size={12} />} {c.locked ? "Locked" : "Lock"}
+            </button>
+            <button type="button" className={`ts-mini ${c.speech ? "primary" : ""}`} onClick={() => set({ speech: !c.speech || undefined })} aria-pressed={!!c.speech} title="Has speech: auto edit never cuts inside it, and the music ducks under it">
+              Has speech
+            </button>
+          </div>
           <label className="ve-row">
             <span>Start in the footage</span>
             <input type="number" min={0} max={c.duration} step={0.1} value={Math.round(c.in * 10) / 10} onChange={(e) => set({ in: Math.min(Math.max(0, Number(e.target.value)), c.out - 0.25 * c.speed) })} />
@@ -149,17 +195,38 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
               ))}
             </select>
           </label>
+          <span className="ts-group-title">Sound</span>
+          <div className="ve-choice">
+            <button type="button" className={`ts-mini ${!c.muted ? "primary" : ""}`} onClick={() => set({ muted: undefined })} aria-pressed={!c.muted}>
+              Keep its sound
+            </button>
+            <button type="button" className={`ts-mini ${c.muted ? "primary" : ""}`} onClick={() => set({ muted: true })} aria-pressed={!!c.muted}>
+              Mute
+            </button>
+          </div>
+          {!c.muted && (
+            <label className="ts-slider">
+              <span>
+                Clip volume <em>{Math.round((c.volume ?? 1) * 100)}%</em>
+              </span>
+              <input type="range" min={0} max={1} step={0.05} value={c.volume ?? 1} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, volume: Number(e.target.value) } : x)) }))} onPointerUp={() => ctx.commit((p) => p)} />
+            </label>
+          )}
+          <p className="ts-hint">Mixed with the music and the voice-over; the music ducks under a clip marked “Has speech”.</p>
           <label className="ve-row">
             <span>Joins the clip before with</span>
             <select value={c.transition} onChange={(e) => set({ transition: e.target.value as Clip["transition"] })} disabled={ctx.project.clips[0]?.id === c.id}>
-              <option value="cut">A cut</option>
-              <option value="crossfade">A crossfade</option>
+              {TRANSITIONS.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
             </select>
           </label>
-          {c.transition === "crossfade" && (
+          {c.transition !== "cut" && ctx.project.clips[0]?.id !== c.id && (
             <label className="ts-slider">
               <span>
-                Crossfade <em>{c.transitionDuration.toFixed(1)}s</em>
+                {c.transition === "crossfade" ? "Crossfade" : "Dip"} <em>{c.transitionDuration.toFixed(1)}s</em>
               </span>
               <input type="range" min={0.2} max={2} step={0.1} value={c.transitionDuration} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, transitionDuration: Number(e.target.value) } : x)) }))} onPointerUp={() => ctx.commit((p) => p)} />
             </label>
@@ -175,8 +242,11 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
             <button type="button" className="ts-mini" onClick={ctx.onSplit} title="Split this clip at the playhead (S)">
               <Scissors size={12} /> Split
             </button>
-            <button type="button" className="ts-mini danger" onClick={ctx.onDelete} title="Remove this clip from the timeline (Delete)">
-              <Trash2 size={12} /> Remove
+            <button type="button" className="ts-mini danger" onClick={() => ctx.onDelete(true)} title="Delete and close the gap (Delete)">
+              <Trash2 size={12} /> Delete
+            </button>
+            <button type="button" className="ts-mini" onClick={() => ctx.onDelete(false)} title="Delete and leave a gap, so nothing after it moves (Shift + Delete)">
+              <Trash2 size={12} /> Delete, keep the gap
             </button>
           </div>
         </fieldset>
@@ -194,7 +264,7 @@ function ClipFraming({ ctx, clip }: { ctx: PanelCtx; clip: Clip }) {
     <>
       <span className="ts-group-title">Framing</span>
       <label className="ve-check">
-        <input type="checkbox" checked={!!own} onChange={(e) => ctx.commit((p) => ({ ...p, clips: p.clips.map((x) => (x.id === clip.id ? (e.target.checked ? { ...x, framing: { ...(p.framing ?? DEFAULT_FRAMING) } } : { ...x, framing: undefined }) : x)) }))} /> Reframe this clip on its own
+        <input type="checkbox" checked={!!own} onChange={(e) => ctx.commit((p) => ({ ...p, clips: p.clips.map((x) => (x.id === clip.id ? (e.target.checked ? { ...x, framing: { ...(p.framing ?? DEFAULT_FRAMING) } } : { ...x, framing: undefined, keyframes: undefined }) : x)) }))} /> Reframe (and animate) this clip on its own
       </label>
       {own ? (
         <>
@@ -209,21 +279,42 @@ function ClipFraming({ ctx, clip }: { ctx: PanelCtx; clip: Clip }) {
             <span>
               Zoom <em>{f.zoom.toFixed(2)}×</em>
             </span>
-            <input type="range" min={1} max={MAX_ZOOM} step={0.01} value={f.zoom} onPointerDown={ctx.mark} onChange={(e) => set({ zoom: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+            <input type="range" min={1} max={MAX_ZOOM} step={0.01} value={f.zoom} disabled={isAnimated(clip.keyframes, "zoom")} title={isAnimated(clip.keyframes, "zoom") ? "Animated: set it under Animate" : undefined} onPointerDown={ctx.mark} onChange={(e) => set({ zoom: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
           </label>
           <label className="ts-slider">
             <span>
               Left · right <em>{f.x.toFixed(2)}</em>
             </span>
-            <input type="range" min={-1} max={1} step={0.01} value={f.x} onPointerDown={ctx.mark} onChange={(e) => set({ x: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} onDoubleClick={() => set({ x: 0 }, "commit")} />
+            <input type="range" min={-1} max={1} step={0.01} value={f.x} disabled={isAnimated(clip.keyframes, "x")} onPointerDown={ctx.mark} onChange={(e) => set({ x: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} onDoubleClick={() => set({ x: 0 }, "commit")} />
           </label>
           <label className="ts-slider">
             <span>
               Up · down <em>{f.y.toFixed(2)}</em>
             </span>
-            <input type="range" min={-1} max={1} step={0.01} value={f.y} onPointerDown={ctx.mark} onChange={(e) => set({ y: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} onDoubleClick={() => set({ y: 0 }, "commit")} />
+            <input type="range" min={-1} max={1} step={0.01} value={f.y} disabled={isAnimated(clip.keyframes, "y")} onPointerDown={ctx.mark} onChange={(e) => set({ y: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} onDoubleClick={() => set({ y: 0 }, "commit")} />
           </label>
           <p className="ts-hint">The picture keeps its shape: zoom enlarges it, the two sliders move it inside the frame. People and products are never stretched.</p>
+          {(() => {
+            const pl = placeClips(ctx.project.clips).find((x) => x.clip.id === clip.id);
+            if (!pl) return null;
+            const setKf = (kf: Keyframes | undefined, step: "patch" | "commit") => (step === "commit" ? ctx.commit : ctx.patch)((p) => ({ ...p, clips: p.clips.map((x) => (x.id === clip.id ? { ...x, keyframes: kf } : x)) }));
+            return (
+              <KeyframeControls
+                kf={clip.keyframes}
+                local={ctx.time - pl.start}
+                length={pl.end - pl.start}
+                readOnly={ctx.readOnly}
+                mark={ctx.mark}
+                onChange={setKf}
+                onSeek={(l) => ctx.seek(pl.start + l)}
+                props={[
+                  { prop: "zoom", label: "Zoom", base: f.zoom, min: 1, max: MAX_ZOOM, step: 0.01, format: (v) => `${v.toFixed(2)}×` },
+                  { prop: "x", label: "Left · right", base: f.x, min: -1, max: 1, step: 0.01, format: (v) => v.toFixed(2) },
+                  { prop: "y", label: "Up · down", base: f.y, min: -1, max: 1, step: 0.01, format: (v) => v.toFixed(2) },
+                ]}
+              />
+            );
+          })()}
         </>
       ) : (
         <p className="ts-hint">Uses the cut's {f.fit === "fit" ? "Fit" : "Fill"} above the stage. Tick to zoom or move this clip in the frame.</p>
@@ -231,7 +322,7 @@ function ClipFraming({ ctx, clip }: { ctx: PanelCtx; clip: Clip }) {
       {f.fit === "fit" && (
         <label className="ve-row">
           <span>Background around the picture</span>
-          <input type="color" value={ctx.project.background} onChange={(e) => ctx.patch((p) => ({ ...p, background: e.target.value }))} onBlur={() => ctx.commit((p) => p)} />
+          <input type="color" value={ctx.project.background} onFocus={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, background: e.target.value }))} onBlur={() => ctx.commit((p) => p)} />
         </label>
       )}
     </>
@@ -258,15 +349,37 @@ function LayerTiming({ ctx, o }: { ctx: PanelCtx; o: Overlay }) {
         <span>
           Across <em>{Math.round(o.x * 100)}%</em>
         </span>
-        <input type="range" min={0} max={1} step={0.005} value={o.x} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { x: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+        <input type="range" min={0} max={1} step={0.005} value={o.x} disabled={isAnimated(o.keyframes, "x")} title={isAnimated(o.keyframes, "x") ? "Animated: set it under Animate" : undefined} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { x: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
       </label>
       <label className="ts-slider">
         <span>
           Down <em>{Math.round(o.y * 100)}%</em>
         </span>
-        <input type="range" min={0} max={1} step={0.005} value={o.y} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { y: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+        <input type="range" min={0} max={1} step={0.005} value={o.y} disabled={isAnimated(o.keyframes, "y")} title={isAnimated(o.keyframes, "y") ? "Animated: set it under Animate" : undefined} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { y: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
       </label>
     </>
+  );
+}
+
+/** Position, scale and opacity keyframes of a text or logo layer. */
+function LayerAnimate({ ctx, o }: { ctx: PanelCtx; o: Overlay }) {
+  const opacity = o.kind === "logo" ? o.opacity : (o.opacity ?? 1);
+  return (
+    <KeyframeControls
+      kf={o.keyframes}
+      local={ctx.time - o.start}
+      length={o.end - o.start}
+      readOnly={ctx.readOnly}
+      mark={ctx.mark}
+      onChange={(kf, step) => ctx.layers.patch(o.id, { keyframes: kf }, step)}
+      onSeek={(l) => ctx.seek(o.start + l)}
+      props={[
+        { prop: "x", label: "Across", base: o.x, min: 0, max: 1, step: 0.005, format: (v) => `${Math.round(v * 100)}%` },
+        { prop: "y", label: "Down", base: o.y, min: 0, max: 1, step: 0.005, format: (v) => `${Math.round(v * 100)}%` },
+        { prop: "scale", label: "Scale", base: 1, min: 0.2, max: 3, step: 0.01, format: (v) => `${Math.round(v * 100)}%` },
+        { prop: "opacity", label: "Opacity", base: opacity, min: 0, max: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%` },
+      ]}
+    />
   );
 }
 
@@ -294,7 +407,7 @@ export function TextPanel({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Text on the video</span>
-      <p className="ts-hint">Words over the footage, Arabic or English (Arabic is joined and runs right to left by itself). Never colour-graded, so brand colours stay exact.</p>
+      <p className="ts-hint">Words over the footage in Arabic, English or both (a second line in the other language). Arabic is joined and runs right to left, English left to right, in the preview and in the render. Never colour-graded, so brand colours stay exact.</p>
       <button type="button" className="ts-btn" disabled={ctx.readOnly || !ctx.project.clips.length} onClick={ctx.layers.addText}>
         <Plus size={14} /> Add text at the playhead
       </button>
@@ -303,9 +416,26 @@ export function TextPanel({ ctx }: { ctx: PanelCtx }) {
         <fieldset className="ve-fields" disabled={ctx.readOnly}>
           <label className="ve-stack">
             <span>Words</span>
-            <textarea dir="auto" rows={2} maxLength={300} value={o.text} onChange={(e) => ctx.layers.patch(o.id, { text: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} style={{ textAlign: textDirection(o.text) === "rtl" ? "right" : "left" }} />
+            <textarea dir="auto" rows={2} maxLength={300} value={o.text} onFocus={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { text: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} style={{ textAlign: textDirection(o.text) === "rtl" ? "right" : "left" }} />
           </label>
+          <label className="ve-check">
+            <input type="checkbox" checked={o.second !== undefined} onChange={(e) => ctx.layers.patch(o.id, { second: e.target.checked ? "" : undefined })} /> Bilingual: a second line in the other language
+          </label>
+          {o.second !== undefined && (
+            <label className="ve-stack">
+              <span>Second line{o.second.trim() ? ` (${textDirection(o.second) === "rtl" ? "right to left" : "left to right"})` : ""}</span>
+              <textarea dir="auto" rows={1} maxLength={300} value={o.second} placeholder={textDirection(o.text) === "rtl" ? "The English line" : "The Arabic line"} onFocus={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { second: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} style={{ textAlign: textDirection(o.second) === "rtl" ? "right" : "left" }} />
+            </label>
+          )}
           <LayerTiming ctx={ctx} o={o} />
+          {!isAnimated(o.keyframes, "opacity") && (
+            <label className="ts-slider">
+              <span>
+                Opacity <em>{Math.round((o.opacity ?? 1) * 100)}%</em>
+              </span>
+              <input type="range" min={0.1} max={1} step={0.05} value={o.opacity ?? 1} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { opacity: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+            </label>
+          )}
           <label className="ts-slider">
             <span>
               Size <em>{Math.round(o.size * 1000) / 10}%</em>
@@ -338,7 +468,7 @@ export function TextPanel({ ctx }: { ctx: PanelCtx }) {
           </label>
           <label className="ve-row">
             <span>Colour</span>
-            <input type="color" value={o.color.slice(0, 7)} onChange={(e) => ctx.layers.patch(o.id, { color: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} />
+            <input type="color" value={o.color.slice(0, 7)} onFocus={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { color: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} />
           </label>
           <label className="ve-check">
             <input type="checkbox" checked={!!o.box} onChange={(e) => ctx.layers.patch(o.id, { box: e.target.checked ? "#000000" : null })} /> A box behind the words
@@ -346,9 +476,10 @@ export function TextPanel({ ctx }: { ctx: PanelCtx }) {
           {o.box && (
             <label className="ve-row">
               <span>Box colour</span>
-              <input type="color" value={o.box.slice(0, 7)} onChange={(e) => ctx.layers.patch(o.id, { box: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} />
+              <input type="color" value={o.box.slice(0, 7)} onFocus={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { box: e.target.value }, "patch")} onBlur={() => ctx.commit((p) => p)} />
             </label>
           )}
+          <LayerAnimate ctx={ctx} o={o} />
           <button type="button" className="ts-mini danger" onClick={() => ctx.layers.remove(o.id)}>
             <Trash2 size={12} /> Remove this text
           </button>
@@ -404,8 +535,9 @@ export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
             <span>
               Opacity <em>{Math.round(o.opacity * 100)}%</em>
             </span>
-            <input type="range" min={0.1} max={1} step={0.05} value={o.opacity} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { opacity: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+            <input type="range" min={0.1} max={1} step={0.05} value={o.opacity} disabled={isAnimated(o.keyframes, "opacity")} onPointerDown={ctx.mark} onChange={(e) => ctx.layers.patch(o.id, { opacity: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
           </label>
+          <LayerAnimate ctx={ctx} o={o} />
           <button type="button" className="ts-mini danger" onClick={() => ctx.layers.remove(o.id)}>
             <Trash2 size={12} /> Remove this logo
           </button>
@@ -415,39 +547,7 @@ export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
   );
 }
 
-/* ───────────── Auto edit ───────────── */
-
-export function AutoEditPanel({ ctx }: { ctx: PanelCtx }) {
-  const [target, setTarget] = useState(15);
-  const [style, setStyle] = useState<AutoStyle>("calm");
-  return (
-    <div className="ve-panel">
-      <span className="ts-group-title">A first cut</span>
-      <p className="ts-hint">Builds a timeline from the footage above: each clip trimmed to its liveliest seconds (how much the picture moves), in order for a calm cut or liveliest first for an energetic one, cut on the beat when music is set. Simple rules, not a judgement of the content; change anything afterwards.</p>
-      <fieldset className="ve-fields" disabled={ctx.readOnly || !!ctx.auto.busy}>
-        <label className="ts-slider">
-          <span>
-            Length <em>{target}s</em>
-          </span>
-          <input type="range" min={3} max={MAX_TIMELINE_SECONDS} step={1} value={target} onChange={(e) => setTarget(Number(e.target.value))} />
-        </label>
-        <div className="ve-choice">
-          <button type="button" className={`ts-mini ${style === "calm" ? "primary" : ""}`} onClick={() => setStyle("calm")} title="Longer shots, crossfades, in the order of the footage">
-            Calm
-          </button>
-          <button type="button" className={`ts-mini ${style === "energetic" ? "primary" : ""}`} onClick={() => setStyle("energetic")} title="Short shots, hard cuts, the liveliest footage first">
-            Energetic
-          </button>
-        </div>
-        <button type="button" className="ts-btn primary" disabled={!ctx.sources.length} onClick={() => void ctx.auto.run(target, style)}>
-          {ctx.auto.busy ? <Orb size={14} status={null} /> : <Wand2 size={14} />} {ctx.auto.busy || "Build the cut"}
-        </button>
-      </fieldset>
-      {ctx.project.clips.length > 0 && <p className="ts-hint">Building replaces the current timeline (undo brings it back).</p>}
-      {ctx.music.name ? <p className="ts-hint">Music is set: shot lengths are whole beats, so cuts land on the grid.</p> : <p className="ts-hint">Set music first if you want the cuts on the beat.</p>}
-    </div>
-  );
-}
+/* ───────────── Auto edit: AutoEditPanel.tsx (phase 2) ───────────── */
 
 /* ───────────── Music ───────────── */
 
@@ -463,7 +563,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
       <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void ctx.music.pick(f, license); e.target.value = ""; }} />
       {!m ? (
         <>
-          <p className="ts-hint">A track from this computer (mp3, m4a or wav). It replaces the clips' own sound in the render. Use music you have the rights to; Instagram's own library cannot be used from here.</p>
+          <p className="ts-hint">A track from this computer (mp3, m4a or wav), mixed with the clips' own sound (each clip's volume is under Media). Use music you have the rights to: this is not Instagram's music library. Instagram's own music can only be added in the Instagram app when posting.</p>
           {ctx.music.keeps && (
             <label className="ve-stack">
               <span>Licence (who cleared it, under what)</span>
@@ -500,36 +600,8 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
             {ctx.music.duration ? ` · ${fmt(ctx.music.duration)}` : ""}
           </p>
           {!ctx.music.name && <p className="ts-hint warn">{m.source.kind === "audioKey" ? "The track could not be read back from the post. Pick it again under Change track." : m.source.kind === "catalog" || m.source.kind === "library" ? "The track could not be read from the music library. Pick it again from the library." : "The track's file is not in this tab (it was not kept with the post). Pick it again to hear it and to render with it."}</p>}
-          <label className="ts-slider">
-            <span>
-              Starts in the track at <em>{fmt(m.offset)}</em>
-            </span>
-            <input type="range" min={0} max={Math.max(0, (ctx.music.duration || m.duration || 60) - 1)} step={0.1} value={m.offset} onPointerDown={ctx.mark} onChange={(e) => setMusic({ offset: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
-          </label>
-          <label className="ts-slider">
-            <span>
-              Volume <em>{Math.round(m.volume * 100)}%</em>
-            </span>
-            <input type="range" min={0} max={1} step={0.05} value={m.volume} onPointerDown={ctx.mark} onChange={(e) => setMusic({ volume: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
-          </label>
-          <label className="ts-slider">
-            <span>
-              Fade in <em>{fmt(m.fadeIn)}</em>
-            </span>
-            <input type="range" min={0} max={5} step={0.1} value={m.fadeIn} onPointerDown={ctx.mark} onChange={(e) => setMusic({ fadeIn: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
-          </label>
-          <label className="ts-slider">
-            <span>
-              Fade out <em>{fmt(m.fadeOut)}</em>
-            </span>
-            <input type="range" min={0} max={5} step={0.1} value={m.fadeOut} onPointerDown={ctx.mark} onChange={(e) => setMusic({ fadeOut: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
-          </label>
-          <span className="ts-group-title">Beats</span>
-          <p className="ts-hint">{ctx.music.beats ? `${ctx.music.beats} beats found from the track's pulses; they show as ticks on the timeline.` : ctx.music.busy || "No clear pulse found in this track."}</p>
+          <MusicMixControls ctx={ctx} music={m} setMusic={setMusic} />
           <div className="ve-actions">
-            <button type="button" className={`ts-mini ${ctx.project.snapToBeats ? "primary" : ""}`} disabled={!ctx.music.beats} onClick={ctx.music.snap} title="Move every cut to the nearest beat (within a quarter second), now and whenever the cut is built again">
-              <Sparkles size={12} /> {ctx.project.snapToBeats ? "Cuts snap to beats" : "Snap cuts to beats"}
-            </button>
             <button type="button" className="ts-mini" onClick={() => fileRef.current?.click()}>
               Change track
             </button>

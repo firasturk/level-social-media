@@ -11,6 +11,7 @@
  * stay exact).
  */
 import { pictureFrame, type FrameId } from "./video-frame";
+import { checkKeyframes, OVERLAY_PROPS, OVERLAY_RANGE, valueAt, type Keyframes } from "./video-keyframes";
 
 export type FitMode = "fill" | "fit";
 
@@ -169,6 +170,15 @@ export interface TextOverlay {
   box: string | null;
   /** Wrap width as a fraction of the frame's width (0.2 … 1). */
   width: number;
+  /**
+   * A second line in the other language (bilingual text): drawn under the first, each line in its
+   * own direction (Arabic right to left, English left to right). Empty or absent: one language.
+   */
+  second?: string;
+  /** 0 … 1; absent is 1. */
+  opacity?: number;
+  /** Position, scale and opacity over time, seconds from `start` (shared/video-keyframes.ts). */
+  keyframes?: Keyframes;
 }
 
 /** A picture (the client's logo, a sticker) over the video. */
@@ -186,6 +196,8 @@ export interface LogoOverlay {
   width: number;
   /** 0 … 1. */
   opacity: number;
+  /** Position, scale and opacity over time, seconds from `start`. */
+  keyframes?: Keyframes;
 }
 
 export type Overlay = TextOverlay | LogoOverlay;
@@ -207,6 +219,32 @@ export function textDirection(text: string): "rtl" | "ltr" {
     if ((c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || (c >= 0xc0 && c <= 0x24f)) return "ltr";
   }
   return "ltr";
+}
+
+/** A layer's position, scale and opacity at timeline time t: its own values, moved by its keyframes. */
+export interface OverlayState {
+  x: number;
+  y: number;
+  scale: number;
+  opacity: number;
+}
+
+export function overlayState(o: Overlay, t: number): OverlayState {
+  const local = t - o.start;
+  const kf = o.keyframes;
+  const opacity = o.kind === "logo" ? o.opacity : (o.opacity ?? 1);
+  return {
+    x: valueAt(kf?.x, local, o.x),
+    y: valueAt(kf?.y, local, o.y),
+    scale: Math.max(0.01, valueAt(kf?.scale, local, 1)),
+    opacity: Math.min(1, Math.max(0, valueAt(kf?.opacity, local, opacity))),
+  };
+}
+
+/** The lines of a text layer, each paragraph with its own direction: the words, then the second language's line. */
+export function textParagraphs(o: Pick<TextOverlay, "text" | "second">): { text: string; dir: "rtl" | "ltr" }[] {
+  const paras = [...o.text.split(/\n/), ...(o.second && o.second.trim() ? o.second.split(/\n/) : [])];
+  return paras.map((text) => ({ text, dir: textDirection(text) }));
 }
 
 export function newOverlayId(): string {
@@ -248,7 +286,12 @@ export function checkOverlays(x: unknown): Overlay[] | string {
       const weight = o.weight === 400 || o.weight === 600 ? o.weight : 800;
       const align: TextAlign = o.align === "start" || o.align === "end" ? o.align : "center";
       const width = num(o.width, 0.1, 1) ? o.width : 0.86;
-      out.push({ id: o.id, kind: "text", text: o.text, start: o.start, end: o.end, x: o.x, y: o.y, size: o.size, color: o.color, font, weight, align, box: (o.box as string | null | undefined) ?? null, width });
+      if (o.second !== undefined && o.second !== null && (typeof o.second !== "string" || o.second.length > MAX_TEXT)) return `${where}: the second line must be at most ${MAX_TEXT} characters.`;
+      if (o.opacity !== undefined && !num(o.opacity, 0, 1)) return `${where}: the opacity must be between 0 and 1.`;
+      const kf = checkKeyframes(o.keyframes, OVERLAY_PROPS, OVERLAY_RANGE, where);
+      if (typeof kf === "string") return kf;
+      const second = typeof o.second === "string" && o.second.trim() ? o.second : undefined;
+      out.push({ id: o.id, kind: "text", text: o.text, start: o.start, end: o.end, x: o.x, y: o.y, size: o.size, color: o.color, font, weight, align, box: (o.box as string | null | undefined) ?? null, width, ...(second ? { second } : {}), ...(typeof o.opacity === "number" && o.opacity !== 1 ? { opacity: o.opacity } : {}), ...(kf ? { keyframes: kf } : {}) });
     } else if (o.kind === "logo") {
       if (typeof o.src !== "string" || !o.src) return `${where}: the logo needs a picture.`;
       const isData = /^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(o.src);
@@ -257,7 +300,9 @@ export function checkOverlays(x: unknown): Overlay[] | string {
       if (o.src.length > MAX_LOGO_DATA_URL) return `${where}: the logo address is too long.`;
       if (!num(o.width, 0.02, 1)) return `${where}: the logo's width is out of range.`;
       const opacity = num(o.opacity, 0, 1) ? o.opacity : 1;
-      out.push({ id: o.id, kind: "logo", src: o.src, name: typeof o.name === "string" ? o.name.slice(0, 120) : "Logo", start: o.start, end: o.end, x: o.x, y: o.y, width: o.width, opacity });
+      const kf = checkKeyframes(o.keyframes, OVERLAY_PROPS, OVERLAY_RANGE, where);
+      if (typeof kf === "string") return kf;
+      out.push({ id: o.id, kind: "logo", src: o.src, name: typeof o.name === "string" ? o.name.slice(0, 120) : "Logo", start: o.start, end: o.end, x: o.x, y: o.y, width: o.width, opacity, ...(kf ? { keyframes: kf } : {}) });
     } else return `${where} must be text or a logo.`;
   }
   return out;

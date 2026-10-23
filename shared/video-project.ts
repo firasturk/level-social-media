@@ -6,29 +6,46 @@
  *
  * Seconds everywhere. A clip's `in`/`out` are source times; its length on the timeline is
  * (out - in) / speed. Clips sit one after another in `clips` order; a crossfade overlaps the
- * previous clip's tail by `transitionDuration`.
+ * previous clip's tail by `transitionDuration`; a dip to black or white does not overlap: the
+ * picture goes to the colour and back over `transitionDuration`, centred on the cut. A gap (a
+ * clip whose source is `{ kind: "gap" }`) is an empty stretch: the background, no sound.
+ *
+ * Version 2 (phase 2) added per-clip sound (volume, mute), lock and "has speech", clip framing
+ * keyframes, dips, gaps, the music's place on the timeline (start, end) and its ducking, and
+ * voice-over clips. A version 1 document is read as version 2 by `validateProject` (migrated, see
+ * `migrateV1`), so drafts saved before keep opening and sound the same.
  */
 
 import { checkOverlays, DEFAULT_FRAMING, normaliseFraming, type Framing, type Overlay } from "./video-compose";
+import { checkKeyframes, CLIP_PROPS, CLIP_RANGE, splitKeyframes, valueAt, type Keyframes } from "./video-keyframes";
 import { checkMatch, type ColourMatch } from "./colour-match";
 import { MAX_STORED_LUT_SIZE, storedLutChars } from "./cube-lut";
 import { creditLine, isContentId, isLicenceId, type ContentIdStatus, type LicenceId, type MusicTrack } from "./music";
 
 /**
- * 2 (phase 3): colour presets with an intensity (`lookAmount`, a clip's own `look`), vibrance,
+ * 3 (phase 3): colour presets with an intensity (`lookAmount`, a clip's own `look`), vibrance,
  * whites and blacks, skin protection, a clip's colour `match`, the LUT's table kept with the draft
  * (`lut.data`), the library's music sources (`catalog`, `library`) with their licence, and the
- * template a cut was started from. A version-1 document (phase 1) is read and migrated by
- * `validateProject` (`migrateProject`): every new field takes the value that draws the same picture.
+ * template a cut was started from. Older documents are read and migrated by `validateProject`:
+ * 1 → 2 (`migrateV1`, phase 2's sound and timeline), then 2 → 3 (`migrateV2`): every new field
+ * takes the value that draws the same picture.
  */
-export const PROJECT_VERSION = 2;
+export const PROJECT_VERSION = 3;
 /** The oldest document version this code still reads. */
 export const OLDEST_PROJECT_VERSION = 1;
 
-/** Where a clip's footage comes from: a stored version of the post, or a file picked in the browser. */
-export type ClipSource = { kind: "version"; batch: string; videoId: string } | { kind: "upload"; name: string; size: number };
+/** Where a clip's footage comes from: a stored version of the post, a file picked in the browser, or nothing (a gap). */
+export type ClipSource = { kind: "version"; batch: string; videoId: string } | { kind: "upload"; name: string; size: number } | { kind: "gap" };
 
-export type Transition = "cut" | "crossfade";
+/** Restrained joins only: a cut, a crossfade, a dip to black, a dip to white. */
+export type Transition = "cut" | "crossfade" | "dipBlack" | "dipWhite";
+export const TRANSITIONS: readonly { id: Transition; name: string }[] = [
+  { id: "cut", name: "A cut" },
+  { id: "crossfade", name: "A crossfade" },
+  { id: "dipBlack", name: "A dip to black" },
+  { id: "dipWhite", name: "A dip to white" },
+];
+const isTransition = (x: unknown): x is Transition => x === "cut" || x === "crossfade" || x === "dipBlack" || x === "dipWhite";
 
 export interface ColourParams {
   /** Stops, -2 … 2. */
@@ -104,7 +121,7 @@ export interface Clip {
   speed: number;
   /** How this clip joins the previous one (ignored on the first clip). */
   transition: Transition;
-  /** Seconds of overlap for a crossfade. */
+  /** Seconds of overlap for a crossfade; the whole dip for a dip to black or white. */
   transitionDuration: number;
   /** Per-clip colour on top of the project's; absent = none. */
   colour?: ColourParams;
@@ -114,6 +131,16 @@ export interface Clip {
   match?: ColourMatch;
   /** How this clip sits in the frame (Fill/Fit, zoom, pan); absent = the project's framing. */
   framing?: Framing;
+  /** The clip's own sound, 0 … 1 (absent = 1); mixed with the music and the voice-over. */
+  volume?: number;
+  /** The clip's own sound left out. */
+  muted?: boolean;
+  /** Auto edit and beat alignment never move or trim a locked clip, and the timeline does not drag it. */
+  locked?: boolean;
+  /** The clip carries speech: never cut inside by auto edit or beat alignment, and the music ducks under it. */
+  speech?: boolean;
+  /** Pan (x, y) and zoom over time, seconds from the clip's start on the timeline. */
+  keyframes?: Keyframes;
 }
 
 /** A preset at an intensity (0 … 1 toward the preset). */
@@ -152,9 +179,16 @@ export type MusicSource =
   | { kind: "catalog"; trackId: string; name: string; rights: MusicRights }
   | { kind: "library"; trackId: string; client: string; name: string; rights: MusicRights };
 
+/** How far the music goes down under speech: `level` is the music's gain while someone speaks (0.3 = to 30 %). */
+export interface Ducking {
+  enabled: boolean;
+  level: number;
+}
+export const DEFAULT_DUCKING: Ducking = { enabled: true, level: 0.3 };
+
 export interface Music {
   source: MusicSource;
-  /** Seconds into the track where the timeline's 0 starts. */
+  /** Seconds into the track at the music's `start` on the timeline. */
   offset: number;
   /** 0 … 1. */
   volume: number;
@@ -164,7 +198,31 @@ export interface Music {
   duration?: number;
   /** Beat times in track seconds, as detected (the editor keeps them with the project). */
   beats?: number[];
+  /** Where the music starts on the timeline, seconds (version 2; 0 before). */
+  start?: number;
+  /** Where it stops on the timeline; absent = the end of the cut. */
+  end?: number;
+  /** Goes down under the clips marked "has speech" and under the voice-over. */
+  duck?: Ducking;
 }
+
+/** A voice-over: an uploaded recording on its own lane, at a place on the timeline, with its own volume. */
+export interface VoiceClip {
+  id: string;
+  source: MusicSource;
+  /** The recording's name for the lane. */
+  name: string;
+  /** Timeline seconds where it starts. */
+  start: number;
+  /** Source in and out, seconds. */
+  in: number;
+  out: number;
+  /** The recording's full length. */
+  duration: number;
+  /** 0 … 1. */
+  volume: number;
+}
+export const MAX_VOICES = 8;
 
 export interface Output {
   width: number;
@@ -205,6 +263,8 @@ export interface VideoProject {
   overlays: Overlay[];
   /** The template the cut was started from (shared/video-templates.ts), when it was. */
   template?: { id: string; at: number } | null;
+  /** Voice-over recordings on the Voice lane. */
+  voices: VoiceClip[];
 }
 
 export interface OutputPreset {
@@ -262,11 +322,31 @@ export function newProject(name: string, now = Date.now()): VideoProject {
     framing: { ...DEFAULT_FRAMING },
     background: "#000000",
     overlays: [],
+    voices: [],
   };
 }
 
 export function newClip(source: ClipSource, duration: number, id = newClipId()): Clip {
   return { id, source, duration, in: 0, out: duration, speed: 1, transition: "cut", transitionDuration: 0.5 };
+}
+
+/** An empty stretch of `length` seconds on the Video lane (what a delete that keeps the gap leaves). */
+export function gapClip(length: number, id = newClipId()): Clip {
+  const d = Math.max(MIN_CLIP_SECONDS, length);
+  return { id, source: { kind: "gap" }, duration: d, in: 0, out: d, speed: 1, transition: "cut", transitionDuration: 0.5 };
+}
+
+export const isGap = (c: Pick<Clip, "source">): boolean => c.source.kind === "gap";
+
+/** The clip's own sound level after mute: 0 … 1. */
+export const clipVolume = (c: Pick<Clip, "volume" | "muted" | "source">): number => (c.muted || c.source.kind === "gap" ? 0 : Math.min(1, Math.max(0, c.volume ?? 1)));
+
+/** The music's place on the timeline: its start, its end (bounded by the cut and the track), and the track second at its start. */
+export function musicSpan(m: Pick<Music, "start" | "end" | "offset" | "duration">, length: number): { start: number; end: number } {
+  const start = Math.max(0, m.start ?? 0);
+  let end = Math.min(length, m.end ?? length);
+  if (m.duration !== undefined && m.duration > 0) end = Math.min(end, start + Math.max(0, m.duration - m.offset));
+  return { start, end: Math.max(start, end) };
 }
 
 /* ───────────── Validation ───────────── */
@@ -298,19 +378,49 @@ function checkSource(x: unknown): ClipSource | string {
     if (!str(x.name, 200) || !num(x.size ?? 0, 0, 1e10)) return "an upload source needs a name and a size.";
     return { kind: "upload", name: x.name, size: (x.size as number | undefined) ?? 0 };
   }
-  return "a clip's source must be a version or an upload.";
+  if (x.kind === "gap") return { kind: "gap" };
+  return "a clip's source must be a version, an upload or a gap.";
+}
+
+function checkAudioSource(x: unknown, where: string): MusicSource | string {
+  if (!isObj(x)) return `${where} needs a source.`;
+  if (x.kind === "audioKey" && str(x.key, 300) && x.key) return { kind: "audioKey", key: x.key, ...(str(x.name, 200) && x.name ? { name: x.name } : {}) };
+  if (x.kind === "upload" && str(x.name, 200)) return { kind: "upload", name: x.name, size: num(x.size, 0, 1e10) ? x.size : 0 };
+  return `${where}.source must be an audioKey or an upload.`;
 }
 
 /**
- * An older document brought to the current version, field by field, so it draws the same picture:
- * 1 → 2 adds the look's intensity (1, the full look as before), skin protection (off), and nothing
- * else (a clip without `look`/`match` uses the project's colour as it always did; the new sliders
- * default to 0 in validation; a LUT without `data` keeps asking for its file). Unknown versions are
- * returned as they are (validation refuses them).
+ * A version 1 document read as version 2. What changes and why it sounds the same:
+ * - version 1 left the clips' own sound out whenever music was set; version 2 mixes both, so a
+ *   v1 document with music gets every clip muted (the render is unchanged); without music the
+ *   clips keep their sound as before;
+ * - the music starts at 0 on the timeline (its `offset` meant "the track second at 0", which is
+ *   the same as "the track second at its start" when the start is 0) and ducking is off (there was
+ *   no speech to duck under);
+ * - no voice-over, no keyframes, no locks.
  */
+export function migrateV1(x: Record<string, unknown>): Record<string, unknown> {
+  const hasMusic = isObj(x.music);
+  const clips = Array.isArray(x.clips) ? x.clips.map((c) => (isObj(c) && hasMusic ? { ...c, muted: true } : c)) : x.clips;
+  const music = hasMusic ? { ...(x.music as Record<string, unknown>), start: 0, duck: { enabled: false, level: DEFAULT_DUCKING.level } } : x.music;
+  return { ...x, v: 2, clips, music, voices: [] };
+}
+
+/**
+ * A version 2 document read as version 3 (phase 3), drawing the same picture: the look at its full
+ * intensity (`lookAmount` 1), skin protection off; the new sliders (vibrance, whites, blacks)
+ * default to 0 in validation; a clip without `look`/`match` uses the project's colour as it always
+ * did; a LUT without `data` keeps asking for its file.
+ */
+export function migrateV2(x: Record<string, unknown>): Record<string, unknown> {
+  return { ...x, v: 3, lookAmount: x.lookAmount ?? 1, protectSkin: x.protectSkin ?? false };
+}
+
+/** An older document brought to the current version step by step (1 → 2 → 3); other versions are returned as they are. */
 export function migrateProject(x: Record<string, unknown>): Record<string, unknown> {
   let doc = x;
-  if (doc.v === 1) doc = { ...doc, v: 2, lookAmount: doc.lookAmount ?? 1, protectSkin: doc.protectSkin ?? false };
+  if (doc.v === 1) doc = migrateV1(doc);
+  if (doc.v === 2) doc = migrateV2(doc);
   return doc;
 }
 
@@ -353,9 +463,9 @@ function checkRights(x: unknown): MusicRights | string {
   };
 }
 
-function checkMusicSource(s: Record<string, unknown>): MusicSource | string {
-  if (s.kind === "audioKey" && str(s.key, 300) && s.key) return { kind: "audioKey", key: s.key, ...(str(s.name, 200) && s.name ? { name: s.name } : {}) };
-  if (s.kind === "upload" && str(s.name, 200)) return { kind: "upload", name: s.name, size: num(s.size, 0, 1e10) ? s.size : 0 };
+/** The music's source: the older kinds (checkAudioSource), or a music library track with its rights. */
+function checkMusicSource(s: unknown): MusicSource | string {
+  if (!isObj(s)) return "music needs a source.";
   if (s.kind === "catalog" || s.kind === "library") {
     if (typeof s.trackId !== "string" || !TRACK_ID[s.kind].test(s.trackId)) return `music.source.trackId must be a ${s.kind} track id.`;
     if (!str(s.name, 200) || !s.name) return "music.source needs the track's name.";
@@ -365,7 +475,8 @@ function checkMusicSource(s: Record<string, unknown>): MusicSource | string {
     if (!str(s.client, 80) || !s.client) return "a library track needs its client.";
     return { kind: "library", trackId: s.trackId, client: s.client, name: s.name, rights };
   }
-  return "music.source must be an audioKey, an upload, a catalog track or a library track.";
+  const old = checkAudioSource(s, "music");
+  return typeof old === "string" ? "music.source must be an audioKey, an upload, a catalog track or a library track." : old;
 }
 
 function checkClipLook(x: unknown, where: string): ClipLook | string {
@@ -375,13 +486,13 @@ function checkClipLook(x: unknown, where: string): ClipLook | string {
   return { id: x.id, amount };
 }
 
-/** The document a save carries, checked field by field; the reason says what is wrong in plain words. Older versions are migrated first. */
+/** The document a save carries, checked field by field; the reason says what is wrong in plain words. Older versions (1, 2) are migrated first. */
 export function validateProject(input: unknown): Check {
   if (!isObj(input)) return { ok: false, reason: "The project must be an object." };
   if (typeof input.v === "number" && input.v > PROJECT_VERSION) return { ok: false, reason: `This project was saved by a newer editor (version ${input.v}); reload the studio to open it.` };
-  if (typeof input.v !== "number" || !Number.isInteger(input.v) || input.v < OLDEST_PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION}.` };
+  if (typeof input.v !== "number" || !Number.isInteger(input.v) || input.v < OLDEST_PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1 or 2, which are read as ${PROJECT_VERSION}).` };
   const x = migrateProject(input);
-  if (x.v !== PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION}.` };
+  if (x.v !== PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1 or 2, which are read as ${PROJECT_VERSION}).` };
   if (!num(x.rev, 0, 1e9) || !Number.isInteger(x.rev)) return { ok: false, reason: "rev must be a whole number." };
   if (!num(x.createdAt, 0, 1e14) || !num(x.updatedAt ?? x.createdAt, 0, 1e14)) return { ok: false, reason: "createdAt and updatedAt must be timestamps." };
   if (!str(x.name, 120)) return { ok: false, reason: "The name is too long (120 characters at most)." };
@@ -399,8 +510,11 @@ export function validateProject(input: unknown): Check {
     if (!num(c.duration, 0, 3600)) return { ok: false, reason: `${where}: duration must be seconds up to an hour.` };
     if (!num(c.in, 0, c.duration) || !num(c.out, 0, c.duration) || c.out <= c.in) return { ok: false, reason: `${where}: in and out must be inside the clip, with in before out.` };
     if (!num(c.speed, MIN_SPEED, MAX_SPEED)) return { ok: false, reason: `${where}: speed must be between ${MIN_SPEED} and ${MAX_SPEED}.` };
-    if (c.transition !== "cut" && c.transition !== "crossfade") return { ok: false, reason: `${where}: transition must be cut or crossfade.` };
+    if (!isTransition(c.transition)) return { ok: false, reason: `${where}: transition must be a cut, a crossfade or a dip to black or white.` };
     if (!num(c.transitionDuration ?? 0.5, 0, 5)) return { ok: false, reason: `${where}: a transition lasts up to 5 seconds.` };
+    if (c.volume !== undefined && !num(c.volume, 0, 1)) return { ok: false, reason: `${where}: the clip's volume must be between 0 and 1.` };
+    const kf = checkKeyframes(c.keyframes, CLIP_PROPS, CLIP_RANGE, where);
+    if (typeof kf === "string") return { ok: false, reason: kf };
     let colour: ColourParams | undefined;
     if (c.colour !== undefined && c.colour !== null) {
       const r = checkColour(c.colour, where);
@@ -424,7 +538,25 @@ export function validateProject(input: unknown): Check {
       if (typeof r === "string") return { ok: false, reason: r };
       match = r;
     }
-    clips.push({ id: c.id, source, duration: c.duration, in: c.in, out: c.out, speed: c.speed, transition: c.transition, transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5, ...(colour ? { colour } : {}), ...(framing ? { framing } : {}), ...(look ? { look } : {}), ...(match ? { match } : {}) });
+    clips.push({
+      id: c.id,
+      source,
+      duration: c.duration,
+      in: c.in,
+      out: c.out,
+      speed: c.speed,
+      transition: c.transition,
+      transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5,
+      ...(colour ? { colour } : {}),
+      ...(framing ? { framing } : {}),
+      ...(look ? { look } : {}),
+      ...(match ? { match } : {}),
+      ...(typeof c.volume === "number" && c.volume !== 1 ? { volume: c.volume } : {}),
+      ...(c.muted === true ? { muted: true } : {}),
+      ...(c.locked === true ? { locked: true } : {}),
+      ...(c.speech === true ? { speech: true } : {}),
+      ...(kf ? { keyframes: kf } : {}),
+    });
   }
   if (!str(x.look ?? "none", 40)) return { ok: false, reason: "look must be a short name." };
   const lookAmount = x.lookAmount ?? 1;
@@ -451,7 +583,40 @@ export function validateProject(input: unknown): Check {
     if (!num(m.offset ?? 0, 0, 36000) || !num(m.volume ?? 1, 0, 1) || !num(m.fadeIn ?? 0, 0, 30) || !num(m.fadeOut ?? 0, 0, 30)) return { ok: false, reason: "music offset, volume and fades are out of range." };
     if (m.duration !== undefined && !num(m.duration, 0, 36000)) return { ok: false, reason: "music.duration must be seconds." };
     if (m.beats !== undefined && (!Array.isArray(m.beats) || m.beats.length > 5000 || !m.beats.every((b) => num(b, 0, 36000)))) return { ok: false, reason: "music.beats must be a list of seconds." };
-    music = { source, offset: (m.offset as number | undefined) ?? 0, volume: (m.volume as number | undefined) ?? 1, fadeIn: (m.fadeIn as number | undefined) ?? 0, fadeOut: (m.fadeOut as number | undefined) ?? 0, ...(m.duration !== undefined ? { duration: m.duration as number } : {}), ...(m.beats !== undefined ? { beats: m.beats as number[] } : {}) };
+    if (!num(m.start ?? 0, 0, 3600) || (m.end !== undefined && m.end !== null && (!num(m.end, 0, 3600) || m.end <= ((m.start as number | undefined) ?? 0)))) return { ok: false, reason: "music start and end must be timeline seconds, with the start before the end." };
+    let duck: Ducking = { ...DEFAULT_DUCKING };
+    if (m.duck !== undefined && m.duck !== null) {
+      if (!isObj(m.duck) || !num(m.duck.level ?? DEFAULT_DUCKING.level, 0, 1)) return { ok: false, reason: "music ducking needs a level between 0 and 1." };
+      duck = { enabled: m.duck.enabled !== false, level: (m.duck.level as number | undefined) ?? DEFAULT_DUCKING.level };
+    }
+    music = {
+      source,
+      offset: (m.offset as number | undefined) ?? 0,
+      volume: (m.volume as number | undefined) ?? 1,
+      fadeIn: (m.fadeIn as number | undefined) ?? 0,
+      fadeOut: (m.fadeOut as number | undefined) ?? 0,
+      ...(m.duration !== undefined ? { duration: m.duration as number } : {}),
+      ...(m.beats !== undefined ? { beats: m.beats as number[] } : {}),
+      start: (m.start as number | undefined) ?? 0,
+      ...(typeof m.end === "number" ? { end: m.end } : {}),
+      duck,
+    };
+  }
+  const voices: VoiceClip[] = [];
+  if (x.voices !== undefined && x.voices !== null) {
+    if (!Array.isArray(x.voices) || x.voices.length > MAX_VOICES) return { ok: false, reason: `voices must be a list of at most ${MAX_VOICES} recordings.` };
+    const vids = new Set<string>();
+    for (const [i, v] of (x.voices as unknown[]).entries()) {
+      const where = `voice-over ${i + 1}`;
+      if (!isObj(v) || !str(v.id, 40) || !v.id || vids.has(v.id)) return { ok: false, reason: `${where} needs a unique id.` };
+      vids.add(v.id);
+      const source = checkAudioSource(v.source, where);
+      if (typeof source === "string") return { ok: false, reason: source };
+      if (!num(v.duration, 0, 3600) || !num(v.in, 0, v.duration) || !num(v.out, 0, v.duration) || v.out <= v.in) return { ok: false, reason: `${where}: in and out must be inside the recording, with in before out.` };
+      if (!num(v.start, 0, 3600)) return { ok: false, reason: `${where}: its start must be timeline seconds.` };
+      if (!num(v.volume ?? 1, 0, 1)) return { ok: false, reason: `${where}: the volume must be between 0 and 1.` };
+      voices.push({ id: v.id, source, name: str(v.name, 200) && v.name ? v.name : "Voice-over", start: v.start, in: v.in, out: v.out, duration: v.duration, volume: (v.volume as number | undefined) ?? 1 });
+    }
   }
   const o = x.output;
   if (!isObj(o) || !num(o.width, 16, 4096) || !num(o.height, 16, 4096) || !num(o.fps, 1, 60) || !num(o.bitrate, 100_000, 50_000_000)) return { ok: false, reason: "output needs width, height (16–4096), fps (1–60) and bitrate." };
@@ -485,6 +650,7 @@ export function validateProject(input: unknown): Check {
     background,
     overlays,
     ...(template ? { template } : {}),
+    voices,
   };
   const total = totalLength(project);
   if (total > MAX_TIMELINE_SECONDS + 1e-6) return { ok: false, reason: `The timeline is ${total.toFixed(1)} s; the editor renders up to ${MAX_TIMELINE_SECONDS} s.` };
@@ -494,6 +660,14 @@ export function validateProject(input: unknown): Check {
 /** The framing a clip is drawn with: its own, else the project's. */
 export function clipFraming(p: Pick<VideoProject, "framing">, c: Pick<Clip, "framing">): Framing {
   return normaliseFraming(c.framing ?? p.framing ?? DEFAULT_FRAMING);
+}
+
+/** The framing at `local` seconds into the clip on the timeline: its framing moved by its pan and zoom keyframes. */
+export function clipFramingAt(p: Pick<VideoProject, "framing">, c: Pick<Clip, "framing" | "keyframes">, local: number): Framing {
+  const f = clipFraming(p, c);
+  const kf = c.keyframes;
+  if (!kf) return f;
+  return normaliseFraming({ fit: f.fit, zoom: valueAt(kf.zoom, local, f.zoom), x: valueAt(kf.x, local, f.x), y: valueAt(kf.y, local, f.y) });
 }
 
 /* ───────────── Timeline arithmetic ───────────── */
@@ -569,15 +743,47 @@ export function frameAt(clips: readonly Clip[], t: number): FrameAt {
   return { a: { placed: a, source: sourceTimeAt(a, t) }, b: { placed: b, source: sourceTimeAt(b, t), mix } };
 }
 
-/** The clip split in two at a timeline time inside it; null when the split would leave a sliver. */
+/** Half a dip, on each side of the cut: half the transition, bounded by half of either clip. 0 when the clip does not dip. */
+export function dipHalf(prev: Clip | undefined, c: Clip): number {
+  if (!prev || (c.transition !== "dipBlack" && c.transition !== "dipWhite")) return 0;
+  return Math.max(0, Math.min(c.transitionDuration / 2, clipLength(prev) / 2, clipLength(c) / 2));
+}
+
+/**
+ * A dip to black or white at timeline time t: the colour and how much of it covers the footage
+ * (0 … 1, full at the cut, linear on both sides). Null outside every dip. The text and logo layers
+ * stay on top of it.
+ */
+export function dipAt(clips: readonly Clip[], t: number): { colour: "black" | "white"; amount: number } | null {
+  const placed = placeClips(clips);
+  for (let i = 1; i < placed.length; i++) {
+    const h = dipHalf(clips[i - 1], placed[i].clip);
+    if (!h) continue;
+    const d = Math.abs(t - placed[i].start);
+    if (d < h) return { colour: placed[i].clip.transition === "dipWhite" ? "white" : "black", amount: 1 - d / h };
+  }
+  return null;
+}
+
+/** The clip split in two at a timeline time inside it; null when the split would leave a sliver. Keyframes are split with it. */
 export function splitClip(c: Clip, atLocal: number): [Clip, Clip] | null {
   const len = clipLength(c);
   if (atLocal < MIN_CLIP_SECONDS || len - atLocal < MIN_CLIP_SECONDS) return null;
   const s = c.in + atLocal * c.speed;
-  return [
-    { ...c, out: s },
-    { ...c, id: newClipId(), in: s, transition: "cut" },
-  ];
+  const [kl, kr] = splitKeyframes(c.keyframes, atLocal);
+  const left: Clip = { ...c, out: s };
+  const right: Clip = { ...c, id: newClipId(), in: s, transition: "cut" };
+  if (c.source.kind === "gap") {
+    left.duration = s;
+    right.duration = c.out - s;
+    right.in = 0;
+    right.out = c.out - s;
+  }
+  delete left.keyframes;
+  delete right.keyframes;
+  if (kl) left.keyframes = kl;
+  if (kr) right.keyframes = kr;
+  return [left, right];
 }
 
 /** A clip's in or out moved, kept inside the source and at least a sliver long. */
@@ -625,10 +831,12 @@ export function nearestBeat(t: number, beats: readonly number[], tolerance = 0.2
   return best;
 }
 
-/** Beat times in track seconds moved onto the timeline (the track starts `offset` seconds before 0). */
-export function timelineBeats(music: Pick<Music, "beats" | "offset"> | null | undefined, length: number): number[] {
+/** Beat times in track seconds moved onto the timeline: the track second `offset` plays at the music's `start`; only beats while the music plays. */
+export function timelineBeats(music: Pick<Music, "beats" | "offset" | "start" | "end"> | null | undefined, length: number): number[] {
   if (!music?.beats) return [];
-  return music.beats.map((b) => b - music.offset).filter((b) => b >= 0 && b <= length);
+  const start = music.start ?? 0;
+  const end = Math.min(length, music.end ?? length);
+  return music.beats.map((b) => Math.round((start + b - music.offset) * 1e6) / 1e6).filter((b) => b >= start && b >= 0 && b <= end);
 }
 
 /**
@@ -646,6 +854,8 @@ export function snapCutsToBeats(clips: readonly Clip[], beats: readonly number[]
     if (target === cut) continue;
     const delta = target - cut;
     const c = out[i];
+    // A locked clip is never moved or trimmed, and neither is a clip with speech cut inside.
+    if (c.locked || c.speech || out.slice(i + 1).some((x) => x.locked)) continue;
     const newOut = c.out + delta * c.speed;
     if (newOut <= c.in + MIN_CLIP_SECONDS * c.speed || newOut > c.duration) continue;
     out[i] = { ...c, out: newOut };

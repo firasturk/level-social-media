@@ -151,6 +151,214 @@ branded headless Chrome in a container, with the same project JSON), not a secon
 commercial SDK or cloud API would only be worth a trial (no purchase made, none assumed free) if
 the template phase needs an off-the-shelf template editor; its Arabic text must be tested first.
 
+## Phase 2: the timeline, auto edit and music sync (23 Oct 2026)
+
+Branch `video-timeline` (from `studio-direct` at `dcf884a`). Everything below goes through the one
+compositor (`engine/compose.ts`) and the one mix definition (`shared/video-mix.ts`), so the
+preview and the render agree; nothing renders on a server, nothing calls a provider.
+
+### Implemented
+
+**Project document version 2** (`PROJECT_VERSION = 2`, `shared/video-project.ts`). New, all
+optional so a template or an older tab can omit them: per clip `volume` (0–1), `muted`, `locked`,
+`speech` ("has speech"), `keyframes` (pan x/y and zoom); transitions `dipBlack` and `dipWhite`
+besides cut and crossfade; gaps (`source: { kind: "gap" }`, an empty stretch of background);
+`music.start` / `music.end` (its place on the timeline; `offset` is now the track second at
+`start`) and `music.duck { enabled, level }`; `voices[]` (voice-over recordings: source, start,
+in/out, volume); on text layers `second` (the other language's line), `opacity`, `keyframes`; on
+logos `keyframes`. **Migration**: `validateProject` reads a version 1 document as version 2
+(`migrateV1`): a v1 draft with music gets its clips muted (v1 left the clips' sound out under
+music, so it renders exactly as before), the music starts at 0 with ducking off, no voices. The
+server stores what `validateProject` returns, so drafts and frozen render documents saved before
+open and render unchanged; the next Save writes version 2. Rev/409 and the frozen render
+revisions are untouched.
+
+**Timeline** (`ui/Timeline.tsx`, maths in `shared/video-timeline.ts`):
+- Lanes **Video, Text, Logo, Music, Voice**, labelled; a toolbar with Split, Ripple delete
+  ("Ripple"), Delete leaving a gap ("Gap"), Lock, snapping (magnet), zoom out / fit / in, the
+  timecode field and frame steps.
+- Selection: click; **shift-click** a run; **cmd/ctrl-click** to add or remove one. Several
+  clips can be dragged, deleted, locked or muted together.
+- **Reorder by drag** (the selection moves together; a marker shows where it lands); **trim** by
+  the clip's ends; **split at the playhead** (S; keyframes split so neither half jumps).
+- **Ripple delete** (Delete) closes the gap and moves the text, logo and voice-over that start
+  after it left with the footage; **delete leaving a gap** (Shift + Delete) puts a gap of the same
+  length, so nothing else moves (neighbouring gaps join; a gap at the very end is dropped).
+- **Snapping** to the playhead, cuts, beats and the edges of text, logo, music and voice blocks,
+  within 8 px at any zoom; the magnet turns it off; **hold Alt (Option)** while dragging to
+  place freely. A thin line shows what it snapped to.
+- **Zoom**: buttons, ctrl/cmd + wheel and trackpad pinch around the pointer, two-finger pinch
+  on touch; "Fit" shows the whole cut. 4 px/s (a minute on a phone) to 480 px/s (16 px a frame).
+- **Timecodes** mm:ss:ff at 30 fps in the transport and the toolbar; the field takes
+  `mm:ss:ff`, `mm:ss`, `12.5` or `4s`. ←/→ one frame, Shift ← / → one second, ↑/↓ the
+  previous / next cut, L lock.
+- Text, logo, music and voice blocks move by drag and trim by their ends; trimming the music's
+  head keeps the music where it was (the track starts later by the same amount).
+- **Keyframes** show as diamonds on their block; a click moves the playhead there.
+
+**Per clip** (Media panel): speed (×0.25 … ×4 as before), **sound: keep / mute and volume**,
+**Lock** (auto edit, beat alignment and dragging never move or trim it), **Has speech**, the
+join: **a cut, a crossfade, a dip to black, a dip to white** (0.2–2 s; a dip covers the footage
+and its background fully at the cut and fades linearly on both sides; text and logos stay on
+top; the clips' sound dips with it), framing with **keyframed zoom and pan**.
+
+**Text** in Arabic, English or **bilingual** (a second line in the other language). Each
+paragraph takes its own direction, so the Arabic line is shaped and runs right to left and the
+English line left to right, in the preview and the render (the browser's text engine, canvas
+`direction` per line). "Start"/"End" alignment follows each line's direction. Opacity per layer.
+
+**Keyframes** (`shared/video-keyframes.ts`, panel `ui/KeyframeControls.tsx`): position (x, y),
+scale and opacity on text and logo layers; pan (x, y) and zoom on a clip's framing. A diamond
+sets or removes a keyframe at the playhead; once a property has a keyframe its slider sets the
+keyframe at the playhead. Linear, ease in, ease out, ease in and out (the easing of a keyframe
+is how it travels to the next one); held before the first and after the last. Below full
+opacity a text layer is drawn whole and laid on at its opacity, so two lines' boxes fade as one.
+
+**Sound** (`shared/video-mix.ts`, `engine/audio.ts`): the clips' own sound **is mixed with the
+music** now (each clip at its volume; fading under crossfades and dips); the music plays from its
+`start` to its `end` with volume, fade in and fade out; **ducking**: under every clip marked "has
+speech" and every voice-over the music goes down to its duck level (default 30 %), starting
+0.2 s before the words and back over 0.4 s after (sidechain-style). The music's whole gain is one
+curve sampled at 100 per second (`musicGainCurve`); the offline mix and the preview hand that same
+curve to Web Audio (`setValueCurveAtTime`). The preview plays each clip's sound from its
+`<video>` at the level `clipGainAt` gives for the frame. **Voice-over**: Music tab → Voice-over,
+a recording from the computer on the Voice lane at the playhead, its own volume; with a post
+open it is kept with the post's audio (licence line "Voice-over recording") so a reopened draft
+plays it.
+
+**Auto edit** (`shared/video-autoedit.ts`, `planFirstCut`, panel `ui/AutoEditPanel.tsx`), still
+heuristics from motion energy, deterministic:
+- inputs: purpose (Product launch, Promo, Story), target length, pace (Calm 2–6 s shots with
+  0.5 s crossfades; Balanced 1.2–3.5 s, cuts, short crossfades for a story; Energetic 0.8–2.5 s,
+  cuts), the music's beats when set (shot lengths in whole beats);
+- purpose: a launch opens on the liveliest clip, keeps the rest in order, and ends on a held
+  shot after a dip to black; a promo runs liveliest first; a story keeps the footage's order;
+- **locked clips** stay exactly where they are: the planner fills the time before, between and
+  after them and corrects the shot before each to land on its second; if the footage cannot fill
+  a stretch, a gap is left and the panel says so;
+- **protected speech**: the source seconds of clips marked "has speech" come back whole (never cut
+  inside, joined by cuts so the words do not fade), and no other shot takes a window that
+  overlaps them;
+- the result is an ordinary editable timeline; undo brings back the previous one.
+- **Beat markers** show on the ruler and the Music lane; **Align cuts to beats** (Music) moves
+  each cut within 0.25 s of a beat onto it by a roll edit (the clip before ends later or earlier,
+  the clip after starts at the matching second), so the total length and the other cuts stay;
+  cuts next to a locked clip, speech or a gap, or with no footage to give, stay where they are
+  (the toast says how many).
+
+**Undo / redo** covers every operation (`shared/video-history.ts` + `ui/history.ts`): each commit
+is one step; a drag (mark, patches, commit) is exactly one step, and a drag or a commit that
+changes nothing records none (phase 1 recorded an empty extra step after every drag); text and
+colour fields record one step per edit.
+
+**Recoverable autosave** (`shared/video-drafts.ts`, `ui/autosave.ts`): while there are unsaved
+changes, a copy goes to this browser's local storage every 4 s, keyed `lsm-video-draft:<project
+id>` (or `new:<batch>:<post>` before the first save) with the revision it was edited from. On
+reopen, when the copy differs from the server's draft and was written after its last save:
+"Recover unsaved changes from 14:05? They were kept in this browser and never saved to the
+studio." (plus, when the draft was saved again since, that recovering then saving would replace
+that save). **Recover** puts it on the timeline as unsaved changes (undo goes back to the server's
+draft); **Keep the saved draft** sets the copy aside (one backup, not offered again). Nothing is
+written to the server without Save; a successful Save clears the copies. At most 8 copies are kept.
+
+**Wording**: the Music tab says the track is mixed with the clips' sound, that it is not
+Instagram's music library, and that "Instagram's own music can only be added in the Instagram
+app when posting."
+
+**Permissions** are unchanged: every write is the existing admin-only routes behind the `editor`
+switch; members open read-only (the timeline and panels' controls disabled, autosave and the
+recovery question off).
+
+### Verified, and how
+
+- **Unit tests** (vitest, no browser): `tests/video-timeline.test.ts` (35 tests: timecode
+  format/parse/frame steps, zoom maths and ruler spacing, snapping targets/time/span, selection,
+  multi-clip reorder and drop index, split with keyframes, ripple and plain delete (layers and
+  voice moved, gaps joined), dips, keyframe easing/interpolation/set/remove/split/overlay and
+  clip framing at t, saved-keyframe checks, bilingual direction, beat alignment with locks and
+  speech, clip levels under crossfade/dip/mute, speech spans, the ducking envelope, the music's
+  gain and curve, auto edit by purpose and pace, on beats, with locked clips (exact seconds and
+  the gap note) and protected speech, determinism, the version 1 → 2 migration and the v2
+  round-trip); `tests/video-autosave.test.ts` (11: undo stacks incl. one-step drags, the recovery
+  rule, keys, storage write/read/aside/clear/cap). The earlier suites pass unchanged except the
+  "unknown version" case, now `v: 99`. Whole suite: 113 files, 953 tests green.
+- **Gate chain** green: `npm run typecheck && npx eslint . && npx vitest run && npm run build`.
+- **A real render** (`node scripts/video-phase2-check.mjs --out <dir>`, Playwright Chromium,
+  VP9 + Opus as the earlier checks): clip A (red second, green second, 440 Hz) split at 2 s and
+  its red half ripple-deleted; clip B (blue, 660 Hz) joined by a 0.5 s crossfade; clip C
+  (yellow, 880 Hz, muted) after a 0.6 s dip to black; a bilingual text (Arabic "عرض خاص" over
+  "Special offer", Tajawal 800, the studio's Arabic font, served to the page) with keyframed
+  opacity 0 → 1 and y 0.25 → 0.20 over its first half second; a logo with scale keyframed 0.5 →
+  1.5 over 6 s; music (220 Hz) at 0.8 with 1 s fades, ducked to 0.2 under a voice-over (1 kHz).
+  Inspected with ffprobe, frames extracted with ffmpeg (PNG, looked at), tones measured with a
+  Goertzel filter on the decoded sound:
+
+| Check | Expected | Observed |
+| - | - | - |
+| Edits (editor's own functions) | 3 clips; text moved 2.3 s → 0.3 s; voice 5.0 → 3.0 s | 3 clips; text 0.3–3.0 s; voice 3.0 s |
+| Encoded size | 1080×1920 | 1080×1920 |
+| Duration = timeline | 6.5 s, 195 frames | 6.52 s, 195 frames |
+| Audio track | present | opus 48000 Hz 2 ch |
+| Text at 0.30 s (opacity key 0) | no box | 0 rows |
+| Text at 0.55 s (opacity 0.5) | half-dark box over green | 59.6 % of the band |
+| Text at 1.00 s | full box, two lines | 220 rows |
+| Text y at 0.55 s / 1.00 s | 432 px / 384 px | 427 px / 382 px |
+| No text at 3.5 s (ended at 3.0 after the ripple) | none | 0 rows |
+| 0.30 s picture (red half deleted) | green | 0,252,0 |
+| 1.75 s crossfade half way | ≈ 0,128,128 | 0,117,134 (preview 0,127,126) |
+| 4.35 s dip half way | ≈ 0,0,128 | 0,0,111 |
+| 4.50 s at the cut | black | 0,0,0 (preview 0,0,0) |
+| 5.50 s | yellow | 251,251,0 |
+| Logo width at 1.0 s / 5.0 s (scale 0.667 / 1.333) | 108 px / 216 px | 108 px / 216 px |
+| Music 1.5–2.5 s (0.8, not ducked) | 0.100 | 0.1003 |
+| Music under the voice-over 3.3–4.2 s | 0.2 × | 0.0199 (0.20 ×) |
+| Music fade in 0–0.3 s / fade out 6.2–6.5 s | ≈ 0.015 / < 0.35 × | 0.0151 / 0.15 × |
+| Clip A sound at 50 %, mixed with music | 0.0625 | 0.0623 |
+| Clip B sound at 100 % | 0.125 | 0.1248 |
+| Clip C muted | 0 | 0.0000 |
+| Voice-over inside / before | 0.125 / 0 | 0.1251 / 0.0000 |
+| Arabic in the render | joined, right to left, above the English line | looked at (frame-1.00s): "عرض" on the right, "خاص" on the left, letters joined; English left to right below |
+
+  The preview (same compositor, hidden `<video>` elements) matched at the crossfade, the dip,
+  the logo and the text box; its canvas at 1.0 s was looked at too. Render time 31 s for 6.5 s at
+  1080×1920 (software VP9, headless).
+- **The real UI** (`node scripts/video-core-smoke.mjs`, the built app with a stateful mock): the
+  lanes read Video, Text, Logo, Music, Voice; the timecode field seeks to 00:01:15; split → 2
+  clips, undo → 1, redo → 2; shift-click → "2 clips selected"; delete leaving a gap → 2 blocks, 1
+  gap; ripple delete → 1 clip, no gap; lock → 1 locked; zoom in ×2.25 then Fit back to the same
+  width; a bilingual line and an opacity diamond on the Text lane; after 5 s the local copy
+  `lsm-video-draft:p1` exists; a reload without saving asks "Recover unsaved changes from
+  HH:MM? …" with the server's revision untouched; Recover brings back 2 clips, the lock and the
+  second line with "Unsaved changes · Render needed"; Save clears the copy and stores a version 2
+  document (2 clips, 1 locked, `second`, opacity keyframes); Render & update card then renders
+  1080×1920 with audio and the card plays it; at 390 px nothing scrolls sideways, the timeline's
+  toolbar and five lanes fit. Screenshots at 1440 and 390 were looked at.
+- The phase 1 checks still pass (`video-render-check.mjs`, `video-editor-smoke.mjs`).
+
+### Not verified
+
+- H.264 + AAC (the Playwright Chromium has neither; as in phase 1, everything else ran with
+  VP9 + Opus). The preview's sound (clip levels through `<video>.volume`, the music curve and the
+  voices through Web Audio) was not listened to: the curve is the render's own (tested), the
+  scheduling of `MixPreview` was not measured.
+- Touch pinch-zoom and drag on a real phone; trackpad pinch on a Mac (ctrl + wheel was the path
+  exercised in code, not in the smoke).
+- A real person's speech: "has speech" is a flag the person sets; nothing detects speech.
+- The 390 px top bar is crowded (the chip runs under undo/redo); it predates phase 2.
+
+### Limits (phase 2)
+
+- One video lane: clips play one after another (crossfades overlap two); no picture-in-picture,
+  no free-floating clips. Gaps are clips of background.
+- Keyframes: position, scale and opacity on text and logo layers, pan and zoom on clips; no
+  rotation, no curves editor, no per-letter animation. A clip's keyframes are in seconds from its
+  start, so trimming its head shifts them with it.
+- Transitions: cut, crossfade, dip to black or white, nothing else (on purpose).
+- Ducking follows the "has speech" flag and the voice-over lane, not the sound itself. One duck
+  level for the whole cut.
+- Up to 8 voice-overs. A voice-over or music file picked in the standalone editor lives in the
+  tab only (as in phase 1).
+- Autosave is this browser's local storage only (not another computer, not a private window).
 ## Phase 3: looks, templates, reference match, music library (23 Oct 2026)
 
 Built on the video core; everything below goes through the one compositor and shader, so the
@@ -218,11 +426,12 @@ provider, nothing is charged.
   credit line and Content ID kept on the project; the rights block shows the credit the caption
   must carry for CC BY tracks (Copy button) and the Content ID note. Older `audioKey`/`upload`
   sources are unchanged.
-- **Schema**: `PROJECT_VERSION` 1 → **2**. `validateProject` reads version 1 and migrates it
-  (`migrateProject`: `lookAmount` 1, `protectSkin` false; new sliders default to 0; no clip
-  look/match; a LUT without `data`), so phase-1 drafts open and draw the same picture; a version
-  newer than the code is refused with "saved by a newer editor". The engine also draws a raw
-  version-1 document the same way (missing fields resolve to the phase-1 values).
+- **Schema**: `PROJECT_VERSION` 2 → **3** (phase 2 took 2). `validateProject` migrates step by
+  step (`migrateProject`): 1 → 2 is phase 2's `migrateV1` (sound and timeline), 2 → 3 is
+  `migrateV2` (`lookAmount` 1, `protectSkin` false; new sliders default to 0; no clip look/match;
+  a LUT without `data`), so phase-1 and phase-2 drafts open and draw the same picture; a version
+  newer than the code is refused with "saved by a newer editor". The engine also draws a raw older
+  document the same way (missing fields resolve to the earlier values).
 - **Permissions**: no new server route. Saving (look, match, LUT table, music source, template)
   stays the existing admin-only `PUT/POST /projects`; members see the thumbnails, browse
   references and the library, and cannot apply or save. The editor gets two new props from
@@ -230,7 +439,7 @@ provider, nothing is charged.
 
 ### Verified, and how
 
-- `tests/video-looks.test.ts` (29 tests): presets and the intensity blend (0 %, 60 %, 100 %,
+- `tests/video-looks.test.ts` (30 tests): presets and the intensity blend (0 %, 60 %, 100 %,
   monotonic distance), vibrance, per-clip grade resolution, scope (clip, chosen, whole video); skin
   weight on four skin tones vs five non-skin colours, hue kept under a harsh cool grade, brightness
   kept, other colours untouched; Lab round trip, exact pooling of frames, a fit that brings a cool
@@ -242,13 +451,13 @@ provider, nothing is charged.
   through `validateProject` for footage/no footage × en/ar/both × with/without logo, Arabic over
   English without overlap in 9:16, 4:5, 1:1, 16:9; music sources (CC BY catalog with credit and
   Content ID, library with client, refusals: bad id, NC licence, missing credit, unknown status);
-  a version-1 draft migrated with the same grade as phase 1.
+  a version-1 draft migrated with the same grade as phase 1, a version-2 (phase 2) draft migrated to 3 with its phase-2 fields kept.
 - `tests/video-looks-server.test.ts` (4 tests, in-memory D1/R2, paid-route guard: zero network): a
-  v1 draft saved and read back as v2 (and a v1 row in the database still opens); the LUT table, a
+  v1 draft saved and read back as the current version (3) (and a v1 row in the database still opens); the LUT table, a
   match, clip presets, the template and a catalog source given back exactly; a 33³ table accepted,
   mismatched data refused (400); a member's save 403 with nothing written.
 - The gate chain is green: `npm run typecheck && npx eslint . && npx vitest run && npm run build`
-  (113 files, 940 tests).
+  (after merging phase 2: 115 files, 987 tests).
 - `node scripts/video-looks-check.mjs --out <dir>` (Playwright Chromium, VP9 + Opus, fixtures made
   with ffmpeg: flat colour bands with grain, a warm reference PNG; the catalog's generated test
   loop served on the music library's file route). 56 checks, all passing on 23 Oct 2026. Expected
@@ -274,12 +483,12 @@ provider, nothing is charged.
   before/after, the skin on/off, the LUT frame, the split view, the VP9 render with an H.264
   transcode for viewing and `report.json` were looked at and are kept outside the repo in the
   session's scratchpad `video-phase3/`. `node scripts/video-render-check.mjs` and
-  `node scripts/video-core-smoke.mjs` (phase 1) still pass with the new shader.
+  `node scripts/video-core-smoke.mjs` (phase 1) and `node scripts/video-phase2-check.mjs` (phase 2) still pass with the new shader after the merge (dips, keyframed opacity and the mix unchanged).
 - `npm run build && node scripts/video-looks-smoke.mjs` drives the real UI (built app, stateful
   mock): six templates with schematics; Product launch fills 5 shots after the confirm; six
   distinct thumbnails; Warm Film at 60 %; Split; the match to the post's reference ("Matched to
   Sunset pin · 5 of 5 clips"); the library lists the catalog, a pick shows the rights block; Save
-  draft stores v2 with `look`, `lookAmount` 0.6, `template`, five matches with their reference and
+  draft stores v3 with `look`, `lookAmount` 0.6, `template`, five matches with their reference and
   the `catalog` source with credit and Content ID; after a reload and reopen Warm Film 60 % and the
   track are back (read again from the file route); at 390 px the Colour, Media and Music panels do
   not scroll sideways (screenshots looked at).
@@ -399,7 +608,8 @@ made).
    file is saved).
 
 **What is not possible**, and is said so in the UI: no server-side render; no Instagram music
-library (a track comes from the person's computer, and they must hold its rights); no cheaper
+library (a track comes from the person's computer or the studio, and they must hold its rights;
+Instagram's own music can only be added in the Instagram app when posting); no cheaper
 codec path when the browser lacks H.264/AAC; no editing of the words baked into a clip (that is
 the Text Studio's job, before the clip is made); a track picked from this computer in the
 standalone editor is not kept (a post's tracks and library tracks are, and since phase 3 the LUT
@@ -441,7 +651,14 @@ render and the upload are unchanged and stay admin-only on the server (`requireI
   one panel at a time with a bottom toolbar under 860 px), `Timeline.tsx` (clip blocks, trim
   handles as one undo step per drag, beat ticks, playhead), `Panels.tsx` (Clips, Auto edit, Music,
   Colour, Export), `history.ts` (undo/redo with mark/patch/commit). Keys: space, ⌘Z/⇧⌘Z, ⌘S, S
-  (split), Delete, ←/→ (a frame, ⇧ a second), Esc.
+  (split), Delete (ripple) / ⇧Delete (leave a gap), L (lock), ←/→ (a frame, ⇧ a second), ↑/↓
+  (previous / next cut), Esc.
+- Phase 2 files: `shared/video-timeline.ts` (timecode, zoom, snapping, selection, reorder,
+  split, delete, beat alignment), `shared/video-keyframes.ts`, `shared/video-mix.ts` (clip levels,
+  music span, fades, ducking, the gain curve), `shared/video-autoedit.ts` (`planFirstCut`),
+  `shared/video-history.ts`, `shared/video-drafts.ts` (autosave rules); `ui/Timeline.tsx` +
+  `ui/timeline.css`, `ui/KeyframeControls.tsx`, `ui/MusicMix.tsx` (music mix controls, Voice-over
+  panel), `ui/AutoEditPanel.tsx`, `ui/autosave.ts`; `scripts/video-phase2-check.mjs`.
 - Entry points: the clapperboard directly under the T on the Studio card (classic and compact
   cards; now on every post with a picture: it opens the Video studio on Generate, or on Presets
   when the post has no clip; the badge refreshes when an export lands); "Edit in the Video editor"
@@ -461,7 +678,9 @@ calm keeps the order and joins with 0.5 s crossfades, energetic sorts by energy 
 music, shot lengths are rounded to whole beats; footage shorter than the target is reused. A shot
 shorter than the style's minimum is never added, so the cut can end a little short of the target.
 A look is applied when none was chosen (calm → Clean, energetic → Punch). The person edits
-everything afterwards; undo restores the previous timeline.
+everything afterwards; undo restores the previous timeline. Phase 2 replaced the panel's planner
+with `planFirstCut` (purpose, pace, locked clips, protected speech; see "Phase 2" above);
+`planAutoEdit` stays in `shared/video-project.ts` with its tests.
 
 ### Music sync
 
@@ -470,8 +689,11 @@ the second before it, at least 0.25 s after the last; the most common onset spac
 becomes the grid period and a grid is laid from the first onset, drifting to the nearest onset
 where one exists so quiet bars still get a tick. Limits: it finds pulses, not downbeats or bars;
 rubato, very quiet or very dense tracks give a rough grid. The beats show as ticks on the ruler;
-"Snap cuts to beats" moves each cut to the nearest beat within 0.25 s by trimming the clip that
-ends there (its out point; speed honoured), and stays on so the auto edit cuts on the grid too.
+"Snap cuts to beats" moved each cut to the nearest beat within 0.25 s by trimming the clip that
+ends there (its out point; speed honoured). Phase 2 replaced the button with "Align cuts to
+beats" (a roll edit that keeps the total length and leaves locked clips and speech alone);
+`snapCutsToBeats` remains (now skipping locked and speech clips) and `snapToBeats` stays in the
+document but has no button.
 
 ## What is verified, and how
 
@@ -582,18 +804,21 @@ JSON report are kept outside the repo, under the session's scratchpad `video-sam
 - Timelines up to 60 s, 24 clips, clips up to 60 MB each, 1080p output; 30 fps only.
 - A clip from a saved project must still be loadable: a `version` source always is; an `upload`
   source (standalone mode) lives in the tab only.
-- With music set, the clips' own sound is left out of the export; without music, their sound is
-  kept (trimmed, sped, crossfaded). No mixing of both yet.
-- Framing is Fill or Fit with zoom and pan per clip (no keyframed motion yet); Fit shows a plain
+- Since phase 2 the clips' own sound is mixed with the music (per-clip volume and mute; the music
+  ducks under speech and the voice-over). A draft saved before phase 2 with music opens with its
+  clips muted, so it sounds as it did; unmute them under Media to mix.
+- Framing is Fill or Fit with zoom and pan per clip, keyframable since phase 2; Fit shows a plain
   background colour (no blurred copy yet).
 - The preview uses the browser's `<video>` decoding at up to 540×960; the render uses WebCodecs at
   full size. The compositor (framing, colour, text, logo) is the same for both.
 - The LUT is applied after the sliders and to the whole cut (not per clip); since phase 3 its table
   is stored with the draft at 33³ at most. Per-clip colour is sliders, a preset with its intensity
   and a colour match (phase 3).
-- Transitions: cut and crossfade. Text layers are words with a font family, weight, colour, box
-  and position; no animation yet. Logos are one picture each (a brand-kit address or a small file
-  of 200 KB at most).
+- Transitions: cut, crossfade, dip to black, dip to white. Text layers are words (one language or
+  two lines, Arabic and English) with a font family, weight, colour, box, position, opacity and
+  keyframed position / scale / opacity. Logos are one picture each (a brand-kit address or a small
+  file of 200 KB at most), with keyframed position / scale / opacity.
+- See "Limits (phase 2)" above for the timeline's own limits.
 - A render runs in its tab; closing the tab interrupts it (the job says so; Render again).
 
 ## iPhone and Instagram

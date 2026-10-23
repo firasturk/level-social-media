@@ -15,7 +15,7 @@
  */
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import type { CubeLut } from "@shared/cube-lut";
-import { totalLength, type VideoProject } from "@shared/video-project";
+import { clipVolume, isGap, totalLength, type VideoProject } from "@shared/video-project";
 import { isHdr, OUTPUT_COLOUR, type Rotation, type SourceColour } from "@shared/video-compose";
 import { checkCapabilities, STUDIO_CODECS, type ExportCodecs } from "./capabilities";
 import { demuxMp4, FrameCursor, type DemuxedVideo } from "./demux";
@@ -45,6 +45,8 @@ export interface ExportArgs {
   project: VideoProject;
   media: MediaStore;
   music: AudioBuffer | null;
+  /** The voice-over recordings by voice id (phase 2); missing ones are left out of the mix. */
+  voices?: Map<string, AudioBuffer | null>;
   lut: CubeLut | null;
   onProgress: (p: ExportProgress) => void;
   signal?: AbortSignal;
@@ -103,14 +105,17 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
   // One decoder per clip (two windows of the same footage can then crossfade), opened when the clip comes up and closed when it is past.
   const cursors = new Map<string, FrameCursor>();
   const clipAudio = new Map<string, AudioBuffer | null>();
-  const sources = project.clips.map((c) => media.get(c.source));
-  if (sources.some((s) => !s)) throw new Error("A clip's footage is not loaded in this tab (an uploaded file from an earlier session?). Remove it or add the file again.");
+  const sources = project.clips.map((c) => (isGap(c) ? null : media.get(c.source)));
+  if (project.clips.some((c, i) => !isGap(c) && !sources[i])) throw new Error("A clip's footage is not loaded in this tab (an uploaded file from an earlier session?). Remove it or add the file again.");
   let done = 0;
   for (const [i, c] of project.clips.entries()) {
     abort();
-    const m = sources[i]!;
-    if (!demuxed.has(m.key)) demuxed.set(m.key, await demuxMp4(await media.bytes(m)));
-    if (!project.music) clipAudio.set(c.id, await media.audio(m));
+    const m = sources[i];
+    if (m) {
+      if (!demuxed.has(m.key)) demuxed.set(m.key, await demuxMp4(await media.bytes(m)));
+      // The clips' own sound is mixed with the music now (phase 2): read unless the clip is muted.
+      if (clipVolume(c) > 0) clipAudio.set(c.id, await media.audio(m));
+    }
     onProgress({ phase: "reading", fraction: ++done / project.clips.length });
   }
   const reports = new Map<string, SourceReport>();
@@ -137,7 +142,7 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
 
   // 2. Sound: the mix rendered offline, then AAC.
   onProgress({ phase: "sound", fraction: 0 });
-  const mix = await renderMix(project, clipAudio, args.music);
+  const mix = await renderMix(project, clipAudio, args.music, args.voices ?? new Map());
   abort();
   await encodeAac(mix, (chunk, meta) => muxer.addAudioChunk(chunk, meta), codecs.audio === "opus" ? "opus" : "mp4a.40.2");
   onProgress({ phase: "sound", fraction: 1 });

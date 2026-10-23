@@ -64,7 +64,7 @@ const summary = () => {
   const done = [...state.videos].sort((a, b) => b.created - a.created);
   return { posts: { 1: { latest: done[0], client: done.find((v) => v.forClient) ?? null, done: done[0], card: state.card ? done.find((v) => v.id === state.card) : null } } };
 };
-const projectItem = (p) => ({ id: p.id, batch: "b1", post: 1, name: p.doc.name, rev: p.rev, sourceVideo: "v1", renderedVideo: p.rendered ?? null, created: NOW, updated: Date.now(), createdBy: "u1", updatedBy: "u1", clips: p.doc.clips.length });
+const projectItem = (p) => ({ id: p.id, batch: "b1", post: 1, name: p.doc.name, rev: p.rev, sourceVideo: "v1", renderedVideo: p.rendered ?? null, created: NOW, updated: p.updated ?? NOW, createdBy: "u1", updatedBy: "u1", clips: p.doc.clips.length });
 
 async function body(req) {
   const chunks = [];
@@ -93,7 +93,7 @@ async function api(req, res, path, u) {
   if (path === `${E}/projects` && req.method === "GET") return send(200, { projects: [...state.projects.values()].map(projectItem), access: ACCESS });
   if (path === `${E}/projects` && req.method === "POST") {
     const d = JSON.parse(await body(req));
-    const p = { id: "p1", rev: 1, doc: { ...d.project, rev: 1 } };
+    const p = { id: "p1", rev: 1, doc: { ...d.project, rev: 1 }, updated: Date.now() };
     state.projects.set(p.id, p);
     return send(200, { project: projectItem(p), document: p.doc });
   }
@@ -106,6 +106,7 @@ async function api(req, res, path, u) {
       if (d.rev !== p.rev) return send(409, { error: "Saved elsewhere.", rev: p.rev, stale: true });
       p.rev += 1;
       p.doc = { ...d.project, rev: p.rev };
+      p.updated = Date.now();
     }
     return send(200, { project: projectItem(p), document: p.doc, access: ACCESS });
   }
@@ -237,6 +238,99 @@ const chip = () => studio.locator(".ve-chip").innerText().then((t) => t.trim());
 const frameOn = () => studio.locator(".ve-framebar .ve-seg").first().locator("button.on").innerText().then((t) => t.trim());
 const canvasAspect = () => studio.locator(".ve-canvas").evaluate((c) => `${c.width}x${c.height}`);
 
+/**
+ * Phase 2 on the real screen: the timecode field, split at the playhead, undo / redo, shift-click
+ * selection, delete leaving a gap and ripple delete, lock, zoom, a keyframe diamond on the Text
+ * lane, a bilingual text line, and the recoverable autosave (a reload without saving offers the
+ * local copy back; the server's draft is not touched until Save).
+ */
+async function phase2() {
+  const p2 = {};
+  const bar = studio.locator(".ve-tl-bar");
+  const clips = studio.locator(".ve-tl-lane.video .ve-clip");
+  const tc = bar.locator(".ve-tc");
+  await tc.fill("00:01:15");
+  await tc.press("Enter");
+  await page.waitForTimeout(200);
+  p2.timecodeAfterSeek = await tc.inputValue();
+  if (p2.timecodeAfterSeek !== "00:01:15") errors.push(`The timecode field should read 00:01:15 after the seek, read ${p2.timecodeAfterSeek}.`);
+  await bar.getByRole("button", { name: "Split at the playhead" }).click();
+  p2.clipsAfterSplit = await clips.count();
+  await studio.getByRole("button", { name: "Undo" }).click();
+  p2.clipsAfterUndo = await clips.count();
+  await studio.getByRole("button", { name: "Redo" }).click();
+  p2.clipsAfterRedo = await clips.count();
+  if (p2.clipsAfterSplit !== 2 || p2.clipsAfterUndo !== 1 || p2.clipsAfterRedo !== 2) errors.push(`Split / undo / redo: ${JSON.stringify(p2)}`);
+  // Shift-click selects both; a plain click on the first then "Delete, leave a gap" leaves a gap; undo; ripple delete closes it.
+  await clips.nth(0).click({ position: { x: 30, y: 20 } });
+  await clips.nth(1).click({ position: { x: 30, y: 20 }, modifiers: ["Shift"] });
+  p2.selectedCount = (await bar.locator(".ve-tl-count").innerText().catch(() => "")).trim();
+  if (p2.selectedCount !== "2 clips selected") errors.push(`Shift-click should select two clips: "${p2.selectedCount}".`);
+  await clips.nth(0).click({ position: { x: 30, y: 20 } });
+  await bar.getByRole("button", { name: "Delete, leave a gap" }).click();
+  p2.afterGapDelete = { clips: await clips.count(), gaps: await studio.locator(".ve-tl-lane.video .ve-clip.gap").count() };
+  await studio.getByRole("button", { name: "Undo" }).click();
+  await clips.nth(0).click({ position: { x: 30, y: 20 } });
+  await bar.getByRole("button", { name: "Ripple delete" }).click();
+  p2.afterRippleDelete = { clips: await clips.count(), gaps: await studio.locator(".ve-tl-lane.video .ve-clip.gap").count() };
+  await studio.getByRole("button", { name: "Undo" }).click();
+  p2.afterUndoRipple = await clips.count();
+  if (p2.afterGapDelete.gaps !== 1 || p2.afterGapDelete.clips !== 2 || p2.afterRippleDelete.clips !== 1 || p2.afterRippleDelete.gaps !== 0 || p2.afterUndoRipple !== 2) errors.push(`Delete with and without the gap: ${JSON.stringify(p2)}`);
+  // Lock the second clip.
+  await clips.nth(1).click({ position: { x: 30, y: 20 } });
+  await bar.getByRole("button", { name: "Lock" }).click();
+  p2.locked = await studio.locator(".ve-tl-lane.video .ve-clip.locked").count();
+  if (p2.locked !== 1) errors.push(`Lock: ${p2.locked} locked clips.`);
+  // Zoom in, then fit.
+  const inner = () => studio.locator(".ve-tl-inner").evaluate((e) => e.getBoundingClientRect().width);
+  const w0 = await inner();
+  await bar.getByRole("button", { name: "Zoom in" }).click();
+  await bar.getByRole("button", { name: "Zoom in" }).click();
+  const w1 = await inner();
+  await bar.getByRole("button", { name: "Zoom to fit" }).click();
+  const w2 = await inner();
+  p2.zoom = { fit: Math.round(w0), zoomedIn: Math.round(w1), fitAgain: Math.round(w2) };
+  if (!(w1 > w0 * 1.5) || Math.abs(w2 - w0) > 2) errors.push(`Zoom: ${JSON.stringify(p2.zoom)}`);
+  // A bilingual line and an opacity keyframe on the text layer: the diamond shows on the Text lane.
+  await studio.locator(".ve-tl-lane.text .ve-layer-block").first().click();
+  await studio.locator(".ve-panel label.ve-check", { hasText: "Bilingual" }).locator("input").check();
+  const second = studio.locator(".ve-panel textarea").nth(1);
+  await second.fill("Move your way");
+  await second.blur();
+  await studio.getByRole("button", { name: "Add Opacity keyframe" }).click();
+  p2.diamonds = await studio.locator(".ve-tl-lane.text .ve-diamond").count();
+  if (p2.diamonds < 1) errors.push("No keyframe diamond on the Text lane.");
+  p2.textBlock = (await studio.locator(".ve-tl-lane.text .ve-layer-block").first().innerText()).trim();
+  await page.screenshot({ path: join(outDir, "video-timeline-1440.png") });
+  // Autosave: wait for the local copy, reload without saving, the editor offers it back.
+  await page.waitForTimeout(5000);
+  p2.localCopy = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("lsm-video-draft:")));
+  if (!p2.localCopy.includes("lsm-video-draft:p1")) errors.push(`No autosaved copy: ${JSON.stringify(p2.localCopy)}`);
+  const savesBefore = state.projects.get("p1")?.rev;
+  await page.reload({ waitUntil: "networkidle" });
+  const edit = page.locator(".pc-video-edit").first();
+  await edit.waitFor({ state: "visible", timeout: 20000 });
+  await edit.click();
+  const ask = page.locator(".confirm-box");
+  await ask.waitFor({ state: "visible", timeout: 30000 });
+  p2.recoveryQuestion = (await ask.locator("p").innerText()).trim();
+  if (!/^Recover unsaved changes from \d\d:\d\d\?/.test(p2.recoveryQuestion)) errors.push(`Recovery question: "${p2.recoveryQuestion}"`);
+  p2.serverRevUntouched = state.projects.get("p1")?.rev === savesBefore;
+  if (!p2.serverRevUntouched) errors.push("The server's draft changed without Save.");
+  await ask.getByRole("button", { name: "Recover" }).click();
+  await studio.locator(".ve-framebar").waitFor({ state: "visible", timeout: 20000 });
+  await studio.locator(".ve-stage-msg").waitFor({ state: "detached", timeout: 30000 }).catch(() => undefined);
+  p2.afterRecover = { clips: await clips.count(), locked: await studio.locator(".ve-tl-lane.video .ve-clip.locked").count(), chip: await chip(), text: (await studio.locator(".ve-tl-lane.text .ve-layer-block").first().innerText()).trim() };
+  if (p2.afterRecover.clips !== 2 || p2.afterRecover.locked !== 1 || !/^Unsaved changes/.test(p2.afterRecover.chip) || !p2.afterRecover.text.includes("Move your way")) errors.push(`After recovering: ${JSON.stringify(p2.afterRecover)}`);
+  await studio.getByRole("button", { name: /^Save draft$/ }).click();
+  await page.waitForTimeout(800);
+  p2.localCopyAfterSave = await page.evaluate(() => Object.keys(localStorage).filter((k) => k === "lsm-video-draft:p1"));
+  if (p2.localCopyAfterSave.length) errors.push("The local copy should be cleared once the draft is saved.");
+  p2.savedDoc = { v: state.projects.get("p1")?.doc.v, clips: state.projects.get("p1")?.doc.clips.length, locked: state.projects.get("p1")?.doc.clips.filter((c) => c.locked).length, second: state.projects.get("p1")?.doc.overlays[0]?.second, keyframes: Object.keys(state.projects.get("p1")?.doc.overlays[0]?.keyframes ?? {}) };
+  if (p2.savedDoc.v !== 3 /* the current version since phase 3 */ || p2.savedDoc.clips !== 2 || p2.savedDoc.locked !== 1 || p2.savedDoc.second !== "Move your way" || !p2.savedDoc.keyframes.includes("opacity")) errors.push(`Saved document: ${JSON.stringify(p2.savedDoc)}`);
+  result.phase2 = p2;
+}
+
 try {
   await page.goto(`${url}/?client=c1&month=2026-10`, { waitUntil: "networkidle" });
   result.cardEditButton = await page.locator(".pc-video-edit").first().innerText().catch(() => "");
@@ -244,8 +338,8 @@ try {
   result.opensOn = await frameOn();
   if (result.opensOn !== "16:9") errors.push(`A new cut should open in its clip's frame (16:9), got ${result.opensOn}.`);
   result.canvasBefore = await canvasAspect();
-  result.lanes = await studio.locator(".ve-lane-label").allInnerTexts().then((l) => l.map((x) => x.trim()).filter(Boolean));
-  if (result.lanes.join(",") !== "Video,Text,Logo,Music") errors.push(`Lanes: ${result.lanes.join(",")}`);
+  result.lanes = await studio.locator(".ve-tl-label").allInnerTexts().then((l) => l.map((x) => x.trim()).filter(Boolean));
+  if (result.lanes.join(",") !== "Video,Text,Logo,Music,Voice") errors.push(`Lanes: ${result.lanes.join(",")}`);
   result.transport = { scrubber: await studio.locator(".ve-scrub").count(), mute: await studio.getByRole("button", { name: /^Mute$/ }).count(), fullscreen: await studio.getByRole("button", { name: /^Full screen$/ }).count() };
   // 9:16, a text layer, Save draft.
   await studio.locator(".ve-framebar button", { hasText: "9:16" }).click();
@@ -265,6 +359,7 @@ try {
   await openFromCard();
   result.afterReload = { frame: await frameOn(), canvas: await canvasAspect(), textLayers: await studio.locator(".ve-layer-block.text").allInnerTexts().then((l) => l.map((x) => x.trim())), chip: await chip() };
   if (result.afterReload.frame !== "9:16" || !result.afterReload.textLayers.some((t) => t.includes("MOVE YOUR WAY"))) errors.push(`The reopened project lost edits: ${JSON.stringify(result.afterReload)}`);
+  await phase2();
   // Render & update card.
   await studio.getByRole("button", { name: /Render & update card/ }).click();
   const seen = new Set();
@@ -298,6 +393,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await openFromCard();
   result.narrow = await page.evaluate(() => ({ scrollX: document.documentElement.scrollWidth - window.innerWidth }));
+  // The timeline's toolbar and its five lanes on a phone: there, inside the screen.
+  result.narrowTimeline = await studio.locator(".ve-tl-bar").evaluate((b) => ({ visible: b.getBoundingClientRect().width > 0, right: Math.round(b.getBoundingClientRect().right), lanes: document.querySelectorAll(".ve-tl-label").length - 1 }));
+  if (!result.narrowTimeline.visible || result.narrowTimeline.right > 390 || result.narrowTimeline.lanes !== 5) errors.push(`The 390 px timeline: ${JSON.stringify(result.narrowTimeline)}`);
   if (result.narrow.scrollX > 1) errors.push(`The 390 px layout scrolls sideways by ${result.narrow.scrollX}px.`);
   await page.screenshot({ path: join(outDir, "video-core-390.png") });
 } catch (e) {
