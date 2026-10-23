@@ -1599,3 +1599,16 @@ body:has(.vs) .confirm-backdrop {
     margin-bottom: 8px;
   }
 }
+
+/* Presets with nothing picked: the gallery runs edge to edge (no side panel); picking a card opens it. */
+.vs.gallery.gallery-wide .vs-body {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+.vs.gallery.gallery-wide .vs-side {
+  display: none;
+}
+@media (max-width: 1180px) {
+  .vs.gallery.gallery-wide .vs-body {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+}

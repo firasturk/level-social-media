@@ -1184,7 +1184,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const locked = (id: StudioPanel) => !!PANELS.find((p) => p.id === id)?.paid && videosLoaded && !admin;
 
   const sheet = (
-    <div className={`ts ve vs ${narrow ? "narrow" : ""} ${editing || !post ? "editing" : ""} ${panel === "presets" && post ? "gallery" : ""}`} role="dialog" aria-label={post ? "Video studio" : "Video editor"}>
+    <div className={`ts ve vs ${narrow ? "narrow" : ""} ${editing || !post ? "editing" : ""} ${panel === "presets" && post ? "gallery" : ""} ${panel === "presets" && post && !narrow && !presets.selected ? "gallery-wide" : ""}`} role="dialog" aria-label={post ? "Video studio" : "Video editor"}>
       <header className="ts-top">
         <div className="ts-top-left">
           <button type="button" className="ts-icon" onClick={() => void close()} title="Close (Esc)" aria-label="Close">

@@ -1348,3 +1348,16 @@ body:has(.ps) .confirm-backdrop {
     margin-bottom: 8px;
   }
 }
+
+/* Presets with nothing picked: the gallery runs edge to edge (no side panel); picking a card opens it. */
+.ps-body.wide {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+.ps-body.wide .ps-side {
+  display: none;
+}
+@media (max-width: 1180px) {
+  .ps-body.wide {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+}

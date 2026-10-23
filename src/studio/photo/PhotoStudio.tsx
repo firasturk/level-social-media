@@ -499,7 +499,8 @@ export default function PhotoStudio(p: Props) {
           </button>
         </div>
       </header>
-      <div className="ps-body">
+      {/* Presets with nothing picked: the gallery runs edge to edge; a picked card opens the side. */}
+      <div className={`ps-body ${panel === "presets" && !narrow && !presets.selected ? "wide" : ""}`}>
         {!narrow && (
           <nav className="ps-rail" aria-label="Tools">
             {PANELS.map((t) => (
