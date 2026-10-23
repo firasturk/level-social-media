@@ -448,19 +448,29 @@ async function settleStep(ctx: Ctx, s: StepRow): Promise<void> {
   if (s.status !== "running") return;
   const b = await ownedPlan(env, ctx.user, row.batch);
   if (s.ref_kind === "task" && s.post) {
-    const t = await first<{ status: string; output: string | null; error: string | null; updated: number }>(env.DB, "SELECT status, output, error, updated FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, s.post);
+    const t = await first<{ status: string; output: string | null; error: string | null; updated: number; qa: string | null }>(env.DB, "SELECT status, output, error, updated, qa FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, s.post);
     if (!t) return;
-    // A picture still being made (or in the engine's automatic review): the month's engine is moved
-    // on from here, as the Studio page does, so it never waits for someone to open the month.
-    if (["queued", "processing", "finalizing", "review"].includes(t.status)) {
+    // A picture still being made: the month's engine is moved on from here, as the Studio page does,
+    // so it never waits for someone to open the month.
+    if (["queued", "processing", "finalizing"].includes(t.status)) {
       const { advanceBatch } = await import("./engine");
       ctx.waitUntil(advanceBatch(env, b.id, { background: ctx.waitUntil, deferSync: true }).catch((e) => console.error("[campaign] advance month", errorMessage(e))));
       return;
     }
-    if ((t.status === "ready" || t.status === "approved") && t.output && t.updated >= (s.started ?? 0)) {
+    // Made: "ready", or "review" (made, with the automatic check's notes for a person to look at).
+    if ((t.status === "ready" || t.status === "approved" || t.status === "review") && t.output && t.updated >= (s.started ?? 0)) {
       const cost = await first<{ c: number | null }>(env.DB, "SELECT SUM(cost) AS c FROM post_takes WHERE batch = ? AND post = ? AND created >= ?", b.id, s.post, s.started ?? 0);
       await settleCost(env, row, s, cost?.c ?? null);
-      await patchStep(env, s, { status: "done", output_key: t.output, finished: now() });
+      let checked = "";
+      if (t.status === "review") {
+        try {
+          const qa = JSON.parse(t.qa ?? "{}") as { flags?: { text: string }[]; notes?: string };
+          checked = `The automatic check asks you to look: ${(qa.flags ?? []).map((f) => f.text).join("; ") || qa.notes || "see the card"}`.slice(0, 400);
+        } catch {
+          checked = "The automatic check asks you to look at this picture.";
+        }
+      }
+      await patchStep(env, s, { status: "done", output_key: t.output, finished: now(), note: checked || s.note });
     } else if (t.status === "failed" && t.updated >= (s.started ?? 0)) {
       await failAttempt(env, row, s, t.error || "The image engine failed.", "no");
     }

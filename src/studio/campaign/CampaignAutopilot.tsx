@@ -618,6 +618,11 @@ function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPl
                   </button>
                 </span>
               )}
+              {st?.status === "done" && st.note?.startsWith("The automatic check") && (
+                <small className="ca-warn-inline">
+                  <AlertTriangle size={12} /> {st.note}
+                </small>
+              )}
               {st?.error && <small className="ca-error">{st.error}</small>}
             </li>
           );
