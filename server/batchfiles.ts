@@ -9,17 +9,31 @@ import { all } from "./db";
 /** Days a deleted month waits in the bin before its rows and files are purged for good. */
 export const TRASH_DAYS = 30;
 
+/**
+ * The month's working rows, removed with it. The records of money and of what reached people stay:
+ * spend, publications, Drive deliveries, notifications, the client's feedback and the tool jobs.
+ * (QA: a purged month left its version rows behind, pointing at files already deleted.)
+ */
+export const MONTH_TABLES = [
+  "tasks",
+  "sources",
+  "month_versions",
+  "post_comments",
+  "videos",
+  "post_takes",
+  "plan_drafts",
+  "plan_preflights",
+  "ocr_checks",
+  "notify_seen",
+  "video_renders",
+  "video_projects",
+  "video_audio",
+] as const;
+
 /** A month gone for good: its files, then every row that belongs to it. */
 export async function purgeBatch(env: Env, batch: { id: string; owner: string }): Promise<void> {
   await deleteBatchFiles(env, batch);
-  await env.DB.batch([
-    env.DB.prepare("DELETE FROM tasks WHERE batch = ?").bind(batch.id),
-    env.DB.prepare("DELETE FROM sources WHERE batch = ?").bind(batch.id),
-    env.DB.prepare("DELETE FROM month_versions WHERE batch = ?").bind(batch.id),
-    env.DB.prepare("DELETE FROM post_comments WHERE batch = ?").bind(batch.id),
-    env.DB.prepare("DELETE FROM videos WHERE batch = ?").bind(batch.id),
-    env.DB.prepare("DELETE FROM batches WHERE id = ?").bind(batch.id),
-  ]);
+  await env.DB.batch([...MONTH_TABLES.map((t) => env.DB.prepare(`DELETE FROM ${t} WHERE batch = ?`).bind(batch.id)), env.DB.prepare("DELETE FROM batches WHERE id = ?").bind(batch.id)]);
 }
 
 export async function deleteBatchFiles(env: Env, batch: { id: string; owner: string }): Promise<void> {
