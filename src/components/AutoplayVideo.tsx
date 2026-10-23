@@ -67,6 +67,7 @@ interface Entry {
 const entries = new Map<string, Entry>();
 let audible: string | null = null;
 let scheduled = false;
+let recheck: ReturnType<typeof setTimeout> | null = null;
 
 function rebalance(): void {
   if (scheduled) return;
@@ -74,12 +75,22 @@ function rebalance(): void {
   queueMicrotask(() => {
     scheduled = false;
     // A preview under a dialog or a full-screen studio gives its place to the ones on top.
-    const wanting = [...entries.values()].filter((e) => e.wants && !e.covered());
+    const wants = [...entries.values()].filter((e) => e.wants);
+    const wanting = wants.filter((e) => !e.covered());
     const allowed = allowedToPlay(
       wanting.map((e) => ({ id: e.id, ratio: e.ratio, priority: e.priority })),
       MAX_PLAYING,
     );
     for (const e of entries.values()) e.apply(allowed.has(e.id));
+    // Whatever covers them can go without any preview changing (a studio closing over its exit
+    // animation): look again shortly while some are held back, so the cards start once it has gone.
+    // (QA: every card stayed paused after the Video studio closed.)
+    if (wanting.length < wants.length && !recheck) {
+      recheck = setTimeout(() => {
+        recheck = null;
+        rebalance();
+      }, 500);
+    }
   });
 }
 
