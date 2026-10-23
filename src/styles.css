@@ -13067,6 +13067,30 @@ select {
   white-space: nowrap;
   flex-shrink: 0;
 }
+/* When the bar is full, the client and month pickers give up the room (not the avatar, not the edge). */
+.journey.flow .journey-top > .flow-avatar {
+  flex-shrink: 0;
+}
+.journey.flow .journey-top > .flow-where {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.journey.flow .journey-top > .flow-where select {
+  min-width: 0;
+  max-width: 220px;
+  text-overflow: ellipsis;
+}
+/* Too narrow for one row (laptops at 1024–1200): the bar takes two rows instead of hiding the pickers. */
+@media (max-width: 1200px) and (min-width: 761px) {
+  .journey.flow .journey-top {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    border-radius: 24px;
+  }
+  .journey.flow .journey-top > .flow-where {
+    min-width: 260px;
+  }
+}
 .topbar {
   border-bottom: 0;
   border-radius: 0 0 24px 24px;
