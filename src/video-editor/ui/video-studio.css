@@ -56,6 +56,10 @@
 .vs.gallery .vs-body {
   grid-template-columns: 76px minmax(0, 1fr) 360px;
 }
+/* The standalone editor (no post) has no rail: the stage takes its column. */
+.vs .vs-body.no-rail {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
 .vs-rail {
   display: flex;
   flex-direction: column;
@@ -942,6 +946,9 @@
   .vs.gallery .vs-body {
     grid-template-columns: 72px minmax(0, 1fr) 300px;
   }
+  .vs .vs-body.no-rail {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
   .vs-gallery {
     grid-template-columns: 140px minmax(0, 1fr);
   }
@@ -981,6 +988,7 @@
     display: none;
   }
   .vs .vs-body,
+  .vs .vs-body.no-rail,
   .vs.gallery .vs-body {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto auto;

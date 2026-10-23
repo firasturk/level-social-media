@@ -1243,7 +1243,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           )}
         </div>
       </header>
-      <div className="vs-body">
+      <div className={`vs-body${!narrow && post ? "" : " no-rail"}`}>
         {!narrow && post && (
           <nav className="vs-rail" aria-label="Tools">
             {rail.map((t) => (
