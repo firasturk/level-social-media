@@ -596,9 +596,10 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     if (!p) return;
     const grid = timelineBeats(p.music, totalLength(p));
     const r = alignCutsToBeats(p.clips, grid);
-    if (!r.moved) return toast.message(r.kept ? "No cut could move: the ones near a beat touch a locked clip or speech, or have no footage to give." : "Every cut is already on a beat or too far from one (a quarter second).");
+    if (!r.moved) return toast.message(r.kept ? "No cut could move: the ones near a beat touch a locked clip or speech, or the beat before is too far back." : "Every cut is already on a beat or too far from one (a quarter second).");
     history.commit((q) => ({ ...q, clips: r.clips }));
-    toast.success(`${r.moved} cut${r.moved === 1 ? "" : "s"} moved onto the beat${r.kept ? `; ${r.kept} left where ${r.kept === 1 ? "it was" : "they were"} (locked or speech)` : ""}.`);
+    const shorter = totalLength(p) - totalLength({ ...p, clips: r.clips });
+    toast.success(`${r.moved} cut${r.moved === 1 ? "" : "s"} moved onto the beat${shorter > 0.01 ? ` (the video is ${shorter.toFixed(1)} s shorter: whole clips were trimmed back to the beat)` : ""}${r.kept ? `; ${r.kept} left where ${r.kept === 1 ? "it was" : "they were"} (locked or speech)` : ""}.`);
   };
 
   /**

@@ -269,11 +269,14 @@ export function deleteClips(project: VideoProject, ids: readonly string[], rippl
 /**
  * "Align cuts to beats": each cut within `tolerance` of a beat moves onto it by a roll edit (the
  * clip before ends later or earlier and the clip after starts at the matching source second), so
- * the total length and every other cut stay where they are. A cut stays where it is when either
- * clip is locked, carries speech (it would be cut inside), is a gap, or has no footage to give.
- * Returns the clips and the number of cuts moved.
+ * the total length and every other cut stay where they are. When the clips have no footage to give
+ * (whole clips, the usual case: the clip after already starts at its first frame), the clip before
+ * is trimmed back to the beat before the cut instead, up to `rippleLimit` seconds, and what follows
+ * closes up (the cut is on the beat; the video is that much shorter). A cut stays where it is when
+ * either clip is locked, carries speech (it would be cut inside), is a gap, or a locked clip
+ * follows (a ripple would move it). Returns the clips and the number of cuts moved.
  */
-export function alignCutsToBeats(clips: readonly Clip[], beats: readonly number[], tolerance = 0.25): { clips: Clip[]; moved: number; kept: number } {
+export function alignCutsToBeats(clips: readonly Clip[], beats: readonly number[], tolerance = 0.25, rippleLimit = 0.5): { clips: Clip[]; moved: number; kept: number } {
   const out = clips.map((c) => ({ ...c }));
   let moved = 0;
   let kept = 0;
@@ -295,7 +298,14 @@ export function alignCutsToBeats(clips: readonly Clip[], beats: readonly number[
     const bIn = b.in + delta * b.speed;
     const ok = aOut > a.in + MIN_CLIP_SECONDS * a.speed && aOut <= a.duration + 1e-9 && bIn >= -1e-9 && bIn < b.out - MIN_CLIP_SECONDS * b.speed;
     if (!ok) {
-      kept++;
+      // No footage to roll: trim the clip before back to the previous beat and close up.
+      let earlier = -Infinity;
+      for (const t of beats) if (t < cut - 1e-6 && t > earlier) earlier = t;
+      const trimmed = a.out - (cut - earlier) * a.speed;
+      if (cut - earlier <= rippleLimit && trimmed > a.in + MIN_CLIP_SECONDS * a.speed && !out.slice(i + 1).some((x) => x.locked)) {
+        out[i] = { ...a, out: trimmed };
+        moved++;
+      } else kept++;
       continue;
     }
     out[i] = { ...a, out: Math.min(a.duration, aOut) };

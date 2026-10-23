@@ -283,10 +283,23 @@ describe("beat alignment with locks and speech", () => {
     const r = alignCutsToBeats(cs, beats, 0.25);
     expect(r.clips).toEqual(cs);
     expect(r.kept).toBe(2);
-    // Moving the cut earlier needs footage before the next clip's in point: none here, so the cut stays.
-    const noRoom = alignCutsToBeats([clip("a", 10, { out: 3.1 }), clip("b", 10, { in: 0, out: 3 })], beats, 0.25);
-    expect(noRoom.moved).toBe(0);
-    expect(noRoom.kept).toBe(1);
+    // A ripple would move a locked clip further on: the cut stays.
+    const lockedAfter = alignCutsToBeats([clip("a", 10, { out: 3.1 }), clip("b", 10, { in: 0, out: 3 }), clip("c", 10, { out: 2, locked: true })], beats, 0.25);
+    expect(lockedAfter.clips[0].out).toBe(3.1);
+  });
+  it("trims back to the beat before when whole clips have no footage to roll (QA: nothing moved on a real cut)", () => {
+    // Whole clips: the one after starts at its first frame, the one before ends at its last.
+    const cs = [clip("a", 3.1, { out: 3.1 }), clip("b", 4.2, { in: 0, out: 4.2 }), clip("c", 3, { out: 3 })];
+    const r = alignCutsToBeats(cs, beats, 0.25);
+    expect(r.moved).toBe(2);
+    expect(cutTimes(r.clips)).toEqual([3, 7]);
+    expect(r.clips[1].in).toBe(0);
+    expect(totalLength({ clips: r.clips })).toBeCloseTo(10);
+    // Never further back than the limit, and never below the shortest clip.
+    // The beat ahead (3.4) needs footage the clip does not have; the beat before (2) is 1.2 s back.
+    const far = alignCutsToBeats([clip("a", 3.2, { out: 3.2 }), clip("b", 4, { out: 4 })], [1, 2, 3.4], 0.25, 0.5);
+    expect(far.moved).toBe(0);
+    expect(far.kept).toBe(1);
   });
 });
 
