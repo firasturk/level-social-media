@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Aperture, Clapperboard, Download, History, LayoutGrid, Lock, Music, Palette, Pause, Play, Redo2, Save, ScanSearch, Scissors, SlidersHorizontal, Sparkles, Type, Undo2, Wand2, X } from "lucide-react";
+import { Aperture, ArrowRight, Clapperboard, Download, History, Image as ImageIcon, LayoutGrid, Lock, Maximize, Monitor, Music, Palette, Pause, Play, Redo2, Save, ScanSearch, Scissors, SlidersHorizontal, Smartphone, Sparkles, Square, Type, Undo2, Volume2, VolumeX, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
@@ -24,17 +24,19 @@ import { Orb } from "@/components/Orb";
 import type { Approval } from "@shared/config";
 import { parseCube, type CubeLut } from "@shared/cube-lut";
 import { moveClip, newClip, newProject, placeClips, planAutoEdit, snapCutsToBeats, splitClip, timelineBeats, totalLength, validateProject, type AutoStyle, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
+import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
-import { inFlight, listVideos, versionLabel, type VideoItem } from "@/studio/videoApi";
-import { createProject, getProject, listProjects, saveProject, uploadFootage, uploadRender, versionFileUrl, type EditorAccess } from "../api";
-import { checkCapabilities, type Capabilities } from "../engine/capabilities";
+import { inFlight, listAudio, listVideos, selectForClient, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
+import { createProject, failRender, getProject, listProjects, listRenders, reportRender, saveProject, startRender, uploadFootage, uploadRender, versionFileUrl, type EditorAccess, type RenderItem } from "../api";
+import { checkCapabilities, STUDIO_CODECS, TEST_CODECS, type Capabilities } from "../engine/capabilities";
 import { beatsOf, decodeAudio } from "../engine/audio";
 import { MediaStore, type Media } from "../engine/media";
 import { Player } from "../engine/preview";
-import { exportProject, type ExportProgress } from "../engine/export";
+import { exportProject, overallProgress, type ExportProgress } from "../engine/export";
 import { useHistory } from "./history";
 import Timeline from "./Timeline";
-import { AutoEditPanel, ClipsPanel, ColourPanel, ExportPanel, MusicPanel, type PanelCtx } from "./Panels";
+import { AutoEditPanel, ClipsPanel, ColourPanel, ExportPanel, LogoPanel, MusicPanel, TextPanel, type PanelCtx } from "./Panels";
 import { PresetDetailPanel, PresetsGallery, usePresets } from "./studio/PresetsPanel";
 import GeneratePanel from "./studio/GeneratePanel";
 import EnhancePanel from "./studio/EnhancePanel";
@@ -78,16 +80,39 @@ interface Props {
   onPhotoStudio?: () => void;
   /** Opens the Text studio on the same post. */
   onTextStudio?: () => void;
+  /** The client's logo (the brand kit's), offered as a logo layer. */
+  logoUrl?: string | null;
 }
 
-type Tab = "clips" | "auto" | "music" | "colour" | "export";
+type Tab = "clips" | "text" | "logo" | "music" | "colour" | "auto" | "export";
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
-  { id: "clips", label: "Clips", icon: <Clapperboard size={14} /> },
-  { id: "auto", label: "Auto edit", icon: <Wand2 size={14} /> },
+  { id: "clips", label: "Media", icon: <Clapperboard size={14} /> },
+  { id: "text", label: "Text", icon: <Type size={14} /> },
+  { id: "logo", label: "Logo", icon: <ImageIcon size={14} /> },
   { id: "music", label: "Music", icon: <Music size={14} /> },
   { id: "colour", label: "Colour", icon: <Palette size={14} /> },
-  { id: "export", label: "Export", icon: <Download size={14} /> },
+  { id: "auto", label: "Auto edit", icon: <Wand2 size={14} /> },
+  { id: "export", label: "Render", icon: <Download size={14} /> },
 ];
+
+/** The four frames above the stage, each the encoded size of the render (shared/video-compose.ts). */
+const RATIOS: { id: FrameId; icon: ReactNode; title: string }[] = [
+  { id: "9:16", icon: <Smartphone size={13} />, title: "Reel 9:16 · renders 1080×1920" },
+  { id: "4:5", icon: <Smartphone size={13} />, title: "Portrait 4:5 · renders 1080×1350" },
+  { id: "1:1", icon: <Square size={13} />, title: "Square 1:1 · renders 1080×1080" },
+  { id: "16:9", icon: <Monitor size={13} />, title: "Landscape 16:9 · renders 1920×1080" },
+];
+
+/** The automated render check turns this on to render VP9 + Opus where Chromium has no H.264 (never offered in the UI; the server refuses such files). */
+const testCodecs = () => {
+  try {
+    return localStorage.getItem("lsm-video-test-codecs") === "vp9";
+  } catch {
+    return false;
+  }
+};
+
+const clock = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
 const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; paid?: boolean }[] = [
   { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; running one is admins only)" },
@@ -102,7 +127,7 @@ const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; 
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 const MAX_FOOTAGE = 60 * 1024 * 1024;
 
-export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio }: Props) {
+export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio, logoUrl }: Props) {
   const history = useHistory();
   const { project } = history;
   const projectRef = useRef<VideoProject | null>(null);
@@ -134,6 +159,13 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const [exportResult, setExportResult] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /** The project's render jobs, newest first, and the one this tab is running. */
+  const [renders, setRenders] = useState<RenderItem[]>([]);
+  const [running, setRunning] = useState<{ id: string | null; progress: number } | null>(null);
+  const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [tracks, setTracks] = useState<AudioTrack[]>([]);
+  const stageRef = useRef<HTMLDivElement>(null);
   /** The project is loaded: from now on the unsaved cut, its music and LUT travel in the card's editing session. */
   const [ready, setReady] = useState(false);
 
@@ -203,7 +235,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     const media = mediaRef.current;
     void (async () => {
       try {
-        const c = await checkCapabilities();
+        const c = await checkCapabilities(undefined, testCodecs() ? TEST_CODECS : STUDIO_CODECS);
         if (!alive) return;
         setCaps(c);
         let doc: VideoProject | null = null;
@@ -241,10 +273,29 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
             doc = r.document;
             setProjectId(r.project.id);
             setRev(r.project.rev);
+            void listRenders(r.project.id)
+              .then((x) => alive && setRenders(x.renders))
+              .catch(() => undefined);
           } else {
             doc = newProject(`${post.title || `Post ${post.index}`} · cut`);
+            // A new cut starts in the frame of the clip it opens from (what the card plays), Reel 9:16 when that is not one of the four.
+            if (start?.frame && isFrame(start.frame)) doc.output = { ...doc.output, ...outputForFrame(start.frame) };
             const m = start ? media.get({ kind: "version", batch: post.batch, videoId: start.id }) : null;
             if (m) doc.clips = [newClip(m.source, m.duration)];
+          }
+          // The post's licensed tracks: the music a saved cut uses is read back from them, so a reopened project sounds as it did.
+          const audio = await listAudio(post.batch, post.index).catch(() => null);
+          if (audio && alive) setTracks(audio.tracks);
+          const keyed = doc.music?.source.kind === "audioKey" ? doc.music.source.key : null;
+          const track = keyed ? audio?.tracks.find((t) => t.id === keyed) : null;
+          if (track?.url && doc.music) {
+            setLoading("Reading the music…");
+            try {
+              const buffer = await decodeAudio(await (await fetch(track.url, { credentials: "same-origin" })).arrayBuffer());
+              if (buffer && alive) setMusicFile({ name: track.name, buffer, beats: doc.music.beats ?? [] });
+            } catch (e) {
+              console.warn("[video-editor] music", (e as Error).message);
+            }
           }
         } else {
           doc = newProject("New cut");
@@ -309,6 +360,17 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     const t = setInterval(() => void reloadVideos().then(() => onChanged?.()), 6000);
     return () => clearInterval(t);
   }, [open, pending, reloadVideos, onChanged]);
+
+  // The footage on the timeline is read once with the demuxer when it is placed there (rotation, colour), so
+  // the Media panel says what was found; versions not on the timeline are not downloaded for it.
+  const clipSources = project?.clips.map((c) => c.source);
+  useEffect(() => {
+    if (!open || !clipSources) return;
+    for (const src of clipSources) {
+      const m = mediaRef.current.get(src);
+      if (m && !m.inspecting) void mediaRef.current.inspect(m).then((meta) => meta && setSources(mediaRef.current.all().slice()));
+    }
+  }, [open, clipSources, sources]);
 
   /* ───────────── The player ───────────── */
   useEffect(() => {
@@ -446,21 +508,101 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     }
   };
 
-  const pickMusic = async (file: File) => {
+  /**
+   * A track for the cut. With a post open (admins) it is kept with the post as a licensed track
+   * (the Audio panel's list, with the licence line typed here), so the saved project points at it
+   * and a reopened project sounds the same; otherwise it lives in this tab only.
+   */
+  const pickMusic = async (file: File, license = "") => {
     try {
       setMusicBusy(`Reading ${file.name}…`);
       const buffer = await decodeAudio(await file.arrayBuffer());
       if (!buffer) throw new Error(`${file.name} could not be decoded as audio.`);
       setMusicBusy("Finding the beats…");
       const found = beatsOf(buffer);
-      setMusicFile({ name: file.name, buffer, beats: found });
-      history.commit((p) => ({ ...p, music: { source: { kind: "upload", name: file.name, size: file.size }, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+      const name = file.name.replace(/\.[a-z0-9]+$/i, "");
+      let source: NonNullable<VideoProject["music"]>["source"] = { kind: "upload", name: file.name, size: file.size };
+      if (post && !readOnly) {
+        setMusicBusy(`Keeping ${file.name} with the post…`);
+        try {
+          const r = await uploadAudio(post.batch, post.index, file, { name, license, durationMs: Math.round(buffer.duration * 1000) });
+          setTracks(r.tracks);
+          source = { kind: "audioKey", key: r.track.id, name: r.track.name };
+        } catch (e) {
+          toast.message(`The track plays in this tab only: ${(e as Error).message}`);
+        }
+      }
+      setMusicFile({ name: source.kind === "audioKey" ? (source.name ?? name) : file.name, buffer, beats: found });
+      history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setMusicBusy("");
     }
   };
+  /** One of the post's tracks (already kept with the post) as the cut's music. */
+  const chooseTrack = async (track: AudioTrack) => {
+    if (!track.url) return;
+    try {
+      setMusicBusy(`Reading ${track.name}…`);
+      const buffer = await decodeAudio(await (await fetch(track.url, { credentials: "same-origin" })).arrayBuffer());
+      if (!buffer) throw new Error(`${track.name} could not be decoded as audio.`);
+      const found = beatsOf(buffer);
+      setMusicFile({ name: track.name, buffer, beats: found });
+      history.commit((p) => ({ ...p, music: { source: { kind: "audioKey", key: track.id, name: track.name }, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found } }));
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setMusicBusy("");
+    }
+  };
+
+  /* ───────────── Frame, framing, text and logo layers ───────────── */
+  const frame = project ? frameOfOutput(project.output) : null;
+  const setFrame = (f: FrameId) => history.commit((p) => ({ ...p, output: { ...p.output, ...outputForFrame(f) } }));
+  /** Fill or Fit: the selected clip's own framing when one is selected, else the whole cut's. */
+  const setFit = (fit: FitMode) =>
+    history.commit((p) => {
+      const clip = selected ? p.clips.find((c) => c.id === selected) : null;
+      if (clip?.framing) return { ...p, clips: p.clips.map((c) => (c.id === clip.id ? { ...c, framing: { ...c.framing!, fit } } : c)) };
+      return { ...p, framing: { ...p.framing, fit } };
+    });
+  const addText = () => {
+    const p = projectRef.current;
+    if (!p) return;
+    const start = Math.min(time, Math.max(0, totalLength(p) - 0.5));
+    const o = newTextOverlay("Your words", start, Math.min(Math.max(start + 0.5, totalLength(p)), start + 3));
+    history.commit((q) => ({ ...q, overlays: [...q.overlays, o] }));
+    setSelectedOverlay(o.id);
+    setTab("text");
+  };
+  const addLogo = (src: string, name: string) => {
+    const p = projectRef.current;
+    if (!p) return;
+    const o = newLogoOverlay(src, name, 0, Math.max(0.5, totalLength(p)));
+    history.commit((q) => ({ ...q, overlays: [...q.overlays, o] }));
+    setSelectedOverlay(o.id);
+    setTab("logo");
+  };
+  const patchOverlay = (id: string, patch: Partial<Overlay>, step: "patch" | "commit" = "commit") =>
+    (step === "commit" ? history.commit : history.patch)((p) => ({ ...p, overlays: p.overlays.map((o) => (o.id === id ? ({ ...o, ...patch } as Overlay) : o)) }));
+  const removeOverlay = (id: string) => {
+    history.commit((p) => ({ ...p, overlays: p.overlays.filter((o) => o.id !== id) }));
+    setSelectedOverlay(null);
+  };
+  const toggleMute = () => {
+    setMuted((m) => {
+      playerRef.current?.setMuted(!m);
+      return !m;
+    });
+  };
+  const fullscreen = () => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void el.requestFullscreen?.().catch(() => undefined);
+  };
+
   const removeMusic = () => {
     setMusicFile(null);
     history.commit((p) => ({ ...p, music: null, snapToBeats: false }));
@@ -487,75 +629,158 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     history.commit((p) => ({ ...p, lut: null }));
   };
 
-  /* ───────────── Save and export ───────────── */
-  const save = async (): Promise<boolean> => {
+  /* ───────────── Save draft, and Render & update card ───────────── */
+  /** "Save draft": the editable project with its revision. Returns the saved project and revision, or null. */
+  const save = async (opts: { quiet?: boolean } = {}): Promise<{ id: string; rev: number } | null> => {
     const p = projectRef.current;
-    if (!p || !post || readOnly) return false;
+    if (!p || !post || readOnly) return null;
     const check = validateProject(p);
     if (!check.ok) {
       toast.error(check.reason);
-      return false;
+      return null;
     }
     setSaving(true);
     try {
+      let saved: { id: string; rev: number };
       if (projectId) {
         const r = await saveProject(projectId, p, rev);
-        setRev(r.project.rev);
+        saved = { id: r.project.id, rev: r.project.rev };
       } else {
         const r = await createProject({ batch: post.batch, post: post.index, name: p.name, project: p, sourceVideo: initialVideoId ?? null });
-        setProjectId(r.project.id);
-        setRev(r.project.rev);
+        saved = { id: r.project.id, rev: r.project.rev };
+        setProjectId(saved.id);
       }
+      setRev(saved.rev);
       history.markSaved();
-      toast.success("Project saved.");
-      return true;
+      if (!opts.quiet) toast.success("Draft saved.");
+      return saved;
     } catch (e) {
-      const err = e as ApiError;
-      if (err.status === 409 && (err.data as { stale?: boolean })?.stale) toast.error(err.message);
-      else toast.error(err.message);
-      return false;
+      toast.error((e as ApiError).message);
+      return null;
     } finally {
       setSaving(false);
     }
   };
 
+  const reloadRenders = useCallback(async (id: string | null) => {
+    if (!id) return;
+    try {
+      setRenders((await listRenders(id)).renders);
+    } catch {
+      /* the list is a convenience */
+    }
+  }, []);
+
+  /**
+   * "Render & update card": the draft saved, a render job of that exact revision, the frames
+   * rendered here from the job's frozen document, the file and its still uploaded; the server puts
+   * the new version on the card (and the client link unless the client approved the current one).
+   * Until the upload lands the card keeps its video; a failure is recorded on the job.
+   * With no post (the standalone editor) the render is saved as a file.
+   */
   const runExport = async () => {
     const p = projectRef.current;
-    if (!p) return;
+    if (!p || running) return;
     const check = validateProject(p);
     if (!check.ok) return setExportError(check.reason);
-    if (p.music && !musicFile) return setExportError("Pick the music file again before exporting: a saved project keeps its name, not the file.");
-    if (p.lut && !lut) return setExportError("Load the LUT file again before exporting: a saved project keeps its name, not the table.");
+    if (p.music && !musicFile) return setExportError("The music is not loaded in this tab: pick the track again under Music before rendering.");
+    if (p.lut && !lut) return setExportError("Load the LUT file again before rendering: a saved project keeps its name, not the table.");
     playerRef.current?.pause();
     setExportError(null);
     setExportResult(null);
     const abort = new AbortController();
     abortRef.current = abort;
-    try {
-      const blob = await exportProject({ project: p, media: mediaRef.current, music: musicFile?.buffer ?? null, lut: lut?.lut ?? null, onProgress: setProgress, signal: abort.signal });
-      if (post && !readOnly) {
-        setProgress({ phase: "finishing", fraction: 1 });
-        if (history.dirty || !projectId) await save();
-        const r = await uploadRender({ batch: post.batch, post: post.index, projectId, file: blob, note: `${p.name} · export` });
-        setExportResult(`Stored as ${versionLabel(r.video)} of this post (${formatSize(blob.size)}).`);
-        onExported?.(r.video);
-        void reloadVideos();
-        toast.success(`Stored as ${versionLabel(r.video)}.`);
-      } else {
-        saveBlob(blob, `${fileBase || "video"}_cut.mp4`);
-        setExportResult(`Saved as a file (${formatSize(blob.size)}).`);
+    const codecs = testCodecs() ? TEST_CODECS : STUDIO_CODECS;
+    if (!post || readOnly) {
+      try {
+        setRunning({ id: null, progress: 0 });
+        const r = await exportProject({ project: p, media: mediaRef.current, music: musicFile?.buffer ?? null, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
+          setProgress(x);
+          setRunning({ id: null, progress: overallProgress(x) });
+        } });
+        saveBlob(r.blob, `${fileBase || "video"}_cut.mp4`);
+        setExportResult(`Saved as a file: ${r.width}×${r.height}, ${r.duration.toFixed(1)} s, ${formatSize(r.blob.size)}.`);
+      } catch (e) {
+        setExportError((e as Error).message);
+      } finally {
+        setProgress(null);
+        setRunning(null);
+        abortRef.current = null;
       }
+      return;
+    }
+    // 1. The draft, saved: a render is always of a saved revision.
+    const saved = history.dirty || !projectId ? await save({ quiet: true }) : { id: projectId, rev };
+    if (!saved) return setExportError("The draft could not be saved, so nothing was rendered.");
+    let job: RenderItem | null = null;
+    let lastBeat = 0;
+    try {
+      // 2. The job, and the revision's document exactly as stored.
+      const started = await startRender(saved.id, saved.rev);
+      job = started.render;
+      setRenders((list) => [started.render, ...list.filter((x) => x.id !== started.render.id)]);
+      setRunning({ id: job.id, progress: 0 });
+      const jobId = job.id;
+      // 3. The frames, rendered here; the job hears how far it is every two seconds.
+      const result = await exportProject({ project: started.document, media: mediaRef.current, music: musicFile?.buffer ?? null, lut: lut?.lut ?? null, codecs, signal: abort.signal, onProgress: (x) => {
+        setProgress(x);
+        const f = overallProgress(x) * 0.95;
+        setRunning({ id: jobId, progress: f });
+        if (Date.now() - lastBeat > 2000) {
+          lastBeat = Date.now();
+          void reportRender(jobId, f, x.phase).catch(() => undefined);
+        }
+      } });
+      // 4. The upload: the server stores the version and decides where it shows.
+      setRunning({ id: jobId, progress: 0.96 });
+      void reportRender(jobId, 0.96, "uploading").catch(() => undefined);
+      const r = await uploadRender({ batch: post.batch, post: post.index, projectId: saved.id, renderId: jobId, file: result.blob, still: result.still, note: `${p.name} · render of save ${saved.rev}` });
+      const where = r.outcome === "review" ? "on the card; the client approved the version they see, so it waits for “Send for review”" : r.outcome === "superseded" ? "kept as a version; a newer render or choice is on the card" : "on the card and the client link";
+      setExportResult(`${versionLabel(r.video)} · ${result.width}×${result.height} · ${result.duration.toFixed(1)} s · ${formatSize(result.blob.size)}: ${where}.`);
+      onExported?.(r.video);
+      onChanged?.();
+      void reloadVideos();
+      toast.success(r.outcome === "card" ? `Rendered: ${versionLabel(r.video)} is on the card.` : r.outcome === "review" ? `Rendered ${versionLabel(r.video)}: send it for review to show it to the client.` : `Rendered ${versionLabel(r.video)} (kept as a version).`);
     } catch (e) {
-      setExportError((e as Error).message);
+      const message = (e as Error).message;
+      setExportError(message);
+      if (job) await failRender(job.id, message).catch(() => undefined);
     } finally {
       setProgress(null);
+      setRunning(null);
       abortRef.current = null;
+      void reloadRenders(saved.id);
     }
   };
 
+  /** "Send for review": the render the card shows becomes the client's version (the client approved an earlier one). */
+  const sendForReview = async (videoId: string) => {
+    if (!post) return;
+    if (!(await askConfirm("Make this render the client's version? The client sees it on the review link and can approve it again.", { ok: "Send for review", cancel: "Not now" }))) return;
+    try {
+      await selectForClient(post.batch, post.index, videoId);
+      toast.success("The client's link shows the new render.");
+      onChanged?.();
+      void reloadVideos();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  // Closing the tab stops a render: the browser asks first.
+  useEffect(() => {
+    if (!running) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [running]);
+
   const close = async () => {
-    if (progress) {
-      if (!(await askConfirm("An export is running. Stop it and close the studio?", { ok: "Stop and close", danger: true, cancel: "Keep rendering" }))) return;
+    if (running) {
+      if (!(await askConfirm("A render is running in this tab. Stop it and close the studio? The card keeps its current video.", { ok: "Stop and close", danger: true, cancel: "Keep rendering" }))) return;
       abortRef.current?.abort();
     } else if (history.dirty && !readOnly && post) {
       const ok = await askConfirm("Save this cut before closing?", { ok: "Save and close", danger: false, cancel: "Close without saving" });
@@ -640,6 +865,26 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
 
   if (!open) return null;
 
+  /* The draft and render state, in one line: "Draft saved · Render needed", "Rendering 42%", "Rendered", "Render failed: …". */
+  const lastRender = renders[0] ?? null;
+  const chip: { cls: string; text: string } | null = !post
+    ? null
+    : running
+      ? { cls: "rendering", text: `Rendering ${Math.round(running.progress * 100)}%` }
+      : !projectId && !history.dirty
+        ? { cls: "", text: "Not saved yet" }
+        : history.dirty
+          ? { cls: "dirty", text: "Unsaved changes · Render needed" }
+          : lastRender?.status === "interrupted"
+            ? { cls: "failed", text: "Render interrupted · Render again" }
+            : lastRender?.status === "failed" && lastRender.projectRev === rev
+              ? { cls: "failed", text: `Render failed: ${lastRender.error ?? "unknown error"}` }
+              : (lastRender?.status === "rendering" || lastRender?.status === "uploading") && lastRender.projectRev === rev
+                ? { cls: "rendering", text: `Rendering in another tab ${Math.round(lastRender.progress * 100)}%` }
+                : lastRender?.status === "done" && lastRender.projectRev === rev
+                  ? { cls: "done", text: lastRender.outcome === "review" ? "Rendered · Send for review" : lastRender.outcome === "superseded" ? "Rendered · kept as a version" : "Rendered · on the card" }
+                  : { cls: "draft", text: "Draft saved · Render needed" };
+
   const ctx: PanelCtx | null = project
     ? {
         project,
@@ -659,13 +904,15 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         onDelete: remove,
         onMove: move,
         auto: { busy: autoBusy, run: runAuto },
-        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, snap },
+        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, snap, tracks, choose: chooseTrack, keeps: !!post && !readOnly },
         colour: { lutName: lut?.name ?? null, pickLut, clearLut, bypass, setBypass },
-        exporting: { progress, result: exportResult, error: exportError, run: runExport, stop: () => abortRef.current?.abort(), canExport: !!caps?.canExport, capsMessage: caps?.message ?? "", standalone },
+        exporting: { progress, result: exportResult, error: exportError, run: runExport, stop: () => abortRef.current?.abort(), canExport: !!caps?.canExport, capsMessage: caps?.message ?? "", standalone, running: !!running, renders, chip: chip?.text ?? "", sendForReview, videoLabel: (id) => { const v = videos.find((x) => x.id === id); return v ? versionLabel(v) : "the new version"; }, clientId: videos.find((v) => v.forClient)?.id ?? null },
+        layers: { selected: selectedOverlay, select: setSelectedOverlay, addText, addLogo, patch: patchOverlay, remove: removeOverlay, logoUrl: logoUrl ?? null },
+        framing: { frame, setFrame },
       }
     : null;
 
-  const editBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? <MusicPanel ctx={ctx} /> : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
+  const editBody = ctx ? (tab === "clips" ? <ClipsPanel ctx={ctx} /> : tab === "text" ? <TextPanel ctx={ctx} /> : tab === "logo" ? <LogoPanel ctx={ctx} /> : tab === "auto" ? <AutoEditPanel ctx={ctx} /> : tab === "music" ? <MusicPanel ctx={ctx} /> : tab === "colour" ? <ColourPanel ctx={ctx} /> : <ExportPanel ctx={ctx} />) : null;
   const sideBody = !post || editing ? (
     <>
       <div className="ts-tabs vs-tabs">
@@ -681,7 +928,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     <div className="ts-side-body">{panel === "presets" ? <PresetDetailPanel s={shared} ps={presets} /> : panel === "generate" ? <GeneratePanel s={shared} /> : panel === "enhance" ? <EnhancePanel s={shared} /> : panel === "audio" ? <AudioPanel s={shared} /> : panel === "versions" ? <VersionsPanel s={shared} /> : <CheckPanel s={shared} />}</div>
   );
   const length = project ? totalLength(project) : 0;
-  const title = post ? `Video studio` : "Video editor";
+  const title = post ? "Video studio" : "Video editor";
   const shown = videos.find((v) => v.id === shownId) ?? null;
   const compare = videos.find((v) => v.id === compareId) ?? null;
   const newest = videos[0] ?? null;
@@ -697,12 +944,18 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           <button type="button" className="ts-icon" onClick={() => void close()} title="Close (Esc)" aria-label="Close">
             <X size={16} />
           </button>
-          <span className="ts-title">
-            {title}
-            <small>{post ? ` · post ${post.index} · ${post.title || "post"}` : ` · ${project?.name ?? ""}`}</small>
-          </span>
-          {post && <span className={`vs-state ${state}`}>{stateLabel}</span>}
-          {history.dirty && !readOnly && post && <span className="ts-save dirty">Cut not saved</span>}
+          <nav className="ts-title ve-crumbs" aria-label="Where you are">
+            {post && <span className="ve-crumb">Level Studio</span>}
+            <span className="ve-crumb">{title}</span>
+            <span className="ve-crumb now">{post ? post.title || `Post ${post.index}` : (project?.name ?? "")}</span>
+          </nav>
+          {post && editing && chip ? (
+            <span className={`ve-chip ${chip.cls}`} role="status" title={chip.text}>
+              <i aria-hidden /> {chip.text}
+            </span>
+          ) : post ? (
+            <span className={`vs-state ${state}`}>{stateLabel}</span>
+          ) : null}
         </div>
         <div className="ts-tools ve-tools" role="toolbar" aria-label="Edit">
           <span className="ts-tool-group" aria-label="History">
@@ -719,24 +972,38 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           </button>
         </div>
         <div className="ts-top-right">
-          {post && (
+          {/* While editing, the top bar is the mock-up's: Save draft and Render & update card; Versions stays on the rail, the other studios as icons. */}
+          {post && !editing && (
             <button type="button" className={`ts-btn ${panel === "versions" ? "on" : ""}`} onClick={() => openPanel("versions")} title="Every clip of this post">
               <History size={14} /> <span>Versions · {videos.length}</span>
             </button>
           )}
           {onPhotoStudio && (
-            <button type="button" className="ts-btn" onClick={onPhotoStudio} title="The picture, in the Photo studio">
-              <Aperture size={14} /> <span>Photo studio</span>
+            <button type="button" className={editing && post ? "ts-icon" : "ts-btn"} onClick={onPhotoStudio} title="The picture, in the Photo studio" aria-label="Photo studio">
+              <Aperture size={14} /> {!(editing && post) && <span>Photo studio</span>}
             </button>
           )}
           {onTextStudio && (
-            <button type="button" className="ts-btn" onClick={onTextStudio} title="The words and layers on the picture, in the Text studio">
-              <Type size={14} /> <span>Text studio</span>
+            <button type="button" className={editing && post ? "ts-icon" : "ts-btn"} onClick={onTextStudio} title="The words and layers on the picture, in the Text studio" aria-label="Text studio">
+              <Type size={14} /> {!(editing && post) && <span>Text studio</span>}
             </button>
           )}
           {editing && post && !readOnly && (
-            <button type="button" className="ts-btn" onClick={() => void save()} disabled={saving || !project} title="Save this cut with the post (⌘S)">
-              {saving ? <Orb size={14} status={null} /> : <Save size={14} />} <span>Save cut</span>
+            <button type="button" className="ts-btn" onClick={() => void save()} disabled={saving || !project} title="Save the editable project with the post (⌘S); the card keeps its video until you render">
+              {saving ? <Orb size={14} status={null} /> : <Save size={14} />} <span>Save draft</span>
+            </button>
+          )}
+          {editing && post && !readOnly && (
+            <button
+              type="button"
+              className="ts-btn primary ve-render"
+              onClick={() => void runExport()}
+              disabled={!!running || !project?.clips.length || !caps?.canExport}
+              title={caps && !caps.canExport ? caps.message : "Save the draft, render a new version here in the browser, and put it on the card (keep this tab open while it renders)"}
+            >
+              {running ? <Orb size={14} status={null} /> : null}
+              <span>{running ? `Rendering ${Math.round(running.progress * 100)}%` : "Render & update card"}</span>
+              {!running && <ArrowRight size={14} />}
             </button>
           )}
           {readOnly && editing && post && (
@@ -749,9 +1016,11 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
               <Download size={14} /> <span>Export</span>
             </button>
           )}
-          <button type="button" className="ts-btn primary" onClick={() => void close()}>
-            Close
-          </button>
+          {!(editing && post && !readOnly) && (
+            <button type="button" className="ts-btn primary" onClick={() => void close()}>
+              Close
+            </button>
+          )}
         </div>
       </header>
       <div className="vs-body">
@@ -773,7 +1042,31 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
             <VersionStage shown={shown} compare={compare} pictureUrl={pictureUrl ?? null} hint={compare ? "Two versions side by side · Esc to stop" : undefined} backfill={shared.admin} onPreview={() => void shared.reloadVideos()} />
           ) : (
             <>
-              <div className="ve-stage">
+              {project && (
+                <div className="ve-framebar" role="toolbar" aria-label="Frame">
+                  <span className="ve-seg" role="group" aria-label="Aspect ratio">
+                    {RATIOS.map((r) => (
+                      <button key={r.id} type="button" className={frame === r.id ? "on" : ""} aria-pressed={frame === r.id} disabled={readOnly} onClick={() => setFrame(r.id)} title={r.title}>
+                        {r.icon} {r.id}
+                      </button>
+                    ))}
+                  </span>
+                  <span className="ve-seg" role="group" aria-label="Fill or fit">
+                    {(["fill", "fit"] as FitMode[]).map((f) => {
+                      const cur = (selectedClip?.framing ?? project.framing).fit;
+                      return (
+                        <button key={f} type="button" className={cur === f ? "on" : ""} aria-pressed={cur === f} disabled={readOnly} onClick={() => setFit(f)} title={f === "fill" ? "Fill: the picture covers the frame, the edges are cropped (never stretched)" : "Fit: the whole picture shows, over the background colour"}>
+                          {f === "fill" ? "Fill" : "Fit"}
+                        </button>
+                      );
+                    })}
+                  </span>
+                  <span className="ve-framebar-size">
+                    {project.output.width}×{project.output.height} · {project.output.fps} fps
+                  </span>
+                </div>
+              )}
+              <div className="ve-stage" ref={stageRef}>
                 {fatal ? (
                   <div className="ve-stop ve-stage-msg">{fatal}</div>
                 ) : caps && !caps.canDecode ? (
@@ -793,13 +1086,19 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                 <button type="button" className="ts-icon" onClick={togglePlay} disabled={!project?.clips.length} title={playing ? "Pause (space)" : "Play (space)"} aria-label={playing ? "Pause" : "Play"}>
                   {playing ? <Pause size={16} /> : <Play size={16} />}
                 </button>
-                <span className="ve-time">
-                  {time.toFixed(1)}s <small>/ {length.toFixed(1)}s</small>
+                <span className="ve-time" aria-label="Time">
+                  {clock(time)} <small>/ {clock(length)}</small>
                 </span>
-                {selectedClip && <span className="ve-selected">{labelOf(selectedClip)} selected</span>}
-                <span className="ve-grow" />
+                <input className="ve-scrub" type="range" min={0} max={Math.max(0.01, length)} step={1 / 30} value={Math.min(time, length)} onChange={(e) => seek(Number(e.target.value))} aria-label="Scrub" disabled={!project?.clips.length} />
+                {selectedClip && <span className="ve-selected">{labelOf(selectedClip)}</span>}
                 <button type="button" className={`ts-icon ${bypass ? "on" : ""}`} onPointerDown={() => setBypass(true)} onPointerUp={() => setBypass(false)} onPointerLeave={() => setBypass(false)} title="Hold to see the footage before colour" aria-label="Before colour">
                   <SlidersHorizontal size={15} />
+                </button>
+                <button type="button" className="ts-icon" onClick={toggleMute} title={muted ? "Sound on" : "Mute the preview"} aria-label={muted ? "Sound on" : "Mute"} aria-pressed={muted}>
+                  {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                </button>
+                <button type="button" className="ts-icon" onClick={fullscreen} title="Full screen" aria-label="Full screen">
+                  <Maximize size={15} />
                 </button>
               </div>
               {project && (
@@ -815,6 +1114,16 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                   onTrim={(id, patch) => history.patch((p) => ({ ...p, clips: p.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)) }))}
                   onTrimEnd={() => history.commit((p) => p)}
                   labelOf={labelOf}
+                  selectedOverlay={selectedOverlay}
+                  onSelectOverlay={(id) => {
+                    setSelectedOverlay(id);
+                    const o = project.overlays.find((x) => x.id === id);
+                    if (o) {
+                      setTab(o.kind === "text" ? "text" : "logo");
+                      setPanelOpen(true);
+                    }
+                  }}
+                  musicName={musicFile?.name ?? (project.music ? (project.music.source.kind === "upload" ? project.music.source.name : (project.music.source.name ?? "Track")) : null)}
                 />
               )}
             </>

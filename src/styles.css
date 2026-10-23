@@ -19224,6 +19224,32 @@ a.publish-pill.published:hover {
 .pc-video-badge.client {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 80%, transparent);
 }
+/* "Edit video": the card's contextual action when it shows a clip (bottom right, above the player's pause and sound buttons). */
+.pc-video-edit {
+  position: absolute;
+  right: 8px;
+  bottom: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #fff;
+  background: color-mix(in srgb, var(--accent, #3b5bfd) 88%, #000);
+  cursor: pointer;
+  z-index: 2;
+}
+.pc-video-edit:hover {
+  filter: brightness(1.08);
+}
+.pc-video-badge .pc-video-client.off {
+  color: rgb(255 255 255 / 0.72);
+  font-weight: 500;
+}
 .pc-video-badge .pc-video-client {
   font-size: 10px;
   font-weight: 600;

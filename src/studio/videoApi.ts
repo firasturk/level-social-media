@@ -45,6 +45,11 @@ export interface VideoItem {
   frameFill: FrameFill | null;
   /** True when the words and logo are in the first frame, false for the bare picture, null when not known. */
   words: boolean | null;
+  /** The encoded size read from the stored file, when known. */
+  width?: number | null;
+  height?: number | null;
+  /** The editor project and saved revision an editor render was made from. */
+  project?: { id: string; rev: number } | null;
 }
 
 /** "Reel 9:16", "Reel 9:16 · blurred edges", or "" when the version carries no frame. */
@@ -169,7 +174,8 @@ export function costLabel(v: VideoItem): string {
 }
 
 export interface VideoSummary {
-  posts: Record<string, { latest: VideoItem; client: VideoItem | null; done: VideoItem | null }>;
+  /** Per post: the newest clip, the client's version, the newest finished clip, and the card's version (a render put there, or the last explicit choice). */
+  posts: Record<string, { latest: VideoItem; client: VideoItem | null; done: VideoItem | null; card?: VideoItem | null }>;
 }
 
 export const inFlight = (v: VideoItem | null | undefined) => !!v && (v.status === "queued" || v.status === "generating");

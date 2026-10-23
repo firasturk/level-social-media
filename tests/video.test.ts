@@ -383,7 +383,7 @@ describe("the client's link", () => {
       [firstId, true],
     ]);
     const after = await read(a, env);
-    expect(after.posts[0].video).toMatchObject({ id: firstId, url: expect.stringMatching(new RegExp(`^/api/share/${TOKEN}/video/1\\?v=\\d+$`)), poster: expect.stringContaining(`/api/share/${TOKEN}/video/1/poster`), duration: 1, version: { kind: "video", id: firstId, label: expect.stringMatching(/^Video 1 \(/) } });
+    expect(after.posts[0].video).toMatchObject({ id: firstId, url: expect.stringMatching(new RegExp(`^/api/share/${TOKEN}/video/1\\?v=[0-9a-f-]{8}\\.\\d+$`)), poster: expect.stringContaining(`/api/share/${TOKEN}/video/1/poster`), duration: 1, version: { kind: "video", id: firstId, label: expect.stringMatching(/^Video 1 \(/) } });
     expect(after.posts[0].version).toEqual(after.posts[0].video!.version);
     const part = await a.request(`/api/share/${TOKEN}/video/1`, { headers: { Range: "bytes=0-9" } }, env);
     expect(part.status).toBe(206);

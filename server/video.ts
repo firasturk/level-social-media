@@ -31,7 +31,7 @@ import { readMp4 } from "./mp4";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
 import { CREDITS_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
-import { isFill, isFrame, type FrameFill, type FrameId } from "@shared/video-frame";
+import { isFill, isFrame, pictureFrame, type FrameFill, type FrameId } from "@shared/video-frame";
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
 import type { AudioChoice } from "@shared/video-audio";
@@ -65,6 +65,8 @@ export interface VideoRow {
   /** The version's audio choice (shared/video-audio.ts), null when none was made. */
   audio_choice: AudioChoice | null;
   audio_id: string | null;
+  /** The studio card shows the done version with the highest rank (migration 0076); null: never put there. */
+  card_rank?: number | null;
 }
 
 /** The settings stored with a clip: what was asked, plus what the submission learned. */
@@ -170,6 +172,11 @@ export interface VideoItem {
   frameFill: FrameFill | null;
   /** True when the words and logo are in the clip's first frame; false for the bare picture; null when not known (older versions, uploads). */
   words: boolean | null;
+  /** The encoded size read from the stored file, when known. */
+  width: number | null;
+  height: number | null;
+  /** The editor project and its saved revision this version was rendered from (editor renders only). */
+  project: { id: string; rev: number } | null;
 }
 
 /** The names of a post's tracks by id, for the versions list ("Track: Summer loop"). */
@@ -210,9 +217,13 @@ export function videoItem(v: VideoRow, version: number, audioNames?: Map<string,
     label: typeof s.label === "string" ? s.label : null,
     check: s.check ?? null,
     analysis: s.analysis ?? null,
-    frame: isFrame(s.frame) ? s.frame : null,
+    // The frame the file really has wins over the one asked for (an engine may follow the picture's frame instead).
+    frame: (s.width && s.height ? pictureFrame(s.width, s.height) : null) ?? (isFrame(s.frame) ? s.frame : null),
     frameFill: isFill(s.frameFill) ? s.frameFill : null,
     words: typeof s.words === "boolean" ? s.words : v.source === "artwork" && !isFill(s.frameFill) ? true : v.source === "picture" ? false : null,
+    width: typeof s.width === "number" ? s.width : null,
+    height: typeof s.height === "number" ? s.height : null,
+    project: typeof (s as { project?: unknown }).project === "string" && typeof (s as { rev?: unknown }).rev === "number" ? { id: (s as { project: string }).project, rev: (s as { rev: number }).rev } : null,
   };
 }
 
@@ -646,13 +657,19 @@ videoRoutes.get("/summary", async (c) => {
   const rows = await all<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE batch = ? ORDER BY created DESC LIMIT 600", b.id);
   await settlePending(c.env, b, rows);
   const numbers = versionNumbers(rows);
-  const posts: Record<string, { latest: VideoItem; client: VideoItem | null; done: VideoItem | null }> = {};
+  const posts: Record<string, { latest: VideoItem; client: VideoItem | null; done: VideoItem | null; card: VideoItem | null }> = {};
+  const cardRank = new Map<string, number>();
   for (const v of rows) {
     const k = String(v.post);
     const item = videoItem(v, numbers.get(v.id) ?? 0);
-    posts[k] ??= { latest: item, client: null, done: null };
+    posts[k] ??= { latest: item, client: null, done: null, card: null };
     if (v.for_client === 1 && v.status === "done") posts[k].client = item;
     if (v.status === "done" && !posts[k].done) posts[k].done = item;
+    // The card's version: the done version put there last (a render, or an explicit choice).
+    if (v.status === "done" && v.key && typeof v.card_rank === "number" && v.card_rank > (cardRank.get(k) ?? -Infinity)) {
+      cardRank.set(k, v.card_rank);
+      posts[k].card = item;
+    }
   }
   return c.json({ ok: true, posts });
 });
@@ -667,7 +684,9 @@ videoRoutes.post("/select", async (c) => {
     if (v.status !== "done" || !v.key) throw new StudioError("Only a finished clip can go to the client.", 409);
   }
   await run(c.env.DB, "UPDATE videos SET for_client = 0, updated = ? WHERE batch = ? AND post = ? AND for_client = 1", now(), b.id, d.index);
-  if (d.id) await run(c.env.DB, "UPDATE videos SET for_client = 1, updated = ? WHERE id = ?", now(), d.id);
+  // An explicit choice is also what the card shows from now on: a render that started before it never replaces it.
+  if (d.id) await run(c.env.DB, "UPDATE videos SET for_client = 1, card_rank = ?, updated = ? WHERE id = ?", now(), now(), d.id);
+  else await run(c.env.DB, "UPDATE videos SET card_rank = NULL WHERE batch = ? AND post = ? AND card_rank IS NOT NULL", b.id, d.index);
   const rows = await postRows(c.env, b.id, d.index);
   const numbers = versionNumbers(rows);
   const names = await audioNamesFor(c.env, b.id, d.index);
@@ -750,6 +769,8 @@ export interface StoreVideoAsk {
   opId?: string | null;
   /** The lightweight preview and still the browser made from the file, when it could. */
   rendition?: Rendition;
+  /** False: the caller decides where the version shows (the editor's promotion); default true (the first clip goes to the client). */
+  autoSelect?: boolean;
 }
 
 /**
@@ -776,7 +797,9 @@ export async function storeVideoFile(env: Env, user: User, b: { id: string; owne
   await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
   const rendition = ask.rendition ? await storeRendition(env, key, ask.rendition) : {};
   const note = ask.note.slice(0, 200);
-  const settings: StoredSettings & Record<string, unknown> = { ...(ask.extra ?? {}), duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog", ...rendition };
+  // An editor render keeps its length to a tenth of a second (the card and the client page show it).
+  const duration = info.duration ? (ask.source === "editor" ? Math.round(info.duration * 10) / 10 : Math.round(info.duration)) : undefined;
+  const settings: StoredSettings & Record<string, unknown> = { ...(ask.extra ?? {}), duration, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog", ...rendition };
   const ts = now();
   await run(
     env.DB,
@@ -798,7 +821,7 @@ export async function storeVideoFile(env: Env, user: User, b: { id: string; owne
     ask.opId ?? null,
   );
   // A stored file is a finished clip: the client's version when the post has none yet.
-  await autoSelectForClient(env, { id, batch: b.id, post: index, status: "done", key });
+  if (ask.autoSelect !== false) await autoSelectForClient(env, { id, batch: b.id, post: index, status: "done", key });
   const rows = await postRows(env, b.id, index);
   const row = rows.find((r) => r.id === id)!;
   return { video: videoItem(row, versionNumbers(rows).get(id) ?? 0), info };

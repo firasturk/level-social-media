@@ -117,7 +117,8 @@ export async function makePreviewClip(file: Blob): Promise<Blob | null> {
   const d = await demuxMp4(await file.arrayBuffer());
   const decodable = await VideoDecoder.isConfigSupported({ codec: d.codec, description: d.description }).catch(() => ({ supported: false }));
   if (!decodable.supported) return null;
-  const { width, height } = renditionSize(d.width, d.height);
+  // The size a player shows: phone footage stores landscape pixels with a rotation (the editor's demuxer reads it).
+  const { width, height } = renditionSize(d.displayWidth, d.displayHeight);
   const codec = await encoderCodec(width, height);
   if (!codec) return null;
   const { fps, bitrate, seconds } = PREVIEW_RENDITION;
@@ -142,7 +143,14 @@ export async function makePreviewClip(file: Blob): Promise<Blob | null> {
     for (let i = 0; i < frames; i++) {
       if (failed) throw failed;
       const frame = await cursor.frameAt(i / fps);
-      if (frame) ctx.drawImage(frame, 0, 0, width, height);
+      if (frame) {
+        ctx.save();
+        ctx.translate(width / 2, height / 2);
+        ctx.rotate((d.rotation * Math.PI) / 180);
+        const [w, h] = d.rotation === 90 || d.rotation === 270 ? [height, width] : [width, height];
+        ctx.drawImage(frame, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      }
       const out = new VideoFrame(canvas, { timestamp: i * frameUs, duration: frameUs });
       encoder.encode(out, { keyFrame: i % (fps * 2) === 0 });
       out.close();
