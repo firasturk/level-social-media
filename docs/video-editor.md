@@ -786,9 +786,18 @@ uses `planEdit`.
 **"Edit like this video"** (Auto edit tab, below the first cut; the Templates gallery points to it):
 - **Where the reference comes from**: a **Pinterest** pin link (`POST
   /api/studio/posts/video/editor/reference`, admins, editor switch, ledger `editor.reference` at
-  estimate 0, `server/video-reference.ts`): the pin id from the link (pin.it followed), its MP4
-  renditions from Pinterest's pin endpoint, else the pin page (720p preferred, never the HLS
-  playlist), bytes taken only from Pinterest's video host (`https://v*.pinimg.com/videos/…mp4`), an
+  estimate 0, `server/video-reference.ts`, behind the Pinterest switch too): the pin id from the
+  link (any pinterest.* country site; a pin.it link's redirect read from pin.it only). **When
+  Pinterest is connected** (Connection → Pinterest, `server/pinterest.ts`: an access token, and
+  ideally the app id, app secret and refresh token so the 30-day token renews itself, or "Sign in
+  with Pinterest"), the pin is read with Pinterest's official API (`GET /v5/pins/{id}`, scopes
+  boards:read + pins:read) and its first video taken from `media` (`video_url` of a video pin, or
+  the first video item of a multi-item pin); refusals are plain: "Pin not found or private" (the
+  API reads only pins on the connected account's boards: save the pin there first), "This pin is a
+  picture, not a video", or a video whose link Pinterest withheld. **Not connected**, the old
+  reading stays as a fallback: MP4 renditions from Pinterest's pin endpoint, else the pin page
+  (720p preferred, never the HLS playlist), with "Connect Pinterest in Connection for reliable
+  links." after any refusal. Either way the bytes are taken only from Pinterest's video host (`https://v*.pinimg.com/videos/…mp4`), an
   MP4 by its `ftyp` box, 60 MB at most, copied to R2 under `editor-refs/` with a 7-day expiry
   (`GET …/reference/:id` serves it with Range to whoever may see the month; 410 and deleted once
   expired; expired copies are swept on each fetch). When Pinterest refuses: "Pinterest did not hand
