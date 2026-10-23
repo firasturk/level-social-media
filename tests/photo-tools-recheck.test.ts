@@ -278,3 +278,23 @@ describe("Use as the post's picture follows the client hold", () => {
     expect(await output()).toBe(used.key);
   });
 });
+
+describe("a preset answered 'Preset submitted … job_ids: [\"…\"]' (live, Street Skate)", () => {
+  const live = 'Preset submitted. Final job_ids: ["7e3a7cee-039b-4645-87bb-560c7d11ecba"]. Do not execute it again. Call job_display, then jobs_wait.';
+  it("reads the job id wherever the prose puts it", async () => {
+    const { parseJobs } = await import("../server/higgsfield-mcp");
+    expect(parseJobs({ content: [{ type: "text", text: live }] } as never).map((j) => j.jobId)).toEqual(["7e3a7cee-039b-4645-87bb-560c7d11ecba"]);
+    expect(parseJobs({ content: [{ type: "text", text: "Submitted 1 job.\n- 30eade26-1111-4222-8333-444455556666" }] } as never).map((j) => j.jobId)).toEqual(["30eade26-1111-4222-8333-444455556666"]);
+  });
+  it("Check again finds the id in the error of a run recorded before, and collects it", async () => {
+    const { env, id } = await failedUpscale();
+    await env.DB.prepare("UPDATE photo_tool_jobs SET provider_job = NULL, error = ? WHERE id = ?").bind(`Higgsfield did not start the tool: ${live}`, id).run();
+    const stub = higgsfieldStub({ waits: [{ status: "completed", credits_used: 2, result: { url: "https://cdn.test/out.png" } }] });
+    useHiggsfieldMcpFetch(stub.fn);
+    const r = (await json(await check(env, id))) as Check;
+    expect(r).toMatchObject({ ok: true, outcome: "done", job: { id, status: "done" } });
+    const sent = stub.rpc.filter((x) => x.method === "tools/call");
+    expect(sent.map((x) => x.name)).toEqual(["jobs_wait"]);
+    expect(JSON.stringify(sent[0])).toContain("7e3a7cee-039b-4645-87bb-560c7d11ecba");
+  });
+});

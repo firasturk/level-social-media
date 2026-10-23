@@ -295,11 +295,13 @@ export function parseJobs(r: McpCallResult): JobEntry[] {
     const error = findString(o, ["error", "error_message", "failure_reason", "reason", "message"]);
     if (!out.some((x) => x.jobId === jobId)) out.push({ index, jobId, status, url, error });
   }
-  // The picture tools answer prose ("Submitted 1 job. … \n- 30eade26-…"): the job ids are the UUIDs listed after "Submitted".
+  // The picture tools and presets answer prose ("Submitted 1 job. … \n- 30eade26-…", or "Preset submitted.
+  // Final job_ids: ["7e3a7cee-…"]"): the job ids are the UUIDs in it, wherever they sit (QA: a preset's
+  // id in quotes and brackets was missed, and a submitted, charged run was recorded as never started).
   if (!out.length) {
     const text = resultText(r);
-    if (/\bsubmitted\b|\bjob\b/i.test(text)) {
-      for (const m of text.matchAll(/(?:^|\s|-)\s*([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\b/gi)) {
+    if (/\bsubmitted\b|\bjob/i.test(text)) {
+      for (const m of text.matchAll(/(?<![0-9a-f-])([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?![0-9a-f-])/gi)) {
         const jobId = m[1].toLowerCase();
         if (!out.some((x) => x.jobId === jobId)) out.push({ index: out.length, jobId, status: "queued", url: null, error: null });
       }

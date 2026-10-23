@@ -745,7 +745,10 @@ export async function startPhotoJob(env: Env, s: StartJob): Promise<PhotoJobRow>
   const providerJobs = s.provider === "higgsfield" ? parseJobs(r).map((j) => ({ id: j.jobId, status: j.status, url: j.url, error: j.error })) : parseCreations(r).map((c) => ({ id: c.identifier, status: c.status, url: c.url, error: c.error }));
   const ids = s.provider === "higgsfield" ? providerJobs.map((j) => j.id) : parseIdentifiers(r);
   const direct = providerJobs.find((j) => DONE.test(j.status) && j.url)?.url ?? (ids.length ? null : r.isError ? null : firstUrl(jsonOf(r), text));
-  if (r.isError || (!ids.length && !direct)) {
+  // "Preset submitted … job_ids: [...]" can come back flagged as an error (Higgsfield's guard against a second
+  // submission): it was submitted, so it is followed like any started job, never recorded as not started.
+  const submitted = ids.length > 0 && /\bsubmitted\b/i.test(text);
+  if ((r.isError && !submitted) || (!ids.length && !direct)) {
     const message = `${TOOL_PROVIDER_LABELS[s.provider]} did not start the tool: ${text.slice(0, 300) || "no job id in the answer"}`;
     // An error answer that still names a job keeps the id, so "Check again" can ask about it later.
     if (ids.length) await run(env.DB, "UPDATE photo_tool_jobs SET provider_job = ?, settings = ? WHERE id = ?", ids[0], JSON.stringify({ ...settings, jobIds: ids }), id);
@@ -940,7 +943,13 @@ export async function recheckPhotoJob(env: Env, user: User, id: string): Promise
   const who = TOOL_PROVIDER_LABELS[row.provider];
   if (row.status === "done") return { outcome: "done", message: "Already collected: the result is here. Nothing was asked again.", job: jobJson(row) };
   if (row.status !== "failed") return { outcome: "running", message: `${who} is still working on it; the panel collects it by itself.`, job: jobJson(row) };
-  if (!row.provider_job) throw new StudioError(`${who} never gave this run a job id, so there is nothing to ask about. Check ${who}'s own history and balance.`, 409);
+  // A run recorded before job ids in prose were read keeps its id only in the error text: recover it from there.
+  if (!row.provider_job) {
+    const named = /job|submitted/i.test(row.error ?? "") ? (row.error ?? "").match(/(?<![0-9a-f-])([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?![0-9a-f-])/i)?.[1]?.toLowerCase() : undefined;
+    if (!named) throw new StudioError(`${who} never gave this run a job id, so there is nothing to ask about. Check ${who}'s own history and balance.`, 409);
+    await run(env.DB, "UPDATE photo_tool_jobs SET provider_job = ? WHERE id = ?", named, row.id);
+    row.provider_job = named;
+  }
   const claim = `phototool-check:${row.id}`;
   if (!(await claimSubmission(env, claim, CHECK_CLAIM_MS))) throw new StudioError("This job is being checked right now. Wait a moment.", 409);
   try {

@@ -99,6 +99,8 @@ export interface HiggsfieldOptions {
   balanceAfter?: number;
   /** What `show_generation_by_ids` says about a job (merged into `{job_id}`); unset: the tool answers an error. */
   shown?: Record<string, unknown>;
+  /** `execute_preset` answers this prose instead of its JSON (live: "Preset submitted. Final job_ids: [...]"), flagged as an error or not. */
+  presetProse?: { text: string; isError?: boolean };
 }
 
 export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
@@ -164,6 +166,7 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
     }
     if (name === "execute_preset") {
       expect(args).toMatchObject({ source: "marketing_studio", preset_id: "hero_shot" });
+      if (opts.presetProse) return text(b.id, opts.presetProse.text, !!opts.presetProse.isError);
       return text(b.id, { jobs: [{ index: 0, job_id: "job-p1", status: "queued" }] });
     }
     if (name === "upscale_image") {

@@ -666,9 +666,12 @@ export async function runPreset(env: Env, user: User, d: PresetRunInput): Promis
     throw new StudioError(`Higgsfield asks whether "${detail.title}" should use the unlimited allowance or pay credits. Run it from the Generate panel with that choice, or try another preset.`, 409, false, { unlimChoice: unlimChoiceIn(r), credits });
   }
   const jobs = parseJobs(r);
-  if (r.isError || !jobs.length) {
+  // "Preset submitted … job_ids: [...]" may come back flagged as an error: it was submitted, so it is followed.
+  const submitted = jobs.length > 0 && /\bsubmitted\b/i.test(resultText(r));
+  if ((r.isError && !submitted) || !jobs.length) {
     const message = `Higgsfield did not start the preset: ${resultText(r).slice(0, 300) || "no job id in the answer"}`;
-    await insertVideoRow(env, { ...base, status: "failed", requestId: null, error: message, settings });
+    // A failed answer that still names a job keeps it, so Check again can ask about it.
+    await insertVideoRow(env, { ...base, status: "failed", requestId: jobs[0]?.jobId ?? null, error: message, settings: jobs.length ? { ...settings, jobIds: jobs.map((j) => j.jobId) } : settings });
     await updateIntegrationOp(env, opId, { status: "failed", note: message });
     throw new StudioError(message, 502);
   }

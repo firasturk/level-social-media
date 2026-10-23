@@ -239,3 +239,22 @@ describe("running a product-shot preset", () => {
     expect(HERO.price).toBe(6);
   });
 });
+
+describe("a preset Higgsfield answers in prose (live: Street Skate)", () => {
+  const live = 'Preset submitted. Final job_ids: ["7e3a7cee-039b-4645-87bb-560c7d11ecba"]. Do not execute it again. Call job_display, then jobs_wait.';
+  for (const isError of [false, true]) {
+    it(`follows the submitted job instead of recording it as not started${isError ? " (answer flagged as an error)" : ""}`, async () => {
+      const env = await seed();
+      await signedInHiggsfield(env);
+      const stub = higgsfieldStub({ presetProse: { text: live, isError } });
+      useHiggsfieldMcpFetch(stub.fn);
+      const r = await postJson(app(), env, "/api/studio/photo/presets/run", { batch: "b1", index: 1, presetId: "hero_shot", source: "marketing_studio", inputs: { prompt: "warm" }, confirm: true });
+      const go = (await json(r)) as { job: { status: string; error: string | null } };
+      expect(r.status).toBe(200);
+      expect(go.job).toMatchObject({ status: "running" });
+      const row = await env.DB.prepare("SELECT provider_job FROM photo_tool_jobs").first<{ provider_job: string }>();
+      expect(row?.provider_job).toBe("7e3a7cee-039b-4645-87bb-560c7d11ecba");
+      expect(stub.rpc.filter((x) => x.name === "execute_preset")).toHaveLength(1);
+    });
+  }
+});
