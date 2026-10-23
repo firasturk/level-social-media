@@ -55,7 +55,8 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
-        <PopoverPrimitive.Content className="ts-pop ts-menu ts-add-menu" sideOffset={6} align="end" collisionPadding={12}>
+        {/* Closing does not hand the focus back to "Add": a new text has it, for typing. */}
+        <PopoverPrimitive.Content className="ts-pop ts-menu ts-add-menu" sideOffset={6} align="end" collisionPadding={12} onCloseAutoFocus={(e) => e.preventDefault()}>
           {!pictures ? (
             <>
               <button type="button" onClick={pick(onAdd)}><Type size={13} /> Text <kbd>T</kbd></button>

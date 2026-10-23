@@ -492,16 +492,35 @@ export default function TextStudio(p: Props) {
     setSelected([l.id]);
     return l;
   };
-  /** A new text from the Add menu or T: it opens for typing with its placeholder selected, so typing replaces it. */
+  /**
+   * A new text from the Add menu or T: it opens for typing with its placeholder selected, so typing
+   * replaces it. Its box appears once the frame is drawn; keys typed before that are held and become
+   * its first letters (and a capital T is a letter then, not another new text).
+   */
+  const typeInto = useRef<{ id: string; held: string } | null>(null);
   const addTextAndType = () => {
     const l = addLayer();
     if (!l) return;
+    typeInto.current = { id: l.id, held: "" };
     setEditing(l.id);
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.select();
-    }, 0);
   };
+  useEffect(() => {
+    const t = typeInto.current;
+    const box = textareaRef.current;
+    if (!t) return;
+    // Editing went elsewhere (Escape, another layer) before the box appeared: nothing is held any more.
+    if (editing !== t.id) {
+      typeInto.current = null;
+      return;
+    }
+    if (!box) return;
+    typeInto.current = null;
+    box.focus();
+    if (t.held) {
+      update([t.id], (l) => (isTextLayer(l) ? editText(l, t.held) : {}), true);
+      box.setSelectionRange(t.held.length, t.held.length);
+    } else box.select();
+  });
   /** Any new layer goes on top and becomes the selection. */
   const addAny = (l: Layer) => {
     const d = designRef.current;
@@ -889,6 +908,12 @@ export default function TextStudio(p: Props) {
       const mod = e.metaKey || e.ctrlKey;
       const inField = isEditable(e.target);
       const inOurBox = e.target === textareaRef.current;
+      // A new text whose box is not drawn yet: the letters typed meanwhile are its first words.
+      if (typeInto.current && !inOurBox && !mod && !e.altKey && e.key.length === 1) {
+        e.preventDefault();
+        typeInto.current.held += e.key;
+        return;
+      }
       if (e.key === "Escape") {
         if (picking) {
           pickRef.current?.(null);
