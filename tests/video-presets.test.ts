@@ -20,7 +20,7 @@ import type { User } from "../shared/types";
 import { StudioError } from "../server/errors";
 import { studioRoutes } from "../server/studio";
 import { HIGGSFIELD_MCP_URL, MCP_PROVIDER, NOT_SIGNED_IN, resetHiggsfieldMcpCaches, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
-import { cacheKey, mediaOf, needsOf, parsePresets, parseRecipes, resetPresetCaches } from "../server/video-presets";
+import { cacheKey, mediaOf, needsOf, nextCursorOf, parsePresets, parseRecipes, resetPresetCaches } from "../server/video-presets";
 import { getSetting, setSetting, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "../server/settings";
 import { setIntegrationSwitch } from "../server/integrations";
 
@@ -205,6 +205,20 @@ describe("normalising the answers", () => {
     // A bare CDN link under a video-typed preview is the reference video; a Katana item is not runnable from here.
     expect(cards[2]).toMatchObject({ source: "viral", video: "https://cdn.test/katana/launch", poster: null, runnable: true });
     expect(parsePresets({ content: [{ type: "text", text: JSON.stringify({ items: [KATANA] }) }] }, "katana")[0].runnable).toBe(false);
+  });
+
+  it("reads the next cursor as a numeric offset or an opaque string, and sends a numeric one back as a number", async () => {
+    const text = (body: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(body) }] });
+    expect(nextCursorOf(text({ items: [], next_cursor: 50 }))).toBe("50");
+    expect(nextCursorOf(text({ items: [], next_cursor: "eyJvZmZzZXQiOjR9" }))).toBe("eyJvZmZzZXQiOjR9");
+    expect(nextCursorOf(text({ items: [], next_cursor: null }))).toBeNull();
+    expect(nextCursorOf(text({ items: [] }))).toBeNull();
+    const env = await seed();
+    await signedIn(env);
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    await browse(env, "category=popular&cursor=50");
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ limit: 50, cursor: 50 });
   });
 
   it("tells pictures, clips and words apart in a schema, and reads previews of several shapes", () => {

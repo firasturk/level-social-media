@@ -33,7 +33,7 @@ import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, switchedOffMessage, updateIntegrationOp } from "./integrations";
 import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, NOT_SIGNED_IN, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
-import { findNumber, findString, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
+import { findNumber, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
 import { insertVideoRow, sha256, versionItem, type VideoItem } from "./video";
 import { EXECUTABLE_SOURCES, isPresetCategory, isVideoFromPictureRecipe, keepCard, NOTHING_IN_CATEGORY, outputKind, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
 import type { User } from "@shared/types";
@@ -305,11 +305,15 @@ export function parsePresets(r: McpCallResult, fallbackSource: string, opts: { a
   return out;
 }
 
-/** The `cursor` for the next page, when the answer carries one. */
+/** The `cursor` for the next page, when the answer carries one: a numeric offset (the galleries) or an opaque string (Katana), kept as text. */
 export function nextCursorOf(r: McpCallResult): string | null {
   const j = jsonOf(r);
-  return findString(j, ["next_cursor", "nextCursor", "cursor"]) ?? null;
+  const v = findValue(j, ["next_cursor", "nextCursor", "cursor"], (x): x is string | number => (typeof x === "string" && x !== "") || (typeof x === "number" && Number.isFinite(x)));
+  return v === null || v === undefined ? null : String(v);
 }
+
+/** A cursor as the provider takes it back: numeric offsets as numbers, opaque strings as they are. */
+const cursorArg = (c: string): number | string => (/^\d+$/.test(c) ? Number(c) : c);
 
 /**
  * The recipes and commands `get_preset_instructions` lists with no preset: objects with a command
@@ -431,7 +435,7 @@ async function fetchAsk(mcp: HiggsfieldMcp, ask: PresetAsk, q: string, cursor: s
     const args = providerArgs(ask);
     // Katana and "What if" take no query: their cards are searched here instead. Elsewhere the search joins the category's own words (every word must match).
     if (q && !unsearchable) args.query = ask.query ? `${ask.query} ${q}` : q;
-    if (next) args.cursor = next;
+    if (next) args.cursor = cursorArg(next);
     const r = await mcp.call("get_presets", args);
     if (r.isError) break;
     for (const card of parsePresets(r, ask.source ?? "viral")) {
