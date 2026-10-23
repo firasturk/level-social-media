@@ -20502,3 +20502,6 @@ a.publish-pill.published:hover {
     transition: none;
   }
 }
+.ps-check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.45; color: var(--ink-500); }
+.ps-check input { margin-top: 3px; flex: none; }
+.ps-check b { color: var(--ink-700); font-weight: 600; }

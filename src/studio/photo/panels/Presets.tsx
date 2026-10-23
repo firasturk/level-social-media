@@ -264,6 +264,8 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
   const [product, setProduct] = useState("");
   const [productFrom, setProductFrom] = useState<string[]>([]);
   const [productBusy, setProductBusy] = useState(false);
+  const [productPicture, setProductPicture] = useState<{ name: string; from: string } | null>(null);
+  const [wholePicture, setWholePicture] = useState(false);
   useEffect(() => {
     setInputs({});
     setError("");
@@ -276,6 +278,8 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
   useEffect(() => {
     setProduct("");
     setProductFrom([]);
+    setProductPicture(null);
+    setWholePicture(false);
     if (!wantsProduct || !post) return;
     let live = true;
     setProductBusy(true);
@@ -284,6 +288,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
         if (!live) return;
         setProduct(r.text);
         setProductFrom(r.from);
+        setProductPicture(r.picture);
       })
       .catch(() => {})
       .finally(() => live && setProductBusy(false));
@@ -316,7 +321,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
     setError("");
     try {
       const sent = wordsField ? { ...inputs, [wordsField]: presetPrompt(product, inputs[wordsField] ?? "") } : inputs;
-      const r = await runPhotoPreset({ batch: post.batch, index: post.index, presetId: card.id, source: card.source, inputs: Object.fromEntries(Object.entries(sent).filter(([, v]) => v.trim())), confirm });
+      const r = await runPhotoPreset({ batch: post.batch, index: post.index, presetId: card.id, source: card.source, inputs: Object.fromEntries(Object.entries(sent).filter(([, v]) => v.trim())), confirm, picture: wholePicture ? "post" : "product" });
       await ctx.tools.reloadJobs();
       ctx.tools.setJob(r.job);
       toast.success(`“${card.title}” is being made from this post's picture; it takes a few seconds to a minute.`);
@@ -412,6 +417,22 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
             </div>
           ) : (
             <fieldset className="ps-fields" disabled={running}>
+              {productPicture ? (
+                <label className="ps-check">
+                  <input type="checkbox" checked={wholePicture} onChange={(e) => setWholePicture(e.target.checked)} />
+                  <span>
+                    {wholePicture ? (
+                      "The post's whole picture is sent as the product picture (its scene may come along)."
+                    ) : (
+                      <>
+                        Product picture: <b>{productPicture.name}</b> ({productPicture.from}), so the preset's own scene is used. Tick to send the post's whole picture instead.
+                      </>
+                    )}
+                  </span>
+                </label>
+              ) : (
+                !productBusy && <p className="ts-hint">The post's picture is sent as the product picture: the month has no clean photo of this post's product.</p>
+              )}
               {wordsField ? (
                 <label className="ps-field">
                   <span>The product (sent first, so the engine keeps it)</span>

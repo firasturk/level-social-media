@@ -348,59 +348,79 @@ async function cardFromCache(env: Env, id: string, source: string): Promise<Phot
   return hit?.items.find((c) => c.id === id) ?? null;
 }
 
+/** The clean picture of the product a preset's "Product image" gets, when the studio has one. */
+export interface ProductPicture {
+  key: string;
+  name: string;
+  /** "the post's product photo" (the month's product photo the post names) or "the client's Drive" (the original the post's picture was copied from). */
+  from: string;
+}
+
 /**
- * What the product in the post's picture is, in words for the engine, from what the studio already
- * knows (no text call, nothing paid): the Drive file's name and note when the picture came from the
- * client's Drive (the copy keeps its Drive id; an edited picture is traced to the post's first
- * take), else the post's product photo and its note, else the post's title; then the brand kit's
- * first rule about how the product looks. A preset run sends it with the person's own words so the
- * product comes back as it is. (Live: an Abu Saleh cup preset ran with only "mixed fruit instead
- * of one fruit", and the engine had nothing saying what the product was.)
+ * What the product in the post's picture is, for a preset run, from what the studio already knows
+ * (no text call, nothing paid): the post's product photo and its note, else the Drive file the
+ * picture was copied from (the copy keeps its Drive id; an edited picture is traced through the
+ * post's first takes), else the post's title. Only the product: never the post's scene or the brand's
+ * photography, which would pull the result back to the post's own scene instead of the preset's (live:
+ * "Chilled Can" came back in the post's shelf scene because its idea was sent). The same lookup names
+ * the clean product picture the preset's product input gets instead of the post's whole picture.
  */
-export async function productBrief(env: Env, user: User, batchId: string, index: number): Promise<{ text: string; from: string[] }> {
+export async function productBrief(env: Env, user: User, batchId: string, index: number): Promise<{ text: string; from: string[]; picture: ProductPicture | null }> {
   const b = await ownedPlan(env, user, batchId);
   const config = JSON.parse(b.config) as Config;
   const post = (config.plan ?? []).find((p) => p.index === index);
   const from: string[] = [];
   let name = "";
   let note = "";
+  let picture: ProductPicture | null = null;
+  const clean = (n: string | null | undefined) => (n ?? "").trim().replace(/[.\s]+$/, "");
+  const wanted = post?.product ?? post?.products?.[0];
+  if (wanted) {
+    const src = await first<{ name: string; note: string | null; key: string }>(env.DB, "SELECT name, note, key FROM sources WHERE batch = ? AND kind = 'product' AND (lower(stem) = lower(?) OR lower(name) = lower(?)) ORDER BY created LIMIT 1", b.id, wanted, wanted);
+    if (src) {
+      name = src.name.replace(/\.[a-z0-9]+$/i, "");
+      note = clean(src.note);
+      picture = { key: src.key, name: src.name, from: "the post's product photo" };
+      from.push("the post's product photo");
+    }
+  }
   const keys = [
     ...(await all<{ output: string | null }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, index)).map((r) => r.output),
     ...(await all<{ key: string | null }>(env.DB, "SELECT key FROM post_takes WHERE batch = ? AND post = ? AND key IS NOT NULL ORDER BY created ASC LIMIT 3", b.id, index)).map((r) => r.key),
   ].filter((k): k is string => !!k);
-  for (const key of [...new Set(keys)]) {
-    const head = await env.BUCKET.head(key).catch(() => null);
-    const drive = head?.customMetadata?.drive;
-    if (!drive) continue;
-    const photo = await first<{ name: string; note: string }>(env.DB, "SELECT name, note FROM drive_photos WHERE id = ?", drive);
-    if (photo && (photo.name || photo.note)) {
-      name = photo.name.replace(/\.[a-z0-9]+$/i, "");
-      note = photo.note.trim().replace(/[.\s]+$/, "");
-      from.push("the client's Drive");
+  if (!name || !picture) {
+    for (const key of [...new Set(keys)]) {
+      const head = await env.BUCKET.head(key).catch(() => null);
+      const drive = head?.customMetadata?.drive;
+      if (!drive) continue;
+      const photo = await first<{ name: string; note: string; kind: string | null }>(env.DB, "SELECT name, note, kind FROM drive_photos WHERE id = ?", drive);
+      if (!photo) continue;
+      if (!name && (photo.name || photo.note)) {
+        name = photo.name.replace(/\.[a-z0-9]+$/i, "");
+        note = clean(photo.note);
+        from.push("the client's Drive");
+      }
+      // A Drive original stands in as the product picture only when it is a product shot, not a scene.
+      if (!photo.kind || /product|drink|food|dessert|pack/i.test(photo.kind)) picture ??= { key, name: photo.name || "the Drive original", from: "the client's Drive" };
       break;
     }
   }
-  if (!name && post?.product) {
-    const src = await first<{ name: string; note: string | null }>(env.DB, "SELECT name, note FROM sources WHERE batch = ? AND kind = 'product' AND (lower(stem) = lower(?) OR lower(name) = lower(?)) LIMIT 1", b.id, post.product, post.product);
-    name = src?.name?.replace(/\.[a-z0-9]+$/i, "") ?? post.product;
-    note = (src?.note ?? "").trim().replace(/[.\s]+$/, "");
-    from.push("the post's product photo");
+  if (!name && wanted) {
+    name = wanted;
+    from.push("the post's product name");
   }
   // "Post 3" and a file's name ("01-talk", "IMG_2041") say nothing about the product.
   if (!name && post?.title && !/^post \d+$/i.test(post.title) && !/^[\w.-]*\d[\w.-]*$/.test(post.title.trim())) {
     name = post.title;
     from.push("the post's title");
   }
-  const client = config.client ? await first<{ name: string; dos: string | null }>(env.DB, "SELECT name, dos FROM clients WHERE id = ?", config.client) : null;
-  const rule = (client?.dos ?? "").split(/\n+/).map((l) => l.trim()).find((l) => /cup|bottle|can|pack|label|logo|wordmark|product|jar|box|glass/i.test(l)) ?? "";
-  if (rule) from.push("the brand kit");
+  const client = config.client ? await first<{ name: string }>(env.DB, "SELECT name FROM clients WHERE id = ?", config.client) : null;
   const parts: string[] = [];
   const who = client?.name ? `${client.name}'s product` : "The product";
   if (name || note) parts.push(`${who}: ${[name, note].filter(Boolean).join(" — ")}.`);
-  parts.push("It is the item in the input picture: keep it exactly as it is (shape, cup or packaging, label, logo, colours and proportions); do not redraw, replace or relabel it.");
-  if (post?.brief?.trim()) parts.push(`Post idea: ${post.brief.trim()}`);
-  if (rule) parts.push(`Brand look: ${rule}`);
-  return { text: parts.join(" ").slice(0, 900), from };
+  parts.push("It is the item in the product picture: keep it exactly as it is (shape, cup or packaging, label, logo, colours and proportions); do not redraw, replace or relabel it.");
+  parts.push("Use this preset's own scene, setting, people, light and background; take nothing else from the product picture.");
+  return { text: parts.join(" ").slice(0, 900), from, picture };
 }
 
 /** The product, in words, for the "The product" box of a preset run (filled in, editable). Every member; nothing is called. */
@@ -475,6 +495,8 @@ const runSchema = z.object({
   source: z.string().min(1).max(40).default("marketing_studio"),
   inputs: z.record(z.string().max(80), inputValue).default({}),
   confirm: z.boolean().optional(),
+  /** The preset's product picture: the post's clean product photo (default, when there is one) or the post's whole picture. */
+  picture: z.enum(["product", "post"]).optional(),
 });
 export type PhotoPresetRun = z.infer<typeof runSchema>;
 
@@ -497,15 +519,20 @@ export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): P
   if (!detail.runnable) throw new StudioError(`"${detail.title}" cannot be run from here${detail.available === false ? " (Higgsfield says it is not available)" : ""}.`, 409, false, { notRunnable: true });
   const inputs: Record<string, unknown> = { ...d.inputs };
   const field = imageInputOf(detail.inputSchema);
+  // A "Product image" input gets the clean product photo when the post has one (the post's whole
+  // picture would bring its scene along); "the post's picture" when asked, or when there is none.
+  const productInput = !!field && /product/i.test(`${field.name} ${field.description}`);
+  const clean = productInput && d.picture !== "post" ? (await productBrief(env, user, d.batch, d.index)).picture : null;
+  const sent = clean?.key ?? t.output;
   if (field && inputs[field.name] === undefined) {
-    const mediaId = await mediaFor(env, mcp, t.output, "image");
+    const mediaId = await mediaFor(env, mcp, sent, "image");
     inputs[field.name] = /array/i.test(field.type) ? [{ id: mediaId, type: "image" }] : mediaId;
   }
   const credits = detail.price;
   const bal = await balanceOf(mcp).catch(() => ({ credits: null as number | null }));
   if (credits === null && !d.confirm) throw new StudioError(`The cost of "${detail.title}" is not known: Higgsfield names no price for it. Confirm it at an unknown cost, or pick another preset.`, 409, false, { needsEstimate: true, presetId: d.presetId, balance: bal.credits });
   if (!d.confirm) throw new StudioError(`Confirm the run: about ${credits} credits from the subscription balance${bal.credits !== null ? ` (${bal.credits} available)` : ""}.`, 409, false, { needsConfirm: true, credits, balance: bal.credits });
-  const fp = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(["photo-preset", d.source, d.presetId, JSON.stringify(d.inputs), t.output].join("\n"))))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  const fp = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(["photo-preset", d.source, d.presetId, JSON.stringify(d.inputs), sent].join("\n"))))].map((x) => x.toString(16).padStart(2, "0")).join("");
   if (!(await claimSubmission(env, `photopreset:${b.id}:${d.index}:${fp}`, CLAIM_TTL_MS))) throw new StudioError("This exact preset run was asked for a moment ago. Wait for it, or change its inputs.", 409);
   const opId = await recordIntegrationOp(env, {
     provider: "higgsfield",
@@ -532,7 +559,7 @@ export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): P
     opId,
     mcpTool: "execute_preset",
     args: { source: d.source, preset_id: d.presetId, inputs },
-    notes: [],
+    notes: clean ? [`product picture: ${clean.name} (${clean.from})`] : [],
     call: () => mcp.call("execute_preset", { source: d.source, preset_id: d.presetId, inputs }),
     fetchFn: higgsfieldFetcher(),
     balanceAfter: async () => (await balanceOf(mcp, true)).credits,

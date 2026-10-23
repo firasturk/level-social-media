@@ -146,7 +146,7 @@ export function jobJson(j: PhotoJobRow): PhotoToolJob {
     options: parseJson<Record<string, string>>(j.options, {}),
     status: j.status,
     estimate: j.estimate,
-    reported: j.reported,
+    reported: j.reported === null ? null : Math.round(j.reported * 100) / 100,
     error: j.error,
     input: `${base}?which=in`,
     output: j.output_key ? `${base}?which=out&v=${j.updated}` : null,
@@ -221,7 +221,8 @@ async function finishJob(env: Env, b: { id: string; owner: string }, row: PhotoJ
   const key = await storeResult(env, b, row, url, fetchFn);
   const s = parseJson<JobSettings>(row.settings, {});
   const after = await balanceAfter().catch(() => null);
-  const reported = typeof s.balanceBefore === "number" && after !== null && after <= s.balanceBefore ? s.balanceBefore - after : row.estimate;
+  // Balances are decimals (5488.15 → 5484.55 is 3.5999999999994543 in floating point): kept to the cent.
+  const reported = typeof s.balanceBefore === "number" && after !== null && after <= s.balanceBefore ? Math.round((s.balanceBefore - after) * 100) / 100 : row.estimate;
   await run(env.DB, "UPDATE photo_tool_jobs SET status = 'done', output_key = ?, reported = ?, error = NULL, updated = ? WHERE id = ?", key, reported, now(), row.id);
   row.status = "done";
   row.output_key = key;
