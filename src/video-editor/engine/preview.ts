@@ -195,6 +195,17 @@ export class Player {
       });
   }
 
+  /** Stops drawing while another view (the reference comparison) drives the same hidden <video> elements; `resume` starts again. */
+  suspend(): void {
+    this.pause();
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+  }
+
+  resume(): void {
+    if (!this.raf) this.loop();
+  }
+
   dispose(): void {
     cancelAnimationFrame(this.raf);
     this.pause();

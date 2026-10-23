@@ -128,3 +128,21 @@ export async function uploadFootage(batch: string, index: number, file: File): P
 }
 
 export const versionFileUrl = (batch: string, id: string) => `/api/studio/posts/video/file?batch=${encodeURIComponent(batch)}&id=${encodeURIComponent(id)}`;
+
+/** "Edit like this video": a reference video copied for analysis (server/video-reference.ts); admins only. */
+export interface FetchedReference {
+  id: string;
+  name: string;
+  from: "pinterest" | "drive";
+  sourceId: string;
+  size: number;
+  expires: number;
+  /** Same-origin address of the copy (kept 7 days). */
+  url: string;
+}
+
+export function fetchReference(body: { from: "pinterest"; url: string; batch?: string } | { from: "drive"; client: string; fileId: string; batch?: string }): Promise<FetchedReference> {
+  return post(`${BASE}/reference`, body);
+}
+
+export const referenceFileUrl = (id: string) => `${BASE}/reference/${encodeURIComponent(id)}`;

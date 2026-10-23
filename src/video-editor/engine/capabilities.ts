@@ -76,7 +76,8 @@ export async function checkCapabilities(output = { width: 1080, height: 1920, fp
     }
     if (!videoCodec) details.push("No H.264 video encoder (open-source Chromium builds have none; Chrome, Edge and Safari do).");
     try {
-      const a = await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: AUDIO_SAMPLE_RATE, numberOfChannels: 2, bitrate: 128_000 });
+      // The studio's renders are always AAC; the automated checks may ask for Opus where Chrome has H.264 but no AAC encoder.
+      const a = await AudioEncoder.isConfigSupported({ codec: codecs.audio === "opus" ? "opus" : "mp4a.40.2", sampleRate: AUDIO_SAMPLE_RATE, numberOfChannels: 2, bitrate: 128_000 });
       if (!a.supported) details.push("No AAC audio encoder.");
       else if (!videoCodec) details.push("AAC audio is available, but video needs H.264 as well.");
     } catch {

@@ -43,7 +43,7 @@ export function refPictureUrl(ref: ColourMatch["ref"]): string | null {
   return null;
 }
 
-const KIND_LABEL: Record<MatchRefKind, string> = { studio: "studio reference", post: "this post's reference", drive: "Drive photo", upload: "picture from this computer" };
+const KIND_LABEL: Record<MatchRefKind, string> = { studio: "studio reference", post: "this post's reference", drive: "Drive photo", upload: "picture from this computer", video: "reference video" };
 
 /** The statistics after a Lab transfer (exact for the linear map, before clamping). */
 function after(s: LabStats, m: Pick<ColourMatch, "scale" | "offset">): LabStats {

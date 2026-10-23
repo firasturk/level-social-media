@@ -9,7 +9,7 @@
  *     set; Split view; the colour matched to the post's reference picture;
  *   - Music: the music library lists the catalog; picking a track shows its licence, the credit
  *     line with Copy, and Content ID;
- *   - Save draft: the stored document is version 3 with the look, its intensity, the match, the
+ *   - Save draft: the stored document is the current version (4 since edit quality) with the look, its intensity, the match, the
  *     template and the catalog source with its rights; after a reload and reopen they are back;
  *   - 390 px: the Colour, Media and Music panels do not scroll sideways (screenshots).
  * Usage:  npm run build && node scripts/video-looks-smoke.mjs [--out dir]   (needs ffmpeg)
@@ -268,7 +268,7 @@ try {
   await page.waitForTimeout(800);
   const doc = state.saves.at(-1);
   result.saved = doc ? { v: doc.v, look: doc.look, lookAmount: doc.lookAmount, template: doc.template, matches: doc.clips.filter((c) => c.match).length, matchRef: doc.clips.find((c) => c.match)?.match.ref, music: doc.music?.source ? { kind: doc.music.source.kind, trackId: doc.music.source.trackId, credit: !!doc.music.source.rights?.credit, contentId: doc.music.source.rights?.contentId?.status } : null } : null;
-  if (!doc || doc.v !== 3 || doc.look !== "warm-film" || Math.abs(doc.lookAmount - 0.6) > 0.011 || doc.template?.id !== "product-launch" || !doc.clips.some((c) => c.match) || doc.music?.source.kind !== "catalog") errors.push(`The saved draft lacks phase-3 fields: ${JSON.stringify(result.saved)}`);
+  if (!doc || doc.v !== 4 || doc.look !== "warm-film" || Math.abs(doc.lookAmount - 0.6) > 0.011 || doc.template?.id !== "product-launch" || !doc.clips.some((c) => c.match) || doc.music?.source.kind !== "catalog") errors.push(`The saved draft lacks phase-3 fields: ${JSON.stringify(result.saved)}`);
 
   // Reload and reopen: the look, the match and the track come back.
   await page.reload({ waitUntil: "networkidle" });

@@ -527,6 +527,266 @@ provider, nothing is charged.
 4. **Templates in other frames**: templates keep the cut's frame; say if a template should switch
    a new cut to 9:16.
 
+## Edit quality: a sharable first cut, and "Edit like this video" (23 Oct 2026)
+
+Branch `edit-quality` (from `qa-round` at `97dab86`). The owner asked whether Auto edit gives
+sharable content or very weak edits, and for templates taken from a Pinterest video ("comparing the
+two videos"). Nothing here calls a provider or spends anything; the reference video is analysed and
+compared, never rendered into the output.
+
+### Baseline: the auto edit as it was, judged as a social media editor would
+
+Run on real footage (six clips cut from the Blender Foundation's open movies, CC BY: dialogue,
+street, close-ups, Sintel, Big Buck Bunny, a phone clip with a 90° matrix) in Google Chrome, 15 s,
+9:16, rendered and looked at frame by frame (`scripts/video-edit-quality-check.mjs --part baseline`).
+
+**Verdict: weak edits, not sharable as they come out.** What it did well: it fills the length, it
+is deterministic, the clips are trimmed and ordered, locks and speech flags are kept, and with music
+the shot lengths are whole beats. What made it look weak:
+
+- **It chose the worst moments on purpose.** "Motion energy" is the frame-to-frame difference, and
+  nothing changes more than a cut or a dissolve inside the footage: 6 of 10 shots (Promo/Balanced)
+  and 7 of 12 (Launch/Energetic with music) straddle a cut or a dissolve of their own clip, so one
+  2.5 s "shot" shows three scenes and flashes between them.
+- **Dark, blank and title-card footage.** A fade to black in Sintel and the white "THREE RODENTS"
+  card of Big Buck Bunny count as movement too: 2 of 10 and 3 of 12 shots are black, near-black or
+  a title card; one cut ends on the title card cropped to "EE RODE".
+- **No structure.** It opens on whatever moves most (a dark dissolve), has no build or payoff,
+  and no end card: the launch "ending" dips to black into a random shot. No room for a logo or a call
+  to action, no words at all.
+- **Repetition.** The same dissolve appears twice; the same seconds come back with nothing to tell
+  them apart.
+- **Framing.** Wide footage (2.39:1) is centre-cropped into 9:16 whatever is in it, the same zoom on
+  every shot.
+- **Rhythm.** With music, the "beats" of a busy track are its eighth notes (0.25 s), so cuts land on
+  any eighth, not on the beat or the bar; cuts fall mid-gesture.
+
+Contact sheets: `baseline-*-shots.jpg` (first, middle and last frame of every shot) and
+`baseline-*-every-half-second.jpg`, in the session's scratchpad `edit-quality/final/`.
+
+### What changed
+
+**Reading the footage** (`shared/shot-analysis.ts`, pure; `src/video-editor/engine/analyse.ts`
+decodes): each source is decoded with WebCodecs in order (the export's own reader), ten frames a
+second, each drawn upright at about 160 px wide and measured: brightness, contrast, clipped
+shadows/highlights, **focus** (variance of the Laplacian in the sharpest and the median tile of a
+4×3 grid), a 4×4×4 colour histogram, a 64-bit difference hash, where the detail sits
+horizontally, a rough text band; between frames the change, the camera's shift (row/column profiles,
+refined below a pixel), a zoom hint (after taking the shift off) and what moves beyond the camera.
+From those: **the footage's own cuts** (an adaptive threshold: a local peak of the histogram change
+well above the median of the frames around it, with the grey difference and the hash as second
+votes, so a cut between two dark shots is found and a handheld shot does not cut itself) and
+**dissolves** (twin comparison), then **half-second windows** scored for quality (sharp, exposed,
+steady, not blank) and action, flagged dark, blown out/white, flat, blurry, shaky, across a cut or a
+fade. Measured on the six clips: 1.4–3.3 s per 6–8 s clip in Chrome; the cuts it found match
+ffmpeg's scene detection on the same files (05-bbb: 1.2, 3.2, 3.9, 5.0, 6.0, 6.6 s both; 01-talk:
+1.7 / 3.7 against 1.67 / 3.67, and the 4.4–6.7 s dissolve as one fade).
+
+**The plan** (`shared/edit-plan.ts`, `planEdit`, pure and deterministic):
+- **Structure**: hook (the sharpest, liveliest good moment, short) → build (sources alternate, more
+  movement toward the end, lengths varying around the pace: never the same twice in a row) →
+  payoff → **end card** (a calm, clean shot held 2.2–3.4 s with a slow push in, the call to action
+  and the client's logo when the brand kit has one, else room for it).
+- **Never** across the footage's own cuts or fades (0.12 s kept from them); dark, blank, blown-out,
+  blurry or shaky half seconds only when nothing else is left; near-duplicates (hash within 10 bits)
+  not shown twice; footage with words burned in and the same footage again count against a shot.
+- **Cuts on still moments**: within the stretch a shot may take, its in and out go where the
+  picture moves least (not mid-gesture).
+- **Music**: the beat grid is grouped into a pulse and bars (`shared/music-bars.ts`: a grid faster
+  than 0.36 s is halved to its louder half; the downbeat is the loudest of four phases); cuts land on
+  the pulse, the section changes (out of the hook, into the end card) on a bar when one is within a
+  pulse and a half, and the cut ends on a bar. A track without a steady beat (speech, ambience) is
+  not cut to.
+- **Framing**: wide footage in a tall frame is panned toward its detail; footage used again is
+  punched in (1.2–1.35×) so it reads as another angle; long calm shots push in slowly. Dark shots get
+  up to half a stop (the clip's exposure, visible under Colour).
+- **Optional, off by default**: calm shots a little faster (1.25×). Restrained on purpose; there is
+  no per-shot speed curve in the document, so it is a constant speed, not a ramp.
+- **Text**: placeholder words from the purpose over the hook and on the end card (Launch "NEW" /
+  "Available now", Promo "LIMITED OFFER" / "Shop now", Story "Our story" / "Brand name"), in Arabic +
+  English, English or Arabic; words the person already wrote are kept and nothing is added.
+- **Look**: the purpose's preset at 50–60 % when the cut has none (Cool Editorial, Bold Sport, Warm
+  Film).
+- **Frame**: a 9:16 Reel by default, or "Keep W×H".
+- Locked clips stay exactly on their second; clips marked "has speech" come back whole (phase 2's
+  rules, kept).
+- **The panel says what it did** ("What the auto edit did", kept with the draft), e.g.:
+  "Hook: 02-street at 0:01.4, 1.0 s (the sharpest, liveliest moment found)." · "13 shots of
+  0.5–2.0 s, 15.0 s in all; cuts on the beat (12 of 12), 4 on the bar, 120 BPM." · "Ends on 02-street
+  held 2.0 s with a slow push in, room for the logo (add it under Logo) and the call to action." ·
+  "Left out (half seconds): 7 dark, 8 blank or blown-out, 1 shaky, 15 across a cut or fade in the
+  footage." · "3 reused shots are punched in so they read as new angles." · "Text: “NEW” over the
+  hook and “Available now” on the end card: placeholders to replace."
+
+`planFirstCut` (phase 2) and `planAutoEdit` (phase 1) stay in the code with their tests; the panel
+uses `planEdit`.
+
+**"Edit like this video"** (Auto edit tab, below the first cut; the Templates gallery points to it):
+- **Where the reference comes from**: a **Pinterest** pin link (`POST
+  /api/studio/posts/video/editor/reference`, admins, editor switch, ledger `editor.reference` at
+  estimate 0, `server/video-reference.ts`): the pin id from the link (pin.it followed), its MP4
+  renditions from Pinterest's pin endpoint, else the pin page (720p preferred, never the HLS
+  playlist), bytes taken only from Pinterest's video host (`https://v*.pinimg.com/videos/…mp4`), an
+  MP4 by its `ftyp` box, 60 MB at most, copied to R2 under `editor-refs/` with a 7-day expiry
+  (`GET …/reference/:id` serves it with Range to whoever may see the month; 410 and deleted once
+  expired; expired copies are swept on each fetch). When Pinterest refuses: "Pinterest did not hand
+  this pin's video to the studio (it often refuses servers). Save the video from Pinterest and use
+  Upload, or pick the clip from the client's Drive: the analysis is the same." A **Drive** video of
+  the client (read only, the same route). A file from **this computer** (stays in the tab).
+- **The analysis** (in the tab, every frame): shots (cuts and dissolves as above), each shot's
+  length, action and camera move (still, pan, push in, pull out, handheld), the pace (cuts per
+  second every 2 s), its colour (Lab mean and spread), its music's tempo and bars when it has a
+  steady beat, a rough on-screen text guess (or "not detected").
+- **The template** (`shared/reference-template.ts`, same shape as `VideoTemplate`): one slot per shot
+  at its exact length, push/pull as a slow zoom, a placeholder text layer where text was seen, the
+  logo on the last shot. **Apply to my footage** maps the person's footage onto its slots by
+  movement rank (the busiest reference shots get the liveliest footage, quality first, never across
+  the footage's cuts, no near-duplicates; `fillSlots`), optionally **matches its colour** (a Lab
+  match at 80 % per clip, the existing colour match, reference kind "video"), a Reel when the
+  reference is vertical. Everything stays editable; undo brings the previous cut back.
+- **Compare the two videos**: a full-screen view with the reference and the cut side by side
+  (the cut drawn by the editor's own compositor on its own canvas, so it is what renders; the
+  editor's preview is held meanwhile), played together (the reference follows the cut's clock:
+  nudged ±8 % when within 0.25 s, re-seeked beyond), a scrubber, sound from either, and the
+  **shot-by-shot table**: where each shot starts and how long it lasts in both, and the difference
+  in frames. "The reference is shown here only to compare; it is never part of your video."
+- **Stored** with the draft: `project.reference` (the analysis, about 1.4 KB for 12 shots; never the
+  pictures) and `project.edit` (the summary). A reopened draft shows the facts, the table, and plays
+  the reference from the studio's copy while it is kept, else asks to fetch or pick it again.
+
+**Schema**: `PROJECT_VERSION` 3 → **4**; `migrateV3` adds `edit: null, reference: null`, chained
+1 → 2 → 3 → 4, so every older draft draws and sounds the same. `validateProject` checks both (the
+reference's shots, pace, colour, music, at most 200 shots and 3 minutes). Colour match references
+gain the kind `video`.
+
+**Compositor**: `frameAt` treats a cut that floating-point sums put a microsecond after a frame time
+as on that frame (`CUT_EPSILON`, 1 µs). Preview and render both use `frameAt`, so they stay equal;
+before, 0.1 + 0.2-style sums could put a cut one frame late. `Player` gained `suspend`/`resume`
+(the comparison holds the main preview). `checkCapabilities` asks for Opus instead of AAC when the
+automated check asks for H.264 + Opus (the studio's renders are unchanged: H.264 + AAC).
+
+### Verified, and how
+
+- **Unit tests** (`tests/edit-quality.test.ts`, 37): focus on sharp vs blurred, the hash under grain
+  and on other pictures, histograms, the camera's shift and push/pull, where the detail is, a text
+  band and none on plain/natural pictures; **shot boundaries on synthetic sequences** (three cuts
+  found to the frame including a same-colours cut, none inside a handheld shot; a dissolve read as a
+  fade, not cuts; the same answer from linked frames whose grey copies were dropped); window flags
+  (dark, flat, blurry, shaky, across a cut) and action; **pulse and bars** (an eighth grid halved to
+  its louder half, the downbeat phase and confidence, accents, steady beat vs speech-like sound);
+  the **cut plan** (hook/build/payoff/end filling the stretch exactly, lengths varying, cuts on the
+  pulse and sections on bars for all three paces, speech whole after the hook); **planEdit** (exact
+  length, hook on the liveliest good moment, a calm end card with its push in, never across the
+  footage's cuts or into dark/blank seconds, reuse only punched in, sources alternate, placeholder
+  words and the summary, validation and determinism, cuts on the pulse with music, crossfades
+  centred on the planned cuts, punch-ins when footage is short, **locked clips exactly in place and
+  speech whole**, unreadable footage, panning, runs); `withEditPlan` (the person's words kept, the
+  preset only when none, the frame, the summary); the **reference** (12-frame-accurate shots of a
+  0.6/1.2 s synthetic rhythm, the push read, the template with the same lengths and a text layer,
+  the mapping by action, the comparison within a frame, the 24-clip note, storage and checks, the
+  3 → 4 migration). `tests/video-reference.test.ts` (12, Pinterest mocked, no network): pin ids,
+  renditions in escaped JSON and HTML (720p first, never the playlist or another host), the MP4 and
+  size checks, the 720p download from the video host only, pin.it and the page fallback, the plain
+  refusal and no-video messages, member 403 with nothing written, the admin copy with its expiry and
+  a ledger row at 0, Range 206, 410 once expired, a Drive file outside the client refused, the switch
+  off (503, no network), the sweep. Existing version assertions moved to 4.
+- **Gate chain** green: `npm run typecheck && npx eslint . && npx vitest run && npm run build`
+  (117 files, 1037 tests).
+- **Real renders in Google Chrome** (`node scripts/video-edit-quality-check.mjs --footage <clips>
+  --chrome <chrome> --out <dir>`): H.264 (Chrome's encoder, `avc1.64002A`) + Opus in MP4, since
+  Chrome has no AAC encoder. Before and after on the same six clips, 15 s, 9:16:
+
+| | Baseline Promo/Balanced | After Promo/Balanced | Baseline Launch/Energetic + music | After Launch/Energetic + music |
+| - | - | - | - | - |
+| Encoded (ffprobe) | 1080×1920, 14.98 s | 1080×1920, 15.02 s | 1080×1920, 15.06 s | 1080×1920, 15.04 s |
+| Shots | 10 (1.2–2.5 s) | 8 (1.4–2.6 s) | 12 (0.8–2.6 s) | 13 (0.5–2.0 s) |
+| Shots across a cut/dissolve of their own footage | 6 | **0** | 7 | **0** |
+| Shots with dark, blank or title-card seconds | 2 | **0** | 3 | **0** |
+| Same seconds shown again | 1 (as is) | 3 (punched in) | 2 (as is) | **0** |
+| Hook / end card / words | none / none / none | 02-street / 02-street held 2.6 s / 2 placeholders | none / dip to a random shot / none | 02-street / 02-street held 2.0 s / 2 placeholders |
+| Cuts on the beat / bar | (no music) | (no music) | on the 0.25 s grid | 12 of 12 on the beat, 4 on the bar, 120 BPM |
+| Render time (headless, software H.264) | 236 s | 191 s | 304 s | 212 s |
+
+  Frame strips (first, middle, last frame of every shot) and every-half-second sheets were looked
+  at: `final/baseline-*-shots.jpg`, `final/after-*-shots.jpg`.
+- **"Edit like this video" end to end**: a reference cut here from Tears of Steel (CC BY): 12 shots
+  alternating 0.6 s / 1.2 s on a 100 BPM track, cropped to 9:16 720×1280, the third pushing in,
+  "NEW DROP" on the second and fifth (`final/reference.mp4`). Read in Chrome frame by frame in 4.8 s:
+
+| Check | Ground truth | Observed |
+| - | - | - |
+| Shots found | 12 | 12 |
+| Shot starts, error in frames | 0 at 0, 0.6, 1.8, 2.4 … 9.6 s | 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 |
+| Shot lengths | 0.6 / 1.2 alternating | 0.6 / 1.2 alternating |
+| The push in (shot 3) | push | push |
+| Tempo | 100 BPM | 100 BPM (a steady beat) |
+| Text | shots 2 and 5 | shot 5 at y 0.754 (shot 2, white words on a busy neon picture, missed) |
+| Our cut vs the reference, table | within a frame | 0 frames on all 12 rows |
+| The rendered cut's cuts (ffmpeg scene detection) vs the reference's | 0.6, 1.8 … 9.6 s | 0.60, 1.80, 2.40, 3.60, 4.20, 5.40, 6.00, 7.20, 7.80, 9.00, 9.60: 0 frames |
+| Stored analysis | not the footage | 1,386 characters in the draft |
+
+  (Before the template's in and out points were kept to the microsecond and `frameAt` got its 1 µs
+  tolerance, the rendered cuts were one frame late on 9 of 11.)
+  `final/reference-vs-ours.jpg`: the reference's shots over ours, middle frames.
+- **The real UI** (`npm run build && node scripts/video-edit-quality-smoke.mjs --footage <clips>
+  --reference <mp4> --chrome <chrome> --out <dir>`, the built app with a stateful mock, the six clips
+  as the post's versions): Build the cut → 8 shots and the summary; a Pinterest link the mock refuses
+  shows the plain message naming Upload and Drive; the uploaded reference is read ("12 shots, average
+  0.90 s (0.60–1.20 s)", "Music: a steady beat at about 100 BPM", text "seen on 1 shot"); Apply → 12
+  shots; Compare → 12 table rows, all "0 fr"; playing both, the reference's drift from the cut's clock
+  stayed within 0.042 s (sampled every 250 ms on an idle machine); paused, both on the same frame;
+  Save draft → version 4 with the reference (12 shots, 1.4 KB) and the summary; after a reload and
+  reopen the summary, the facts and the 12-row table are back and the comparison asks to "Pick it
+  again" (an upload stays in its tab); at 390 px neither the comparison nor the Auto edit panel
+  scrolls sideways. Screenshots looked at: `ui/ui-compare-1440.png`, `ui/ui-compare-390.png`,
+  `ui/ui-compare-390-table.png`, `ui/ui-reference-panel-1440.png`, `ui/ui-auto-edit-1440.png`,
+  `ui/ui-auto-edit-390.png`, `ui/ui-compare-after-reload-1440.png`.
+
+### Not verified
+
+- **Pinterest live**: Pinterest's video host answered 403 from this sandbox; the fetch is verified
+  with mocked responses only (shapes as Pinterest's pin endpoint returns them, values made up). The
+  first live test is on the preview deployment: a public video pin link → the facts appear; a refusal
+  → the plain message. Story pins (several pages) are not specially handled.
+- The Drive reference route's success path (the demo Drive has no clip bytes); only the refusal of
+  a file outside the client's folders is tested.
+- AAC: Chrome here has no AAC encoder, so renders were H.264 + Opus; the studio's H.264 + AAC path
+  is unchanged.
+- The comparison's sync under heavy load: with a render running in another Chrome on the same
+  machine the reference fell 0.2–0.3 s behind (its decoder could not keep up); idle, within 0.042 s.
+- Real clients' footage (products, food, people talking): the thresholds were tuned on the
+  Blender open movies.
+
+### Limits
+
+- Heuristics, not understanding: nothing recognises faces, products or words. "Strongest shot" is
+  sharp + exposed + steady + moving; on this footage the hook was a street shot with a soft pole
+  passing in front, which a person might not pick. A shot with words burned in is avoided but not
+  excluded (one came through in the music cut).
+- Speech is still a flag the person sets ("Has speech"); the dialogue clip's talking was not
+  detected as speech.
+- The text guess is rough (rows of short, sharp strokes): thin or low-contrast words on a busy
+  picture are missed, stripes can read as text.
+- Camera moves are hints from small frames: film footage with slow drifts reads push/pull/pan more
+  often than an editor would say.
+- A reference above 24 shots or 60 s fills the first 24 / 60 s (said); above 3 minutes is refused.
+- "Speed up calm shots" is a constant 1.25× per shot, not a ramp within a shot.
+- Reading footage costs about a quarter of its length in Chrome on a laptop-class CPU (once per
+  source per tab); a reference about half its length (every frame).
+- R2 has no per-object expiry without a bucket rule: expired copies are refused on read and swept
+  (up to 50) on each new fetch.
+
+### Decisions for the owner
+
+1. **Pinterest**: the studio copies a pin's video to its storage for 7 days for analysis only. Keep
+   7 days, shorten it, or prefer "save the video and upload" only?
+2. **Placeholders**: the auto edit writes "LIMITED OFFER"/"Shop now" and the like by default.
+   Keep them on by default, or start from the post's headline and caption when there is one?
+3. **9:16 by default** for the auto edit (as for templates), with "Keep W×H". Confirm.
+4. **An optional AI step** (not built): a provider's video reading (e.g. Higgsfield's check) could
+   pick the hook by content or detect speech; it would be admin-only, off by default and priced
+   before use. Say if it is wanted.
+
 ## Architecture
 
 **Where rendering happens.** A Cloudflare Worker cannot decode, render or mux video: there is no
@@ -681,14 +941,17 @@ shorter than the style's minimum is never added, so the cut can end a little sho
 A look is applied when none was chosen (calm → Clean, energetic → Punch). The person edits
 everything afterwards; undo restores the previous timeline. Phase 2 replaced the panel's planner
 with `planFirstCut` (purpose, pace, locked clips, protected speech; see "Phase 2" above);
-`planAutoEdit` stays in `shared/video-project.ts` with its tests.
+`planAutoEdit` stays in `shared/video-project.ts` with its tests. Since *Edit quality* (above) the
+panel uses `planEdit` (shared/edit-plan.ts): footage read for quality and its own cuts, a hook,
+build, payoff and end card, bars, placeholder words and a summary.
 
 ### Music sync
 
 The track's RMS envelope (20 ms hops) feeds `detectBeats`: an onset is a hop above 1.3× the mean of
 the second before it, at least 0.25 s after the last; the most common onset spacing (to 20 ms)
 becomes the grid period and a grid is laid from the first onset, drifting to the nearest onset
-where one exists so quiet bars still get a tick. Limits: it finds pulses, not downbeats or bars;
+where one exists so quiet bars still get a tick. Since *Edit quality* the auto edit groups the grid into a pulse and bars (`shared/music-bars.ts`).
+Limits: the detector itself finds pulses, not downbeats or bars;
 rubato, very quiet or very dense tracks give a rough grid. The beats show as ticks on the ruler;
 "Snap cuts to beats" moved each cut to the nearest beat within 0.25 s by trimming the clip that
 ends there (its out point; speed honoured). Phase 2 replaced the button with "Align cuts to
