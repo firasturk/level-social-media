@@ -9,7 +9,7 @@
   "scripts": {
     "prepare": "node scripts/stub-assets.mjs",
     "dev": "vite",
-    "build": "vite build",
+    "build": "node scripts/editor-dark.mjs && vite build",
     "preview": "vite preview",
     "deploy": "vite build && node scripts/embed-assets.mjs && wrangler deploy --config wrangler.deploy.json",
     "typecheck": "tsc -b",

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Toaster } from "sonner";
 import "./styles.css";
+import "./editor-dark.css";
 import App from "./App";
 import ErrorBoundary from "./ErrorBoundary";
 import { markLoadedCleanly } from "./lib/lazy";
