@@ -202,6 +202,30 @@ was available while this was built). Check, with the sign-ins made and an admin:
 8. **Use as the post's picture**: the take appears under Versions with the credits in its note, the
    previous picture under the month's earlier pictures.
 
+### What the live run found (23 Oct 2026, production, a temporary admin, deleted after)
+
+- **Styles** (33) and **Product shots** (100) fill with sample pictures. **Magnific looks** (51)
+  showed no sample until `images_models_list` was asked with `includePreviews: true`; the sample
+  sits under `previewImageUrl` (49 of 51 carry one). **Recipes** (34) are commands with no
+  picture by nature. Magnific's catalogs answer a compact YAML-like text, not JSON (`parseYamlish`
+  in `server/mcp-client.ts` reads it).
+- **The live tool shapes**: the Higgsfield picture tools nest their arguments under `params` with
+  their own names, read from each tool's schema by `HiggsfieldMcp.toolShape`: `upscale_image`
+  `{image_id, width, height, resolution, get_cost}` (the source size is required: read from the
+  stored file's header), `remove_background` `{media_id, media_type}`, `outpaint_image`
+  `{image_id, aspect_ratio, get_cost}`, `generate_image` `{model, prompt, medias, …}`. `reframe` is
+  a video tool and left the picture catalog (Outpaint takes a new frame). `relight_image` is not
+  listed on this plan.
+- **Get the cost** on Upscale: 2 credits, the balance unchanged. **One run**: the job id comes in
+  prose ("Submitted 1 job. … \n- <uuid>"), not a JSON `jobs` list; `parseJobs` reads it. The
+  first live run was charged 2 credits (balance 5606.75 → 5604.75) before that was read right, so
+  its result stayed at Higgsfield (job `30eade26…`) and the studio's row says failed.
+- **Cost not known**: Higgsfield's picture tools other than Upscale and Outpaint take no
+  `get_cost`; the credits the last finished run of the same tool reported stand as the estimate
+  ("estimate from the last run of …" in the notes) until the provider prices them.
+- **Assets** (Freepik stock) showed blank cards: the previews link over plain `http://img.b2bpic.net`,
+  refused on the https page; every preview is now handed out over https.
+
 ## The canvas
 
 The picture large; zoom to fit, 100% or in between (the pill at the bottom right, **Z** to toggle

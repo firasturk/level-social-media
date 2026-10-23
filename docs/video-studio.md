@@ -332,6 +332,26 @@ understands.
 7. **Check**: the virality words land on the version; a video analysis turns from running to done
    within a few polls.
 
+### What the live run found (23 Oct 2026, production, a temporary admin, deleted after)
+
+- **The gallery**: every category fills with reference videos that play on hover (Popular 36,
+  Paid Ads 18, Motion Design 75, Marketing 28, Production 20, Faceless 56, Effects 50, Genjutsu
+  50, Recipes 2); no picture card.
+- **Generate** (Higgsfield · credits): the engines list; "Get the cost" for 5 s from the post's
+  picture, Reel 9:16: Seedance 2.5 35, Kling v3.0 8.75, Kling 3.0 Turbo 7.5, MiniMax H3 10
+  credits; the balance unchanged by the estimates. One Kling 3.0 Turbo clip on post 2: queued
+  with a job id, done, the ledger "7.5 credits reported (balance 5604.75 → 5597.25)"; it became
+  the client's version by itself and the client link carries it.
+- **Magnific engines**: the list answered "Magnific listed no video engine the studio could read"
+  (502): `video_models_list` answers a compact YAML-like text, not JSON. `parseYamlish` in
+  `server/mcp-client.ts` reads it; 12 engines list now, `private: true` ones left out.
+- **Enhance and Check**: the live `upscale_video` nests `{provider, video_id, …}` under `params`
+  (Topaz needs no source size; ByteDance requires width and height), `reframe` takes `medias`
+  with a `video` role, the Virality Predictor `{action: "create", params: {model, medias:
+  [{id, role}]}}`; `clipArgs` and `shaped` follow `toolShape`. Not run live yet (each costs).
+- **Versions**: "Select for client review" on an older clip (made before the first-clip rule)
+  puts it on the client link at once.
+
 ## Verified
 
 - `tests/video-frame.test.ts` (9 tests): the four frames and their labels, the frame sizes, the
