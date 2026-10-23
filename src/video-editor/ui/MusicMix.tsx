@@ -2,7 +2,7 @@
  * The music's mix controls and the voice-over (phase 2), shown in the Music tab under the track
  * picker (which stays as it is): where the music starts and stops on the timeline and from which
  * second of the track, its volume and fades, ducking under speech, the beats with "Align cuts to
- * beats"; then the Voice lane's recordings, each with its place and volume.
+ * beats"; then the Voice lane's recordings, each with its place, volume and fades.
  *
  * Honest wording: a track picked here is the studio's file, mixed into the render. It is not
  * Instagram's music; Instagram's own music can only be added in the Instagram app when posting.
@@ -26,6 +26,9 @@ export interface VoiceCtx {
 }
 
 const fmt = (s: number) => `${s.toFixed(1)}s`;
+
+/** The file types the music and voice-over pickers take: audio files, and videos whose sound is used ("Sound from a video file"). */
+export const SOUND_FILE_ACCEPT = "audio/*,.mp3,.m4a,.aac,.wav,video/mp4,video/quicktime,.mp4,.mov";
 
 export function MusicMixControls({ ctx, music: m, setMusic }: { ctx: PanelCtx; music: Music; setMusic: (patch: Partial<Music>, step: "patch" | "commit") => void }) {
   const length = totalLength(ctx.project);
@@ -99,7 +102,7 @@ export function MusicMixControls({ ctx, music: m, setMusic }: { ctx: PanelCtx; m
   );
 }
 
-/** The Voice lane: recordings from this computer, each at a place on the timeline with its own volume. */
+/** The Voice lane: recordings from this computer, each at a place on the timeline with its own volume and fades. */
 export function VoicePanel({ ctx }: { ctx: PanelCtx }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const v = ctx.voice;
@@ -108,8 +111,8 @@ export function VoicePanel({ ctx }: { ctx: PanelCtx }) {
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Voice-over</span>
-      <p className="ts-hint">A recording from this computer (mp3, m4a or wav) on its own lane, at the playhead. The music ducks under it.</p>
-      <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void v.add(f); e.target.value = ""; }} />
+      <p className="ts-hint">A recording from this computer (mp3, m4a or wav, or the sound of an mp4 or mov video) on its own lane, at the playhead. The music ducks under it.</p>
+      <input ref={fileRef} type="file" accept={SOUND_FILE_ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void v.add(f); e.target.value = ""; }} />
       <button type="button" className="ts-btn" disabled={ctx.readOnly || !!v.busy || ctx.project.voices.length >= 8} onClick={() => fileRef.current?.click()}>
         {v.busy ? <Orb size={14} status={null} /> : <Upload size={14} />} {v.busy || "Add a voice-over"}
       </button>
@@ -141,6 +144,18 @@ export function VoicePanel({ ctx }: { ctx: PanelCtx }) {
               Voice volume <em>{Math.round(sel.volume * 100)}%</em>
             </span>
             <input type="range" min={0} max={1} step={0.05} value={sel.volume} onPointerDown={ctx.mark} onChange={(e) => set(sel.id, { volume: Number(e.target.value) }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+          </label>
+          <label className="ts-slider">
+            <span>
+              Fade in <em>{fmt(sel.fadeIn ?? 0)}</em>
+            </span>
+            <input type="range" min={0} max={5} step={0.1} value={sel.fadeIn ?? 0} onPointerDown={ctx.mark} onChange={(e) => set(sel.id, { fadeIn: Number(e.target.value) || undefined }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
+          </label>
+          <label className="ts-slider">
+            <span>
+              Fade out <em>{fmt(sel.fadeOut ?? 0)}</em>
+            </span>
+            <input type="range" min={0} max={5} step={0.1} value={sel.fadeOut ?? 0} onPointerDown={ctx.mark} onChange={(e) => set(sel.id, { fadeOut: Number(e.target.value) || undefined }, "patch")} onPointerUp={() => ctx.commit((p) => p)} />
           </label>
           <p className="ts-hint">Trim it by dragging its ends on the Voice lane.</p>
           <button type="button" className="ts-mini danger" onClick={() => v.remove(sel.id)}>

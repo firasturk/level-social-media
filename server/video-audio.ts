@@ -5,7 +5,11 @@
  * browser-side video editor mixes the track in).
  *
  * Routes (mounted at /api/studio/posts/video/audio):
- *   POST /upload      a track (mp3, m4a, aac, wav; 25 MB at most) — admins, provider "audio"
+ *   POST /upload      a track (mp3, m4a, aac, wav; 25 MB at most), or a video whose sound is the
+ *                     track (mp4, mov; 60 MB at most: "Sound from a video file") — admins, provider "audio"
+ *   POST /instagram   the sound of a public Instagram reel from its link, read through the agency's
+ *                     Meta connection (server/meta.ts `instagramVideo`) and kept as the reel's mp4 —
+ *                     admins, provider "audio"; a ledger row at estimate 0
  *   GET  /list        the post's tracks — every signed-in user
  *   GET|HEAD /file    one track with Range — every signed-in user
  *   POST /choose      the audio choice of a version — admins; a ledger row at estimate 0
@@ -21,7 +25,19 @@ import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
 import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
 import { audioNamesFor, parseSettings, versionNumbers, videoItem, type VideoRow } from "./video";
-import { AUDIO_CHOICES, AUDIO_MAX_BYTES, AUDIO_MIMES, GENERATED_NOT_CONNECTED, type AudioChoice } from "@shared/video-audio";
+import { instagramVideo } from "./meta";
+import {
+  AUDIO_CHOICES,
+  AUDIO_MAX_BYTES,
+  GENERATED_NOT_CONNECTED,
+  INSTAGRAM_SOUND_WARNING,
+  instagramSoundLicence,
+  instagramSoundName,
+  TRACK_MIMES,
+  VIDEO_SOUND_MAX_BYTES,
+  VIDEO_SOUND_MIMES,
+  type AudioChoice,
+} from "@shared/video-audio";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -76,10 +92,16 @@ export function audioItem(a: AudioRow): AudioItem {
   };
 }
 
-/** The upload's format from its name and type: the extension decides, the MIME must agree when the browser sent one. */
-export function audioFormat(fileName: string, type: string): { ext: string; mime: string } | null {
+/**
+ * The upload's format from its name and type: the extension decides, the MIME must agree when the
+ * browser sent one. Audio files only, unless `video` is set: then an mp4 or mov whose sound is the
+ * track is taken too (a post's tracks; the music library keeps to audio files).
+ */
+export function audioFormat(fileName: string, type: string, opts: { video?: boolean } = {}): { ext: string; mime: string } | null {
   const ext = (/\.([a-z0-9]+)$/i.exec(fileName)?.[1] ?? "").toLowerCase();
-  const mime = AUDIO_MIMES[ext];
+  const video = Object.hasOwn(VIDEO_SOUND_MIMES, ext);
+  if (video && !opts.video) return null;
+  const mime = Object.hasOwn(TRACK_MIMES, ext) ? TRACK_MIMES[ext] : undefined;
   if (!mime) return null;
   const sent = type.split(";")[0].trim().toLowerCase();
   const alias: Record<string, string[]> = {
@@ -87,9 +109,22 @@ export function audioFormat(fileName: string, type: string): { ext: string; mime
     m4a: ["audio/mp4", "audio/x-m4a", "audio/m4a"],
     aac: ["audio/aac", "audio/aacp", "audio/x-aac"],
     wav: ["audio/wav", "audio/x-wav", "audio/wave", "audio/vnd.wave"],
+    mp4: ["video/mp4", "audio/mp4", "application/mp4"],
+    mov: ["video/quicktime"],
   };
   if (sent && sent !== "application/octet-stream" && !alias[ext].includes(sent)) return null;
   return { ext, mime };
+}
+
+/**
+ * A video kept for its sound: an ISO MP4 or MOV (an `ftyp` box) that carries a sound track when its
+ * index could be read. Its length, from the movie header, when found.
+ */
+function videoSound(bytes: ArrayBuffer, what: string): { durationMs: number | null } {
+  const info = readMp4(bytes);
+  if (!info.isMp4) throw new StudioError(`${what} is not an MP4 or MOV video.`, 415);
+  if (info.codecs.length && !info.audio) throw new StudioError(`${what} has no sound: there is nothing to use as the track.`, 422);
+  return { durationMs: info.duration ? Math.round(info.duration * 1000) : null };
 }
 
 /** A WAV's length from its header (sample rate × block size against the data chunk), when the chunks are where they usually are. */
@@ -133,9 +168,10 @@ videoAudioRoutes.post("/upload", async (c) => {
   const index = postIndex(form.get("post") ?? form.get("index") ?? 0);
   const file = form.get("file");
   if (!(file instanceof File)) throw new StudioError("Attach the track as 'file'.");
-  const fmt = audioFormat(file.name, file.type);
-  if (!fmt) throw new StudioError("The track must be an mp3, m4a, aac or wav file.", 415);
-  if (file.size > AUDIO_MAX_BYTES) throw new StudioError("The track is too large (25 MB at most).", 413);
+  const fmt = audioFormat(file.name, file.type, { video: true });
+  if (!fmt) throw new StudioError("The track must be an mp3, m4a, aac or wav file, or an mp4 or mov video with sound.", 415);
+  const isVideo = Object.hasOwn(VIDEO_SOUND_MIMES, fmt.ext);
+  if (isVideo ? file.size > VIDEO_SOUND_MAX_BYTES : file.size > AUDIO_MAX_BYTES) throw new StudioError(isVideo ? "The video is too large (60 MB at most)." : "The track is too large (25 MB at most).", 413);
   if (file.size === 0) throw new StudioError("The track is empty.");
   const name = String(form.get("name") ?? "").trim().slice(0, 120) || file.name.replace(/\.[a-z0-9]+$/i, "");
   const license = String(form.get("license") ?? "").trim().slice(0, 500);
@@ -149,6 +185,7 @@ videoAudioRoutes.post("/upload", async (c) => {
     if (!info.isMp4) throw new StudioError("The m4a file is not an MPEG-4 container.", 415);
     if (info.duration) durationMs = Math.round(info.duration * 1000);
   }
+  if (isVideo) durationMs = videoSound(bytes, "The video").durationMs ?? durationMs;
   const id = uuid();
   const key = `${b.owner}/${b.id}/audio/${index}/${id}.${fmt.ext}`;
   await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: fmt.mime } });
@@ -179,6 +216,63 @@ videoAudioRoutes.post("/upload", async (c) => {
   );
   const rows = await postTracks(c.env, b.id, index);
   return c.json({ ok: true, track: audioItem(rows.find((r) => r.id === id)!), tracks: rows.map(audioItem) });
+});
+
+const instagramSchema = z.object({
+  batch: z.string().min(1),
+  index: z.number().int().min(1).max(MAX_POST),
+  link: z.string().trim().min(1).max(500),
+});
+
+/**
+ * "Sound from an Instagram link" (admins): the reel's video is read through the agency's Meta
+ * connection (server/meta.ts `instagramVideo`: oEmbed for the account, Business Discovery for the
+ * post's file) and kept with the post as one of its tracks, the mp4 as it is, the same row an
+ * upload writes (kind "upload", provider "instagram"). The editor then uses it as the music and
+ * reads the AAC sound out of the mp4 in the browser. The licence line says where it came from and
+ * that Instagram's sound is for Instagram only. A ledger row at estimate 0: reading costs nothing.
+ */
+videoAudioRoutes.post("/instagram", async (c) => {
+  const user = requireIntegrationAdmin(c, "audio");
+  await assertIntegrationEnabled(c.env, "audio");
+  const parsed = instagramSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) throw new StudioError("Paste the reel's Instagram link, and say which post (batch and index).");
+  const d = parsed.data;
+  const b = await ownedPlan(c.env, user, d.batch);
+  const reel = await instagramVideo(c.env, d.link);
+  const { durationMs } = videoSound(reel.bytes, "The reel's file");
+  const name = instagramSoundName(reel.username);
+  const license = instagramSoundLicence(reel.username, reel.permalink).slice(0, 500);
+  const id = uuid();
+  const key = `${b.owner}/${b.id}/audio/${d.index}/${id}.mp4`;
+  await c.env.BUCKET.put(key, reel.bytes, { httpMetadata: { contentType: VIDEO_SOUND_MIMES.mp4 } });
+  const opId = await recordIntegrationOp(c.env, {
+    provider: "audio",
+    kind: "audio.instagram",
+    user: user.id,
+    batch: b.id,
+    post: d.index,
+    estimate: 0,
+    status: "done",
+    note: `${name} · mp4 · ${Math.round(reel.bytes.byteLength / 1024)} KB · ${reel.permalink.slice(0, 200)}`,
+  });
+  await run(
+    c.env.DB,
+    "INSERT INTO video_audio (id, batch, post, kind, key, mime, name, duration_ms, license, provider, op_id, created, created_by) VALUES (?, ?, ?, 'upload', ?, ?, ?, ?, ?, 'instagram', ?, ?, ?)",
+    id,
+    b.id,
+    d.index,
+    key,
+    VIDEO_SOUND_MIMES.mp4,
+    name,
+    durationMs,
+    license,
+    opId,
+    now(),
+    user.id,
+  );
+  const rows = await postTracks(c.env, b.id, d.index);
+  return c.json({ ok: true, track: audioItem(rows.find((r) => r.id === id)!), tracks: rows.map(audioItem), warning: INSTAGRAM_SOUND_WARNING });
 });
 
 /** The post's tracks, newest first; open to every signed-in user of the month. */

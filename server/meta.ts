@@ -2,7 +2,9 @@
  * Meta (Instagram) connection: the agency's own Instagram business account, linked to a Facebook
  * page, reads any public business or creator account through Business Discovery: its bio, its
  * last posts, their captions, pictures, likes and comments. A client's profile and the brands the
- * team studies are read this way. The token is stored encrypted and never sent back.
+ * team studies are read this way. The token is stored encrypted and never sent back. The same
+ * read finds one post from its link: a carousel's pictures (`instagramPostSlides`) and a reel's
+ * video file, whose sound the video editor uses (`instagramVideo`).
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -255,11 +257,24 @@ metaRoutes.get("/instagram/:username", async (c) => {
 });
 
 
-/** An Instagram post link (a post, a reel or a carousel): its shortcode, or null. */
+/** An Instagram post link (a post, a reel, an IGTV video or a carousel): its shortcode, or null. */
 export function instagramShortcode(link: string): string | null {
-  const m = link.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(?:p|reel|reels)\/([A-Za-z0-9_-]{5,})/i);
+  const m = link.match(/instagram\.com\/(?:[A-Za-z0-9_.]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]{5,})/i);
   return m ? m[1] : null;
 }
+
+/** Instagram's public oEmbed for a shortcode: the account's name, the post's title and its first picture (nothing when Instagram does not give the post up). */
+async function oembedOf(code: string): Promise<{ ok: boolean; author_name?: string; title?: string; thumbnail_url?: string }> {
+  const oe = await fetch(`https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(`https://www.instagram.com/p/${code}/`)}`, {
+    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  const od = (await oe.json().catch(() => ({}))) as { author_name?: string; title?: string; thumbnail_url?: string };
+  return { ok: oe.ok, ...od };
+}
+
+/** The permalink of a post among an account's posts read through Business Discovery holds the shortcode. */
+const hasShortcode = (permalink: string | undefined, code: string): boolean => (permalink ?? "").includes(`/${code}/`) || (permalink ?? "").endsWith(`/${code}`);
 
 export interface InstagramSlides {
   username: string;
@@ -278,12 +293,8 @@ export interface InstagramSlides {
 export async function instagramPostSlides(env: Env, link: string): Promise<InstagramSlides> {
   const code = instagramShortcode(link);
   if (!code) throw new StudioError("That is not an Instagram post link.");
-  const oe = await fetch(`https://www.instagram.com/api/v1/oembed/?url=${encodeURIComponent(`https://www.instagram.com/p/${code}/`)}`, {
-    headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  const od = (await oe.json().catch(() => ({}))) as { author_name?: string; title?: string; thumbnail_url?: string };
-  if (!oe.ok || !od.author_name) throw new StudioError("Instagram did not give that post up: it may be private, deleted, or the link is wrong. Attach the slides as pictures instead.", 404);
+  const od = await oembedOf(code);
+  if (!od.ok || !od.author_name) throw new StudioError("Instagram did not give that post up: it may be private, deleted, or the link is wrong. Attach the slides as pictures instead.", 404);
   const first = od.thumbnail_url ? [{ url: od.thumbnail_url, type: "IMAGE" }] : [];
   const c = await connection(env);
   if (!c) return { username: od.author_name, caption: od.title ?? "", slides: first, partial: "Instagram is not connected in the studio, so only the first picture of the post could be read." };
@@ -294,7 +305,7 @@ export async function instagramPostSlides(env: Env, link: string): Promise<Insta
       `${c.account.igId}?fields=business_discovery.username(${od.author_name}){media.limit(50){permalink,media_type,media_url,thumbnail_url,caption,children{media_url,media_type,thumbnail_url}}}`,
       c.token,
     );
-    found = (d.business_discovery?.media?.data ?? []).find((x) => (x.permalink ?? "").includes(`/${code}/`) || (x.permalink ?? "").endsWith(`/${code}`));
+    found = (d.business_discovery?.media?.data ?? []).find((x) => hasShortcode(x.permalink, code));
   } catch (e) {
     return { username: od.author_name, caption: od.title ?? "", slides: first, partial: `Only the first picture could be read: ${errorMessage(e)}` };
   }
@@ -302,4 +313,110 @@ export async function instagramPostSlides(env: Env, link: string): Promise<Insta
   const pick = (x: { media_url?: string; media_type?: string; thumbnail_url?: string }) => ({ url: (x.media_type === "VIDEO" ? x.thumbnail_url : x.media_url) ?? "", type: x.media_type ?? "IMAGE" });
   const slides = (found.children?.data?.length ? found.children.data.map(pick) : [pick(found)]).filter((x) => x.url);
   return { username: od.author_name, caption: found.caption ?? od.title ?? "", slides: slides.length ? slides : first };
+}
+
+/** The largest reel file the studio downloads for its sound (the same cap as a post's footage). */
+export const INSTAGRAM_VIDEO_MAX_BYTES = 60 * 1024 * 1024;
+
+/** What to do when a reel cannot be read through the connection: the sound can still come from the file. */
+const USE_A_FILE = "Download the reel and use Sound from a video file instead.";
+
+export interface InstagramVideo {
+  /** The account that posted it. */
+  username: string;
+  /** The post's own link as Meta gives it (the pasted link when Meta gives none). */
+  permalink: string;
+  /** The reel's MP4 as Instagram's CDN served it. */
+  bytes: ArrayBuffer;
+  mime: string;
+}
+
+/**
+ * The video file of one public Instagram reel (or video post), for its sound. The same way as
+ * `instagramPostSlides`: the shortcode from the link (reel/, p/ and tv/ links), Instagram's public
+ * oEmbed for the account's name, then the agency's Meta connection reads that account's last 50
+ * posts through Business Discovery and finds the one whose permalink holds the shortcode; its
+ * `media_url` (videos only) is downloaded, with a timeout and a 60 MB cap.
+ *
+ * Only what Business Discovery can read can be taken: a public business or creator account, a post
+ * among its last 50, a video Meta hands the file of (Meta holds back `media_url` for some reels,
+ * usually those with copyrighted music). Each refusal says so in plain words and points at "Sound
+ * from a video file", which takes the same sound from a downloaded reel.
+ */
+export async function instagramVideo(env: Env, link: string): Promise<InstagramVideo> {
+  const code = instagramShortcode(link);
+  if (!code) throw new StudioError("That is not a link to an Instagram reel or post (instagram.com/reel/…, /p/… or /tv/…).");
+  const c = await connection(env);
+  if (!c) throw new StudioError("Connect Instagram under Connection → Meta to read a reel's sound, or download the reel and use Sound from a video file.", 428);
+  const od = await oembedOf(code).catch(() => ({ ok: false, author_name: undefined }));
+  const username = od.author_name ?? "";
+  if (!od.ok || !/^[A-Za-z0-9._]{1,30}$/.test(username)) throw new StudioError(`Instagram did not give that reel up: it may be private, deleted, or the link is wrong. ${USE_A_FILE}`, 404);
+  type Media = { permalink?: string; media_type?: string; media_url?: string };
+  let posts: Media[] | null;
+  try {
+    const d = await graph<{ business_discovery?: { media?: { data?: Media[] } } }>(
+      `${c.account.igId}?fields=business_discovery.username(${username}){media.limit(50){permalink,media_type,media_url,thumbnail_url,timestamp}}`,
+      c.token,
+    );
+    posts = d.business_discovery ? (d.business_discovery.media?.data ?? []) : null;
+  } catch (e) {
+    // An expired token is the connection's problem, said as such; anything else here is the account.
+    if (e instanceof StudioError && e.status === 401) throw e;
+    posts = null;
+  }
+  if (!posts) throw new StudioError(`@${username}'s reels cannot be read through the Meta connection: only public business and creator accounts can be, not a private or personal account. ${USE_A_FILE}`, 404);
+  const found = posts.find((x) => hasShortcode(x.permalink, code));
+  if (!found) throw new StudioError(`This reel is not among @${username}'s last 50 posts, the most the Meta connection reads. ${USE_A_FILE}`, 404);
+  if (found.media_type !== "VIDEO") throw new StudioError(`That post is ${found.media_type === "CAROUSEL_ALBUM" ? "a carousel" : "a picture"}, not a video: it has no sound to take.`, 415);
+  if (!found.media_url || !/^https:\/\//i.test(found.media_url)) throw new StudioError(`Meta does not hand out this reel's file (it holds some back, usually reels with copyrighted music). ${USE_A_FILE}`, 422);
+  const { bytes, mime } = await downloadVideo(found.media_url);
+  return { username, permalink: found.permalink || link, bytes, mime };
+}
+
+/** The reel's file from Instagram's CDN: a video, 60 MB at most, read with a timeout. */
+async function downloadVideo(url: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
+  let r: Response;
+  try {
+    r = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+  } catch (e) {
+    throw new StudioError(`The reel's file could not be downloaded: ${errorMessage(e)}`, 502);
+  }
+  if (!r.ok) throw new StudioError(`The reel's file could not be downloaded (Instagram answered ${r.status}).`, 502);
+  const mime = (r.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!mime.startsWith("video/")) {
+    await r.body?.cancel().catch(() => undefined);
+    throw new StudioError(`Instagram sent ${mime || "a file of no stated type"} instead of the reel's video.`, 502);
+  }
+  const tooLarge = () => new StudioError(`The reel's file is larger than ${INSTAGRAM_VIDEO_MAX_BYTES / 1024 / 1024} MB.`, 413);
+  if (Number(r.headers.get("content-length") ?? 0) > INSTAGRAM_VIDEO_MAX_BYTES) {
+    await r.body?.cancel().catch(() => undefined);
+    throw tooLarge();
+  }
+  const reader = r.body?.getReader();
+  if (!reader) throw new StudioError("The reel's file came back empty.", 502);
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > INSTAGRAM_VIDEO_MAX_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw tooLarge();
+      }
+      parts.push(value);
+    }
+  } catch (e) {
+    if (e instanceof StudioError) throw e;
+    throw new StudioError(`The reel's file could not be downloaded: ${errorMessage(e)}`, 502);
+  }
+  if (!size) throw new StudioError("The reel's file came back empty.", 502);
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.byteLength;
+  }
+  return { bytes: out.buffer, mime };
 }

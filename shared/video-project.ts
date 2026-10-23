@@ -34,6 +34,10 @@ import { creditLine, isContentId, isLicenceId, tempoFromEnvelope, type ContentId
  * 4 (edit quality): what the auto edit did (`edit`: its plain summary) and "Edit like this video"
  * (`reference`: the reference's analysis, never its pictures). 3 → 4 (`migrateV3`) adds neither,
  * so every older document draws and sounds exactly as before.
+ *
+ * Still 4: a voice-over's and a clip's own sound may carry `fadeIn` and `fadeOut` seconds (as the
+ * music always could). Both are optional and absent means 0, so an older document needs no
+ * migration and sounds exactly as before.
  */
 export const PROJECT_VERSION = 4;
 /** The oldest document version this code still reads. */
@@ -151,6 +155,14 @@ export interface Clip {
   volume?: number;
   /** The clip's own sound left out. */
   muted?: boolean;
+  /**
+   * The clip's own sound fades in over its first `fadeIn` seconds on the timeline and out over its
+   * last `fadeOut` seconds (absent = 0, no fade). The seconds count on the timeline, from the
+   * trimmed clip's start and to its end, after the speed; the crossfade and dip ramps still apply
+   * on top (shared/video-mix.ts `clipGainAt`).
+   */
+  fadeIn?: number;
+  fadeOut?: number;
   /** Auto edit and beat alignment never move or trim a locked clip, and the timeline does not drag it. */
   locked?: boolean;
   /** The clip carries speech: never cut inside by auto edit or beat alignment, and the music ducks under it. */
@@ -237,8 +249,13 @@ export interface VoiceClip {
   duration: number;
   /** 0 … 1. */
   volume: number;
+  /** Seconds the recording fades in from its start and out to its end on the timeline (absent = 0, no fade), as the music's fades. */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 export const MAX_VOICES = 8;
+/** The longest fade a document may carry on the music, a voice-over or a clip's sound (the sliders go to 5 s). */
+export const MAX_FADE_SECONDS = 30;
 
 export interface Output {
   width: number;
@@ -554,6 +571,7 @@ export function validateProject(input: unknown): Check {
     if (!isTransition(c.transition)) return { ok: false, reason: `${where}: transition must be a cut, a crossfade or a dip to black or white.` };
     if (!num(c.transitionDuration ?? 0.5, 0, 5)) return { ok: false, reason: `${where}: a transition lasts up to 5 seconds.` };
     if (c.volume !== undefined && !num(c.volume, 0, 1)) return { ok: false, reason: `${where}: the clip's volume must be between 0 and 1.` };
+    if (!num(c.fadeIn ?? 0, 0, MAX_FADE_SECONDS) || !num(c.fadeOut ?? 0, 0, MAX_FADE_SECONDS)) return { ok: false, reason: `${where}: the sound's fade in and fade out must be seconds between 0 and ${MAX_FADE_SECONDS}.` };
     const kf = checkKeyframes(c.keyframes, CLIP_PROPS, CLIP_RANGE, where);
     if (typeof kf === "string") return { ok: false, reason: kf };
     let colour: ColourParams | undefined;
@@ -594,6 +612,8 @@ export function validateProject(input: unknown): Check {
       ...(match ? { match } : {}),
       ...(typeof c.volume === "number" && c.volume !== 1 ? { volume: c.volume } : {}),
       ...(c.muted === true ? { muted: true } : {}),
+      ...(typeof c.fadeIn === "number" && c.fadeIn > 0 ? { fadeIn: c.fadeIn } : {}),
+      ...(typeof c.fadeOut === "number" && c.fadeOut > 0 ? { fadeOut: c.fadeOut } : {}),
       ...(c.locked === true ? { locked: true } : {}),
       ...(c.speech === true ? { speech: true } : {}),
       ...(kf ? { keyframes: kf } : {}),
@@ -621,7 +641,7 @@ export function validateProject(input: unknown): Check {
     if (!isObj(m) || !isObj(m.source)) return { ok: false, reason: "music needs a source." };
     const source = checkMusicSource(m.source);
     if (typeof source === "string") return { ok: false, reason: source };
-    if (!num(m.offset ?? 0, 0, 36000) || !num(m.volume ?? 1, 0, 1) || !num(m.fadeIn ?? 0, 0, 30) || !num(m.fadeOut ?? 0, 0, 30)) return { ok: false, reason: "music offset, volume and fades are out of range." };
+    if (!num(m.offset ?? 0, 0, 36000) || !num(m.volume ?? 1, 0, 1) || !num(m.fadeIn ?? 0, 0, MAX_FADE_SECONDS) || !num(m.fadeOut ?? 0, 0, MAX_FADE_SECONDS)) return { ok: false, reason: "music offset, volume and fades are out of range." };
     if (m.duration !== undefined && !num(m.duration, 0, 36000)) return { ok: false, reason: "music.duration must be seconds." };
     if (m.beats !== undefined && (!Array.isArray(m.beats) || m.beats.length > 5000 || !m.beats.every((b) => num(b, 0, 36000)))) return { ok: false, reason: "music.beats must be a list of seconds." };
     if (!num(m.start ?? 0, 0, 3600) || (m.end !== undefined && m.end !== null && (!num(m.end, 0, 3600) || m.end <= ((m.start as number | undefined) ?? 0)))) return { ok: false, reason: "music start and end must be timeline seconds, with the start before the end." };
@@ -656,7 +676,20 @@ export function validateProject(input: unknown): Check {
       if (!num(v.duration, 0, 3600) || !num(v.in, 0, v.duration) || !num(v.out, 0, v.duration) || v.out <= v.in) return { ok: false, reason: `${where}: in and out must be inside the recording, with in before out.` };
       if (!num(v.start, 0, 3600)) return { ok: false, reason: `${where}: its start must be timeline seconds.` };
       if (!num(v.volume ?? 1, 0, 1)) return { ok: false, reason: `${where}: the volume must be between 0 and 1.` };
-      voices.push({ id: v.id, source, name: str(v.name, 200) && v.name ? v.name : "Voice-over", start: v.start, in: v.in, out: v.out, duration: v.duration, volume: (v.volume as number | undefined) ?? 1 });
+      if (!num(v.fadeIn ?? 0, 0, MAX_FADE_SECONDS) || !num(v.fadeOut ?? 0, 0, MAX_FADE_SECONDS)) return { ok: false, reason: `${where}: the fade in and fade out must be seconds between 0 and ${MAX_FADE_SECONDS}.` };
+      voices.push({
+        id: v.id,
+        source,
+        name: str(v.name, 200) && v.name ? v.name : "Voice-over",
+        start: v.start,
+        in: v.in,
+        out: v.out,
+        duration: v.duration,
+        volume: (v.volume as number | undefined) ?? 1,
+        // Absent stays absent: a document saved before the voice-over had fades reads back unchanged.
+        ...(typeof v.fadeIn === "number" && v.fadeIn > 0 ? { fadeIn: v.fadeIn } : {}),
+        ...(typeof v.fadeOut === "number" && v.fadeOut > 0 ? { fadeOut: v.fadeOut } : {}),
+      });
     }
   }
   const o = x.output;
@@ -835,6 +868,9 @@ export function splitClip(c: Clip, atLocal: number): [Clip, Clip] | null {
   const [kl, kr] = splitKeyframes(c.keyframes, atLocal);
   const left: Clip = { ...c, out: s };
   const right: Clip = { ...c, id: newClipId(), in: s, transition: "cut" };
+  // The sound's fade in stays at the start of the first half, its fade out at the end of the second.
+  delete left.fadeOut;
+  delete right.fadeIn;
   if (c.source.kind === "gap") {
     left.duration = s;
     right.duration = c.out - s;

@@ -240,6 +240,14 @@ export function uploadAudio(batchId: string, index: number, file: File, meta: { 
   return postForm<{ track: AudioTrack; tracks: AudioTrack[] }>("/api/studio/posts/video/audio/upload", form);
 }
 
+/**
+ * "Sound from an Instagram link": the server reads the public reel through the agency's Meta
+ * connection and keeps its mp4 as one of the post's tracks; `warning` is the one line on rights.
+ */
+export function instagramSound(batchId: string, index: number, link: string): Promise<{ track: AudioTrack; tracks: AudioTrack[]; warning: string }> {
+  return post<{ track: AudioTrack; tracks: AudioTrack[]; warning: string }>("/api/studio/posts/video/audio/instagram", { batch: batchId, index, link });
+}
+
 /** The audio choice of one version: written on the version, nothing sent anywhere. */
 export function chooseAudio(batchId: string, index: number, videoId: string, choice: AudioChoice, audioId?: string): Promise<{ videos: VideoItem[] }> {
   return post<{ videos: VideoItem[] }>("/api/studio/posts/video/audio/choose", { batch: batchId, index, videoId, choice, audioId });
