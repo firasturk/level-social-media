@@ -1394,9 +1394,13 @@ studioRoutes.get("/file", async (c) => {
   const w = kind === "result" ? thumbWidth(c.req.query("w")) : null;
   const keep = c.req.query("v") ? "private, max-age=31536000, immutable" : "private, max-age=3600";
   if (w) {
-    const small = await resizedPicture(c.env, key, w);
-    if (!small) throw new StudioError("Image not found.", 404);
-    return new Response(small.bytes, { headers: { "Content-Type": small.mime, "Cache-Control": keep, "X-Content-Type-Options": "nosniff" } });
+    // A picture the resizer cannot read (an SVG, say) is served as it is rather than failing the card.
+    const small = await resizedPicture(c.env, key, w).catch((e) => {
+      console.error("[file] resize", errorMessage(e));
+      return undefined;
+    });
+    if (small === null) throw new StudioError("Image not found.", 404);
+    if (small) return new Response(small.bytes, { headers: { "Content-Type": small.mime, "Cache-Control": keep, "X-Content-Type-Options": "nosniff" } });
   }
   const obj = await c.env.BUCKET.get(key);
   if (!obj) throw new StudioError("Image not found.", 404);

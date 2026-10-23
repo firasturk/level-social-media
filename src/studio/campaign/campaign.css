@@ -77,3 +77,5 @@
   .ca-grid2, .ca-grid3, .ca-grid4, .ca-item-body { grid-template-columns: minmax(0, 1fr); }
   .ca-body { padding: 12px 12px 40px; }
 }
+.ca-overlay .text-button { display: inline-flex; align-items: center; gap: 4px; }
+@media (min-width: 761px) { .ca-bottom { padding-left: 230px; } }

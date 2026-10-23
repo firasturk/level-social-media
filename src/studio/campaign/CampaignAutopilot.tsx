@@ -557,7 +557,7 @@ function VideoItem({ v, sources, engines, onChange, onRegen, costOf, busy }: { v
 
 const STATUS_LABEL: Record<CampaignStep["status"], string> = { waiting: "Waiting", ready: "Ready", running: "Working", done: "Done", failed: "Failed", paused: "Paused", skipped: "Skipped" };
 
-function Progress({ c, onRetry, onOpenCard, rendering }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null }) {
+function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAgain }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null; renderFailed: Record<string, string>; onRenderAgain: (step: string) => void }) {
   const items = [...c.plan.images.map((i) => ({ key: i.key, title: i.headline || i.idea.slice(0, 50), video: false })), ...c.plan.videos.map((v) => ({ key: v.key, title: v.hook || v.concept.slice(0, 50), video: true }))];
   return (
     <section className="ca-card">
@@ -591,6 +591,14 @@ function Progress({ c, onRetry, onOpenCard, rendering }: { c: Campaign; onRetry:
                       {s.error && <small className="ca-error">{s.error}</small>}
                       {s.note && s.status !== "done" && <small className="ca-muted">{s.note}</small>}
                     </span>
+                    {renderFailed[s.step] && (
+                      <>
+                        <small className="ca-error">Render in this tab failed: {renderFailed[s.step]}</small>
+                        <button type="button" className="text-button" onClick={() => onRenderAgain(s.step)}>
+                          <RotateCcw size={13} /> Render again
+                        </button>
+                      </>
+                    )}
                     {s.status === "failed" && (
                       <button type="button" className="text-button" onClick={() => onRetry(s)}>
                         <RotateCcw size={13} /> Retry this step
@@ -621,6 +629,8 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
   const [retries, setRetries] = useState(1);
   const [accepted, setAccepted] = useState<Record<string, number>>({});
   const [rendering, setRendering] = useState<{ step: string; fraction: number; phase: string } | null>(null);
+  /** Renders that failed in this tab: not tried again by themselves (the button does). */
+  const [renderFailed, setRenderFailed] = useState<Record<string, string>>({});
   const renderBusy = useRef(false);
 
   useEffect(() => {
@@ -672,7 +682,7 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
 
   useEffect(() => {
     if (!c || !producing || renderBusy.current) return;
-    const next = c.steps.find((s) => s.kind === "render" && s.status === "ready" && s.ref?.kind === "project" && s.post);
+    const next = c.steps.find((s) => s.kind === "render" && s.status === "ready" && s.ref?.kind === "project" && s.post && !renderFailed[s.step]);
     if (!next) return;
     renderBusy.current = true;
     setRendering({ step: next.step, fraction: 0, phase: "starting" });
@@ -682,13 +692,13 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
         const r = await renderProjectToCard({ batch: c.batch, post: next.post!, projectId: next.ref!.id, stills: next.stills ?? [] }, { onProgress: (fraction, phase) => setRendering({ step: next.step, fraction, phase }) });
         setC((await renderedStep(c.id, next.step, r.videoId)).campaign);
       } catch (e) {
-        setError(`Render of ${next.item}: ${errText(e)}`);
+        setRenderFailed((f) => ({ ...f, [next.step]: errText(e) }));
       } finally {
         renderBusy.current = false;
         setRendering(null);
       }
     })();
-  }, [c, producing]);
+  }, [c, producing, renderFailed]);
 
   const update = (fn: (p: CampaignPlan) => CampaignPlan) => {
     setDraft((d) => (d ? fn(d) : d));
@@ -765,7 +775,7 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
                 {needs.length > 0 && <span className="ca-warn-inline">Changed after approval, waiting for approval: {needs.join(", ")}</span>}
               </div>
             </section>
-            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} onOpenCard={onOpenCard} rendering={rendering} onRetry={(s) => void act("retry", async () => {
+            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} onOpenCard={onOpenCard} rendering={rendering} renderFailed={renderFailed} onRenderAgain={(step) => setRenderFailed((f) => Object.fromEntries(Object.entries(f).filter(([k]) => k !== step)))} onRetry={(s) => void act("retry", async () => {
               try {
                 return await retryStep(c.id, s.step);
               } catch (e) {

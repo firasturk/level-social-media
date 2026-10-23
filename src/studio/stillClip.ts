@@ -14,7 +14,23 @@ export const STILL_SECONDS = 3;
 async function loadImage(url: string): Promise<ImageBitmap> {
   const r = await fetch(url, { credentials: "same-origin" });
   if (!r.ok) throw new Error(`The picture could not be read (${r.status}).`);
-  return createImageBitmap(await r.blob());
+  const blob = await r.blob();
+  try {
+    return await createImageBitmap(blob);
+  } catch {
+    // SVG and some other formats decode only through an <img> element.
+    const src = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      return await createImageBitmap(img, { resizeWidth: img.naturalWidth || 1080, resizeHeight: img.naturalHeight || 1080 });
+    } catch {
+      throw new Error("The source image could not be decoded.");
+    } finally {
+      URL.revokeObjectURL(src);
+    }
+  }
 }
 
 /** The picture drawn on the frame: whole, centred, over a darkened, blurred copy that fills it. */

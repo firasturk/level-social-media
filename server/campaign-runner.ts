@@ -203,22 +203,24 @@ async function setCardPicture(env: Env, b: { id: string; owner: string; config: 
   return key;
 }
 
-/** A picture to simulate with: the product photo, else the month's newest picture, else a plain card. */
+/** A picture to simulate with (a PNG, JPEG or WebP, as an engine returns): the product photo, else the month's newest picture, else a plain card. */
 async function simulatedPicture(env: Env, b: BatchRow, plan: CampaignPlan, item: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
+  const raster = (mime: string | undefined) => /^image\/(png|jpeg|webp)$/i.test(mime ?? "");
   const { image, video } = itemOf(plan, item);
   const p = (image ?? video)?.product;
   if (p?.from === "library") {
     const s = await first<{ key: string; reference_key: string | null }>(env.DB, "SELECT key, reference_key FROM sources WHERE id = ?", p.id);
     const obj = s ? await env.BUCKET.get(s.reference_key ?? s.key) : null;
-    if (obj) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
+    if (obj && raster(obj.httpMetadata?.contentType)) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata!.contentType! };
   }
   if (p?.from === "drive") {
     const img = await photoBytes(env, p.id, 1600).catch(() => null);
-    if (img) return img;
+    if (img && raster(img.mime)) return img;
   }
-  const newest = await first<{ output: string }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id);
-  const obj = newest ? await env.BUCKET.get(newest.output) : null;
-  if (obj) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
+  for (const t of await all<{ output: string }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 6", b.id)) {
+    const obj = await env.BUCKET.get(t.output);
+    if (obj && raster(obj.httpMetadata?.contentType)) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata!.contentType! };
+  }
   const config = JSON.parse(b.config) as Config;
   return { bytes: await plainBackground("#3a3f4b", config.format ?? "4:5"), mime: "image/png" };
 }
