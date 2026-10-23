@@ -2106,6 +2106,11 @@ export default function Workspace({
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
                 compact={useFlow}
+                onCreate={() => {
+                  setFlowStage(0);
+                  setClassic(false);
+                  setJourney(true);
+                }}
                 admin={user.role === "admin"}
                 onEdit={openEditor}
                 onPhotoStudio={openPhotoStudio}
@@ -2212,6 +2217,10 @@ export default function Workspace({
           onTest={testOnePost}
           engineReady={engineConnected}
           onDone={finishJourney}
+          onMenu={() => {
+            finishJourney();
+            window.dispatchEvent(new Event("lsm-menu-open"));
+          }}
         />
       )}
       {journey && (!useFlow || classic) && stateReady && clients.some((c) => c.status === "active") && (

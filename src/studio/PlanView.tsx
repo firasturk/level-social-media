@@ -126,6 +126,7 @@ export default function PlanView({
   onRestorePicture,
   onAccept,
   compact = false,
+  onCreate,
   toolbar = true,
   onEdit,
   onPhotoStudio,
@@ -244,6 +245,8 @@ export default function PlanView({
   onRestorePicture?: (index: number, key: string) => Promise<void>;
   /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
   compact?: boolean;
+  /** The workflow's Start ("Create content"): what an empty month offers instead of the classic steps. */
+  onCreate?: () => void;
   /** False folds the month toolbar away (the Studio board's More menu opens it). */
   toolbar?: boolean;
   onEdit?: (index: number, group?: EditorGroup) => void;
@@ -861,7 +864,18 @@ export default function PlanView({
           )}
         </div>
       )}
-      {!plan.length ? (
+      {!plan.length && compact && onCreate ? (
+        <div className="plan-empty">
+          <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
+          <div className="plan-empty-start">
+            <h3>{monthLabel(month)} for {client.name}</h3>
+            <p>This month has no posts yet. Start a campaign or a grid, or bring the client's own pictures and clips straight to the Studio.</p>
+            <button type="button" className="cta primary" onClick={onCreate}>
+              Create content
+            </button>
+          </div>
+        </div>
+      ) : !plan.length ? (
         <div className="plan-empty">
           <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
           <h3>{monthLabel(month)} for {client.name}</h3>

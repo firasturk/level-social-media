@@ -69,6 +69,12 @@ export default function Sidebar({
       /* private mode */
     }
   }, [open]);
+  // The workflow's menu button leaves the workflow and asks for the menu open.
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener("lsm-menu-open", show);
+    return () => window.removeEventListener("lsm-menu-open", show);
+  }, []);
   return (
     <aside className={`sidebar ${open ? "" : "collapsed"}`}>
       <div className="sidebar-top">

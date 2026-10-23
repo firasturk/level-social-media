@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Play, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, Menu,Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Play, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
 import { FreepikDialog } from "./FreepikPanel";
@@ -223,6 +223,8 @@ export interface FlowProps {
   onTest: (index: number) => Promise<void>;
   engineReady: boolean;
   onDone: (focus?: number) => void;
+  /** Leaves the workflow for the app's menu (Months, Styles, Video editor, Admin). */
+  onMenu?: () => void;
   /** The plan's autosave (edits on this screen save when a field is left), with a retry when it failed. */
   saveStatus?: SaveState;
   onRetrySave?: () => void;
@@ -823,6 +825,11 @@ export default function Flow(p: FlowProps) {
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
       <header className="journey-top">
+        {p.onMenu && (
+          <button type="button" className="flow-menu" onClick={p.onMenu} title="Months, Styles, Video editor, Admin" aria-label="Open the menu">
+            <Menu size={16} />
+          </button>
+        )}
         <LevelLogo className="journey-logo" />
         <nav className="flow-rail" aria-label="Stages">
           {STAGES.map((s, i) => (
