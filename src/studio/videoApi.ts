@@ -193,6 +193,22 @@ export function selectForClient(batchId: string, index: number, id: string | nul
   return post<{ videos: VideoItem[] }>("/api/studio/posts/video/select", { batch: batchId, index, id });
 }
 
+/**
+ * "Send for review" on a clip held beside the client's version: it becomes the client's version and
+ * the client's earlier answer on the post is cleared, so they answer the new one (as a picture sent
+ * for review does). Until the client answers again, edits on the post reach the link directly.
+ */
+export async function sendVideoForReview(batchId: string, index: number, id: string): Promise<{ videos: VideoItem[] }> {
+  const r = await selectForClient(batchId, index, id);
+  await post("/api/studio/posts/versions/send-for-review", { batch: batchId, index });
+  return r;
+}
+
+/** "Check again" on a clip recorded as failed: the provider is asked whether it finished after all (a status read, free; nothing is made again). Admins. */
+export function recheckVideo(batchId: string, id: string): Promise<{ outcome: "done" | "running" | "failed" | "unknown"; message: string; video: VideoItem }> {
+  return post("/api/studio/posts/video/check", { batch: batchId, id });
+}
+
 export function retryVideo(batchId: string, id: string, confirm = false): Promise<{ video: VideoItem }> {
   return post<{ video: VideoItem }>("/api/studio/posts/video/retry", { batch: batchId, id, confirm });
 }

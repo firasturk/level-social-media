@@ -41,6 +41,7 @@ import { referenceRoutes } from "./video-reference";
 import { validateProject, type VideoProject } from "@shared/video-project";
 import type { User } from "@shared/types";
 import type { Approval, Config } from "@shared/config";
+import { answeredCurrent } from "@shared/client-hold";
 
 type Variables = { user: User };
 export const videoEditorRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -276,26 +277,24 @@ export interface CardTop {
  *  - superseded: a version with a higher card rank is there (a render that started later, or an
  *    explicit choice made after this render started), or the card shows a newer revision of the
  *    same project. The version is kept; it replaces nothing.
- *  - review: it goes on the card, but the client approved the version they see, so the client link
- *    keeps that version until someone presses "Send for review".
- *  - card: on the card and the client's version.
+ *  - review: it goes on the card, but the client answered the version they see (approved it, or
+ *    asked for a change), so the client link keeps that version until someone presses "Send for
+ *    review" (shared/client-hold.ts).
+ *  - card: on the card and the client's version (a post the client has not answered yet).
  */
-export function decidePromotion(a: { renderStart: number; project: string; rev: number; top: CardTop | null; clientApproved: boolean }): RenderOutcome {
+export function decidePromotion(a: { renderStart: number; project: string; rev: number; top: CardTop | null; clientAnswered: boolean }): RenderOutcome {
   if (a.top && (a.top.rank > a.renderStart || (a.top.project === a.project && a.top.rev !== null && a.top.rev > a.rev))) return "superseded";
-  return a.clientApproved ? "review" : "card";
+  return a.clientAnswered ? "review" : "card";
 }
 
 /**
- * Whether the client approved the version they see now. Approval belongs to the exact version the
- * reviewer saw (the review page sends its id); an approval recorded before versions were sent is
- * taken as approval of the current version, the safe reading.
+ * Whether the client answered (approved, or asked for a change on) the version they see now: the
+ * clip by id, or the picture when no clip is theirs. The answer belongs to the exact version the
+ * reviewer saw (the review page sends its id); one recorded before versions were sent is taken as
+ * about the current version, the safe reading.
  */
-export function clientApproved(approval: Approval | null | undefined, clientVideoId: string | null): boolean {
-  if (!approval || approval.status !== "approved" || !clientVideoId) return false;
-  const yes = (approval.answers ?? []).filter((a) => a.status === "approved");
-  const withVersion = yes.filter((a) => a.version);
-  if (!withVersion.length) return true;
-  return withVersion.some((a) => a.version!.kind === "video" && a.version!.id === clientVideoId);
+export function clientAnswered(approval: Approval | null | undefined, clientVideoId: string | null): boolean {
+  return answeredCurrent(approval, clientVideoId);
 }
 
 async function cardTop(env: Env, batch: string, post: number): Promise<CardTop | null> {
@@ -319,7 +318,7 @@ export async function promoteRender(env: Env, b: { id: string; config: string },
   } catch {
     approval = undefined;
   }
-  const outcome = decidePromotion({ renderStart: render.created, project: render.project, rev: render.project_rev, top, clientApproved: clientApproved(approval, client?.id ?? null) });
+  const outcome = decidePromotion({ renderStart: render.created, project: render.project, rev: render.project_rev, top, clientAnswered: clientAnswered(approval, client?.id ?? null) });
   if (outcome === "superseded") return outcome;
   const t = now();
   const r = await env.DB.prepare("UPDATE videos SET card_rank = ?, updated = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM videos WHERE batch = ? AND post = ? AND id != ? AND card_rank > ?)")

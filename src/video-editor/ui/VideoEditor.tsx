@@ -30,7 +30,7 @@ import { footageAnalysis, timelineGrid } from "../engine/analyse";
 import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
 import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
-import { inFlight, listAudio, listVideos, selectForClient, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
+import { inFlight, listAudio, listVideos, sendVideoForReview, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
 import { createProject, failRender, getProject, listProjects, listRenders, reportRender, saveProject, startRender, uploadFootage, uploadRender, versionFileUrl, type EditorAccess, type RenderItem } from "../api";
 import { checkCapabilities, STUDIO_CODECS, TEST_CODECS, type Capabilities } from "../engine/capabilities";
 import { beatsOf, decodeAudio } from "../engine/audio";
@@ -967,12 +967,12 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     }
   };
 
-  /** "Send for review": the render the card shows becomes the client's version (the client approved an earlier one). */
+  /** "Send for review": the render the card shows becomes the client's version (the client answered an earlier one), and the client answers again. */
   const sendForReview = async (videoId: string) => {
     if (!post) return;
-    if (!(await askConfirm("Make this render the client's version? The client sees it on the review link and can approve it again.", { ok: "Send for review", cancel: "Not now" }))) return;
+    if (!(await askConfirm("Make this render the client's version? The client sees it on the review link and is asked to review the post again.", { ok: "Send for review", cancel: "Not now" }))) return;
     try {
-      await selectForClient(post.batch, post.index, videoId);
+      await sendVideoForReview(post.batch, post.index, videoId);
       toast.success("The client's link shows the new render.");
       onChanged?.();
       void reloadVideos();

@@ -150,12 +150,9 @@ export default function PlanView({
   wordsRequest,
   monthLanguage,
   admin = false,
-  shared = false,
 }: {
   /** The viewer is an admin (combining cards into one video is the Video editor's admins-only step). */
   admin?: boolean;
-  /** The month's client review link is out: what it shows is the client's version of each post. */
-  shared?: boolean;
   /** Another screen (the review dialog) asks for the Text studio on a post: a new token opens it. */
   wordsRequest?: { index: number; at: number } | null;
   /** The month's content language when it overrides the brand kit's (config.language); the Text studio follows it. */
@@ -299,7 +296,8 @@ export default function PlanView({
    * re-render when one changes; the month lends the sessions its words saver and its refresh.
    */
   useSessionNotices(batchId);
-  const holdOf = (index: number) => clientHold({ approvals, shareToken: shared ? "shared" : undefined }, index);
+  // Only a post the client answered (approved, or asked for a change) is held; the others are edited directly, link or not.
+  const holdOf = (index: number) => clientHold({ approvals }, index);
   /** The picture the studios work on for a post: a version picked under Versions, else the card's. */
   const pictureOf = (index: number, t: Task) => getSession(batchId, index)?.picture?.url ?? outputUrl(t);
   const sessionHooks = useRef<{ saveWords: (index: number, r: WordsResult) => Promise<void>; refresh: () => Promise<void> } | null>(null);

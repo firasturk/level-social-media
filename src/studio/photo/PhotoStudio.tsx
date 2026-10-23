@@ -15,7 +15,7 @@ import { askConfirm } from "@/lib/confirm";
 import { formatUsd } from "@shared/pricing";
 import { POST_TYPE_INFO } from "@shared/posts";
 import type { Take, Task } from "@shared/types";
-import { heldMessage, holdNote, type HoldReason } from "@shared/client-hold";
+import { heldMessage, holdNote, holdSubject, type HoldReason } from "@shared/client-hold";
 import { DEFAULT_ADJUST, describeAdjust, isDefaultAdjust, rotatedSize, type AdjustParams } from "@shared/photo-adjust";
 import type { PostEditorTools } from "../ReviewDialog";
 import { useFreepikStatus } from "../FreepikPanel";
@@ -61,7 +61,7 @@ interface Props {
   onTextStudio?: () => void;
   /** Opens the Video studio on the same post (the session carries what is not applied yet). */
   onVideoStudio?: () => void;
-  /** The client holds the current picture (approved it, or sees it on the review link): a save makes a new version. */
+  /** The client holds the current picture (approved it, or asked for a change on it): a save makes a new version. */
   hold?: HoldReason | null;
   /** The post's picture changed (Adjust applied): the month is read again. */
   onPictureChanged: () => Promise<void> | void;
@@ -237,7 +237,7 @@ export default function PhotoStudio(p: Props) {
       const changes = describeAdjust(prm);
       if (!im || !editor.batchId || !changes.length) return false;
       if (confirm) {
-        const held = p.hold ? ` ${p.hold === "approved" ? "The client approved the current picture" : "The client's review link shows the current picture"}: the adjusted one is saved as a new version and the client's stays.` : "";
+        const held = p.hold ? ` ${holdSubject(p.hold, "picture")}: the adjusted one is saved as a new version and the client's stays.` : "";
         const ok = await askConfirm(`Apply to post ${index}'s picture${pick ? ` (from the ${pick.label.toLowerCase()})` : ""}: ${changes.join(", ")}. The adjusted picture becomes the post's picture (free: drawn here, nothing is generated); the current one stays under Versions. The words and the logo are redrawn over it.${held}`, { ok: "Apply", danger: false, cancel: "Not yet" });
         if (!ok) return false;
       }

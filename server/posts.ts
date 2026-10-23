@@ -3196,8 +3196,9 @@ postRoutes.post("/picture/upload", async (c) => {
   await c.env.BUCKET.delete(stored.image).catch(() => undefined);
   // The designer adjusted and took this picture now: it is the picture of the idea as it is now.
   const madeFor = postRevision(post, config);
-  // The client approved the current picture, or sees it on the review link: the edit is kept as a
-  // new version beside it and the post's picture stays as it is until the team sends it for review.
+  // The client answered the current picture (approved it, or asked for a change): the edit is kept
+  // as a new version beside it and the post's picture stays as it is until the team sends it for
+  // review. A post the client has not answered is replaced directly: the review link shows it at once.
   const hold = clientHold(config, index);
   if (hold) {
     await run(

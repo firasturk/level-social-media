@@ -35,6 +35,8 @@ import { isFill, isFrame, pictureFrame, type FrameFill, type FrameId } from "@sh
 import type { HiggsfieldClient } from "./higgsfield";
 import type { User } from "@shared/types";
 import type { AudioChoice } from "@shared/video-audio";
+import type { Approval, Config } from "@shared/config";
+import { answeredCurrent } from "@shared/client-hold";
 
 type Variables = { user: User };
 export const videoRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -288,12 +290,22 @@ export async function finishedVersion(env: Env, batch: string, id: string): Prom
 
 /**
  * A finished clip becomes the client's version when the post has none yet (the share page shows
- * the clip without anyone selecting it); a post whose client version was already chosen keeps it.
+ * the clip without anyone selecting it); a post whose client version was already chosen keeps it,
+ * and so does a post whose picture the client already answered (approved it, or asked for a
+ * change): the clip waits beside it until the team sends it for review (shared/client-hold.ts).
  * The team can still change or clear it under Versions ("Select for client review" / "Show the
  * picture instead"). Returns true when this clip was marked.
  */
 export async function autoSelectForClient(env: Env, v: { id: string; batch: string; post: number; status: VideoStatus; key: string | null; for_client?: number }): Promise<boolean> {
   if (v.status !== "done" || !v.key) return false;
+  const month = await first<{ config: string }>(env.DB, "SELECT config FROM batches WHERE id = ?", v.batch);
+  let approval: Approval | undefined;
+  try {
+    approval = month ? (JSON.parse(month.config) as Config).approvals?.[String(v.post)] : undefined;
+  } catch {
+    approval = undefined;
+  }
+  if (answeredCurrent(approval, null)) return false;
   const r = await env.DB.prepare("UPDATE videos SET for_client = 1, updated = ? WHERE id = ? AND status = 'done' AND key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM videos WHERE batch = ? AND post = ? AND for_client = 1)").bind(now(), v.id, v.batch, v.post).run();
   const marked = (r.meta?.changes ?? 0) > 0;
   if (marked) v.for_client = 1;
