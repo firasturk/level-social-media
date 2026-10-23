@@ -66,7 +66,7 @@ interface Props {
   /** Switches to the Video studio on the same post (the design is saved first). */
   onVideoStudio?: () => void;
   /**
-   * The client holds the post's current version (approved it, or sees it on the review link): the
+   * The client holds the post's current version (approved it, or asked for a change on it): the
    * words and layers are kept as a draft in the card's session, never saved over the client's
    * version without the designer choosing it at "Save & return".
    */

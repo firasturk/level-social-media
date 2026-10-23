@@ -12,7 +12,9 @@ import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { PHOTO_TOOLS, photoTool, TOOL_PROVIDER_LABELS, type PhotoToolJob, type ToolCatalog, type ToolChoice, type ToolDef, type ToolOption, type ToolProvider } from "@shared/photo-tools";
 import type { PhotoPresetCard, PresetUse } from "@shared/photo-presets";
-import { applyToolResult, listPhotoPresets, toolCatalog, toolEstimate, toolJobs, toolRun, type ConfirmAsk } from "./photoApi";
+import { heldMessage } from "@shared/client-hold";
+import { patchSession } from "../editing-session";
+import { applyToolResult, listPhotoPresets, recheckToolJob, toolCatalog, toolEstimate, toolJobs, toolRun, type ConfirmAsk } from "./photoApi";
 
 export interface PhotoToolsOptions {
   batchId?: string | null;
@@ -43,6 +45,7 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
   const [jobs, setJobs] = useState<PhotoToolJob[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [using, setUsing] = useState<"picture" | "product" | null>(null);
+  const [checking, setChecking] = useState<string | null>(null);
   const [soulStyles, setSoulStyles] = useState<ToolChoice[]>([]);
   const [styleNames, setStyleNames] = useState<Record<string, string>>({});
   const loaded = useRef(false);
@@ -216,13 +219,35 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
     setUsing(as);
     try {
       const r = await applyToolResult(job.id, { as, batch: batchId, post });
-      if (as === "picture") toast.success(`Post ${post}'s picture replaced. The previous one is under Versions.`);
+      if (as === "picture" && r.held && r.key) {
+        // The client answered this post: the result waits beside their version; the card offers "Send it for review".
+        const message = r.message || heldMessage(r.held);
+        patchSession(batchId, post, { held: { kind: "picture", reason: r.held, message, key: r.key } });
+        toast.message(message, { duration: 9000 });
+      } else if (as === "picture") toast.success(`Post ${post}'s picture replaced. The previous one is under Versions.`);
       else toast.success(`Saved as a product photo of the month${r.source ? `: ${r.source.name}` : ""}.`);
       await onChanged?.();
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
       setUsing(null);
+    }
+  }
+
+  /** "Check again" on a job recorded as failed: the provider says whether it finished after all (a status read, free; nothing is run again). */
+  async function checkAgain(j: PhotoToolJob) {
+    setChecking(j.id);
+    try {
+      const r = await recheckToolJob(j.id);
+      setJobs((all) => all.map((x) => (x.id === r.job.id ? r.job : x)));
+      setJobId(r.job.id);
+      if (r.outcome === "done") toast.success(r.message);
+      else if (r.outcome === "failed") toast.error(r.message);
+      else toast.message(r.message);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChecking(null);
     }
   }
 
@@ -260,6 +285,8 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
     pending,
     using,
     applyResult,
+    checking,
+    checkAgain,
     prefill,
     canUseAsPicture: !!batchId && admin && !!job && job.status === "done" && !!job.output,
   };

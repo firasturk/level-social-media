@@ -6,18 +6,21 @@
  * on the stage), "Select for client review" and "Show the picture instead".
  */
 import { useState } from "react";
-import { Check, Columns2, Download, History, Scissors, TriangleAlert } from "lucide-react";
+import { Check, Columns2, Download, History, RefreshCw, Scissors, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
 import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { videoModel } from "@shared/video-models";
-import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "@/studio/videoApi";
+import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, MCP_PROVIDER, recheckVideo, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "@/studio/videoApi";
 import type { StudioShared } from "./types";
 
 const when = (t: number) => new Date(t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+/** The providers a failed clip can be asked about again (Higgsfield through the sign-in or the Cloud API, Magnific). */
+const CHECKABLE = new Set([MCP_PROVIDER, "higgsfield", "magnific"]);
 
 export default function VersionsPanel({ s }: { s: StudioShared }) {
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState<string | null>(null);
   const client = s.videos.find((v) => v.forClient) ?? null;
   const answers = s.approval?.answers ?? [];
   const answersOn = (v: VideoItem) => answers.filter((a) => a.version?.kind === "video" && a.version.id === v.id);
@@ -36,6 +39,23 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
       setBusy(false);
     }
   }
+  /** "Check again": the provider says whether a clip recorded as failed finished after all (free; nothing is made again). */
+  async function checkAgain(v: VideoItem) {
+    if (!s.post) return;
+    setChecking(v.id);
+    try {
+      const r = await recheckVideo(s.post.batch, v.id);
+      if (r.outcome === "done") toast.success(r.message);
+      else if (r.outcome === "failed") toast.error(r.message);
+      else toast.message(r.message);
+      await s.reloadVideos();
+      if (r.outcome === "done") s.onChanged?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChecking(null);
+    }
+  }
   const pick = (id: string) => {
     if (s.shownId === id) s.setCompareId(null);
     else if (s.compareId === id) s.setCompareId(null);
@@ -51,7 +71,7 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
         <small>{s.videos.length} clip{s.videos.length === 1 ? "" : "s"}</small>
       </div>
       <p className="ts-hint">
-        The client sees <b>{client ? versionLabel(client) : "the picture"}</b> on the review link: the first finished clip goes there by itself; pick another with “Select for client review”, or “Show the picture instead”. Every clip stays here; pick one to show it on the stage, a second one to compare.
+        The client sees <b>{client ? versionLabel(client) : "the picture"}</b> on the review link: the first finished clip goes there by itself, unless the client already answered the post; pick another with “Select for client review”, or “Show the picture instead”. Every clip stays here; pick one to show it on the stage, a second one to compare.
       </p>
       {s.compareId && (
         <p className="ts-hint vs-compare-note">
@@ -123,6 +143,13 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
                   <small className="warn">
                     <TriangleAlert size={12} /> {v.error}
                   </small>
+                )}
+                {v.status === "failed" && s.admin && CHECKABLE.has(v.provider) && (
+                  <span className="vs-list-actions">
+                    <button type="button" className="ts-mini" disabled={checking === v.id} onClick={() => void checkAgain(v)} title="Ask the provider whether this clip finished after all: a status read, free. Nothing is made again.">
+                      {checking === v.id ? <Orb size={12} status={null} /> : <RefreshCw size={12} />} Check again
+                    </button>
+                  </span>
                 )}
                 {answersOn(v).map((a) => (
                   <small key={a.rid} className={`vs-answer ${a.status}`}>

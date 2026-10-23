@@ -20,7 +20,7 @@ import { newClip, newProject } from "../shared/video-project";
 import { StudioError } from "../server/errors";
 import { studioRoutes } from "../server/studio";
 import { shareRoutes } from "../server/share";
-import { clientApproved, decidePromotion, RENDER_STALE_MS, renderStatus } from "../server/video-editor";
+import { clientAnswered, decidePromotion, RENDER_STALE_MS, renderStatus } from "../server/video-editor";
 import type { User } from "../shared/types";
 
 type FakeEnv = ReturnType<typeof fakeEnv>;
@@ -193,6 +193,53 @@ describe("Render & update card", () => {
     expect((await shareVideo(env))?.id).toBe(id);
   });
 
+  it("keeps the client's version when the client asked for a change on it: the render waits, and Send for review clears the answer", async () => {
+    const approval: Approval = { status: "changes", note: "Slower please", at: 1, answers: [{ rid: "r1", status: "changes", note: "Slower please", at: 1, version: { kind: "video", id: "v1" } }] };
+    const env = await seed({ approval });
+    const p = await project(env);
+    const job = (await startRender(env, p.id, 1)).body.render as { id: string };
+    const up = await json(await upload(env, p.id, job.id));
+    expect(up.outcome).toBe("review");
+    const id = (up.video as { id: string }).id;
+    expect((up.video as { forClient: boolean }).forClient).toBe(false);
+    expect((await summary(env)).card?.id).toBe(id);
+    expect((await shareVideo(env))?.id).toBe("v1");
+    // "Send for review" (the editor's button): the clip becomes the client's, the answer is cleared.
+    await call(ADMIN, env, "POST", "/api/studio/posts/video/select", { batch: "b1", index: 1, id });
+    expect((await call(ADMIN, env, "POST", "/api/studio/posts/versions/send-for-review", { batch: "b1", index: 1 })).status).toBe(200);
+    expect((await shareVideo(env))?.id).toBe(id);
+    const config = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { approvals?: Record<string, unknown> };
+    expect(config.approvals?.["1"]).toBeUndefined();
+    // Unanswered now: the next render goes straight to the client's link.
+    const again = (await startRender(env, p.id, 1)).body.render as { id: string };
+    const next = await json(await upload(env, p.id, again.id));
+    expect(next.outcome).toBe("card");
+    expect((await shareVideo(env))?.id).toBe((next.video as { id: string }).id);
+  });
+
+  it("a post's first finished clip goes to the client by itself only while the client has not answered the post", async () => {
+    const uploadClip = (env: FakeEnv) => {
+      const form = new FormData();
+      form.set("batch", "b1");
+      form.set("index", "1");
+      form.set("file", new File([sampleBytes()], "clip.mp4", { type: "video/mp4" }));
+      return app(ADMIN).request("/api/studio/posts/video/upload", { method: "POST", body: form }, env);
+    };
+    // The client approved the picture (no clip is theirs): the new clip waits beside it.
+    const onPicture: Approval = { status: "approved", at: 1, answers: [{ rid: "r1", status: "approved", at: 1, version: { kind: "image", id: "1" } }] };
+    const held = await seed({ approval: onPicture });
+    await held.DB.prepare("UPDATE videos SET for_client = 0").run();
+    const kept = (await json(await uploadClip(held))).video as { forClient: boolean };
+    expect(kept.forClient).toBe(false);
+    expect(await shareVideo(held)).toBeNull();
+    // Unanswered (the link is out): the first clip is the client's at once.
+    const open = await seed();
+    await open.DB.prepare("UPDATE videos SET for_client = 0").run();
+    const live = (await json(await uploadClip(open))).video as { id: string; forClient: boolean };
+    expect(live.forClient).toBe(true);
+    expect((await shareVideo(open))?.id).toBe(live.id);
+  });
+
   it("an older revision finishing last never replaces a newer render on the card", async () => {
     const env = await seed();
     const p = await project(env);
@@ -275,21 +322,29 @@ describe("Render & update card", () => {
 
 describe("the promotion rules", () => {
   it("decides card, review or superseded", () => {
-    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: null, clientApproved: false })).toBe("card");
-    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: null, clientApproved: true })).toBe("review");
-    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientApproved: false })).toBe("superseded");
-    expect(decidePromotion({ renderStart: 30, project: "p", rev: 2, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientApproved: false })).toBe("superseded");
-    expect(decidePromotion({ renderStart: 30, project: "p", rev: 4, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientApproved: false })).toBe("card");
-    expect(decidePromotion({ renderStart: 30, project: "p", rev: 1, top: { id: "x", rank: 20, project: "q", rev: 9 }, clientApproved: false })).toBe("card");
+    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: null, clientAnswered: false })).toBe("card");
+    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: null, clientAnswered: true })).toBe("review");
+    expect(decidePromotion({ renderStart: 10, project: "p", rev: 2, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientAnswered: false })).toBe("superseded");
+    expect(decidePromotion({ renderStart: 30, project: "p", rev: 2, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientAnswered: false })).toBe("superseded");
+    expect(decidePromotion({ renderStart: 30, project: "p", rev: 4, top: { id: "x", rank: 20, project: "p", rev: 3 }, clientAnswered: false })).toBe("card");
+    expect(decidePromotion({ renderStart: 30, project: "p", rev: 1, top: { id: "x", rank: 20, project: "q", rev: 9 }, clientAnswered: false })).toBe("card");
   });
 
-  it("reads approval for the exact version", () => {
-    const a = (id: string | null): Approval => ({ status: "approved", at: 1, answers: [{ rid: "r", status: "approved", at: 1, ...(id ? { version: { kind: "video" as const, id } } : {}) }] });
-    expect(clientApproved(a("v1"), "v1")).toBe(true);
-    expect(clientApproved(a("v0"), "v1")).toBe(false);
-    expect(clientApproved(a(null), "v1")).toBe(true);
-    expect(clientApproved({ status: "changes", at: 1 }, "v1")).toBe(false);
-    expect(clientApproved(a("v1"), null)).toBe(false);
+  it("reads the client's answer (an approval or a change asked) for the exact version", () => {
+    const a = (id: string | null, status: "approved" | "changes" = "approved"): Approval => ({ status, at: 1, answers: [{ rid: "r", status, at: 1, ...(id ? { version: { kind: "video" as const, id } } : {}) }] });
+    expect(clientAnswered(a("v1"), "v1")).toBe(true);
+    expect(clientAnswered(a("v0"), "v1")).toBe(false);
+    expect(clientAnswered(a(null), "v1")).toBe(true);
+    expect(clientAnswered(a("v1"), null)).toBe(false);
+    // A change asked is an answer too: the client keeps the version they asked about.
+    expect(clientAnswered({ status: "changes", at: 1 }, "v1")).toBe(true);
+    expect(clientAnswered(a("v1", "changes"), "v1")).toBe(true);
+    expect(clientAnswered(a("v0", "changes"), "v1")).toBe(false);
+    // An answer on the picture holds the picture while no clip is the client's.
+    const onPicture: Approval = { status: "approved", at: 1, answers: [{ rid: "r", status: "approved", at: 1, version: { kind: "image", id: "123" } }] };
+    expect(clientAnswered(onPicture, null)).toBe(true);
+    expect(clientAnswered(onPicture, "v1")).toBe(false);
+    expect(clientAnswered(undefined, "v1")).toBe(false);
   });
 
   it("reads a quiet render as interrupted", () => {

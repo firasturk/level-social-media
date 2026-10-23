@@ -24,6 +24,7 @@
  *   GET  /jobs?batch=&index=        the post's jobs, the pending ones settled first (every member of the month)
  *   GET  /jobs/:id/image?which=in|out
  *   POST /jobs/:id/use              {as: "picture" | "product", batch, post?, name?}   admins
+ *   POST /jobs/:id/check            a job recorded as failed asked about again (a status read, free)   admins
  *
  * Every answer shape and argument name is assumed from the tool descriptions and read defensively;
  * the first live run must check them (docs/photo-studio.md, "What the first live run must check").
@@ -46,8 +47,10 @@ const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to H
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
 import { parseCreations, parseIdentifiers } from "./video-magnific";
 import { findNumber, findString, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
+import { askJobStatus, DONE, FAILED, jobObject, notCollected, resultLink, RUNNING } from "./provider-status";
 import { PHOTO_TOOLS, photoTool, TOOL_PROVIDER_LABELS, type PhotoToolJob, type ProviderCatalog, type ToolCatalog, type ToolChoice, type ToolDef, type ToolOption, type ToolProvider } from "@shared/photo-tools";
 import { postRevision } from "@shared/posts";
+import { clientHold, heldMessage } from "@shared/client-hold";
 import { freeName } from "@shared/drive";
 import { stemKey } from "@shared/naming";
 import type { Config } from "@shared/config";
@@ -68,10 +71,6 @@ export const MAGNIFIC_LISTS_SETTING = "photo_tools_magnific_lists";
 
 /** The integration switch and ledger provider a tool provider answers to (Magnific is the Freepik integration). */
 export const ledgerProvider = (p: ToolProvider): IntegrationProvider => (p === "higgsfield" ? "higgsfield" : "freepik");
-
-const DONE = /^(completed|complete|succeeded|success|successful|done|finished|ready)$/i;
-const FAILED = /^(failed|failure|error|errored|cancelled|canceled|nsfw|rejected|moderated|timeout|timed_out)$/i;
-const RUNNING = /^(running|processing|in_progress|generating|started|pending|queued)$/i;
 
 /* ───────────── Caches (tests start from nothing) ───────────── */
 
@@ -181,18 +180,41 @@ async function failJob(env: Env, row: PhotoJobRow, message: string): Promise<voi
   if (row.op_id) await updateIntegrationOp(env, row.op_id, { status: "failed", note: message.slice(0, 500) });
 }
 
-/** The finished picture downloaded once under the post's output prefix; the ledger row closed with the credits the balance moved by. */
-async function finishJob(env: Env, b: { id: string; owner: string }, row: PhotoJobRow, url: string, fetchFn: typeof fetch, balanceAfter: () => Promise<number | null>): Promise<void> {
+/** The kind of picture the bytes are, from their first bytes (PNG, JPEG, WebP), or null. */
+export function sniffPicture(bytes: ArrayBuffer): "png" | "jpg" | "webp" | null {
+  const b = new Uint8Array(bytes.slice(0, 12));
+  if (b.length >= 4 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpg";
+  if (b.length >= 12 && String.fromCharCode(...b.slice(0, 4)) === "RIFF" && String.fromCharCode(...b.slice(8, 12)) === "WEBP") return "webp";
+  return null;
+}
+
+const PICTURE_TYPES = { png: "image/png", jpg: "image/jpeg", webp: "image/webp" } as const;
+
+/**
+ * The finished picture downloaded under the post's output prefix, always at the same key for a job
+ * (`<owner>/<batch>/output/<task>/<job>.<ext>`), so a second download replaces the first instead of
+ * adding one. A storage answer labelled `application/octet-stream` is taken when its bytes are a picture.
+ */
+async function storeResult(env: Env, b: { id: string; owner: string }, row: PhotoJobRow, url: string, fetchFn: typeof fetch): Promise<string> {
   const r = await fetchFn(url, { signal: AbortSignal.timeout(120_000) });
   if (!r.ok) throw new StudioError(`The result could not be downloaded (${r.status}).`, 502);
-  const mime = (r.headers.get("content-type") || "").split(";")[0].trim();
+  const declared = (r.headers.get("content-type") || "").split(";")[0].trim();
   const bytes = await r.arrayBuffer();
   if (!bytes.byteLength) throw new StudioError("The result was empty.", 502);
-  if (mime && !mime.startsWith("image/")) throw new StudioError(`The result is not a picture (${mime}).`, 502);
+  const sniffed = sniffPicture(bytes);
+  if (declared && !declared.startsWith("image/") && !sniffed) throw new StudioError(`The result is not a picture (${declared}).`, 502);
+  const mime = declared.startsWith("image/") ? declared : sniffed ? PICTURE_TYPES[sniffed] : declared;
   const ext = extOf(mime, url);
   const contentType = mime || (ext === "jpg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png");
   const key = `${b.owner}/${b.id}/output/${row.task}/${row.id}.${ext}`;
   await env.BUCKET.put(key, bytes, { httpMetadata: { contentType } });
+  return key;
+}
+
+/** The finished picture stored; the ledger row closed with the credits the balance moved by (its note keeps the tool's label first, which `lastReportedRun` reads). */
+async function finishJob(env: Env, b: { id: string; owner: string }, row: PhotoJobRow, url: string, fetchFn: typeof fetch, balanceAfter: () => Promise<number | null>): Promise<void> {
+  const key = await storeResult(env, b, row, url, fetchFn);
   const s = parseJson<JobSettings>(row.settings, {});
   const after = await balanceAfter().catch(() => null);
   const reported = typeof s.balanceBefore === "number" && after !== null && after <= s.balanceBefore ? s.balanceBefore - after : row.estimate;
@@ -200,7 +222,7 @@ async function finishJob(env: Env, b: { id: string; owner: string }, row: PhotoJ
   row.status = "done";
   row.output_key = key;
   row.reported = reported;
-  if (row.op_id) await updateIntegrationOp(env, row.op_id, { status: "done", reported, note: `${reported ?? "?"} credits reported${typeof s.balanceBefore === "number" && after !== null ? ` (balance ${s.balanceBefore} → ${after})` : " (from the estimate; the balance could not be read)"}` });
+  if (row.op_id) await updateIntegrationOp(env, row.op_id, { status: "done", reported, note: `${row.label} · ${reported ?? "?"} credits reported${typeof s.balanceBefore === "number" && after !== null ? ` (balance ${s.balanceBefore} → ${after})` : " (from the estimate; the balance could not be read)"}` });
 }
 
 /* ───────────── Mapping our options onto a tool's arguments (names assumed; the live schema decides) ───────────── */
@@ -725,6 +747,8 @@ export async function startPhotoJob(env: Env, s: StartJob): Promise<PhotoJobRow>
   const direct = providerJobs.find((j) => DONE.test(j.status) && j.url)?.url ?? (ids.length ? null : r.isError ? null : firstUrl(jsonOf(r), text));
   if (r.isError || (!ids.length && !direct)) {
     const message = `${TOOL_PROVIDER_LABELS[s.provider]} did not start the tool: ${text.slice(0, 300) || "no job id in the answer"}`;
+    // An error answer that still names a job keeps the id, so "Check again" can ask about it later.
+    if (ids.length) await run(env.DB, "UPDATE photo_tool_jobs SET provider_job = ?, settings = ? WHERE id = ?", ids[0], JSON.stringify({ ...settings, jobIds: ids }), id);
     await failJob(env, row, message);
     throw new StudioError(message, 502);
   }
@@ -839,10 +863,11 @@ export async function settlePhotoJobs(env: Env, b: { id: string; owner: string }
       const jobs = parseJobs(answer);
       for (const [i, j] of hf.entries()) {
         const found = jobs.find((x) => x.jobId === j.provider_job) ?? jobs.find((x) => x.index === i);
-        await settle(j, found ? { status: found.status, url: found.url, error: found.error } : undefined, higgsfieldFetcher(), async () => (await balanceOf(mcp, true)).credits, async () => {
+        const raw = found ? jobObject(answer, "job_id", found.jobId) : null;
+        await settle(j, found ? { status: found.status, url: resultLink(env, found.url, raw), error: found.error } : undefined, higgsfieldFetcher(), async () => (await balanceOf(mcp, true)).credits, async () => {
           if (!(await mcp.hasTool("show_generation_by_ids"))) return null;
           const shown = await mcp.call("show_generation_by_ids", { jobs: [{ index: 0, job_id: j.provider_job }] });
-          return parseJobs(shown).find((x) => x.jobId === j.provider_job)?.url ?? firstUrl(jsonOf(shown), resultText(shown));
+          return resultLink(env, parseJobs(shown).find((x) => x.jobId === j.provider_job)?.url ?? null, jobObject(shown, "job_id", j.provider_job!) ?? jsonOf(shown), resultText(shown));
         });
       }
     } catch (e) {
@@ -859,16 +884,86 @@ export async function settlePhotoJobs(env: Env, b: { id: string; owner: string }
       const entries = parseCreations(answer);
       for (const j of mg) {
         const found = entries.find((x) => x.identifier === j.provider_job);
-        await settle(j, found ? { status: found.status, url: found.url, error: found.error } : undefined, magnificFetcher(), () => magnificBalance(mcp, tools, true), async () => {
+        await settle(j, found ? { status: found.status, url: resultLink(env, found.url, jobObject(answer, "identifier", found.identifier)), error: found.error } : undefined, magnificFetcher(), () => magnificBalance(mcp, tools, true), async () => {
           if (!tools.has("creations_get")) return null;
           const got = await mcp.callTool("creations_get", { identifier: j.provider_job, creationIdentifier: j.provider_job });
-          return parseCreations(got).find((x) => x.identifier === j.provider_job)?.url ?? firstUrl(jsonOf(got), resultText(got));
+          return resultLink(env, parseCreations(got).find((x) => x.identifier === j.provider_job)?.url ?? null, jobObject(got, "identifier", j.provider_job!) ?? jsonOf(got), resultText(got));
         });
       }
     } catch (e) {
       console.error("[photo-tools] creations_wait", errorMessage(e));
       for (const j of mg) if (old(j)) await failJob(env, j, "Magnific could not be asked for half an hour.");
     }
+  }
+}
+
+/* ───────────── "Check again": a job recorded as failed, asked about once more ───────────── */
+
+/** Two presses at once are one check: the second waits for the first's answer. */
+const CHECK_CLAIM_MS = 60 * 1000;
+
+/**
+ * The ledger row of a job collected late: the run's own row (`op_id`, else the row that carries the
+ * provider's job id) closed as done with the credits, exactly as the settler closes it. A row that
+ * is already done with a figure is left as it is (never counted twice); a job with no row at all
+ * gets one. Returns the credits the ledger holds for the job.
+ */
+async function closeLedgerLate(env: Env, row: PhotoJobRow, credits: number | null, how: string, before: string | null): Promise<number | null> {
+  const provider = ledgerProvider(row.provider);
+  const op = row.op_id
+    ? await first<{ id: string; status: string; reported: number | null }>(env.DB, "SELECT id, status, reported FROM integration_ops WHERE id = ?", row.op_id)
+    : await first<{ id: string; status: string; reported: number | null }>(env.DB, "SELECT id, status, reported FROM integration_ops WHERE provider = ? AND task_id = ? AND kind IN ('image.tool', 'preset.run') ORDER BY created LIMIT 1", provider, row.provider_job);
+  if (op && op.status === "done" && typeof op.reported === "number") return op.reported;
+  const note = `${row.label} · ${credits ?? "?"} credits ${how} · collected by Check again${before ? ` (recorded as failed before: ${before.slice(0, 160)})` : ""}`;
+  if (op) await updateIntegrationOp(env, op.id, { status: "done", reported: credits, taskId: row.provider_job, note });
+  else await recordIntegrationOp(env, { provider, kind: "image.tool", user: row.owner, batch: row.batch, post: row.post, taskId: row.provider_job, estimate: row.estimate, reported: credits, status: "done", note });
+  return credits;
+}
+
+export interface RecheckAnswer {
+  /** done: collected now (or already); running: the provider is still on it; failed: the provider says so; unknown: no clear answer. */
+  outcome: "done" | "running" | "failed" | "unknown";
+  message: string;
+  job: PhotoToolJob;
+}
+
+/**
+ * "Check again" on a job recorded as failed: the provider is asked for the job's status (a read,
+ * nothing is sent again). Finished there: the picture is downloaded exactly as the settler does
+ * (the same key, so a second press adds nothing), the job set done, and the ledger row closed with
+ * the credits the provider names, else the job's estimate, once. Still running: said so, nothing
+ * changed. Failed there: kept failed, with the provider's reason. Admins.
+ */
+export async function recheckPhotoJob(env: Env, user: User, id: string): Promise<RecheckAnswer> {
+  const row = await jobById(env, id);
+  const b = await ownedPlan(env, user, row.batch);
+  const who = TOOL_PROVIDER_LABELS[row.provider];
+  if (row.status === "done") return { outcome: "done", message: "Already collected: the result is here. Nothing was asked again.", job: jobJson(row) };
+  if (row.status !== "failed") return { outcome: "running", message: `${who} is still working on it; the panel collects it by itself.`, job: jobJson(row) };
+  if (!row.provider_job) throw new StudioError(`${who} never gave this run a job id, so there is nothing to ask about. Check ${who}'s own history and balance.`, 409);
+  const claim = `phototool-check:${row.id}`;
+  if (!(await claimSubmission(env, claim, CHECK_CLAIM_MS))) throw new StudioError("This job is being checked right now. Wait a moment.", 409);
+  try {
+    const { said, fetchFn } = await askJobStatus(env, row.provider, row.provider_job);
+    const not = notCollected(who, row.provider_job, said);
+    if (said && !not && said.url) {
+      const before = row.error;
+      const key = await storeResult(env, b, row, said.url, fetchFn);
+      const credits = said.credits ?? row.estimate;
+      const how = said.credits !== null ? `reported by ${who}` : "(from the estimate)";
+      // Only the press that turns the job from failed to done writes the ledger: a second press finds it done.
+      const changed = await run(env.DB, "UPDATE photo_tool_jobs SET status = 'done', output_key = ?, reported = ?, error = NULL, updated = ? WHERE id = ? AND status = 'failed'", key, credits, now(), row.id);
+      if (!changed) return { outcome: "done", message: "Already collected: the result is here.", job: jobJson(await jobById(env, row.id)) };
+      const counted = await closeLedgerLate(env, row, credits, how, before);
+      if (counted !== credits) await run(env.DB, "UPDATE photo_tool_jobs SET reported = ? WHERE id = ?", counted, row.id);
+      const done = await jobById(env, row.id);
+      return { outcome: "done", message: `${who} had finished it: the result is collected${counted !== null ? ` (${counted} credits)` : ""}. Use it as the post's picture when you are ready.`, job: jobJson(done) };
+    }
+    const answer = not!;
+    if (answer.reason) await run(env.DB, "UPDATE photo_tool_jobs SET error = ?, updated = ? WHERE id = ?", `The tool failed on the provider: ${answer.reason}`.slice(0, 500), now(), row.id);
+    return { outcome: answer.outcome, message: answer.message, job: jobJson(await jobById(env, row.id)) };
+  } finally {
+    await run(env.DB, "DELETE FROM integration_claims WHERE key = ?", claim);
   }
 }
 
@@ -933,6 +1028,13 @@ photoToolRoutes.get("/jobs/:id/image", async (c) => {
   return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=604800" } });
 });
 
+/** "Check again" on a failed job: a status read at the provider, free, never a new run. Admins. */
+photoToolRoutes.post("/jobs/:id/check", async (c) => {
+  const job = await jobById(c.env, c.req.param("id"));
+  const user = requireIntegrationAdmin(c, ledgerProvider(job.provider));
+  return c.json({ ok: true, ...(await recheckPhotoJob(c.env, user, job.id)) });
+});
+
 const useSchema = z.discriminatedUnion("as", [
   z.object({ as: z.literal("product"), batch: z.string().min(1), name: z.string().max(120).optional() }),
   z.object({ as: z.literal("picture"), batch: z.string().min(1), post: z.number().int().min(1).optional() }),
@@ -988,10 +1090,17 @@ photoToolRoutes.post("/jobs/:id/use", async (c) => {
   if (!job.output_key.startsWith(`${b.owner}/${b.id}/output/`)) throw new StudioError("Not this month's picture.", 400);
   const plan = (config.plan ?? []).find((p) => p.index === post);
   const madeFor = plan ? postRevision(plan, config) : null;
+  // The client answered this post (approved it, or asked for a change): the result is kept as a new
+  // version beside the client's, which stays until the team sends it for review (shared/client-hold.ts).
+  const hold = clientHold(config, post);
+  if (hold) {
+    await run(c.env.DB, "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)", uuid(), b.id, post, t.id, job.output_key, `${note} · new version (the client's version stays)`.slice(0, 500), madeFor, now());
+    return c.json({ ok: true, task: t.id, key: job.output_key, previous: t.output, current: t.output, held: hold, message: heldMessage(hold) });
+  }
   await run(c.env.DB, "UPDATE tasks SET output = ?, status = 'ready', error = NULL, edit = NULL, qa = NULL, made_for = ?, updated = ? WHERE id = ?", job.output_key, madeFor, now() + 1, t.id);
   await run(c.env.DB, "INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)", uuid(), b.id, post, t.id, job.output_key, note.slice(0, 500), madeFor, now());
   if (t.output && t.output !== job.output_key)
     await run(c.env.DB, "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)", uuid(), b.id, `Post ${post} before the AI tools`, JSON.stringify({ [String(post)]: t.output }), JSON.stringify([{ post, key: t.output, at: now() }]), now());
-  return c.json({ ok: true, task: t.id, key: job.output_key, previous: t.output });
+  return c.json({ ok: true, task: t.id, key: job.output_key, previous: t.output, current: job.output_key, held: null });
 });
 

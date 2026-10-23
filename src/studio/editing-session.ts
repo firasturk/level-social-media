@@ -23,7 +23,7 @@ import { toast } from "sonner";
 import { post, postForm } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { describeAdjust, isDefaultAdjust } from "@shared/photo-adjust";
-import { heldMessage, type HoldReason } from "@shared/client-hold";
+import { heldMessage, holdSubject, type HoldReason } from "@shared/client-hold";
 import type { CubeLut } from "@shared/cube-lut";
 import { PART_LABEL, SessionStore, sessionKey, type EditingSession, type Held, type StudioKind, type WordsResult } from "@shared/editing-session";
 import { canvasFile, drawAdjusted, loadPicture, MAX_OUTPUT_EDGE } from "./photo/render";
@@ -121,6 +121,8 @@ export async function uploadAdjusted(batch: string, index: number, canvas: HTMLC
   form.set("file", file, file.name);
   const r = await postForm<UploadAnswer>("/api/studio/posts/picture/upload", form);
   if (r.held) patchSession(batch, index, { held: { kind: "picture", reason: r.held, message: r.message || heldMessage(r.held), key: r.key } });
+  // Saved straight onto the post (the client has not answered it): an older picture kept aside is not the one to send any more; it stays under Versions.
+  else if (getSession(batch, index)?.held?.kind === "picture") patchSession(batch, index, { held: null });
   return r;
 }
 
@@ -205,9 +207,14 @@ export async function commitSession(batch: string, index: number, opts: CommitOp
     const text = s.text;
     await attempt("text", async () => {
       if (!month) throw new Error("The month is not open: the words could not be saved.");
-      const reason = opts.hold ?? "shared";
+      // A draft kept while the post was held, on a post the client has not answered (any more): it is saved as it is, the link shows it.
+      if (!opts.hold) {
+        await month.saveWords(index, text.result);
+        patchSession(batch, index, { text: null });
+        return true;
+      }
       const ok = await askConfirm(
-        `${reason === "approved" ? "The client approved the current version of this post." : "The client's review link shows the current version of this post."} Saving the words and layers changes what the client sees, so the client is asked to review this post again. Save them and send the post for review, or keep them here as an unsaved draft?`,
+        `${holdSubject(opts.hold)} of this post. Saving the words and layers changes what the client sees, so the client is asked to review this post again. Save them and send the post for review, or keep them here as an unsaved draft?`,
         { ok: "Save and send for review", danger: false, cancel: "Keep as a draft" },
       );
       if (!ok) return false;

@@ -97,6 +97,8 @@ export interface HiggsfieldOptions {
   syncUpscale?: boolean;
   /** The balance after a run, read when a job finishes. */
   balanceAfter?: number;
+  /** What `show_generation_by_ids` says about a job (merged into `{job_id}`); unset: the tool answers an error. */
+  shown?: Record<string, unknown>;
 }
 
 export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
@@ -121,6 +123,8 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
   const fn: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url === "https://cdn.test/out.png") return new Response(RESULT_PNG.slice(0), { status: 200, headers: { "content-type": "image/png" } });
+    // A storage answer that does not say it is a picture (the bytes are one).
+    if (url === "https://cdn.test/out.bin") return new Response(RESULT_PNG.slice(0), { status: 200, headers: { "content-type": "application/octet-stream" } });
     if (url !== HIGGSFIELD_MCP_URL) throw new Error(`unexpected ${url}`);
     const headers = (init?.headers ?? {}) as Record<string, string>;
     const b = JSON.parse(String(init?.body)) as { id?: number; method: string; params: Record<string, unknown> };
@@ -190,6 +194,7 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
       const jobs = (args.jobs as { index: number; job_id: string }[]).map((j) => ({ index: j.index, job_id: j.job_id, ...next }));
       return text(b.id, { all_terminal: next.status === "completed", results: jobs });
     }
+    if (name === "show_generation_by_ids" && opts.shown) return text(b.id, { generations: (args.jobs as { job_id: string }[]).map((j) => ({ job_id: j.job_id, ...opts.shown })) });
     return text(b.id, { error: `no such tool ${name}` }, true);
   };
   return { fn, rpc };
@@ -204,6 +209,8 @@ export interface MagnificOptions {
   waits?: Record<string, unknown>[];
   /** The upscale presets carry no sample pictures. */
   noSamples?: boolean;
+  /** What `creations_get` says about a creation (merged into `{identifier}`); unset: not listed. */
+  got?: Record<string, unknown>;
 }
 
 export function magnificStub(opts: MagnificOptions = {}) {
@@ -225,6 +232,7 @@ export function magnificStub(opts: MagnificOptions = {}) {
     { name: "images_replace_background", inputSchema: { type: "object", properties: { imageUrl: {}, prompt: {} } } },
     { name: "images_restyle", inputSchema: { type: "object", properties: { imageUrl: {}, prompt: {}, model: {} } } },
     { name: "creations_wait", inputSchema: { type: "object", properties: { identifiers: {}, timeoutSeconds: {} } } },
+    ...(opts.got ? [{ name: "creations_get", inputSchema: { type: "object", properties: { identifier: {}, creationIdentifier: {} } } }] : []),
     { name: "creations_request_upload", inputSchema: { type: "object", properties: { fileName: {}, contentType: {}, size: {} } } },
     { name: "creations_finalize_upload", inputSchema: { type: "object", properties: { identifier: {} } } },
   ];
@@ -272,6 +280,7 @@ export function magnificStub(opts: MagnificOptions = {}) {
       const next = waits.length > 1 ? waits.shift()! : waits[0];
       return text(b.id, { results: (args.identifiers as string[]).map((identifier) => ({ identifier, ...next })) });
     }
+    if (name === "creations_get" && opts.got) return text(b.id, { creation: { identifier: args.identifier, ...opts.got } });
     return text(b.id, `no such tool ${name}`, true);
   };
   return { fn, rpc, puts };

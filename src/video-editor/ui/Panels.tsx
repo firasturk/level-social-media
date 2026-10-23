@@ -757,7 +757,7 @@ export function ExportPanel({ ctx }: { ctx: PanelCtx }) {
       {x.result && <p className="ve-done">{x.result}</p>}
       {review && review.videoId && (
         <div className="ve-review">
-          <p>The client approved the version they see, so {x.videoLabel(review.videoId)} is on the card but not on the client's link yet.</p>
+          <p>The client answered the version they see (approved it, or asked for a change), so {x.videoLabel(review.videoId)} is on the card but not on the client's link yet.</p>
           <button type="button" className="ts-btn" disabled={ctx.readOnly} onClick={() => void x.sendForReview(review.videoId!)}>
             <Send size={14} /> Send for review (make it the client's version)
           </button>

@@ -71,7 +71,7 @@ const DeliverDialog = lazyScreen(() => import("./DeliverDialog"));
 const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
 const PhotoStudio = lazyScreen(() => import("./photo/PhotoStudio"));
 import type { PhotoPanel } from "./photo/types";
-import { clientHold } from "@shared/client-hold";
+import { clientHold, holdSubject } from "@shared/client-hold";
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -1294,7 +1294,7 @@ export default function Workspace({
     if (!batch) return;
     const hold = clientHold(config, index);
     if (hold) {
-      const ok = await askConfirm(`${hold === "approved" ? "The client approved the current picture of this post." : "The client's review link shows the current picture of this post."} Using this picture replaces what the client sees, and the client is asked to review the post again. The current picture stays under Versions.`, { ok: "Use it and send for review", danger: false, cancel: "Keep the client's" });
+      const ok = await askConfirm(`${holdSubject(hold, "picture")} of this post. Using this picture replaces what the client sees, and the client is asked to review the post again. The current picture stays under Versions.`, { ok: "Use it and send for review", danger: false, cancel: "Keep the client's" });
       if (!ok) return;
     }
     try {
@@ -2077,7 +2077,6 @@ export default function Workspace({
                 monthLanguage={config?.language}
                 wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
-                shared={!!config?.shareToken}
                 onRefresh={refresh}
                 outputThumb={outputThumb}
                 onStyles={assignStyles}

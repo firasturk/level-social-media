@@ -62,15 +62,20 @@ the same card into view and highlights it. A part that fails stays in the sessio
 stays open with what failed. Closing without saving keeps the parts on the card (*Unsaved edits
 kept: … · Open to finish · Discard*); only **Discard** drops them.
 
-## Client-approved and shared versions
+## Versions the client answered
 
-`shared/client-hold.ts` says when the client holds a post's current version: they **approved** it
-on the review link, or the month's **review link is out** (it shows the current picture). Then:
+`shared/client-hold.ts` says when the client holds a post's current version: they **answered** it
+on the review link, either **approved** it or **asked for a change**. A post the client has not
+answered yet is edited directly, even while the month's review link is out: the link shows the
+latest version at once. (Until 23 Oct 2026 the review link alone held every post of the month;
+`held: "shared"` is that older reason, never returned now, still read so a version held under it
+can be sent.) For a held post:
 
-- a picture save (`POST /picture/upload`) stores the picture and a take but leaves the post's
-  picture, the client's answer and the link untouched; it answers `held: "approved" | "shared"`
-  and the sentence *"The client approved the current version; your edit is saved as a new version.
-  Send it for review to replace it."* (or the review-link variant);
+- a picture save (`POST /picture/upload`) and the AI tools' *Use as the post's picture* store the
+  picture and a take but leave the post's picture, the client's answer and the link untouched;
+  they answer `held: "approved" | "changes"` and the sentence *"The client approved the current
+  version; your edit is saved as a new version. Send it for review to replace it."* (or *"The
+  client asked for a change on the current version; …"*);
 - words and layers wait as a draft; Save & return asks *Save and send for review* or *Keep as a
   draft*;
 - "Use this picture" / "Previous picture" ask first, then send the post for review;
@@ -79,8 +84,11 @@ on the review link, or the month's **review link is out** (it shows the current 
   Versions and in the month's earlier pictures, the client's earlier answer is cleared) and
   **Keep the client's**.
 
-Clips are out of this file's scope: the video editor's save, render and client-version rules are
-documented with the video editor.
+Clips follow the same rule (`answeredCurrent` in `shared/client-hold.ts`, version by version): a
+render on an answered post goes on the card but not on the link until *Send for review* (which now
+also clears the answer), and a post's first finished clip becomes the client's by itself only
+while the client has not answered the post. The video editor's other rules are documented with
+the video editor.
 
 Originals (product uploads, Drive photos) are never written by any of this.
 
@@ -206,6 +214,19 @@ Freepik rules say). Members see the list and *Admins only for now*; `GET /catalo
 call for a member (the availability shows as unknown), and for an admin reads the live
 `tools/list` of each provider, the Magnific option lists (kept an hour in
 `photo_tools_magnific_lists`) and the balances, kept an hour (`?refresh=1`).
+
+**Check again** (admins, on a job recorded as failed, `POST /jobs/:id/check`): the provider is
+asked for that job's status with its status tools only (`jobs_wait` / `show_generation_by_ids`,
+`creations_wait` / `creations_get`, all free reads the settler already makes on every poll; the
+tool that made the picture is never called, nothing is submitted again). Finished there: the
+picture is downloaded under the same key the settler uses, the job is done, and the run's own
+ledger row is closed with the credits the provider names (else the estimate), never a second
+figure if it already has one. Still running: said so, nothing changes. Failed there: kept failed
+with the provider's reason. A second press (or two at once) adds nothing. The settler itself no
+longer reads a one-second wait's "timeout" as a failed job, and finds a result link anywhere in the
+job's part of the answer (never the studio's own signed input link). The Video studio's Versions
+have the same **Check again** on a failed clip (`POST /api/studio/posts/video/check`,
+`server/video-recheck.ts`).
 
 How our options reach a tool is read from the live schema (`paramFor` in `server/photo-tools.ts`):
 a prompt goes under `prompt` / `text` / `description`, a frame under `aspect_ratio` / `aspectRatio`,

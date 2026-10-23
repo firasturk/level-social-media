@@ -162,7 +162,21 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
               <Orb size={14} /> {TOOL_PROVIDER_LABELS[job.provider]} is working on it… a few seconds to a minute.
             </p>
           )}
-          {job.status === "failed" && <p className="ts-hint warn">{job.error || "The tool failed."}</p>}
+          {job.status === "failed" && (
+            <>
+              <p className="ts-hint warn">{job.error || "The tool failed."}</p>
+              {t.admin && (
+                <>
+                  <div className="ps-row ps-wrap">
+                    <button type="button" className="ts-btn" disabled={t.checking === job.id} onClick={() => void t.checkAgain(job)} title="Ask the provider whether this run finished after all: a status read, free. Nothing is run again.">
+                      {t.checking === job.id ? <Orb size={14} /> : <RefreshCw size={14} />} Check again
+                    </button>
+                  </div>
+                  <p className="ts-hint">If {TOOL_PROVIDER_LABELS[job.provider]} charged for this run, it may have finished there. Check again asks it (free; nothing is run again) and collects the result if it is ready.</p>
+                </>
+              )}
+            </>
+          )}
           {job.status === "done" && job.output && (
             <>
               <p className="ts-hint">
