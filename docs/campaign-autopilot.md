@@ -58,6 +58,17 @@ one conditional update):
 6. `render`: the project rendered in the browser (the campaign page renders while it is open) and
    stored on the Reel's card as a new version.
 
+The assembled Reel (`assembleReel`) is an ordinary editor project: each shot a version of the
+Reel's post trimmed to its planned seconds (a generated clip from 0.2 s in, the client's clip from
+its middle, a shorter clip used whole), the joins asked for, the frame's output size, the look at
+80 %, the shot's words, the hook over the first shot, the call to action and the logo on the end
+card (the last shot), the music library track with the clips muted and, when its BPM is known,
+every cut moved to the nearest beat (the grid counted from the track's start), and an `edit`
+summary. A photo shot is a gap of its length until the render: `renderProjectToCard` with
+`stills` (from `stillShots`) draws each photo as a clip at the Reel's size in the browser
+(`stillToClip`, as "Combine into one video" does), stores it as a version of the post, puts it in
+the gap, saves the project and renders that revision.
+
 Existing media (a Drive clip or photo) is used as it is. A failed step keeps everything that
 succeeded and is retried alone, within its attempts. Completion means ready for review: nothing is
 approved for the client, shared or published by the autopilot.

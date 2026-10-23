@@ -23,7 +23,7 @@ import { saveBlob } from "@/lib/zip";
 import { Orb } from "@/components/Orb";
 import type { Approval } from "@shared/config";
 import { parseCube, serialiseCube, type CubeLut } from "@shared/cube-lut";
-import { cutTimes, DEFAULT_DUCKING, footageOnly, musicFileUrl, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { cutTimes, DEFAULT_DUCKING, footageOnly, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
 import { alignCutsToBeats, clickSelect, deleteClips, formatTimecode, moveClips, splitAt, stepFrames } from "@shared/video-timeline";
 import { planEdit, withEditPlan, type AutoRunOptions, type PlanSource } from "@shared/edit-plan";
 import { footageAnalysis, timelineGrid } from "../engine/analyse";
@@ -32,7 +32,8 @@ import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
 import { inFlight, listAudio, listVideos, sendVideoForReview, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
 import { createProject, failRender, getProject, listProjects, listRenders, reportRender, saveProject, startRender, uploadFootage, uploadRender, versionFileUrl, type EditorAccess, type RenderItem } from "../api";
-import { checkCapabilities, STUDIO_CODECS, TEST_CODECS, type Capabilities } from "../engine/capabilities";
+import { checkCapabilities, type Capabilities } from "../engine/capabilities";
+import { addVersions, footageVersions, loadMusic, loadVoices, musicFileOf, renderCodecs } from "../load-media";
 import { beatsOf, decodeAudio } from "../engine/audio";
 import { MediaStore, type Media } from "../engine/media";
 import { Player } from "../engine/preview";
@@ -118,15 +119,6 @@ const RATIOS: { id: FrameId; icon: ReactNode; title: string }[] = [
   { id: "1:1", icon: <Square size={13} />, title: "Square 1:1 · renders 1080×1080" },
   { id: "16:9", icon: <Monitor size={13} />, title: "Landscape 16:9 · renders 1920×1080" },
 ];
-
-/** The automated render check turns this on to render VP9 + Opus where Chromium has no H.264 (never offered in the UI; the server refuses such files). */
-const testCodecs = () => {
-  try {
-    return localStorage.getItem("lsm-video-test-codecs") === "vp9";
-  } catch {
-    return false;
-  }
-};
 
 const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; paid?: boolean }[] = [
   { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; running one is admins only)" },
@@ -242,16 +234,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       setVideos(list.videos);
       setAdmin(list.admin);
       setVideosLoaded(true);
-      if (caps?.canDecode) {
-        for (const v of list.videos.filter((v) => v.status === "done" && v.url)) {
-          if (mediaRef.current.get({ kind: "version", batch: post.batch, videoId: v.id })) continue;
-          try {
-            await addSource({ kind: "version", batch: post.batch, videoId: v.id }, { url: v.url!, label: versionLabel(v) });
-          } catch (e) {
-            console.warn("[video-studio]", (e as Error).message);
-          }
-        }
-      }
+      if (caps?.canDecode) await addVersions(addSource, post.batch, footageVersions(list.videos), { tag: "[video-studio]", skip: (s) => !!mediaRef.current.get(s) });
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -263,7 +246,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     const media = mediaRef.current;
     void (async () => {
       try {
-        const c = await checkCapabilities(undefined, testCodecs() ? TEST_CODECS : STUDIO_CODECS);
+        const c = await checkCapabilities(undefined, renderCodecs());
         if (!alive) return;
         setCaps(c);
         let doc: VideoProject | null = null;
@@ -278,7 +261,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           setVideos(list.videos);
           setAdmin(list.admin);
           setVideosLoaded(true);
-          vids = list.videos.filter((v) => v.status === "done" && v.url);
+          vids = footageVersions(list.videos);
           setAccess(projects.access);
           canWrite = projects.access.admin && projects.access.enabled;
           // The stage shows the version asked for, else the client's, else the newest finished clip; a post with no clip opens on Presets.
@@ -287,13 +270,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           if (!vids.length && !initialPanel) setPanel("presets");
           if (c.canDecode) {
             setLoading("Reading the footage…");
-            for (const v of vids) {
-              try {
-                await addSource({ kind: "version", batch: post.batch, videoId: v.id }, { url: v.url!, label: versionLabel(v) });
-              } catch (e) {
-                console.warn("[video-editor]", (e as Error).message);
-              }
-            }
+            await addVersions(addSource, post.batch, vids);
           }
           const latest = projects.projects[0];
           latestId = latest?.id ?? null;
@@ -318,41 +295,19 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           // The post's licensed tracks: the music a saved cut uses is read back from them, so a reopened project sounds as it did.
           const audio = await listAudio(post.batch, post.index).catch(() => null);
           if (audio && alive) setTracks(audio.tracks);
-          const keyed = doc.music?.source.kind === "audioKey" ? doc.music.source.key : null;
-          const track = keyed ? audio?.tracks.find((t) => t.id === keyed) : null;
-          if (track?.url && doc.music) {
-            setLoading("Reading the music…");
-            try {
-              const buffer = await decodeAudio(await (await fetch(track.url, { credentials: "same-origin" })).arrayBuffer());
-              if (buffer && alive) setMusicFile({ name: track.name, buffer, beats: doc.music.beats ?? [] });
-            } catch (e) {
-              console.warn("[video-editor] music", (e as Error).message);
-            }
-          }
           // A music library track (catalog or the client's own) is read back from the library's route.
-          const lib = doc.music?.source.kind === "catalog" || doc.music?.source.kind === "library" ? doc.music.source : null;
-          if (lib && doc.music) {
+          const musicAt = musicFileOf(doc.music, audio?.tracks);
+          if (musicAt && doc.music) {
             setLoading("Reading the music…");
             try {
-              const r = await fetch(musicFileUrl(lib.trackId), { credentials: "same-origin" });
-              const buffer = r.ok ? await decodeAudio(await r.arrayBuffer()) : null;
-              if (buffer && alive) setMusicFile({ name: lib.name, buffer, beats: doc.music.beats ?? [] });
+              const buffer = await loadMusic(musicAt);
+              if (buffer && alive) setMusicFile({ name: musicAt.name, buffer, beats: doc.music.beats ?? [] });
             } catch (e) {
               console.warn("[video-editor] music", (e as Error).message);
             }
           }
           // The voice-overs kept with the post, read back the same way.
-          const voiceMap = new Map<string, AudioBuffer>();
-          for (const v of doc.voices ?? []) {
-            const vt = v.source.kind === "audioKey" ? audio?.tracks.find((t) => t.id === (v.source as { key: string }).key) : null;
-            if (!vt?.url) continue;
-            try {
-              const buffer = await decodeAudio(await (await fetch(vt.url, { credentials: "same-origin" })).arrayBuffer());
-              if (buffer) voiceMap.set(v.id, buffer);
-            } catch (e) {
-              console.warn("[video-editor] voice-over", (e as Error).message);
-            }
-          }
+          const voiceMap = await loadVoices(doc.voices, audio?.tracks);
           if (alive && voiceMap.size) setVoiceBuffers(voiceMap);
         } else {
           doc = newProject("New cut");
@@ -908,7 +863,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     setExportResult(null);
     const abort = new AbortController();
     abortRef.current = abort;
-    const codecs = testCodecs() ? TEST_CODECS : STUDIO_CODECS;
+    const codecs = renderCodecs();
     if (!post || readOnly) {
       try {
         setRunning({ id: null, progress: 0 });
