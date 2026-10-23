@@ -168,11 +168,12 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
-  // Back from the Higgsfield or the Magnific sign-in (`?higgsfield=connected|error`, `?magnific=connected|error`): say so, open Connection, clean the address.
+  // Back from the Higgsfield, Magnific or Pinterest sign-in (`?higgsfield=connected|error`, `?magnific=…`, `?pinterest=…`): say so, open Connection, clean the address.
   useEffect(() => {
     const returns = [
       { param: "higgsfield", done: "Signed in to Higgsfield: videos can use the subscription credits. Check the billing choice under Connection → Higgsfield.", failed: "The Higgsfield sign-in did not finish" },
       { param: "magnific", done: "Signed in to Magnific: the MCP tools under Connection → Freepik run on that account.", failed: "The Magnific sign-in did not finish" },
+      { param: "pinterest", done: "Signed in with Pinterest: pin links in \"Edit like this video\" are read through Pinterest's API.", failed: "The Pinterest sign-in did not finish" },
     ];
     const back = returns.find((r) => urlParam(r.param, /^(connected|error)$/));
     if (!back) return;
@@ -180,6 +181,13 @@ export default function Workspace({
     const reason = urlParam("reason", /^[\s\S]{1,300}$/);
     if (outcome === "connected") toast.success(back.done);
     else toast.error(`${back.failed}: ${reason || "unknown reason"}`);
+    if (back.param === "pinterest") {
+      try {
+        localStorage.setItem("connection-tab", "pinterest");
+      } catch {
+        /* private mode */
+      }
+    }
     if (user.role === "admin") setConnection(true);
     try {
       const u = new URL(window.location.href);

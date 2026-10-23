@@ -60,6 +60,8 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
   const [matchColour, setMatchColour] = useState(stored?.matchColour ?? false);
   const [compare, setCompare] = useState(false);
   const [drive, setDrive] = useState<{ videos: DrivePhoto[]; error?: string } | null>(null);
+  /** Whether Pinterest's API is connected (Connection → Pinterest); null until known. */
+  const [pinterest, setPinterest] = useState<"connected" | "not_connected" | "expired" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const blobRef = useRef<string | null>(null);
   const client = ctx.looks.client;
@@ -71,6 +73,18 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
   useEffect(() => {
     if (!file && analysis?.source.copy) setFile({ url: referenceFileUrl(analysis.source.copy), source: analysis.source });
   }, [analysis, file]);
+  useEffect(() => {
+    if (from !== "pinterest" || pinterest) return;
+    let alive = true;
+    get<{ state: "connected" | "not_connected" | "expired" }>("/api/studio/pinterest/status")
+      .then((r) => {
+        if (alive) setPinterest(r.state);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [from, pinterest]);
   useEffect(() => {
     if (from !== "drive" || !client || drive) return;
     let alive = true;
@@ -209,7 +223,15 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
             </button>
           </div>
         )}
-        {from === "pinterest" && <p className="ts-hint">The studio asks Pinterest for the pin's video and keeps a copy for 7 days. Pinterest sometimes refuses; then save the video and use Upload, or pick it from the Drive.</p>}
+        {from === "pinterest" && (
+          <p className="ts-hint">
+            {pinterest === "connected"
+              ? "The studio asks Pinterest's API for the pin's video and keeps a copy for 7 days. The pin must be on one of the connected account's boards (save it there first)."
+              : "The studio asks Pinterest for the pin's video and keeps a copy for 7 days. Pinterest sometimes refuses; then save the video and use Upload, or pick it from the Drive."}
+            {pinterest === "not_connected" && <b> Connect Pinterest in Connection for reliable links.</b>}
+            {pinterest === "expired" && <b> The Pinterest connection has expired: renew it in Connection.</b>}
+          </p>
+        )}
         {from === "drive" &&
           (!client ? (
             <p className="ts-hint">Open a client's post to pick from its Drive.</p>

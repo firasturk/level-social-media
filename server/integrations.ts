@@ -26,13 +26,14 @@ import { all, first, now, run, uuid } from "./db";
 import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
 
-export type IntegrationProvider = "freepik" | "higgsfield" | "editor" | "audio";
-export const INTEGRATION_PROVIDERS: readonly IntegrationProvider[] = ["freepik", "higgsfield", "editor", "audio"] as const;
+export type IntegrationProvider = "freepik" | "higgsfield" | "editor" | "audio" | "pinterest";
+export const INTEGRATION_PROVIDERS = ["freepik", "higgsfield", "editor", "audio", "pinterest"] as const satisfies readonly IntegrationProvider[];
 export const PROVIDER_LABELS: Record<IntegrationProvider, string> = {
   freepik: "Freepik",
   higgsfield: "Higgsfield",
   editor: "Video editor",
   audio: "Video audio",
+  pinterest: "Pinterest",
 };
 /** What each switch governs, for the admin panel. */
 export const PROVIDER_SCOPE: Record<IntegrationProvider, string> = {
@@ -40,6 +41,7 @@ export const PROVIDER_SCOPE: Record<IntegrationProvider, string> = {
   higgsfield: "Videos made from a post's picture (not the picture engine, which keeps its own settings).",
   editor: "The video editor: saving a project and storing an export as a version of the post. Rendering happens in the browser; nothing is sent to a provider or charged. Off, saves and exports are refused; opening the editor to look stays open.",
   audio: "Tracks uploaded for a post's videos and each version's audio choice (no provider is paid: generated music is not connected yet).",
+  pinterest: "Pinterest's official API (Connection → Pinterest): reading a pin's video for the editor's \"Edit like this video\". Nothing is paid. Off, pin links are refused; Drive and Upload stay open.",
 };
 
 export type IntegrationOpStatus = "proposed" | "confirmed" | "running" | "done" | "failed" | "refused";
@@ -364,6 +366,7 @@ export const ESTIMATE_KINDS: Record<IntegrationProvider, { kind: string; label: 
   higgsfield: [{ kind: "video", label: "One video clip" }],
   editor: [],
   audio: [],
+  pinterest: [],
 };
 
 export async function providerStates(env: Env): Promise<ProviderState[]> {
@@ -390,7 +393,7 @@ integrationAdminRoutes.get("/", async (c) => {
 });
 
 integrationAdminRoutes.post("/switch", async (c) => {
-  const parsed = z.object({ provider: z.enum(["freepik", "higgsfield", "editor", "audio"]), enabled: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
+  const parsed = z.object({ provider: z.enum(INTEGRATION_PROVIDERS), enabled: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Say which integration and whether it is on.");
   const { provider, enabled } = parsed.data;
   await setIntegrationSwitch(c.env, provider, enabled);
@@ -399,7 +402,7 @@ integrationAdminRoutes.post("/switch", async (c) => {
 });
 
 integrationAdminRoutes.post("/estimate", async (c) => {
-  const parsed = z.object({ provider: z.enum(["freepik", "higgsfield", "editor", "audio"]), kind: z.string().min(1).max(40), usd: z.number().min(0).max(10000).nullable() }).safeParse(await c.req.json().catch(() => ({})));
+  const parsed = z.object({ provider: z.enum(INTEGRATION_PROVIDERS), kind: z.string().min(1).max(40), usd: z.number().min(0).max(10000).nullable() }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Give the integration, the kind of operation and its cost in dollars (or null to clear it).");
   const { provider, kind, usd } = parsed.data;
   if (!ESTIMATE_KINDS[provider].some((k) => k.kind === kind)) throw new StudioError(`${PROVIDER_LABELS[provider]} has no "${kind}" estimate to set.`);

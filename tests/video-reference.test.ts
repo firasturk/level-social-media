@@ -181,7 +181,8 @@ describe("the routes", () => {
     mockFetch(() => new Response("Forbidden", { status: 403 }));
     const r = await post(ADMIN, env, { from: "pinterest", url: PIN });
     expect(r.status).toBe(502);
-    expect(((await r.json()) as { error: string }).error).toBe(BLOCKED_MESSAGE);
+    // Pinterest is not connected here: the old page reading ran, and the hint to connect it follows.
+    expect(((await r.json()) as { error: string }).error).toBe(`${BLOCKED_MESSAGE} Connect Pinterest in Connection for reliable links.`);
     expect(env.BUCKET.objects.size).toBe(0);
   });
 

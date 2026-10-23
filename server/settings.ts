@@ -215,3 +215,7 @@ export const HIGGSFIELD_MCP_PENDING_SETTING = "higgsfield_mcp_pending";
 export const HIGGSFIELD_MCP_MODELS_SETTING = "higgsfield_mcp_models";
 /** Which Higgsfield account pays for videos: "credits" (the subscription, through the MCP sign-in) or "cloud" (the Cloud API key). */
 export const HIGGSFIELD_BILLING_SETTING = "higgsfield_billing";
+/** Pinterest API v5 (server/pinterest.ts): the access token, and the app id, app secret and refresh token that renew it, as JSON. */
+export const PINTEREST_SETTING = "pinterest_connection";
+/** Pinterest sign-in in progress (state, who started it, the redirect), short-lived. */
+export const PINTEREST_PENDING_SETTING = "pinterest_pending";

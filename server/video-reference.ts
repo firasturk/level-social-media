@@ -11,12 +11,15 @@
  *   GET  /:id        the stored copy, with Range (any signed-in user who may see the month);
  *                    410 once it has expired (it is then deleted)
  *
- * A Pinterest pin: its id is read from the link (a pin.it short link is followed), the pin's
- * description is read from Pinterest's pin endpoint and, failing that, the pin page; the video
- * rendition is an MP4 on Pinterest's video host (v1.pinimg.com and its siblings), 720p preferred.
- * Only that host is fetched for the bytes, only an MP4 (its `ftyp` box checked), 60 MB at most.
- * When Pinterest refuses (it often answers servers with 403), the error says so plainly and names
- * the alternatives: save the video and use Upload, or pick it from the client's Drive.
+ * A Pinterest pin, when Pinterest is connected (Connection → Pinterest, server/pinterest.ts): its
+ * id is read from the link (a pin.it short link's redirect is read from pin.it), the pin is asked
+ * from Pinterest's official API (GET /v5/pins/{id}) and its first video taken from `media` (a
+ * video pin's `video_url`, or the first video item of a multi-item pin). Not connected, the old
+ * path is kept as a fallback: Pinterest's pin endpoint and, failing that, the pin page, read for
+ * MP4 renditions, with a hint to connect Pinterest. Either way the bytes come from Pinterest's
+ * video host only (v1.pinimg.com and its siblings, https), only an MP4 (its `ftyp` box checked),
+ * 60 MB at most. A refusal says plainly what happened: pin not found or private, a picture pin,
+ * a video Pinterest withheld, or Pinterest refusing the server, and names the alternatives.
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -25,6 +28,7 @@ import { StudioError, errorMessage } from "./errors";
 import { now, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
+import { NOT_CONNECTED_HINT, pinIdOfLink, pinterestConnected, pinVideoViaApi } from "./pinterest";
 import { driveFileCopy, driveFileInfo, isClientDriveFile } from "./drive";
 import { serveObject } from "./range";
 import type { User } from "@shared/types";
@@ -169,6 +173,41 @@ export async function fetchPinterestVideo(link: string, f: typeof fetch = fetch)
   throw new StudioError(`The pin's video could not be used: ${reasons[0] ?? "no rendition answered"}. Save it and use Upload instead.`, 502);
 }
 
+/** The bytes of a pin's video link, from Pinterest's video host only. */
+async function downloadPinVideo(u: string, f: typeof fetch): Promise<ArrayBuffer> {
+  if (!isPinVideoUrl(u)) throw new StudioError("Pinterest gave a video link outside its video host (an MP4 on v1.pinimg.com was expected), so it was not fetched. Save the video and use Upload instead.", 502);
+  let r: Response;
+  try {
+    r = await f(u, { headers: { "User-Agent": UA, Accept: "video/mp4,*/*;q=0.5" }, redirect: "error", signal: AbortSignal.timeout(45_000) });
+  } catch (e) {
+    throw new StudioError(`The pin's video could not be downloaded: ${errorMessage(e)}. Save it and use Upload instead.`, 502);
+  }
+  const got = await readVideoBody(r);
+  if (typeof got === "string") throw new StudioError(`The pin's video could not be used: ${got}. Save it and use Upload instead.`, 502);
+  return got;
+}
+
+/** A pin's video through Pinterest's official API (Connection → Pinterest): the pin's id, its first video's link, the bytes. */
+export async function fetchPinterestVideoViaApi(env: Env, link: string, f: typeof fetch = fetch): Promise<{ pinId: string; videoUrl: string; bytes: ArrayBuffer }> {
+  const pinId = await pinIdOfLink(link, f);
+  const videoUrl = await pinVideoViaApi(env, pinId, f);
+  return { pinId, videoUrl, bytes: await downloadPinVideo(videoUrl, f) };
+}
+
+/**
+ * A pin's video: through the API when Pinterest is connected, else the old page reading, whose
+ * refusals carry the hint to connect Pinterest.
+ */
+export async function pinterestVideo(env: Env, link: string, f: typeof fetch = fetch): Promise<{ pinId: string; videoUrl: string; bytes: ArrayBuffer; via: "api" | "page" }> {
+  if (await pinterestConnected(env)) return { ...(await fetchPinterestVideoViaApi(env, link, f)), via: "api" };
+  try {
+    return { ...(await fetchPinterestVideo(link, f)), via: "page" };
+  } catch (e) {
+    if (e instanceof StudioError && e.status >= 500) throw new StudioError(`${e.message} ${NOT_CONNECTED_HINT}`, e.status, e.fatal, { ...(e.data ?? {}), pinterest: "not_connected" });
+    throw e;
+  }
+}
+
 /** Deletes expired copies (a few per call: R2 has no per-object expiry without a bucket rule). */
 export async function sweepReferences(bucket: R2Bucket, t = now()): Promise<number> {
   const list = await bucket.list({ prefix: REFERENCE_PREFIX, limit: 100, include: ["customMetadata"] } as R2ListOptions);
@@ -194,11 +233,12 @@ referenceRoutes.post("/", async (c) => {
   let sourceId: string;
   let note: string;
   if (d.from === "pinterest") {
-    const v = await fetchPinterestVideo(d.url);
+    await assertIntegrationEnabled(c.env, "pinterest");
+    const v = await pinterestVideo(c.env, d.url);
     bytes = v.bytes;
     name = `Pinterest pin ${v.pinId}`;
     sourceId = v.pinId;
-    note = `Pinterest pin ${v.pinId}: its video copied for analysis (kept 7 days, never rendered into a post)`;
+    note = `Pinterest pin ${v.pinId}${v.via === "api" ? " (through the Pinterest API)" : " (read from the pin page)"}: its video copied for analysis (kept 7 days, never rendered into a post)`;
   } else {
     if (!(await isClientDriveFile(c.env, d.client, d.fileId))) throw new StudioError("That file is not in the client's Drive folders.", 404);
     const info = await driveFileInfo(c.env, d.fileId);

@@ -16,6 +16,7 @@ import MetaConnection, { useMetaStatus } from "./MetaConnection";
 import NotifyConnection, { useNotifyStatus } from "./Notify";
 import FreepikTab, { useFreepikStatus } from "./FreepikConnection";
 import HiggsfieldSignIn, { useHiggsfieldMcpStatus } from "./HiggsfieldSignIn";
+import PinterestConnection, { usePinterestStatus } from "./PinterestConnection";
 
 export interface EngineInfo {
   model: string;
@@ -53,6 +54,7 @@ export default function ConnectionDialog({
   const [notifyStatus, refreshNotify] = useNotifyStatus(open);
   const [freepik, refreshFreepik] = useFreepikStatus(open);
   const [higgsfieldMcp, refreshHiggsfieldMcp] = useHiggsfieldMcpStatus(open);
+  const [pinterest, refreshPinterest] = usePinterestStatus(open);
 
   async function saveVertex() {
     setSavingVertex(true);
@@ -89,12 +91,12 @@ export default function ConnectionDialog({
     }
   }
   const [falKey, setFalKey] = useState("");
-  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "freepik" | "meta" | "notify";
+  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "freepik" | "meta" | "pinterest" | "notify";
   // Opens on the tab last used in this browser, else on the vendor of the current image model.
   const [vendor, setVendorState] = useState<Vendor>(() => {
     try {
       const saved = localStorage.getItem("connection-tab") as Vendor | null;
-      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "freepik", "meta", "notify"].includes(saved))
+      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "freepik", "meta", "pinterest", "notify"].includes(saved))
         return saved;
     } catch {
       /* private mode */
@@ -290,6 +292,7 @@ export default function ConnectionDialog({
               ["fal", "fal.ai", engine.fal !== "none"],
               ["freepik", "Freepik", !!freepik?.connected],
               ["meta", "Instagram", !!meta?.connected],
+              ["pinterest", "Pinterest", pinterest?.state === "connected"],
               ["notify", "Notifications", !!notifyStatus?.connected],
             ] as const
           ).map(([k, label, on]) => (
@@ -653,6 +656,7 @@ export default function ConnectionDialog({
           </>
         )}
         {vendor === "meta" && <MetaConnection status={meta} onChanged={refreshMeta} />}
+        {vendor === "pinterest" && <PinterestConnection status={pinterest} onChanged={refreshPinterest} />}
         {vendor === "notify" && <NotifyConnection status={notifyStatus} onChanged={refreshNotify} />}
         <details className="prompt-details">
           <summary>Advanced: default model slug</summary>
