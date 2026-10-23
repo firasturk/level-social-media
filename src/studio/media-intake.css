@@ -690,3 +690,8 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* On the preview the fixed strip at the top would cover the bar: it sticks below the strip. */
+.studio:has(.preview-strip) .studio-select-bar {
+  top: 44px;
+}

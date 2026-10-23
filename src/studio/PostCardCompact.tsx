@@ -3,6 +3,7 @@
  * day, a short title and a clear status, one Edit action and a quiet menu for the rest. Every
  * field and tool lives in the editor's four groups; nothing was taken away, only folded.
  */
+import { isMediaPost } from "@shared/posts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Aperture, Check, Clapperboard, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
@@ -115,7 +116,8 @@ export default function PostCardCompact({
             </button>
           )}
           <span className="post-num">{String(post.index).padStart(2, "0")}</span>
-          <span className="post-type-pill">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>
+          {/* A picture or clip brought in as it is has no post type of its own: no type tag on it. */}
+          {!isMediaPost(post) && <span className="post-type-pill">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>}
           {post.group && (
             <span className={`post-group ${post.group.kind}`}>
               {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}

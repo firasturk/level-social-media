@@ -12,6 +12,8 @@ import { resizedPicture, thumbWidth } from "./thumbs";
 import { recordClientAnswer } from "./notify";
 import { serveObject } from "./range";
 import { parseSettings, posterKeyOf, versionNumbers, type VideoRow } from "./video";
+import { isClientDriveFile, photoBytes } from "./drive";
+import type { TextDesign } from "@shared/layers";
 import { effectiveApproval, type Config, type ReviewAnswer, type ReviewVersion } from "@shared/config";
 
 /** "22 Oct", for the version labels the reviewer sees. */
@@ -44,13 +46,14 @@ interface SharedBatch {
   config: string;
   client: string | null;
   month: string | null;
+  owner: string;
 }
 
 async function sharedBatch(env: Env, token: string | undefined): Promise<{ b: SharedBatch; config: Config }> {
   if (!token || !/^[0-9a-f]{32}$/.test(token)) throw new StudioError("This link is not valid.", 404);
   const b = await first<SharedBatch>(
     env.DB,
-    "SELECT id, config, client, month FROM batches WHERE config LIKE ? AND deleted IS NULL LIMIT 1",
+    "SELECT id, owner, config, client, month FROM batches WHERE config LIKE ? AND deleted IS NULL LIMIT 1",
     `%"shareToken":"${token}"%`,
   );
   if (!b) throw new StudioError("This link is not valid any more.", 404);
@@ -136,6 +139,8 @@ shareRoutes.get("/:token", async (c) => {
       ov: p.ov
         ? {
             ...p.ov,
+            // Image layers (stock icons, backgrounds, uploaded graphics, product and place photos) through this link too.
+            design: p.ov.design ? shareDesign(p.ov.design, token, p.index) : p.ov.design,
             photo: p.ov.photo && p.occasion ? `/api/share/${c.req.param("token")}/occasion/${encodeURIComponent(p.occasion)}` : undefined,
             // The product's outline (typography behind the product) through this link too.
             typo: p.ov.typo
@@ -198,6 +203,100 @@ function imageResponse(obj: R2ObjectBody): Response {
     },
   });
 }
+
+/**
+ * A post's design with every image layer that points at a studio address (which needs a sign-in)
+ * pointed at this link instead: `/api/share/<token>/layer/<post>/<layer id>`.
+ */
+export function shareDesign(design: TextDesign, token: string, index: number): TextDesign {
+  return {
+    ...design,
+    layers: (design.layers ?? []).map((l) => (l.type === "image" && typeof l.src === "string" && l.src.startsWith("/api/studio/") ? { ...l, src: `/api/share/${token}/layer/${index}/${encodeURIComponent(l.id)}` } : l)),
+  };
+}
+
+const STOCK_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox";
+
+/**
+ * Where the bytes of an image layer's studio address are, for this month only: a stock asset, a
+ * graphic uploaded to this month, a product photo or picture of this month, a place photo of this
+ * client, or a photo in this client's Drive. Anything else is refused.
+ */
+export async function layerFile(env: Env, b: { id: string; owner: string; client: string | null }, src: string): Promise<{ key: string; type?: string } | { bytes: ArrayBuffer | Uint8Array; type: string } | null> {
+  let url: URL;
+  try {
+    url = new URL(src, "https://studio.local");
+  } catch {
+    return null;
+  }
+  const path = url.pathname;
+  const q = url.searchParams;
+  let m = /^\/api\/studio\/freepik\/assets\/([^/]+)\/file$/.exec(path);
+  if (m) {
+    const a = await first<{ provider_id: string; file_key: string | null; layer_key: string | null; layer_mime: string | null; mime: string | null }>(env.DB, "SELECT provider_id, file_key, layer_key, layer_mime, mime FROM assets WHERE id = ?", decodeURIComponent(m[1]));
+    if (!a) return null;
+    if (q.get("layer") && a.layer_key) return { key: a.layer_key, type: a.layer_mime ?? undefined };
+    if (q.get("preview")) return { key: `assets/${a.provider_id}.preview` };
+    return a.file_key ? { key: a.file_key, type: a.mime ?? undefined } : null;
+  }
+  if (path === "/api/studio/posts/graphic") {
+    const id = q.get("id") ?? "";
+    if (q.get("batch") !== b.id || !/^[0-9a-f-]{8,40}$/i.test(id)) return null;
+    return { key: `${b.owner}/${b.id}/graphics/${id}` };
+  }
+  if (path === "/api/studio/file") {
+    if (q.get("batch") !== b.id) return null;
+    const id = q.get("id") ?? "";
+    const kind = q.get("kind") ?? "result";
+    if (kind === "original" || kind === "reference") {
+      const row = await first<{ key: string; reference_key: string | null }>(env.DB, "SELECT key, reference_key FROM sources WHERE id = ? AND batch = ?", id, b.id);
+      const key = kind === "reference" ? (row?.reference_key ?? row?.key) : row?.key;
+      return key ? { key } : null;
+    }
+    const row = await first<{ output: string | null }>(env.DB, "SELECT output FROM tasks WHERE id = ? AND batch = ?", id, b.id);
+    return row?.output ? { key: row.output } : null;
+  }
+  m = /^\/api\/studio\/clients\/([^/]+)\/places\/([^/]+)\/file$/.exec(path);
+  if (m) {
+    if (!b.client || decodeURIComponent(m[1]) !== b.client) return null;
+    const row = await first<{ key: string }>(env.DB, "SELECT key FROM brand_assets WHERE id = ? AND client = ? AND kind = 'place'", decodeURIComponent(m[2]), b.client);
+    return row ? { key: row.key } : null;
+  }
+  m = /^\/api\/studio\/drive\/photo\/([^/]+)$/.exec(path);
+  if (m) {
+    const id = decodeURIComponent(m[1]);
+    if (!b.client || !(await isClientDriveFile(env, b.client, id))) return null;
+    const size = Math.min(2400, Math.max(160, Number(q.get("size") ?? 1600) || 1600));
+    const img = await photoBytes(env, id, size);
+    return { bytes: img.bytes, type: img.mime };
+  }
+  return null;
+}
+
+/** An image layer of a post's design for the client's page (the layer must be on that post). */
+shareRoutes.get("/:token/layer/:index/:layerId", async (c) => {
+  const { b, config } = await sharedBatch(c.env, c.req.param("token"));
+  const index = Number(c.req.param("index")) || 0;
+  const post = (config.plan ?? []).find((p) => p.index === index);
+  const layer = post?.ov?.design?.layers?.find((l) => l.id === c.req.param("layerId") && l.type === "image");
+  if (!layer || layer.type !== "image") throw new StudioError("Layer not found.", 404);
+  const file = await layerFile(c.env, b, layer.src);
+  if (!file) throw new StudioError("Layer not found.", 404);
+  let body: BodyInit;
+  let type: string;
+  if ("key" in file) {
+    const obj = await c.env.BUCKET.get(file.key);
+    if (!obj) throw new StudioError("Layer not found.", 404);
+    body = await obj.arrayBuffer();
+    type = obj.httpMetadata?.contentType || file.type || "application/octet-stream";
+  } else {
+    body = file.bytes;
+    type = file.type;
+  }
+  const headers: Record<string, string> = { "Content-Type": type, "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" };
+  if (/svg/i.test(type)) headers["Content-Security-Policy"] = STOCK_CSP;
+  return new Response(body, { headers });
+});
 
 /**
  * A post's picture for the client's page. With `w` it is a smaller JPEG made once and kept; the
