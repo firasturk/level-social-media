@@ -165,6 +165,29 @@ describe("the export", () => {
     const slice = await app(MEMBER).request(`/api/studio/posts/video/file?batch=b1&id=${videoId}`, { headers: { Range: "bytes=0-3" } }, env);
     expect(slice.status).toBe(206);
     expect(new Uint8Array(await slice.arrayBuffer())).toEqual(new Uint8Array(sampleBytes().slice(0, 4)));
+    // No preview rendition came with this export: cards play the full file.
+    expect((d.video as { preview: string | null }).preview).toBeNull();
+  });
+
+  it("keeps the preview rendition the browser made at export time, for cards and galleries", async () => {
+    const env = await seed();
+    const id = ((await json(await create(ADMIN, env))).project as { id: string }).id;
+    const form = new FormData();
+    form.set("batch", "b1");
+    form.set("post", "1");
+    form.set("projectId", id);
+    form.set("note", "Export 2");
+    form.set("file", new File([sampleBytes()], "export.mp4", { type: "video/mp4" }));
+    form.set("preview", new File([sampleBytes()], "preview.mp4", { type: "video/mp4" }));
+    form.set("still", new File([new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 1, 2])], "still.jpg", { type: "image/jpeg" }));
+    const r = await app(ADMIN).request("/api/studio/posts/video/editor/render", { method: "POST", body: form }, env);
+    expect(r.status).toBe(200);
+    const video = (await json(r)).video as { id: string; preview: string | null };
+    expect(video.preview).toBe(`/api/studio/posts/video/preview?batch=b1&id=${video.id}`);
+    const settings = JSON.parse((await env.DB.prepare("SELECT settings FROM videos WHERE id = ?").bind(video.id).first<{ settings: string }>())!.settings) as { previewKey: string; stillKey: string };
+    expect(settings.previewKey).toMatch(new RegExp(`${video.id}\\.preview\\.mp4$`));
+    expect(settings.stillKey).toMatch(new RegExp(`${video.id}\\.still\\.jpg$`));
+    expect((await app(MEMBER).request(video.preview!, { headers: { Range: "bytes=0-3" } }, env)).status).toBe(206);
   });
 
   it("refuses a file that is not an H.264 MP4 and marks the ledger row failed", async () => {

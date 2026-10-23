@@ -13,6 +13,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { del, get, post, postForm } from "@/api";
 
 interface AdminUser {
@@ -222,10 +223,7 @@ export default function AdminView({ me }: { me: string }) {
         </div>
         <div className="hero-admin">
           {hero ? (
-            <video key={hero} className="hero-preview" autoPlay muted loop playsInline>
-              <source src={`/api/studio/hero?f=webm&v=${hero}`} type="video/webm" />
-              <source src={`/api/studio/hero?v=${hero}`} type="video/mp4" />
-            </video>
+            <AutoplayVideo key={hero} className="hero-preview" src={`/api/studio/hero?v=${hero}`} fallbackSrc={`/api/studio/hero?f=webm&v=${hero}`} decorative label="Studio hero video" />
           ) : (
             <p className="quality-note">
               No video yet. Upload a short looping MP4 or WebM (under 40 MB) to show it under the

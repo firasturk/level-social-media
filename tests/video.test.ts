@@ -441,3 +441,87 @@ describe("the client's link", () => {
     expect(answers[1].version?.id).toBe(id);
   });
 });
+
+describe("the lightweight preview rendition", () => {
+  // A JPEG's first bytes are all the server checks; the preview is a real H.264 mp4 (the fixture stands in for it).
+  const STILL = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1]);
+  const withRendition = async (a: App, env: FakeEnv, r: { preview?: ArrayBuffer | Uint8Array; still?: ArrayBuffer | Uint8Array }) => {
+    const form = new FormData();
+    form.set("batch", "b1");
+    form.set("index", "1");
+    form.set("note", "with a preview");
+    form.set("file", new File([sampleBytes()], "sample-1s.mp4", { type: "video/mp4" }));
+    if (r.preview) form.set("preview", new File([r.preview], "preview.mp4", { type: "video/mp4" }));
+    if (r.still) form.set("still", new File([r.still], "still.jpg", { type: "image/jpeg" }));
+    return a.request("/api/studio/posts/video/upload", { method: "POST", body: form }, env);
+  };
+
+  it("keeps the browser's preview and still next to an upload, serves the preview with Range, and the still as the poster", async () => {
+    const env = await seed();
+    const a = await app();
+    const r = await withRendition(a, env, { preview: sampleBytes(), still: STILL });
+    expect(r.status).toBe(200);
+    const { video } = (await r.json()) as { video: { id: string; url: string; preview: string | null; poster: string } };
+    expect(video.preview).toBe(`/api/studio/posts/video/preview?batch=b1&id=${video.id}`);
+    expect(video.url).toBe(`/api/studio/posts/video/file?batch=b1&id=${video.id}`);
+    const keys = [...env.BUCKET.objects.keys()];
+    expect(keys.filter((k) => k.endsWith(`${video.id}.preview.mp4`))).toHaveLength(1);
+    expect(keys.filter((k) => k.endsWith(`${video.id}.still.jpg`))).toHaveLength(1);
+    // The preview: Range and HEAD like the full file, the same access.
+    const part = await a.request(video.preview!, { headers: { Range: "bytes=0-9" } }, env);
+    expect(part.status).toBe(206);
+    expect(part.headers.get("content-type")).toBe("video/mp4");
+    expect(part.headers.get("cache-control")).toMatch(/^private/);
+    expect((await a.request(video.preview!, { method: "HEAD" }, env)).status).toBe(200);
+    // The poster is the clip's own still now, not the post's picture.
+    const poster = await a.request(video.poster, {}, env);
+    expect(poster.status).toBe(200);
+    expect(poster.headers.get("content-type")).toBe("image/jpeg");
+    expect(new Uint8Array(await poster.arrayBuffer())).toEqual(STILL);
+    // The client's link shows the same still under its player.
+    const shared = (await (await a.request(`/api/share/${TOKEN}?rid=rid-nada-01`, {}, env)).json()) as { posts: { video: { poster: string } | null }[] };
+    const sharedPoster = await a.request(shared.posts[0].video!.poster, {}, env);
+    expect(sharedPoster.headers.get("content-type")).toBe("image/jpeg");
+  });
+
+  it("leaves out a rendition that is not one (the clip is still stored and plays in full), and has no preview without one", async () => {
+    const env = await seed();
+    const a = await app();
+    const r = await withRendition(a, env, { preview: new Uint8Array(64), still: new Uint8Array([1, 2, 3, 4]) });
+    expect(r.status).toBe(200);
+    const { video } = (await r.json()) as { video: { id: string; preview: string | null; poster: string } };
+    expect(video.preview).toBeNull();
+    expect([...env.BUCKET.objects.keys()].some((k) => k.includes(".preview.") || k.includes(".still."))).toBe(false);
+    expect((await a.request(`/api/studio/posts/video/preview?batch=b1&id=${video.id}`, {}, env)).status).toBe(404);
+    // The poster stays the post's picture.
+    expect((await a.request(video.poster, {}, env)).headers.get("content-type")).toBe("image/png");
+  });
+
+  it("keeps a rendition made later for a finished clip (admins only), calling no provider", async () => {
+    const env = await seed();
+    const a = await app();
+    const { video } = (await (await upload(a, env)).json()) as { video: { id: string; preview: string | null } };
+    expect(video.preview).toBeNull();
+    const attach = (who: App, id: string, parts: { preview?: ArrayBuffer | Uint8Array; still?: ArrayBuffer | Uint8Array }) => {
+      const form = new FormData();
+      form.set("batch", "b1");
+      form.set("id", id);
+      if (parts.preview) form.set("preview", new File([parts.preview], "preview.mp4", { type: "video/mp4" }));
+      if (parts.still) form.set("still", new File([parts.still], "still.jpg", { type: "image/jpeg" }));
+      return who.request("/api/studio/posts/video/preview", { method: "POST", body: form }, env);
+    };
+    expect((await attach(await app("member"), video.id, { preview: sampleBytes() })).status).toBe(403);
+    expect((await attach(a, "nope", { preview: sampleBytes() })).status).toBe(404);
+    expect((await attach(a, video.id, { still: new Uint8Array([1, 2, 3]) })).status).toBe(400);
+    const ok = await attach(a, video.id, { preview: sampleBytes(), still: STILL });
+    expect(ok.status).toBe(200);
+    const after = ((await ok.json()) as { video: { id: string; preview: string | null } }).video;
+    expect(after.preview).toBe(`/api/studio/posts/video/preview?batch=b1&id=${video.id}`);
+    expect(((await list(a, env)).videos[0] as unknown as { preview: string | null }).preview).toBe(after.preview);
+    // A clip still being made has nothing to preview.
+    await env.DB.prepare("INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, created, updated, provider, source, for_client) VALUES ('v-q', 'b1', 1, 't1', 'u1', 'm', '', 'queued', 1, 1, 'higgsfield', 'picture', 0)").run();
+    expect((await attach(a, "v-q", { preview: sampleBytes() })).status).toBe(409);
+    // Nothing reached the network: no provider, no generation.
+    expect((globalThis.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
+  });
+});

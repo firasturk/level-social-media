@@ -1,11 +1,12 @@
 /**
- * The video versions of a post in the editor's Versions group: each clip with its engine, length
- * and state, the one the client reviews marked, and "Select for client review" on the others. The
+ * The video versions of a post in the editor's Versions group: each clip (a small muted preview
+ * that plays by itself while on screen) with its engine, length and state, the one the client reviews marked, and "Select for client review" on the others. The
  * picture is a version too: with no clip selected, it is what the client sees.
  */
 import { useEffect, useState } from "react";
 import { Check, Clapperboard, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { toast } from "sonner";
 import { videoModel } from "@shared/video-models";
 import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, listVideos, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
@@ -65,7 +66,13 @@ export default function VideoVersions({ batchId, index, onOpenVideo, onEditVideo
         </li>
         {videos.map((v) => (
           <li key={v.id} className={`${v.status === "done" ? "made" : v.status} ${v.forClient ? "current" : ""}`}>
-            {v.poster ? <img src={v.poster} alt="" loading="lazy" /> : <span className="take-blank" aria-hidden />}
+            {v.status === "done" && v.url ? (
+              <AutoplayVideo className="apv-mini take-clip" src={v.preview ?? v.url} fallbackSrc={v.preview ? v.url : null} poster={v.poster} mode="preview" bare label={versionLabel(v)} />
+            ) : v.poster ? (
+              <img src={v.poster} alt="" loading="lazy" />
+            ) : (
+              <span className="take-blank" aria-hidden />
+            )}
             <span className="take-text">
               <b>
                 {versionLabel(v)}

@@ -25,6 +25,8 @@ export interface VideoItem {
   requestId: string | null;
   url: string | null;
   poster: string | null;
+  /** The lightweight preview rendition (small, short, muted) for cards and galleries; null or absent: play `url`. */
+  preview?: string | null;
   /** "Video 2": the clip's number among the post's clips, oldest first. */
   version: number;
   warnings: string[];

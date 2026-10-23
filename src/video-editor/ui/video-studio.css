@@ -150,6 +150,27 @@
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
   object-fit: contain;
 }
+/* The shared player on the stage keeps the clip's own size, within the stage (container units). */
+.vs-frame {
+  container-type: size;
+}
+.vs-frame > .apv {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  flex: none;
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+}
+.vs-frame > .apv > video {
+  width: auto;
+  height: auto;
+  max-width: 100cqw;
+  max-height: calc(100cqh - 36px);
+  border-radius: 10px;
+  box-shadow: none;
+}
 .vs-frame figcaption {
   font-size: 11px;
   font-weight: 600;
@@ -330,22 +351,21 @@
   color: rgba(255, 255, 255, 0.6);
   font-size: 12px;
 }
-.vs-preset-play {
+/* The whole reference opens the detail; the preview's own pause and sound buttons sit above it. */
+.vs-preset-open {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  pointer-events: none;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
-.vs-preset:hover .vs-preset-play {
-  opacity: 0;
+.vs-preset-open.still {
+  position: static;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .vs-preset-tag {
   position: absolute;
@@ -854,6 +874,12 @@
 }
 .vs-list li.failed {
   opacity: 0.75;
+}
+.vs-list .vs-clip.apv {
+  width: 56px;
+  height: 70px;
+  border-radius: 8px;
+  grid-row: span 2;
 }
 .vs-list img,
 .vs-blank {

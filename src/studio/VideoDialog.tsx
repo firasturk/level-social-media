@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Clapperboard, Coins, Download, Lightbulb, RefreshCw, TriangleAlert, Users } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ApiError, post } from "@/api";
@@ -391,7 +392,7 @@ export default function VideoDialog({
         <div className="overlay-editor-body">
           <div className="video-stage">
             {latest?.status === "done" && latest.url ? (
-              <video key={latest.id} src={latest.url} controls playsInline preload="metadata" poster={latest.poster ?? src} />
+              <AutoplayVideo key={latest.id} src={latest.url} poster={latest.poster ?? src} mode="player" active={open} label={versionLabel(latest)} />
             ) : (
               <img src={latest?.poster && latest.status !== "done" ? latest.poster : src} alt="" />
             )}

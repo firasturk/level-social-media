@@ -58,10 +58,13 @@ The rail marks the paid tools with a small lock for members.
 The stage shows Higgsfield's presets page inside the studio: the category list on the left
 (**Popular, Paid Ads, Motion Design, Marketing, Production, Faceless, Effects, Genjutsu,
 Recipes**, as Firas saw them minus UGC: see the table below), a search box, and the cards. Each card carries the provider's own
-**reference video**, which plays on hover (or on a tap) muted and looping, with the preview image
+**reference video**, which plays by itself while on screen, muted and looping, with the preview image
 as its poster when there is one; the title; one line of description; chips (the slash command, the
 source, the category); *Needs: 1 product picture*; **Use this preset** and **Learn more**. The
-video is hotlinked from Higgsfield as its own page does it: the studio never copies it.
+video is hotlinked from Higgsfield as its own page does it: the studio never copies it. The
+references play by themselves while on screen (no hover needed), muted, at most six at once, with
+pause and sound buttons; a tap on one opens its detail, where it plays large with controls (see
+*Autoplaying previews* below).
 
 The right panel shows the picked preset in full: the video large with controls, the description
 and chips, what it needs, the cost ("about N credits" or "not known"), whether it is ready for this
@@ -219,6 +222,71 @@ polls with `video_analysis_status`). Each runs only on an admin's click with the
 `get_cost` preflight when the tool offers one, else "cost not known" confirmed); the words are kept
 on the version (`settings.check`, `settings.analysis`) and shown under the cards. A tool the plan
 does not list says *Not available on this plan*. Nothing is made or changed by a check.
+
+## Autoplaying previews (one behaviour for every surface)
+
+Every clip in Level Studio is drawn by one component, `src/components/AutoplayVideo.tsx`, whose rules
+live in `shared/video-preview.ts` (tested in `tests/video-preview.test.ts`), the way Higgsfield's
+pages behave:
+
+- **A visible clip plays by itself**: muted, inline (`playsinline`, `webkit-playsinline`, the
+  `muted` attribute and property set before the file loads, so iPhone Safari allows it), looping on
+  cards. It plays once at least 35% of it is on screen (or it covers half the screen, for a large
+  player), and pauses when it leaves the screen, when the tab goes to the background
+  (`visibilitychange`), when its dialog or panel closes (`active={false}`, or it unmounts), and
+  while a dialog or the full-screen Video studio lies over it.
+- **At most 6 play at once**: the player stages and dialogs first, then the clips the person
+  started or unmuted, then the most visible.
+- **The file loads only near the screen** (300 px ahead): until then the `<video>` has no `src`
+  and `preload="none"`; after, `preload="metadata"`. The poster shows until playback is ready;
+  with no poster, a `#t=0.001` fragment paints the first frame.
+- **The person's choices win**: a pause (our button or the browser's controls) is never undone by
+  scrolling, a re-render or the tab coming back, and the playhead is never moved. A player that
+  reached its end waits on its last frame. A new clip (another `src`) starts fresh.
+- **Sound only from a person's action**: a sound button on every clip (bottom right on cards,
+  top right on players); unmuting one mutes the one before, so only one clip is audible.
+- **Modes**: `preview` (cards, galleries, lists: pause and sound buttons, no native controls,
+  looping), `player` (Video dialog, version stage, preset detail, client link: the browser's own
+  controls for seeking, volume and fullscreen, never forced fullscreen; starts muted with the sound
+  button), `editor` (a working preview a timeline drives: never started, paused or seeked by these
+  rules except a background tab; the editor's own canvas preview is not a `<video>` and is not
+  touched), and `decorative` (the studio's hero banners: no buttons, hidden from screen readers).
+- **Fallbacks**: a refused autoplay (Low Power Mode, a browser setting) shows a **Play** button
+  over the poster; a broken lightweight preview falls back silently to the full file; a broken file
+  shows the poster with **Try again**. Under **reduced motion** nothing starts by itself: the poster
+  (or first frame) stays with **Play (reduced motion)**; heroes show a small Play in their corner.
+
+Surfaces: the Studio card (`VideoOnCard`, the clip over the picture; the badge switches back to the
+picture), the Video dialog, the Video studio's version stage, its Versions list thumbnails, the
+editor's Versions group (`VideoVersions`), the preset gallery cards and detail, the client review
+link (`/share/<token>`, each post's clip as a muted player; the feed grid stays poster thumbnails
+that link to the post), and the hero banners (Studio workspace, Admin preview). The Photo studio,
+Freepik and style galleries show pictures only.
+
+### What is lightweight, exactly
+
+Workers cannot transcode and no outside service is used, so the light versions are made **in the
+browser** when a clip is stored (`src/lib/video-rendition.ts`) and kept next to the clip in R2:
+
+- **Still** (`<clip>.still.jpg`, 540 px on the short side, JPEG 0.8): the clip's own first frame.
+  Any browser that can play the clip makes it. `GET …/poster` serves it when present (else the
+  picture the clip started from), on the studio and on the client link.
+- **Preview mp4** (`<clip>.preview.mp4`): the **first 8 seconds**, 360 px on the short side, 24 fps,
+  about 700 kbit/s, **no sound**, H.264 with the index in front. Made with WebCodecs, so only where
+  the browser has an H.264 encoder (Chrome, Edge, Safari on a computer); kept only when it is
+  clearly lighter than the clip (under 80% of its size). Served at `GET|HEAD …/preview` (Range, the
+  same access as the file) and listed as `preview` on each version.
+- **When**: at the video editor's export and at an upload (both through
+  `src/video-editor/api.ts`), and, for a clip an engine delivered (Higgsfield, Magnific), after an
+  admin has had it on the Video studio's stage for 4 seconds (`POST …/preview`, admins only, once per
+  clip per session; it fetches the full file once to do so).
+- **Who uses it**: the Studio cards and the versions lists play `preview` with the full file as
+  the fallback. The version stage, the Video dialog, the client link and the editor and export
+  always use the **full file**.
+- **Not lightweight**: a clip with no rendition yet (engine clips nobody opened in the studio as an
+  admin, clips stored from a browser without an H.264 encoder) plays its full file on cards, loaded
+  only near the screen with `preload="metadata"` and the 6-clip cap. Higgsfield's preset references
+  are the provider's own preview files, hotlinked as before.
 
 ## Routes
 
