@@ -232,6 +232,8 @@ export interface ApplyOptions {
   now?: number;
   /** Ids for the clips and layers (tests pass a counter). */
   id?: () => string;
+  /** The cut's frame: a Reel (9:16, 1080×1920) by default, or the frame the cut already has. */
+  frame?: "reel" | "keep";
 }
 
 /**
@@ -287,7 +289,8 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
     return { start: round3(a.start), end: round3(Math.max(a.start + 0.2, b.end)) };
   };
   const language = opts.language ?? "both";
-  const aspect = base.output.width / Math.max(1, base.output.height);
+  const output = opts.frame === "keep" ? base.output : { ...base.output, width: 1080, height: 1920 };
+  const aspect = output.width / Math.max(1, output.height);
   const overlays: Overlay[] = [];
   for (const tx of t.texts) {
     const { start, end } = span(tx.from, tx.to);
@@ -319,6 +322,7 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
   }
   return {
     ...base,
+    output,
     clips,
     look: t.look.id,
     lookAmount: t.look.amount,

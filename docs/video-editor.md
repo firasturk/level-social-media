@@ -419,8 +419,9 @@ provider, nothing is charged.
   less footage than slots), texts in Arabic + English (stacked by their estimated lines so they
   never overlap), English or Arabic, and the client's logo when the brand kit has one; the
   project keeps `template {id, at}`. The gallery's thumbnails are schematics drawn from each
-  definition (text and logo places in a 9:16 frame, the shots as a strip). The template keeps the
-  cut's frame (positions are fractions; written for 9:16).
+  definition (text and logo places in a 9:16 frame, the shots as a strip). Applying a template makes
+  the cut a 9:16 Reel (1080×1920) by default; when the cut is in another frame a "Keep W×H" choice
+  keeps it (positions are fractions; written for 9:16).
 - **Music library in the Music tab** (`MusicSourcePanel.tsx`; docs/music-library.md §6): new
   sources `{kind:"catalog", trackId}` and `{kind:"library", trackId, client}` with the licence,
   credit line and Content ID kept on the project; the rights block shows the credit the caption

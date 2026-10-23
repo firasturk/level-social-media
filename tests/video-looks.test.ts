@@ -388,10 +388,19 @@ describe("templates", () => {
           }
   });
 
+  it("makes the cut a 9:16 Reel by default, or keeps its frame when asked", () => {
+    const square = { ...newProject("T", 1000), output: { ...newProject("T").output, width: 1080, height: 1080 } };
+    const reel = applyTemplate(TEMPLATES[0], square, media, { id });
+    expect([reel.output.width, reel.output.height]).toEqual([1080, 1920]);
+    const kept = applyTemplate(TEMPLATES[0], square, media, { id, frame: "keep" });
+    expect([kept.output.width, kept.output.height]).toEqual([1080, 1080]);
+    expect(validateProject(reel).ok).toBe(true);
+  });
+
   it("stacks Arabic above English without overlap, by their estimated lines, in every frame", () => {
     for (const out of [{ width: 1080, height: 1920 }, { width: 1080, height: 1350 }, { width: 1080, height: 1080 }, { width: 1920, height: 1080 }])
       for (const t of TEMPLATES) {
-        const p = applyTemplate(t, { ...newProject("T", 1000), output: { ...newProject("T").output, ...out } }, media, { language: "both", id });
+        const p = applyTemplate(t, { ...newProject("T", 1000), output: { ...newProject("T").output, ...out } }, media, { language: "both", id, frame: "keep" });
         const texts = p.overlays.filter((o): o is Extract<typeof o, { kind: "text" }> => o.kind === "text");
         for (let i = 0; i < texts.length; i += 2) {
           const [ar, en] = [texts[i], texts[i + 1]];

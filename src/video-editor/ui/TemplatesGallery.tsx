@@ -50,6 +50,8 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
   const [open, setOpen] = useState(!ctx.project.clips.length);
   const [pick, setPick] = useState<string | null>(ctx.project.template?.id ?? null);
   const [language, setLanguage] = useState<TemplateLanguage>("both");
+  const [frame, setFrame] = useState<"reel" | "keep">("reel");
+  const isReel = ctx.project.output.width * 16 === ctx.project.output.height * 9;
   const t = TEMPLATES.find((x) => x.id === pick) ?? null;
 
   const use = async (tpl: VideoTemplate) => {
@@ -71,7 +73,7 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
     }
     for (const m of ctx.sources) add(m);
     const brand = ctx.layers.logoUrl && ctx.layers.logoUrl.startsWith("/") ? { src: ctx.layers.logoUrl, name: "Client logo" } : null;
-    ctx.commit((q) => applyTemplate(tpl, q, media, { language, logo: brand }));
+    ctx.commit((q) => applyTemplate(tpl, q, media, { language, logo: brand, frame: isReel ? "keep" : frame }));
     const moods = tpl.music.moods.map((id) => MUSIC_MOODS.find((m) => m.id === id)?.label ?? id).join(", ");
     toast.success(`${tpl.name}: ${tpl.slots.length} shots${media.length ? "" : " (add footage to fill them)"}. Suggested music: ${moods}${tpl.music.bpm ? `, ${tpl.music.bpm[0]}–${tpl.music.bpm[1]} BPM` : ""}.`);
   };
@@ -122,6 +124,16 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
                   </button>
                 ))}
               </div>
+              {!isReel && (
+                <div className="vl-seg" role="group" aria-label="Frame">
+                  <button type="button" className={frame === "reel" ? "on" : ""} aria-pressed={frame === "reel"} onClick={() => setFrame("reel")}>
+                    9:16 Reel
+                  </button>
+                  <button type="button" className={frame === "keep" ? "on" : ""} aria-pressed={frame === "keep"} onClick={() => setFrame("keep")}>
+                    Keep {ctx.project.output.width}×{ctx.project.output.height}
+                  </button>
+                </div>
+              )}
               <button type="button" className="ts-btn primary" disabled={ctx.readOnly} onClick={() => void use(t)} title={ctx.readOnly ? ctx.reason : "Fill the cut with this template; everything stays editable"}>
                 <LayoutTemplate size={14} /> Use this template
               </button>
