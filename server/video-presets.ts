@@ -55,6 +55,19 @@ interface PresetAsk {
   query?: string;
   katana_source?: string;
   limit?: number;
+  /** How many pages to read (following `next_cursor`); 1 when absent. Not sent to the provider. */
+  pages?: number;
+  /** Keep only cards whose provider `type` matches; not sent to the provider. */
+  keepType?: RegExp;
+  /** Drop cards whose provider `type` matches; not sent to the provider. */
+  dropType?: RegExp;
+}
+
+/** The ask as the provider takes it: the local-only fields removed. */
+function providerArgs(ask: PresetAsk): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ask)) if (!["pages", "keepType", "dropType"].includes(k) && v !== undefined) args[k] = v;
+  return args;
 }
 
 /**
@@ -62,17 +75,22 @@ interface PresetAsk {
  * instead. Picture presets in an answer (the product shots) are dropped afterwards, so the asks
  * take the provider's maximum page (50; Katana allows 20) to leave enough videos.
  *
- * Checked live (22 Oct 2026): the Marketing Studio's `product-shot` category is pictures only, so
- * Marketing searches it for product, logo and unboxing clips instead; `source: katana` with
- * `katana_source: "higgsfield"` answers nothing while the default (community) catalog answers 20
- * productions; `query: "ugc"` and `query: "faceless"` answer nothing, so Faceless takes the
- * "What if" explainer styles (scenes, text and data, no presenter) and there is no UGC category.
+ * Checked live (22 Oct 2026): the Marketing Studio's `product-shot` category is pictures only and
+ * its videos all sit in the `motion` category (231), interleaved by four provider types:
+ * `hypermotion` (product macros, logos, price rolls, HUDs: the marketing clips), `saas_motion`,
+ * `2d_motion` and `mixed_media` (motion graphics and looks). Marketing takes the hypermotion
+ * clips of the first two pages plus the product, logo and unboxing searches; Motion Design takes
+ * the other three types of the same pages. `source: katana` with `katana_source: "higgsfield"`
+ * answers nothing while the default (community) catalog answers 20 productions; `query: "ugc"`
+ * and `query: "faceless"` answer nothing, so Faceless takes the "What if" explainer styles
+ * (scenes, text and data, no presenter) and there is no UGC category.
  */
 export const CATEGORY_ASKS: Record<Exclude<PresetCategoryId, "recipes">, PresetAsk[]> = {
   popular: [{ limit: 50 }],
   "paid-ads": [{ query: "ad", limit: 50 }],
-  motion: [{ source: "marketing_studio", category: "motion", limit: 50 }],
+  motion: [{ source: "marketing_studio", category: "motion", limit: 50, pages: 2, dropType: /hypermotion/i }],
   marketing: [
+    { source: "marketing_studio", category: "motion", limit: 50, pages: 2, keepType: /hypermotion/i },
     { source: "marketing_studio", query: "product", limit: 50 },
     { source: "marketing_studio", query: "logo", limit: 50 },
     { source: "marketing_studio", query: "unboxing", limit: 50 },
@@ -368,7 +386,11 @@ async function writeCache(env: Env, key: string, value: CachedCategory): Promise
 
 /* ───────────── Asking the provider ───────────── */
 
-/** One category's cards from the live server: the asks of the category merged, or the recipes list. */
+/**
+ * One category's cards from the live server: the asks of the category (sent together, merged in
+ * the asks' order), or the recipes list. An ask that fails is left out so one refusal does not
+ * empty the category; when every ask fails the first error is thrown.
+ */
 export async function fetchCategory(mcp: HiggsfieldMcp, category: PresetCategoryId, q: string, cursor: string | null): Promise<{ items: PresetCard[]; nextCursor: string | null }> {
   if (category === "recipes") {
     const r = await mcp.call("get_preset_instructions", {});
@@ -377,24 +399,50 @@ export async function fetchCategory(mcp: HiggsfieldMcp, category: PresetCategory
     return { items, nextCursor: null };
   }
   const asks = CATEGORY_ASKS[category];
+  const answers = await Promise.allSettled(asks.map((ask, i) => fetchAsk(mcp, ask, q, i === 0 ? cursor : null)));
   const items: PresetCard[] = [];
   const seen = new Set<string>();
   let nextCursor: string | null = null;
-  for (const [i, ask] of asks.entries()) {
-    const args: Record<string, unknown> = { ...ask };
-    const unsearchable = UNSEARCHABLE_SOURCES.includes(ask.source ?? "");
-    // Katana and "What if" take no query: their cards are searched here instead. Elsewhere the search joins the category's own words (every word must match).
-    if (q && !unsearchable) args.query = ask.query ? `${ask.query} ${q}` : q;
-    if (cursor && i === 0) args.cursor = cursor;
-    const r = await mcp.call("get_presets", args);
-    if (r.isError) continue;
-    for (const card of parsePresets(r, ask.source ?? "viral")) {
+  let failed = 0;
+  for (const [i, a] of answers.entries()) {
+    if (a.status === "rejected") {
+      failed++;
+      console.error("[video-presets] ask failed", category, JSON.stringify(providerArgs(asks[i])), errorMessage(a.reason));
+      continue;
+    }
+    for (const card of a.value.items) {
       if (seen.has(`${card.source}:${card.id}`)) continue;
-      if (q && unsearchable && !matches(card, q)) continue;
       seen.add(`${card.source}:${card.id}`);
       items.push(card);
     }
-    if (i === 0) nextCursor = nextCursorOf(r);
+    if (i === 0) nextCursor = a.value.nextCursor;
+  }
+  if (failed === answers.length && answers.length) throw (answers[0] as PromiseRejectedResult).reason;
+  return { items, nextCursor };
+}
+
+/** One ask of a category: its pages in turn, the cards filtered by the ask's type rule and the typed search. */
+async function fetchAsk(mcp: HiggsfieldMcp, ask: PresetAsk, q: string, cursor: string | null): Promise<{ items: PresetCard[]; nextCursor: string | null }> {
+  const unsearchable = UNSEARCHABLE_SOURCES.includes(ask.source ?? "");
+  const items: PresetCard[] = [];
+  let next: string | null = cursor;
+  let nextCursor: string | null = null;
+  for (let page = 0; page < Math.max(1, ask.pages ?? 1); page++) {
+    const args = providerArgs(ask);
+    // Katana and "What if" take no query: their cards are searched here instead. Elsewhere the search joins the category's own words (every word must match).
+    if (q && !unsearchable) args.query = ask.query ? `${ask.query} ${q}` : q;
+    if (next) args.cursor = next;
+    const r = await mcp.call("get_presets", args);
+    if (r.isError) break;
+    for (const card of parsePresets(r, ask.source ?? "viral")) {
+      if (ask.keepType && !ask.keepType.test(card.type ?? "")) continue;
+      if (ask.dropType && ask.dropType.test(card.type ?? "")) continue;
+      if (q && unsearchable && !matches(card, q)) continue;
+      items.push(card);
+    }
+    nextCursor = nextCursorOf(r);
+    next = nextCursor;
+    if (!next) break;
   }
   return { items, nextCursor };
 }

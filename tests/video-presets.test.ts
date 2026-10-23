@@ -136,7 +136,12 @@ function higgsfieldStub(opts: StubOptions = {}) {
       if (source === "katana") return text(b.id, { items: [KATANA_LIVE] });
       if (source === "what_if") return text(b.id, { items: [WHAT_IF_LIVE] });
       if (source === "marketing_studio") {
-        // The live Marketing Studio: a product search mixes picture presets (dropped) with clips; the logo search answers a clip; unboxing nothing.
+        // The live Marketing Studio: the motion category interleaves four types over two pages; a product search mixes picture presets (dropped) with clips; the logo search answers a clip; unboxing nothing.
+        if (args.category === "motion") {
+          const page2 = args.cursor === "page-2";
+          const items = page2 ? [{ ...CALLOUTS, id: "copper_hud", name: "Copper HUD" }, { ...CALLOUTS, id: "frames", name: "Frames", type: "saas_motion" }] : [CALLOUTS, { ...CALLOUTS, id: "pastel", name: "Pastel Shape Choreography", type: "2d_motion" }, { ...CALLOUTS, id: "pixel_yard", name: "Pixel Block Yard", type: "mixed_media" }];
+          return text(b.id, { items, next_cursor: page2 ? null : "page-2" });
+        }
         const items = args.query === "product" ? [CHILLED_CAN, hero] : args.query === "logo" ? [{ ...hero, id: "logo_loop", name: "Logo loop", category: "motion" }] : args.query === "unboxing" ? [] : [hero];
         return text(b.id, { presets: items, next_cursor: args.cursor ? null : "page-2" });
       }
@@ -325,20 +330,30 @@ describe("browsing the gallery", () => {
     expect(browsed.every((o) => o.estimate === 0 && o.status === "done")).toBe(true);
   });
 
-  it("maps every category to its asks: three Marketing Studio searches for Marketing, the Katana community catalog for Production, What if for Faceless, the recipes list, no UGC, and says when a category has nothing", async () => {
+  it("maps every category to its asks: the hypermotion clips plus three searches for Marketing, the other motion types for Motion Design, the Katana community catalog for Production, What if for Faceless, the recipes list, no UGC, and says when a category has nothing", async () => {
     const env = await seed();
     await signedIn(env);
     const stub = higgsfieldStub({ emptyFor: ["genjutsu"] });
     useHiggsfieldMcpFetch(stub.fn);
-    const marketing = (await json(await browse(env, "category=marketing"))) as { items: { id: string; category: string }[] };
-    // The picture preset (Chilled Can) is dropped; the two clips stay.
-    expect(marketing.items.map((i) => i.id)).toEqual(["hero_shot", "logo_loop"]);
+    const marketing = (await json(await browse(env, "category=marketing"))) as { items: { id: string; category: string }[]; nextCursor: string | null };
+    // The hypermotion clips of both motion pages, then the searches: the picture preset (Chilled Can) and the other motion types are dropped.
+    expect(marketing.items.map((i) => i.id)).toEqual(["46406130", "copper_hud", "hero_shot", "logo_loop"]);
+    expect(marketing.nextCursor).toBeNull();
+    const sortedArgs = (list: (Record<string, unknown> | undefined)[]) => list.map((a) => JSON.stringify(a)).sort();
     const marketingAsks = stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args);
-    expect(marketingAsks).toEqual([
-      { source: "marketing_studio", query: "product", limit: 50 },
-      { source: "marketing_studio", query: "logo", limit: 50 },
-      { source: "marketing_studio", query: "unboxing", limit: 50 },
-    ]);
+    // The asks go out together (the order of arrival is not promised); the local-only fields (pages, keepType) are not sent.
+    expect(sortedArgs(marketingAsks)).toEqual(
+      sortedArgs([
+        { source: "marketing_studio", category: "motion", limit: 50 },
+        { source: "marketing_studio", category: "motion", limit: 50, cursor: "page-2" },
+        { source: "marketing_studio", query: "product", limit: 50 },
+        { source: "marketing_studio", query: "logo", limit: 50 },
+        { source: "marketing_studio", query: "unboxing", limit: 50 },
+      ]),
+    );
+    const motion = (await json(await browse(env, "category=motion"))) as { items: { id: string; type: string }[] };
+    expect(motion.items.map((i) => i.id)).toEqual(["pastel", "pixel_yard", "frames"]);
+    expect(motion.items.every((i) => i.type !== "hypermotion")).toBe(true);
     const production = (await json(await browse(env, "category=production"))) as { items: { id: string; source: string; runnable: boolean; video: string | null; poster: string | null; output: string }[] };
     expect(production.items).toHaveLength(1);
     // The slashed id, the extension-less `/published/` links read by `preview_type`, not runnable from here.
@@ -367,6 +382,24 @@ describe("browsing the gallery", () => {
     expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).not.toHaveProperty("query");
     await browse(env, "category=faceless&q=zzz");
     expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "what_if", limit: 50 });
+  });
+
+  it("keeps a category when one of its asks fails, and throws only when every ask fails", async () => {
+    const env = await seed();
+    await signedIn(env);
+    const stub = higgsfieldStub();
+    const failing: typeof fetch = async (input, init) => {
+      const b = JSON.parse(String(init?.body)) as { id?: number; method: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+      if (b.method === "tools/call" && b.params?.name === "get_presets" && b.params.arguments?.query === "logo") return new Response("upstream hiccup", { status: 503 });
+      if (b.method === "tools/call" && b.params?.name === "get_presets" && b.params.arguments?.source === "what_if") return new Response("upstream hiccup", { status: 503 });
+      return stub.fn(input, init);
+    };
+    useHiggsfieldMcpFetch(failing);
+    const marketing = (await json(await browse(env, "category=marketing"))) as { items: { id: string }[] };
+    expect(marketing.items.map((i) => i.id)).toEqual(["46406130", "copper_hud", "hero_shot"]);
+    const faceless = await browse(env, "category=faceless");
+    expect(faceless.status).toBe(502);
+    expect(((await json(faceless)) as { error: string }).error).toMatch(/503/);
   });
 
   it("opens one preset with its inputs, instructions and, for an admin on a post, the readiness with the picture prefilled", async () => {

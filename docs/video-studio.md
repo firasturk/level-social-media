@@ -98,8 +98,8 @@ factory*, *destruction studio*, *exploded view*, *faceless* go). Every card carr
 | --- | --- |
 | Popular | the combined feed (no `source`), 50 at a time |
 | Paid Ads | the combined feed with `query: "ad"` |
-| Motion Design | `source: marketing_studio, category: "motion"` |
-| Marketing | `source: marketing_studio` with `query: "product"`, `"logo"` and `"unboxing"` (merged; the `product-shot` category is pictures only, so it is searched for clips instead) |
+| Motion Design | `source: marketing_studio, category: "motion"`, two pages, without the `hypermotion` type (the `saas_motion`, `2d_motion` and `mixed_media` graphics and looks) |
+| Marketing | `source: marketing_studio, category: "motion"`, two pages, the `hypermotion` type only (product macros, logos, price rolls, HUDs), plus `query: "product"`, `"logo"` and `"unboxing"` (merged; the `product-shot` category is pictures only) |
 | Production | `source: katana` (the community catalog; `katana_source: "higgsfield"` answers nothing; no query, searched locally; 20 is Katana's maximum page) |
 | Faceless | `source: what_if` (the "What if" explainer styles: scenes, text and data, no presenter; no query, searched locally) |
 | Effects | `source: viral` |
@@ -107,7 +107,11 @@ factory*, *destruction studio*, *exploded view*, *faceless* go). Every card carr
 | Recipes | `get_preset_instructions` with no preset (the recipes and commands list) |
 
 Every ask takes the provider's maximum page (50; Katana 20) because picture presets in the answer
-are dropped afterwards. There is **no UGC category**: `get_presets` with `query: "ugc"` (and
+are dropped afterwards. A category's asks go out together; an ask that fails (a 503 from the
+provider, say) is left out instead of emptying the category, and the error is thrown only when every
+ask failed. The Marketing Studio's 231 videos all sit in its `motion` category, interleaved by four
+provider `type`s; Marketing and Motion Design split them by that type rather than by a category the
+catalog does not have. There is **no UGC category**: `get_presets` with `query: "ugc"` (and
 `"faceless"`, `"talking"`, `"creator"`, `"influencer"`) answers nothing on 22 Oct 2026; Higgsfield's
 UGC ads live in its Marketing Studio widget (`show_marketing_studio_v2`), which is not a catalog
 the studio can list. A search typed in the gallery is sent as `query` joined to the category's
