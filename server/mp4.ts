@@ -88,9 +88,13 @@ function readTrack(v: DataView, trak: Box, info: Mp4Info): void {
         if (at + 8 <= b.start + b.size) {
           const w = v.getUint32(at) >>> 16;
           const h = v.getUint32(at + 4) >>> 16;
+          // The display matrix sits just before the size: a phone's portrait clip is stored wide and
+          // turned a quarter on playback (a = 0, |b| = 1), so it shows tall.
+          const m = at - 36;
+          const quarter = v.getInt32(m) === 0 && Math.abs(v.getInt32(m + 4)) === 0x10000;
           if (w && h) {
-            info.width = w;
-            info.height = h;
+            info.width = quarter ? h : w;
+            info.height = quarter ? w : h;
           }
         }
       }

@@ -1099,7 +1099,8 @@ export default function PlanView({
                             </span>
                           )}
                           {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
-                          {img && !inFlight && offFrame(p.index) && onPhotoStudio && (
+                          {/* A clip on the card is framed in the Video editor, not by cropping its poster. */}
+                          {img && !inFlight && offFrame(p.index) && onPhotoStudio && !videos[String(p.index)] && (
                             <button
                               type="button"
                               className="pc-frame-chip"

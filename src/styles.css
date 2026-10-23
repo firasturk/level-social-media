@@ -13062,6 +13062,11 @@ select {
   padding: 10px 22px;
   border-radius: 999px;
 }
+/* "Skip to the Studio" stays one line when the bar is full (the menu button joined it). */
+.journey.flow .journey-top > .text-button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 .topbar {
   border-bottom: 0;
   border-radius: 0 0 24px 24px;
