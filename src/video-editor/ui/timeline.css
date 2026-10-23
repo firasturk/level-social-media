@@ -277,9 +277,78 @@
 .ve-snapline.beat {
   background: var(--ts-accent, #1129d3);
 }
+.ve-anim-row {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: end;
+  gap: 6px;
+}
+.ve-key {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ts-line, #e2e2e7);
+  border-radius: 7px;
+  background: #fff;
+  color: #8e8e93;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+.ve-key.some {
+  color: #b58400;
+}
+.ve-key.on {
+  color: #5c4400;
+  border-color: #f5b400;
+  background: #fff6d6;
+}
+.ve-key.on svg {
+  fill: #f5b400;
+}
+.ve-anim-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #6e6e73;
+}
+.ve-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: #3a3a3c;
+}
 @media (max-width: 860px) {
+  /* One panel at a time on a phone: the panel leaves room for the stage above the compact timeline. */
+  .ve.narrow.editing .vs-side {
+    max-height: 36vh;
+  }
+  .ve-tl-bar {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .ve-tl-len,
+  .ve-tl-time .ts-icon {
+    display: none;
+  }
   .ve-tl-body {
     grid-template-columns: 34px minmax(0, 1fr);
+  }
+  .ve-tl-label,
+  .ve-tl-lane {
+    height: 22px;
+  }
+  .ve-tl-label.ruler,
+  .ve-tl2 .ve-ruler {
+    height: 20px;
+  }
+  .ve-tl2 .ve-layer-block,
+  .ve-tl2 .ve-music-block,
+  .ve-voice-block {
+    top: 2px;
+    height: 17px;
+    font-size: 10.5px;
   }
   .ve-tl-label {
     padding-left: 10px;
@@ -288,13 +357,18 @@
     display: none;
   }
   .ve-tl-label.video {
-    height: 56px;
+    height: 46px;
   }
   .ve-tl-lane.video {
-    height: 56px;
+    height: 46px;
   }
   .ve-tl2 .ve-clip {
-    height: 46px;
+    top: 4px;
+    height: 38px;
+  }
+  .ve-tl2 .ve-clip-label {
+    bottom: 4px;
+    font-size: 10.5px;
   }
   .ve-tl-bar {
     gap: 4px;

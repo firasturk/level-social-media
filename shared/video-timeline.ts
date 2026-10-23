@@ -54,6 +54,8 @@ export const MAX_PPS = 480;
 export const ZOOM_STEP = 1.5;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+/** Seconds rounded to a microsecond, so repeated edits do not pile up float noise (0.2999999…). */
+const r6 = (t: number) => Math.round(t * 1e6) / 1e6;
 
 /** The zoom that shows the whole cut (plus a little room) in `width` pixels. */
 export function fitPps(width: number, length: number): number {
@@ -252,12 +254,12 @@ export function deleteClips(project: VideoProject, ids: readonly string[], rippl
   const overlays = project.overlays.map((o) => {
     if (inRemoved(o.start)) return o;
     const s = shiftAt(o.start);
-    return s > 0 ? { ...o, start: Math.max(0, o.start - s), end: Math.max(0.1, o.end - s) } : o;
+    return s > 0 ? { ...o, start: r6(Math.max(0, o.start - s)), end: r6(Math.max(0.1, o.end - s)) } : o;
   });
   const voices = (project.voices ?? []).map((v) => {
     if (inRemoved(v.start)) return v;
     const s = shiftAt(v.start);
-    return s > 0 ? { ...v, start: Math.max(0, v.start - s) } : v;
+    return s > 0 ? { ...v, start: r6(Math.max(0, v.start - s)) } : v;
   });
   return { ...project, clips, overlays, voices };
 }

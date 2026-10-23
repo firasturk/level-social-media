@@ -69,7 +69,13 @@ const LANES: { id: string; label: string; icon: ReactNode }[] = [
   { id: "voice", label: "Voice", icon: <Mic size={12} /> },
 ];
 
-const fmtTick = (s: number, spacing: number) => (spacing < 1 ? formatTimecode(s).slice(3) : s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : `${Math.round(s)}s`);
+/** Ruler labels: whole seconds as "3s" (or "1:05" past a minute); between them "1.5s", or frames ("10f") when zoomed in to frames. */
+const fmtTick = (s: number, spacing: number) => {
+  const whole = Math.abs(s - Math.round(s)) < 1e-6;
+  if (!whole && spacing < 0.5) return `${Math.round((s - Math.floor(s + 1e-6)) * 30)}f`;
+  if (!whole) return `${s.toFixed(1)}s`;
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : `${Math.round(s)}s`;
+};
 
 export default function Timeline(props: TimelineProps) {
   const { project, time, beats, selection, readOnly, labelOf, selectedOverlay, selectedVoice, musicName, snapping, setSnapping } = props;

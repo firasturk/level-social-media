@@ -45,6 +45,7 @@ export function wrapLines(ctx: CanvasRenderingContext2D, text: string, max: numb
 export class OverlayLayer {
   readonly canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
+  private scratch: HTMLCanvasElement | null = null;
   private images = new Map<string, HTMLImageElement | null>();
   private loading = new Map<string, Promise<void>>();
   private lastKey = "";
@@ -118,13 +119,36 @@ export class OverlayLayer {
     return this.canvas;
   }
 
+  /**
+   * A text layer. Below full opacity it is drawn whole on a scratch canvas first and laid on at
+   * its opacity, so the boxes of two lines (which touch) and the letters over them fade as one.
+   */
   private drawText(o: TextOverlay, s: OverlayState): void {
-    const ctx = this.ctx;
+    if (s.opacity >= 1) {
+      this.paintText(this.ctx, o, s);
+      return;
+    }
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    if (!this.scratch || this.scratch.width !== W || this.scratch.height !== H) {
+      this.scratch = document.createElement("canvas");
+      this.scratch.width = W;
+      this.scratch.height = H;
+    }
+    const sctx = this.scratch.getContext("2d")!;
+    sctx.clearRect(0, 0, W, H);
+    this.paintText(sctx, o, s);
+    this.ctx.save();
+    this.ctx.globalAlpha = s.opacity;
+    this.ctx.drawImage(this.scratch, 0, 0);
+    this.ctx.restore();
+  }
+
+  private paintText(ctx: CanvasRenderingContext2D, o: TextOverlay, s: OverlayState): void {
     const W = this.canvas.width;
     const H = this.canvas.height;
     const px = o.size * H * s.scale;
     ctx.save();
-    ctx.globalAlpha = s.opacity;
     ctx.font = fontOf(o, px);
     ctx.textBaseline = "middle";
     const max = o.width * W * s.scale;
