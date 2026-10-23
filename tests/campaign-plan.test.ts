@@ -90,3 +90,15 @@ describe("edits and approval", () => {
     expect(itemProductionSignature(p.videos[0])).toMatch(/^[0-9a-f]{16}$/);
   });
 });
+
+describe("planner words", () => {
+  it("never shows the planner's list ids", async () => {
+    const { scrubListIds } = await import("../shared/campaign-planner");
+    const lists = { products: [{ listId: "P16", id: "x", name: "Blueberry mojito", from: "drive" as const, thumb: null }], references: [{ listId: "R1", kind: "reference" as const, id: "r", label: "Ref", thumb: null, from: "" }], media: [] };
+    expect(scrubListIds("A young man holds a cup of blueberry mojito (P16) against a blue sky.", lists)).toBe("A young man holds a cup of blueberry mojito against a blue sky.");
+    expect(scrubListIds("Blueberry mojito (P16) in the light, like R1.", lists)).toBe("Blueberry mojito in the light, like.");
+    expect(scrubListIds("A cup (P16) on ice.", lists)).toBe("A cup (Blueberry mojito) on ice.");
+    expect(scrubListIds("Shot of P16 on the table", lists)).toBe("Shot of Blueberry mojito on the table");
+    expect(scrubListIds("Room P99 stays", lists)).toBe("Room P99 stays");
+  });
+});

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
 import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
-import { approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
+import { retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import "./campaign.css";
 
 interface Props {
@@ -309,7 +309,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ImageItem({ it, sources, engines, onChange, onRegen, cost, busy }: { it: ImagePlanItem; sources: Sources | null; engines: Engines | null; onChange: (x: ImagePlanItem) => void; onRegen: () => void; cost: string; busy: boolean }) {
+function ImageItem({ it, sources, engines, onChange, onRegen, onProduct, cost, busy }: { it: ImagePlanItem; sources: Sources | null; engines: Engines | null; onChange: (x: ImagePlanItem) => void; onRegen: () => void; onProduct: (p: ProductPick | null) => void; cost: string; busy: boolean }) {
   return (
     <article className={`ca-item ${it.selected ? "" : "off"}`}>
       <header>
@@ -354,7 +354,7 @@ function ImageItem({ it, sources, engines, onChange, onRegen, cost, busy }: { it
         </div>
         <div className="ca-side">
           <ProductBadge p={it.product} />
-          <ProductSelect value={it.product} sources={sources} onChange={(product) => onChange({ ...it, product })} />
+          <ProductSelect value={it.product} sources={sources} disabled={busy} onChange={onProduct} />
           <RefBadge r={it.reference} />
           <small className="ca-muted">Outputs: {it.outputs} picture</small>
         </div>
@@ -363,9 +363,9 @@ function ImageItem({ it, sources, engines, onChange, onRegen, cost, busy }: { it
   );
 }
 
-function ProductSelect({ value, sources, onChange }: { value: ProductPick | null; sources: Sources | null; onChange: (p: ProductPick | null) => void }) {
+function ProductSelect({ value, sources, onChange, disabled }: { value: ProductPick | null; sources: Sources | null; onChange: (p: ProductPick | null) => void; disabled?: boolean }) {
   return (
-    <select aria-label="Product" value={value ? `${value.from}:${value.id}` : ""} onChange={(e) => {
+    <select aria-label="Product" disabled={disabled} title="Changing the product rewrites this item's words for it (one text call); review, then save" value={value ? `${value.from}:${value.id}` : ""} onChange={(e) => {
       const p = sources?.products.find((x) => `${x.from}:${x.id}` === e.target.value);
       onChange(p ? { id: p.id, name: p.name, from: p.from, thumb: p.thumb, ...(p.note ? { note: p.note } : {}) } : null);
     }}>
@@ -444,7 +444,7 @@ function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, bus
   );
 }
 
-function VideoItem({ v, sources, engines, onChange, onRegen, costOf, busy }: { v: VideoPlanItem; sources: Sources | null; engines: Engines | null; onChange: (x: VideoPlanItem) => void; onRegen: (shot?: string) => void; costOf: (step: string) => string; busy: boolean }) {
+function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, busy }: { v: VideoPlanItem; sources: Sources | null; engines: Engines | null; onChange: (x: VideoPlanItem) => void; onRegen: (shot?: string) => void; onProduct: (p: ProductPick | null) => void; costOf: (step: string) => string; busy: boolean }) {
   const setShot = (k: number, s: ShotPlan) => onChange({ ...v, shots: v.shots.map((x, j) => (j === k ? s : x)) });
   const move = (k: number, d: -1 | 1) => {
     const shots = [...v.shots];
@@ -487,7 +487,7 @@ function VideoItem({ v, sources, engines, onChange, onRegen, costOf, busy }: { v
         </div>
         <div className="ca-side">
           <ProductBadge p={v.product} />
-          <ProductSelect value={v.product} sources={sources} onChange={(product) => onChange({ ...v, product })} />
+          <ProductSelect value={v.product} sources={sources} disabled={busy} onChange={onProduct} />
           <small className="ca-muted">{needsKeyFrame(v) ? `Key frame: ${costOf(`${v.key}:-:image`)}` : "No key frame needed"}</small>
         </div>
       </div>
@@ -626,6 +626,7 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
   const [engines, setEngines] = useState<Engines | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [retries, setRetries] = useState(1);
   const [accepted, setAccepted] = useState<Record<string, number>>({});
   const [rendering, setRendering] = useState<{ step: string; fraction: number; phase: string } | null>(null);
@@ -700,6 +701,23 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
     })();
   }, [c, producing, renderFailed]);
 
+  /** A new product: the item's words rewritten for it on the server, put in the draft to review and save. */
+  const retarget = async (item: ImagePlanItem | VideoPlanItem, product: ProductPick | null) => {
+    if (!c) return;
+    setBusy("retarget");
+    setError("");
+    setNotice(`Rewriting ${item.key} for ${product?.name ?? "no product"}…`);
+    try {
+      const r = await retargetItem(c.id, item, product);
+      update((p) => ({ ...p, images: p.images.map((i) => (i.key === r.item.key ? (r.item as ImagePlanItem) : i)), videos: p.videos.map((v) => (v.key === r.item.key ? (r.item as VideoPlanItem) : v)) }));
+      setNotice(r.note);
+    } catch (e) {
+      setNotice("");
+      setError(errText(e));
+    } finally {
+      setBusy("");
+    }
+  };
   const update = (fn: (p: CampaignPlan) => CampaignPlan) => {
     setDraft((d) => (d ? fn(d) : d));
     setDirty(true);
@@ -734,6 +752,7 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
       </header>
       <div className="ca-body">
         {error && <p className="ca-error" role="alert">{error}</p>}
+        {notice && <p className="ca-muted" role="status">{busy === "retarget" ? <Loader2 size={14} className="spin" /> : <Check size={14} />} {notice}</p>}
         {!c && (
           <>
             {!!list?.length && (
@@ -785,10 +804,10 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
             })} />}
             <div className="ca-items">
               {draft.images.map((it) => (
-                <ImageItem key={it.key} it={it} sources={sources} engines={engines} busy={!!busy} cost={`${costOf(`${it.key}:-:image`)}${approvedItems.has(it.key) ? " · approved" : ""}`} onChange={(x) => update((p) => ({ ...p, images: p.images.map((i) => (i.key === x.key ? x : i)) }))} onRegen={() => void act("regen", () => regenerate(c.id, c.plan.rev, it.key))} />
+                <ImageItem key={it.key} it={it} sources={sources} engines={engines} busy={!!busy} cost={`${costOf(`${it.key}:-:image`)}${approvedItems.has(it.key) ? " · approved" : ""}`} onChange={(x) => update((p) => ({ ...p, images: p.images.map((i) => (i.key === x.key ? x : i)) }))} onRegen={() => void act("regen", () => regenerate(c.id, c.plan.rev, it.key))} onProduct={(product) => void retarget(it, product)} />
               ))}
               {draft.videos.map((v) => (
-                <VideoItem key={v.key} v={v} sources={sources} engines={engines} busy={!!busy} costOf={costOf} onChange={(x) => update((p) => ({ ...p, videos: p.videos.map((i) => (i.key === x.key ? x : i)) }))} onRegen={(shot) => void act("regen", () => regenerate(c.id, c.plan.rev, v.key, shot))} />
+                <VideoItem key={v.key} v={v} sources={sources} engines={engines} busy={!!busy} costOf={costOf} onChange={(x) => update((p) => ({ ...p, videos: p.videos.map((i) => (i.key === x.key ? x : i)) }))} onRegen={(shot) => void act("regen", () => regenerate(c.id, c.plan.rev, v.key, shot))} onProduct={(product) => void retarget(v, product)} />
               ))}
             </div>
             {c.status !== "done" && <CostPanel c={c} retries={retries} setRetries={setRetries} accepted={accepted} setAccepted={setAccepted} />}

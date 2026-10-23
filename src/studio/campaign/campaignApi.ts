@@ -1,6 +1,6 @@
 /** Campaign Autopilot's routes (server/campaign.ts), admin-only. */
 import { get, post, put } from "@/api";
-import type { BudgetCap, CampaignPlan, CampaignSetup, CostLine, CostUnit, PlanCounts, PlanRef, Price, PriceBook, ProductPick } from "@shared/campaign-plan";
+import type { ImagePlanItem, VideoPlanItem, BudgetCap, CampaignPlan, CampaignSetup, CostLine, CostUnit, PlanCounts, PlanRef, Price, PriceBook, ProductPick } from "@shared/campaign-plan";
 import type { StillRef } from "@shared/campaign-assemble";
 
 export interface CampaignStep {
@@ -87,6 +87,7 @@ export function loadCampaign(id: string, opts: { items?: string[]; retries?: num
 }
 export const savePlan = (id: string, plan: CampaignPlan, rev: number) => put<One & { changes: { material: string[]; words: string[]; added: string[]; removed: string[] } }>(`${base}/${id}/plan`, { plan, rev });
 export const regenerate = (id: string, rev: number, item: string, shot?: string, note?: string) => post<One>(`${base}/${id}/regenerate`, { rev, item, ...(shot ? { shot } : {}), ...(note ? { note } : {}) });
+export const retargetItem = (id: string, item: ImagePlanItem | VideoPlanItem, product: ProductPick | null) => post<{ item: ImagePlanItem | VideoPlanItem; note: string }>(`${base}/${id}/retarget`, { item, product });
 export const refreshPrices = (id: string) => post<One & { notes: string[] }>(`${base}/${id}/prices`);
 export const approveCampaign = (id: string, body: { items: string[]; retries: number; signature: string; acceptedUnknown: { step: string; unit: CostUnit; amount: number }[] }) => post<One & { already?: boolean }>(`${base}/${id}/approve`, body);
 export const tickCampaign = (id: string) => post<One>(`${base}/${id}/tick`);

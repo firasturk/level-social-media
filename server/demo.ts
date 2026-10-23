@@ -8,7 +8,7 @@ import { previewNoImages, type Env } from "./env";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { feedbackFromInstruction, interpretFeedback } from "../shared/feedback";
 import { intentRequestFrom, resolveIntent } from "../shared/promptbox";
-import { demoCampaignAnswer, isCampaignSchema } from "../shared/campaign-planner";
+import { demoCampaignAnswer, demoRetarget, isCampaignSchema, isRetargetSchema } from "../shared/campaign-planner";
 
 export async function demoMode(env: Env): Promise<boolean> {
   if (!previewNoImages(env)) return false;
@@ -149,6 +149,9 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
     // The Help assistant: a fixed answer that says it is the preview's.
     out = { answer: `${DEMO}: the preview answers without a text model. On the live studio the Help assistant answers from the studio's guide.`, steps: ["Open the post's card", 'Press "Edit picture"'], known: !/\bnot exist|missing feature|doesn.t exist\b/i.test(instruction.split("The member's question:").pop() ?? ""), request: "" };
     if (!(out as { known: boolean }).known) (out as { request: string }).request = `${DEMO}: a request for Firas.`;
+  } else if (isRetargetSchema(props)) {
+    // Campaign Autopilot, a new product on an item: the old name swapped for the new one.
+    out = demoRetarget(instruction);
   } else if (isCampaignSchema(props)) {
     // Campaign Autopilot: a whole plan for the counts asked, every line labelled as the preview's.
     out = demoCampaignAnswer(instruction);

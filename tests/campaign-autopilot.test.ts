@@ -300,3 +300,30 @@ describe("Campaign Autopilot: approval and production", () => {
     }
   });
 });
+
+describe("Campaign Autopilot: a new product on an item", () => {
+  it("rewrites the item's words for the new product (nothing saved until the admin saves) and never shows list ids", async () => {
+    const env = await seed();
+    const c = await create(env);
+    const v = c.plan.videos[0];
+    const old = v.product!;
+    // The planner's list ids never reach the words ("… (P1)" became the product's name, or went).
+    expect(JSON.stringify(c.plan)).not.toMatch(/\(P\d+\)|\bP\d+\b/);
+    expect(v.concept).toContain(old.name);
+    const sources = (await call<{ products: { id: string; name: string; from: string; thumb: string | null }[] }>(env, "GET", "/sources?batch=b1")).body;
+    const next = sources.products.find((p) => p.id !== old.id)!;
+    const r = await call<{ item: { key: string; product: { id: string }; concept: string; shots: { key: string; action: string; seconds: number }[] }; note: string }>(env, "POST", `/${c.id}/retarget`, { item: v, product: next });
+    expect(r.status).toBe(200);
+    expect(r.body.item.key).toBe(v.key);
+    expect(r.body.item.product.id).toBe(next.id);
+    expect(r.body.item.concept).toContain(next.name);
+    expect(r.body.item.concept).not.toContain(old.name);
+    expect(r.body.item.shots.map((s) => [s.key, s.seconds])).toEqual(v.shots.map((s) => [s.key, s.seconds]));
+    expect(r.body.item.shots.every((s) => !s.action.includes(old.name))).toBe(true);
+    // Nothing saved: the stored plan still has the old product until the admin saves the draft.
+    expect((await get(env, c.id)).plan.videos[0].product!.id).toBe(old.id);
+    // A product that is not the client's is refused.
+    const bad = await call(env, "POST", `/${c.id}/retarget`, { item: v, product: { id: "nope", name: "Fake", from: "drive", thumb: null } });
+    expect(bad.status).toBe(409);
+  });
+});

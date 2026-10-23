@@ -63,7 +63,7 @@ import {
   type PriceBook,
   type StepSpec,
 } from "../shared/campaign-plan";
-import { CAMPAIGN_PLAN_SCHEMA, campaignInstruction, planFromAnswer, type PlanDefaults, type PlannerInput } from "../shared/campaign-planner";
+import { applyRetarget, stripListIdRefs, CAMPAIGN_PLAN_SCHEMA, campaignInstruction, planFromAnswer, RETARGET_SCHEMA, retargetInstruction, type PlanDefaults, type PlannerInput } from "../shared/campaign-planner";
 
 type Variables = { user: User };
 export const campaignRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -156,7 +156,8 @@ export async function campaignOf(env: Env, user: User, id: string): Promise<{ ro
   return { row, b };
 }
 
-export const planOf = (row: CampaignRow) => JSON.parse(row.plan) as CampaignPlan;
+/** The stored plan, read clean (a bracketed list id an older plan kept in its words is taken out, the same for every reader). */
+export const planOf = (row: CampaignRow) => stripListIdRefs(JSON.parse(row.plan) as CampaignPlan);
 export const setupOf = (row: CampaignRow) => JSON.parse(row.setup) as CampaignSetup;
 export const pricesOf = (row: CampaignRow) => JSON.parse(row.prices || "{}") as PriceBook;
 export const approvalOf = (row: CampaignRow) => (row.approval ? (JSON.parse(row.approval) as StoredApproval) : null);
@@ -633,6 +634,33 @@ campaignRoutes.post("/:id/regenerate", async (c) => {
   next.planningNotes = [...plan.planningNotes, `${d.shot ? `Shot ${d.shot} of ${d.item}` : d.item} written again (one text-model call, outside the production cap).`].slice(-12);
   // The same edit rules as a hand edit.
   return c.json({ ok: true, ...(await editPlan(c.env, user, row, b, next, row.rev)) });
+});
+
+/**
+ * A new product on one item: its words rewritten for that product (one text call, outside the
+ * production cap), nothing saved. The page sends the item as it is on screen (unsaved edits
+ * included) and puts the answer back in its draft; the admin saves it like any edit.
+ */
+campaignRoutes.post("/:id/retarget", async (c) => {
+  const user = c.get("user");
+  const d = await parseBody(c, z.object({ item: z.record(z.string(), z.unknown()), product: z.record(z.string(), z.unknown()).nullable() }));
+  const { row, b } = await campaignOf(c.env, user, c.req.param("id"));
+  const config = JSON.parse(b.config) as Config;
+  const setup = setupOf(row);
+  const defaults = await planDefaults(c.env, config, setup);
+  const isVideo = Array.isArray((d.item as { shots?: unknown }).shots);
+  // The item and the product checked the way any plan edit is.
+  const checked = normalizePlan({ images: isVideo ? [] : [d.item as never], videos: isVideo ? [d.item as never] : [] }, defaults, row.rev);
+  const before = (isVideo ? checked.videos[0] : checked.images[0]) ?? null;
+  if (!before) throw new StudioError("That item could not be read.", 400);
+  const after = normalizePlan({ images: isVideo ? [] : [{ ...before, product: d.product } as never], videos: isVideo ? [{ ...before, product: d.product } as never] : [] }, defaults, row.rev);
+  const product = (isVideo ? after.videos[0] : after.images[0])?.product ?? null;
+  const known = (await planSources(c.env, b)).products;
+  if (product && !known.some((p) => p.id === product.id && p.from === product.from)) throw new StudioError("That product is not one of the client's.", 409);
+  const original = [...planOf(row).images, ...planOf(row).videos].find((x) => x.key === before.key);
+  const answer = parseJson<unknown>(await askText(c.env, retargetInstruction(before, before.product ?? original?.product ?? null, product, setup.language), RETARGET_SCHEMA));
+  const item = applyRetarget({ ...before, key: String((d.item as { key?: string }).key ?? before.key) }, answer, product);
+  return c.json({ ok: true, item, note: "The words were rewritten for the new product (one text call, outside the production budget). Review them, then save." });
 });
 
 /** The estimates asked again: free questions to the providers, the maintained prices for the rest. */

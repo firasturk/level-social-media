@@ -6,7 +6,7 @@
  * and anything it names outside those lists is dropped. Engines are not the model's to choose.
  * Pure; the preview's fixture answer (`demoCampaignAnswer`) lives here too.
  */
-import { normalizePlan, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ShotSource } from "./campaign-plan";
+import { normalizePlan, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ShotSource } from "./campaign-plan";
 import type { FrameId } from "./video-frame";
 
 /** A product the planner may pick, with its list id (P1…). */
@@ -142,7 +142,7 @@ export function campaignInstruction(x: PlannerInput): string {
     "- In every shot of a video the product, the place and the people stay the same, so the shots cut together.",
     "- text: the few words on screen during the shot (\"\" for none). headline: 2 to 5 words. caption: one or two short sentences. cta: a short call to action.",
     `- look: one of ${x.looks.length ? x.looks.join(", ") : "(none)"} or "". music: the mood and tempo in a few words. transitions: cuts, crossfades or mixed.`,
-    '- product and reference fields hold a list id (P1, R2) or "".',
+    '- product and reference fields hold a list id (P1, R2) or "". Never write a list id inside any text (idea, concept, action, caption…): name the product by its name.',
     '- campaign: "plan". summary.concept: the campaign idea in two sentences. summary.mix: why this mix of posts and videos. summary.together: how the pieces work together over the period.',
   ];
   return lines.join("\n");
@@ -180,7 +180,7 @@ const strip = <T extends { listId: string }>(x: T): Omit<T, "listId"> => {
 
 /** The model's answer as a plan: ids resolved against the lists; anything outside them dropped, and said so. */
 export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefaults, rev = 1): CampaignPlan {
-  const a = (raw ?? {}) as RawAnswer;
+  const a = scrubAnswer((raw ?? {}) as RawAnswer, x);
   const notes: string[] = [];
   const product = (id: string | undefined): ProductPick | null => {
     if (!id) return null;
@@ -246,6 +246,110 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
   return plan;
 }
 
+/**
+ * List ids the model wrote inside its words ("a cup of blueberry mojito (P16)") are never shown:
+ * a product's id becomes its name, a reference's or a file's id is taken out.
+ */
+export function scrubListIds(text: string, x: Pick<PlannerInput, "products" | "references" | "media">): string {
+  if (!text) return text;
+  const names = new Map<string, string>([...x.products.map((p) => [p.listId, p.name] as const), ...x.references.map((r) => [r.listId, ""] as const), ...x.media.map((m) => [m.listId, ""] as const)]);
+  return text
+    .replace(/\s*[([]\s*\b([PRM]\d{1,3})\b\s*[)\]]/g, (all, id: string) => (names.has(id) ? (names.get(id) && !text.toLowerCase().includes(names.get(id)!.toLowerCase()) ? ` (${names.get(id)})` : "") : all))
+    .replace(/\b([PRM]\d{1,3})\b/g, (all, id: string) => (names.has(id) ? names.get(id) || "" : all))
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.,!?،؛])/g, "$1")
+    .trim();
+}
+
+/** A plan written before the scrub: a bracketed list id ("(P16)") left in its words is taken out. */
+export function stripListIdRefs(plan: CampaignPlan): CampaignPlan {
+  const t = (s: string) => s.replace(/\s*[([]\s*[PRM]\d{1,3}\s*[)\]]/g, "").replace(/\s+([.,!?،؛])/g, "$1");
+  return {
+    ...plan,
+    summary: { concept: t(plan.summary.concept), mix: t(plan.summary.mix), together: t(plan.summary.together) },
+    images: plan.images.map((i) => ({ ...i, idea: t(i.idea), visual: t(i.visual), headline: t(i.headline), caption: t(i.caption), cta: t(i.cta) })),
+    videos: plan.videos.map((v) => ({ ...v, concept: t(v.concept), hook: t(v.hook), voiceover: t(v.voiceover), caption: t(v.caption), cta: t(v.cta), shots: v.shots.map((s) => ({ ...s, action: t(s.action), text: t(s.text) })) })),
+  };
+}
+
+function scrubAnswer(a: RawAnswer, x: PlannerInput): RawAnswer {
+  const t = (s: string | undefined) => (s === undefined ? s : scrubListIds(s, x));
+  return {
+    ...a,
+    summary: a.summary ? { concept: t(a.summary.concept), mix: t(a.summary.mix), together: t(a.summary.together) } : a.summary,
+    images: a.images?.map((i) => ({ ...i, idea: t(i.idea), objective: t(i.objective), visual: t(i.visual), headline: t(i.headline), caption: t(i.caption), cta: t(i.cta) })),
+    videos: a.videos?.map((v) => ({ ...v, concept: t(v.concept), hook: t(v.hook), voiceover: t(v.voiceover), cta: t(v.cta), caption: t(v.caption), shots: v.shots?.map((s) => ({ ...s, action: t(s.action), text: t(s.text) })) })),
+  };
+}
+
+/* ───────────── A new product on an item: its words rewritten for it ───────────── */
+
+/** The words of one item the rewrite may change; everything else (shots' order, seconds, framing, camera, sources, engines) stays. */
+export const RETARGET_SCHEMA = {
+  type: "object",
+  properties: {
+    retarget: { type: "string" },
+    idea: { type: "string" },
+    objective: { type: "string" },
+    visual: { type: "string" },
+    headline: { type: "string" },
+    concept: { type: "string" },
+    hook: { type: "string" },
+    voiceover: { type: "string" },
+    caption: { type: "string" },
+    cta: { type: "string" },
+    shots: { type: "array", items: { type: "object", properties: { key: { type: "string" }, action: { type: "string" }, text: { type: "string" } }, required: ["key", "action", "text"] } },
+  },
+  required: ["retarget", "idea", "objective", "visual", "headline", "concept", "hook", "voiceover", "caption", "cta", "shots"],
+} as const;
+
+export const isRetargetSchema = (props: Record<string, unknown>) => "retarget" in props && "shots" in props && "concept" in props;
+
+type ItemWords = { idea?: string; objective?: string; visual?: string; headline?: string; concept?: string; hook?: string; voiceover?: string; caption?: string; cta?: string; shots?: { key: string; action: string; text: string }[] };
+
+export function itemWords(it: ImagePlanItem | VideoPlanItem): ItemWords {
+  if ("shots" in it) return { concept: it.concept, hook: it.hook, voiceover: it.voiceover, caption: it.caption, cta: it.cta, shots: it.shots.map((s) => ({ key: s.key, action: s.action, text: s.text })) };
+  return { idea: it.idea, objective: it.objective, visual: it.visual, headline: it.headline, caption: it.caption, cta: it.cta };
+}
+
+const productLine = (p: ProductPick | null) => (p ? `${p.name}${p.note ? ` (${p.note})` : ""}` : "no product (the brand itself)");
+
+/** The rewrite's instruction: the same idea, the new product in every word that named the old one. */
+export function retargetInstruction(it: ImagePlanItem | VideoPlanItem, before: ProductPick | null, after: ProductPick | null, language: CampaignSetup["language"]): string {
+  return [
+    `A ${"shots" in it ? "short video (Reel)" : "social media post"} of a campaign was planned for one product; the admin changed its product. Rewrite its words for the new product.`,
+    `OLD PRODUCT: ${productLine(before)}`,
+    `NEW PRODUCT: ${productLine(after)}`,
+    `LANGUAGE: ${LANGUAGE_WORDS[language]}.`,
+    "RULES: keep the same idea, mood, structure and length; replace everything that described the old product (its name, flavour, colour, ingredients, packaging) with the new product as its note describes it, never inventing details; keep every shot, in the same order, with the same key; only change words that need to change; never write a list id.",
+    "Fields the item does not use stay as they are (empty stays empty). retarget: \"item\".",
+    `CURRENT: ${JSON.stringify(itemWords(it))}`,
+  ].join("\n");
+}
+
+/** The rewritten words put back on the item: shots matched by key; anything missing keeps its old words. */
+export function applyRetarget<T extends ImagePlanItem | VideoPlanItem>(it: T, raw: unknown, product: ProductPick | null): T {
+  const a = (raw ?? {}) as ItemWords;
+  const pick = (v: unknown, old: string) => (typeof v === "string" && v.trim() ? v.trim() : old);
+  if ("shots" in it) {
+    const v = it as VideoPlanItem;
+    const byKey = new Map((a.shots ?? []).map((s) => [s.key, s]));
+    return { ...v, product, concept: pick(a.concept, v.concept), hook: pick(a.hook, v.hook), voiceover: typeof a.voiceover === "string" ? a.voiceover.trim() : v.voiceover, caption: pick(a.caption, v.caption), cta: pick(a.cta, v.cta), shots: v.shots.map((s) => ({ ...s, action: pick(byKey.get(s.key)?.action, s.action), text: typeof byKey.get(s.key)?.text === "string" ? byKey.get(s.key)!.text.trim() : s.text })) } as T;
+  }
+  const i = it as ImagePlanItem;
+  return { ...i, product, idea: pick(a.idea, i.idea), objective: pick(a.objective, i.objective), visual: pick(a.visual, i.visual), headline: pick(a.headline, i.headline), caption: pick(a.caption, i.caption), cta: pick(a.cta, i.cta) } as T;
+}
+
+/** The preview's rewrite (no text model): the old product's name replaced by the new one in every word. */
+export function demoRetarget(instruction: string): ItemWords & { retarget: string } {
+  const current = JSON.parse(/^CURRENT: (.*)$/m.exec(instruction)?.[1] ?? "{}") as ItemWords;
+  const name = (label: string) => (new RegExp(`^${label}: (.*)$`, "m").exec(instruction)?.[1] ?? "").replace(/ \(.*\)$/, "");
+  const from = name("OLD PRODUCT");
+  const to = name("NEW PRODUCT");
+  const swap = (s: string | undefined) => (s && from && !from.startsWith("no product") ? s.split(from).join(to) : (s ?? ""));
+  return { retarget: "item", idea: swap(current.idea), objective: swap(current.objective), visual: swap(current.visual), headline: swap(current.headline), concept: swap(current.concept), hook: swap(current.hook), voiceover: swap(current.voiceover), caption: swap(current.caption), cta: swap(current.cta), shots: (current.shots ?? []).map((sh) => ({ key: sh.key, action: swap(sh.action), text: swap(sh.text) })) };
+}
+
 /* ───────────── The preview's fixture answer (no text model) ───────────── */
 
 const DEMO = "Demo (preview, no text model)";
@@ -259,6 +363,7 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
   const seconds = num("VIDEO LENGTH", 15);
   const ids = (prefix: string) => [...instruction.matchAll(new RegExp(`^(${prefix}\\d+):`, "gm"))].map((m) => m[1]);
   const products = ids("P");
+  const nameOf = (id: string) => new RegExp(`^${id}: (.*?)(?: — |$)`, "m").exec(instruction)?.[1] ?? "the product";
   const refs = ids("R");
   const media = [...instruction.matchAll(/^(M\d+): (photo|clip)/gm)].map((m) => ({ id: m[1], kind: m[2] }));
   const clip = media.find((m) => m.kind === "clip")?.id ?? "";
@@ -270,7 +375,7 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
     campaign: "plan",
     summary: { concept: `${DEMO}: one idea told in pictures and short Reels across the period.`, mix: `${DEMO}: ${imagesN} image posts carry the offer; ${videosN} Reels show the product in use.`, together: `${DEMO}: the posts open and close the period; the Reels run between them.` },
     images: Array.from({ length: imagesN }, (_, n) => ({
-      idea: `${DEMO}: image post ${n + 1}, the product in a bright everyday moment.`,
+      idea: `${DEMO}: image post ${n + 1}, ${products.length ? nameOf(pick(products, n, "")) : "the product"} in a bright everyday moment.`,
       objective: n === 0 ? "Awareness" : n === imagesN - 1 ? "Conversion" : "Engagement",
       product: pick(products, n, ""),
       visual: `${DEMO}: soft daylight, the product sharp in the foreground, the brand's colours in the surfaces.`,
@@ -280,7 +385,7 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
       cta: "Order today",
     })),
     videos: Array.from({ length: videosN }, (_, v) => ({
-      concept: `${DEMO}: Reel ${v + 1}, a short lifestyle story around the product.`,
+      concept: `${DEMO}: Reel ${v + 1}, a short lifestyle story around ${products.length ? nameOf(pick(products, v, "")) : "the product"}.`,
       hook: `Demo hook ${v + 1}`,
       product: pick(products, v, ""),
       shots: Array.from({ length: shotsN }, (_, k) => {
@@ -289,7 +394,7 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
         const animate = v === 2 && k === 0 && photo;
         return {
           seconds: each,
-          action: `${DEMO}: shot ${k + 1} of Reel ${v + 1}, ${k === 0 ? "the hook: the product revealed" : "the product in use"}.`,
+          action: `${DEMO}: shot ${k + 1} of Reel ${v + 1}, ${k === 0 ? "the hook" : "in use"}: ${products.length ? nameOf(pick(products, v, "")) : "the product"} (${pick(products, v, "")}).`.replace(" ()", ""),
           framing: ["close-up", "medium", "wide", "macro"][k % 4],
           camera: cameras[(k + v) % cameras.length],
           reference: k === 0 ? pick(refs, v, "") : "",

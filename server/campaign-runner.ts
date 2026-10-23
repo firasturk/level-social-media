@@ -32,6 +32,7 @@ import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
+import { stripListIdRefs } from "../shared/campaign-planner";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -589,7 +590,7 @@ export async function applyWords(env: Env, user: User, row: CampaignRow, b: Batc
 export async function advanceCampaign(env: Env, user: User, id: string, waitUntil: (p: Promise<unknown>) => void): Promise<void> {
   const row = await readRow(env, id);
   if (!row || row.status !== "producing") return;
-  const plan = JSON.parse(row.plan) as CampaignPlan;
+  const plan = stripListIdRefs(JSON.parse(row.plan) as CampaignPlan);
   const approval = row.approval ? (JSON.parse(row.approval) as StoredApproval) : null;
   const held = new Set(approval?.needsApproval ?? []);
   const list = await stepsOf(env, id);
