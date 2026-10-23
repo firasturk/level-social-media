@@ -5,17 +5,22 @@
  * muxed with the AAC sound (AudioEncoder) into an MP4 whose `moov` sits in front (mp4-muxer,
  * fastStart in memory), so iPhone and Instagram play it from the first byte. The encoded size is
  * the project's output size, which the frame toggles (9:16, 4:5, 1:1, 16:9) set. Everything runs
- * in this tab; nothing is sent anywhere until the person stores the result.
+ * in this tab; nothing is sent anywhere until the person stores the result. A browser with H.264
+ * but no AAC encoder (Chrome on Linux, Safari before 26) gets the sound encoded by the editor's own
+ * AAC-LC encoder in WebAssembly (aac-fallback.ts, loaded only then), muxed the same way, with an
+ * edit list that skips that encoder's priming.
  *
  * Steps: 1. capability check (stops with a plain message, no other codec is tried);
- *        2. the footage demuxed, its rotation and colour read; the sound rendered offline and encoded;
+ *        2. the footage demuxed, its rotation and colour read; the sound rendered offline and encoded
+ *           (WebCodecs, or the WebAssembly AAC encoder when WebCodecs has none);
  *        3. for each frame time t: the clip(s) on screen from the decoders (two during a crossfade),
  *           one composite, one I420 VideoFrame to the encoder; a still kept at `stillAt`;
  *        4. flush, finalize, a Blob with its size, length and what each source was.
  */
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import { addEditList } from "@shared/aac-mp4";
 import type { CubeLut } from "@shared/cube-lut";
-import { clipVolume, isGap, totalLength, type VideoProject } from "@shared/video-project";
+import { AUDIO_BITRATE, clipVolume, isGap, totalLength, type VideoProject } from "@shared/video-project";
 import { isHdr, OUTPUT_COLOUR, type Rotation, type SourceColour } from "@shared/video-compose";
 import { checkCapabilities, STUDIO_CODECS, type ExportCodecs } from "./capabilities";
 import { demuxMp4, FrameCursor, type DemuxedVideo } from "./demux";
@@ -26,7 +31,8 @@ import type { MediaStore } from "./media";
 import { OverlayLayer } from "./overlays";
 
 export interface ExportProgress {
-  phase: "checking" | "reading" | "sound" | "frames" | "finishing";
+  /** "audio" is the WebAssembly AAC encoder at work (only in browsers without a native AAC encoder). */
+  phase: "checking" | "reading" | "sound" | "audio" | "frames" | "finishing";
   /** 0…1 within the phase. */
   fraction: number;
   /** Frames done, when in the frames phase. */
@@ -36,7 +42,7 @@ export interface ExportProgress {
 
 /** The whole render as one number, for the status line ("Rendering 42%") and the job's heartbeat. */
 export function overallProgress(p: ExportProgress): number {
-  const span: Record<ExportProgress["phase"], [number, number]> = { checking: [0, 0.01], reading: [0.01, 0.06], sound: [0.06, 0.1], frames: [0.1, 0.97], finishing: [0.97, 1] };
+  const span: Record<ExportProgress["phase"], [number, number]> = { checking: [0, 0.01], reading: [0.01, 0.06], sound: [0.06, 0.1], audio: [0.06, 0.1], frames: [0.1, 0.97], finishing: [0.97, 1] };
   const [a, b] = span[p.phase];
   return a + (b - a) * Math.max(0, Math.min(1, p.fraction));
 }
@@ -81,6 +87,8 @@ export interface ExportResult {
   duration: number;
   frames: number;
   videoCodec: string;
+  /** Who encoded the sound: the browser (WebCodecs) or the editor's WebAssembly AAC encoder. */
+  audioEncoder: "native" | "wasm";
   /** What the encoder said about the colour it wrote (else the colour the frames were tagged with). */
   colour: VideoColorSpaceInit;
   sources: SourceReport[];
@@ -94,7 +102,7 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
   };
   onProgress({ phase: "checking", fraction: 0 });
   const caps = await checkCapabilities(project.output, codecs);
-  if (!caps.canExport || !caps.videoCodec) throw new Error(`${caps.message} ${caps.details.join(" ")}`.trim());
+  if (!caps.canExport || !caps.videoCodec || !caps.audioEncoder) throw new Error(`${caps.message} ${caps.details.join(" ")}`.trim());
   const length = totalLength(project);
   if (length <= 0) throw new Error("The timeline is empty: add a clip first.");
   const { width, height, fps, bitrate } = project.output;
@@ -140,12 +148,19 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
     firstTimestampBehavior: "offset",
   });
 
-  // 2. Sound: the mix rendered offline, then AAC.
+  // 2. Sound: the mix rendered offline, then AAC (WebCodecs, or the WebAssembly encoder when the browser has none).
   onProgress({ phase: "sound", fraction: 0 });
   const mix = await renderMix(project, clipAudio, args.music, args.voices ?? new Map());
   abort();
-  await encodeAac(mix, (chunk, meta) => muxer.addAudioChunk(chunk, meta), codecs.audio === "opus" ? "opus" : "mp4a.40.2");
-  onProgress({ phase: "sound", fraction: 1 });
+  let edit: { priming: number; samples: number; sampleRate: number } | null = null;
+  if (codecs.audio === "aac" && caps.audioEncoder === "wasm") {
+    onProgress({ phase: "audio", fraction: 0 });
+    const { encodeAacFallback } = await import("./aac-fallback");
+    edit = await encodeAacFallback(mix, AUDIO_BITRATE, (data, timestamp, duration, meta) => muxer.addAudioChunkRaw(data, "key", timestamp, duration, meta), (fraction) => onProgress({ phase: "audio", fraction }), abort);
+  } else {
+    await encodeAac(mix, (chunk, meta) => muxer.addAudioChunk(chunk, meta), codecs.audio === "opus" ? "opus" : "mp4a.40.2");
+    onProgress({ phase: "sound", fraction: 1 });
+  }
 
   // 3. Frames.
   let encodeError: Error | null = null;
@@ -214,15 +229,18 @@ export async function exportProject(args: ExportArgs): Promise<ExportResult> {
     grader.dispose();
     if (encoder.state !== "closed") encoder.close();
   }
+  // The WebAssembly encoder's priming and the padding after the mix are cut by an edit list (mp4-muxer writes none).
+  const file = edit ? addEditList(new Uint8Array(target.buffer), { handler: "soun", mediaTime: edit.priming, duration: edit.samples / edit.sampleRate }) : target.buffer;
   onProgress({ phase: "finishing", fraction: 1 });
   return {
-    blob: new Blob([target.buffer], { type: "video/mp4" }),
+    blob: new Blob([file], { type: "video/mp4" }),
     still,
     width,
     height,
     duration: frames / fps,
     frames,
     videoCodec: caps.videoCodec,
+    audioEncoder: caps.audioEncoder,
     colour: written ?? { ...OUTPUT_COLOUR },
     sources: [...reports.values()],
   };

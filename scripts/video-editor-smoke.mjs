@@ -6,7 +6,9 @@
  *
  * Open-source Chromium (the Playwright one at /opt/pw-browsers/chromium) has no H.264 decoder or
  * encoder and no AAC, so here the expected outcome is the stop message ("Use Chrome, Edge or
- * Safari on a computer"); on a branded Chrome the editor opens with an empty timeline instead.
+ * Safari on a computer"); on a branded Chrome the editor opens with an empty timeline instead,
+ * and where that Chrome has H.264 but no AAC encoder (Chrome on Linux) the Render panel shows the
+ * AAC fallback's note instead of a stop (PW_CHROMIUM=<chrome binary> to run it there).
  * Either way the page must raise no uncaught error and make no network call outside the server.
  * No Worker, no D1 and no wrangler are involved: the mock is in this file.
  *
@@ -89,7 +91,7 @@ async function startStatic() {
 
 const served = externalUrl ? null : await startStatic();
 const url = externalUrl || served.url;
-const browser = await chromium.launch({ executablePath, headless: true });
+const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const errors = [];
 const outside = [];
@@ -141,7 +143,9 @@ if (!mounted) {
   await page.waitForTimeout(1500);
   const stops = editor.locator(".ve-stop");
   const stopText = (await stops.count()) ? (await stops.first().innerText()).trim() : "";
-  const expectStop = !(codecs.h264 && codecs.aac && codecs.h264decode);
+  // H.264 without AAC renders through the editor's WebAssembly AAC encoder (a note, not a stop).
+  const expectStop = !(codecs.h264 && codecs.h264decode);
+  const expectFallback = !expectStop && !codecs.aac;
   // The standalone editor is the Video studio's Edit tool alone: one tool on the phone's bottom toolbar, the five tabs inside its panel.
   const bottomTabs = await editor.locator(".vs-bottom button").count();
   const editTabs = await editor.locator(".vs-tabs button").count();
@@ -150,10 +154,14 @@ if (!mounted) {
   await editor.locator(".vs-tabs button", { hasText: "Render" }).click();
   const exportPanelStop = (await editor.locator(".ts-side-body .ve-stop").count()) > 0;
   const exportButton = await editor.locator(".ts-side-body .ts-btn.primary").count();
-  result = { mounted: true, title, stopMessage: stopText || null, expectedStop: expectStop, narrowToolbarTabs: bottomTabs, editTabs, exportPanelStop, exportButton };
+  const hints = await editor.locator(".ts-side-body .ts-hint").allInnerTexts();
+  const fallbackNote = hints.find((h) => /no built-in AAC audio encoder/.test(h)) ?? null;
+  result = { mounted: true, title, stopMessage: stopText || null, expectedStop: expectStop, expectedFallback: expectFallback, fallbackNote, narrowToolbarTabs: bottomTabs, editTabs, exportPanelStop, exportButton };
+  if (expectFallback && !fallbackNote) errors.push("This browser has H.264 but no AAC encoder: the Render panel should say the editor encodes the sound itself.");
+  if (!expectFallback && fallbackNote) errors.push(`The AAC fallback note appeared although it does not apply here: ${fallbackNote}`);
   if (expectStop && !/Use Chrome, Edge or Safari on a computer/.test(stopText)) errors.push("The capability message was expected (no H.264/AAC here) and was not shown.");
   if (expectStop && !exportPanelStop) errors.push("The Render panel should show the stop message instead of the Export button.");
-  if (!expectStop && stopText) errors.push(`A stop message appeared although the browser has H.264 and AAC: ${stopText}`);
+  if (!expectStop && stopText) errors.push(`A stop message appeared although the browser can render (H.264, and AAC natively or through the fallback): ${stopText}`);
   if (!expectStop && exportButton !== 1) errors.push("The Render panel should show the Render button on a capable browser.");
   if (bottomTabs !== 1) errors.push(`The 390 px bottom toolbar should show the one Edit tool with no post open, found ${bottomTabs}.`);
   if (editTabs !== 7) errors.push(`The Edit panel should show its 7 tabs (Media, Text, Logo, Music, Colour, Auto edit, Render), found ${editTabs}.`);
