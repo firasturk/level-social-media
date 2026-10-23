@@ -102,7 +102,7 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
     const mango = (await json(await app().request("/api/studio/freepik/search?q=mango", {}, env))) as { items: StockItem[] };
     expect(mango.items.map((i) => i.id)).toEqual(["demo-6"]);
     const vectors = (await json(await app().request("/api/studio/freepik/search?type=vector", {}, env))) as { items: StockItem[] };
-    expect(vectors.items.map((i) => i.kind)).toEqual(["vector", "vector"]);
+    expect(vectors.items.map((i) => i.kind)).toEqual(["vector", "vector", "vector", "vector", "vector"]);
     expect(vectors.items[0].flattened).toBe(false);
     const portraitGreen = (await json(await app().request("/api/studio/freepik/search?orientation=portrait&color=green", {}, env))) as { items: StockItem[] };
     expect(portraitGreen.items.map((i) => i.id)).toEqual(["demo-1"]);
@@ -213,7 +213,8 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
     const r = await app().request("/api/studio/freepik/use", { method: "POST", body: JSON.stringify({ asset: d.body.asset!.id, batch: "b1", post: 1, slide: 2, role: "design", layerId: "L1" }), headers: JSON_HEADERS }, env);
     expect(r.status).toBe(200);
     const out = (await json(r)) as { layer: { src: string; name: string; flattened: boolean }; use: { layerId: string; slide: number } };
-    expect(out.layer).toEqual({ src: `/api/studio/freepik/assets/${d.body.asset!.id}/file`, name: "Lantern pattern, Ramadan (demo)", flattened: false, layerable: true });
+    // The demo card is an SVG: sanitised, kept as the layer file, its colours the swatches.
+    expect(out.layer).toEqual({ src: `/api/studio/freepik/assets/${d.body.asset!.id}/file?layer=1`, name: "Lantern pattern, Ramadan (demo)", flattened: false, layerable: true, preview: false, format: "SVG", editable: true, colors: ["#ffffff", "#2f5ea8"], note: "Editable vector (SVG): its colours can be changed on the layer.", lettering: false, kind: "vector", aspect: 1 });
     expect(out.use).toMatchObject({ layerId: "L1", slide: 2 });
     const uses = await env.DB.prepare("SELECT role, layer_id, slide FROM asset_uses").all<{ role: string; layer_id: string; slide: number }>();
     expect(uses.results).toEqual([{ role: "design", layer_id: "L1", slide: 2 }]);

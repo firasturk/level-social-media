@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Clapperboard, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2 } from "lucide-react";
+import { AlignCenter, AlignJustify, AlignLeft, Aperture, AlignRight, Bold, ChevronDown, Clapperboard, Download, Eye, Italic, Keyboard, Layers, LayoutTemplate, Lock, LockOpen, Minus, Palette, Plus, Redo2, RotateCcw, Sparkles, Trash2, TriangleAlert, Type, Underline, Undo2, X, Copy, Grid3x3, Wand2, Images } from "lucide-react";
 import { Popover as PopoverPrimitive } from "radix-ui";
 import { toast } from "sonner";
 import { postForm } from "@/api";
@@ -9,13 +9,15 @@ import { saveBlob } from "@/lib/zip";
 import { stackedImagesPdf } from "@/lib/pdf";
 import type { OverlaySpec, PostOverlayPatch } from "@shared/overlay";
 import type { Client } from "@shared/types";
-import { editText, isTextLayer, layerId, newImageLayer, newLogoLayer, newShapeLayer, newTextLayer, replaceInLayers, setRunStyle, styleAt, upgradeDesign, wordsOf, type CanvasFx, type Layer, type RunStyle, type ShapeKind, type TextDesign, type TextLayer } from "@shared/layers";
+import { editText, isTextLayer, layerId, newImageLayer, newLogoLayer, newShapeLayer, newTextLayer, replaceInLayers, setRunStyle, styleAt, upgradeDesign, wordsOf, type CanvasFx, type ImageLayer, type Layer, type RunStyle, type ShapeKind, type TextDesign, type TextLayer } from "@shared/layers";
 import { loadFont, loadImage, paintFrame, renderOverlay, type OverlayLayout } from "@/lib/overlay";
 import { drawBasePicture, renderDesignOnly, type LayerBox } from "@/lib/textLayers";
 import { Orb } from "@/components/Orb";
 import ColorField from "./ColorField";
 import FontMenu from "./FontMenu";
-import { FreepikDialog, type FreepikLayer } from "../FreepikPanel";
+import FreepikPanel, { LETTERING_LABEL, type DesignHow, type FreepikLayer } from "../FreepikPanel";
+import { takeAssetsForDesign, type PendingAsset } from "../assetHandoff";
+import { duplicateLayers, imageLayerFromAsset, patchLayers, removeLayers, reorderLayer, setBackground, zOrderLayers } from "@shared/layer-ops";
 import { Assistant, BrandAssets, LayersList, LayoutsList, PresetsList, type Asset } from "./Panels";
 import Properties, { type Align } from "./Properties";
 import { applyLayout, brandFonts, contrastOf, designFromLegacy, directionFor, hitLayer, languageWithSource, layoutsFor, patchWith, round3, sampleContent, savedColours, snapMove, styleToApply, toLocal, type ApplyRole, type Brand, type ClientLanguage, type Guide, type LayoutPreset } from "./model";
@@ -105,6 +107,23 @@ type Drag =
 const MAX_HISTORY = 60;
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 
+/** True when the picture has no transparent pixel (sampled small): a JPG photo, not a cut-out. */
+function isOpaque(img: HTMLImageElement): boolean {
+  try {
+    const c = document.createElement("canvas");
+    c.width = 48;
+    c.height = 48;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    if (!x) return true;
+    x.drawImage(img, 0, 0, 48, 48);
+    const px = x.getImageData(0, 0, 48, 48).data;
+    for (let i = 3; i < px.length; i += 4) if (px[i] < 250) return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 /** The professional text editor: layers of real text over the picture, drawn by the one renderer. */
 export default function TextStudio(p: Props) {
   const { open, src, spec, logoSrc, brand } = p;
@@ -133,7 +152,7 @@ export default function TextStudio(p: Props) {
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(0.5);
   const [leftTab, setLeftTab] = useState<"layers" | "layouts" | "presets" | "brand">("layers");
-  const [rightTab, setRightTab] = useState<"props" | "assist">("props");
+  const [rightTab, setRightTab] = useState<"props" | "assist" | "assets">("props");
   /** Narrow screens have one panel: which side's tab it shows. */
   const [side, setSide] = useState<"left" | "right">("right");
   const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches);
@@ -199,6 +218,7 @@ export default function TextStudio(p: Props) {
         base.height = h;
         base.getContext("2d")!.drawImage(img, 0, 0, w, h);
         baseRef.current = base;
+        photoOpaque.current = isOpaque(img);
         setSize({ W: w, H: h });
         for (const f of brand.fontFiles) void loadFont(f.name, `/api/studio/clients/${brand.id}/fonts/${f.id}/file`);
         // A stored design of any earlier shape is read into the current one (text-only designs come back as they were).
@@ -235,6 +255,8 @@ export default function TextStudio(p: Props) {
         setSelected(d.layers.length ? [d.layers[d.layers.length - 1].id] : []);
         dirtyRef.current = !!keptDesign;
         setSaving(keptDesign ? "dirty" : "saved");
+        // An asset chosen in the Photo studio for this post: placed once the design is on the stage.
+        pendingAssetsRef.current = takeAssetsForDesign(p.batchId, p.index);
       } catch (e) {
         toast.error((e as Error).message);
         p.onClose();
@@ -245,6 +267,17 @@ export default function TextStudio(p: Props) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, src]);
+
+  /* ───────────── The asset carried over from the Photo studio (one search, one import) ───────────── */
+  useEffect(() => {
+    if (!open || !design || !size || !pendingAssetsRef.current.length) return;
+    const list = pendingAssetsRef.current;
+    pendingAssetsRef.current = [];
+    for (const it of list) addFromAsset(it.layer, it.how);
+    setRightTab(list[list.length - 1].how === "background" ? "props" : "assets");
+    setSide("right");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, design, size]);
 
   /* ───────────── Fit to the stage ───────────── */
   useEffect(() => {
@@ -473,14 +506,34 @@ export default function TextStudio(p: Props) {
     const y = (spec.logo.top * W) / H;
     addAny(newLogoLayer({ x: round3(x), y: round3(spec.logo.position === "bottom-center" ? 1 - y - (w * W * 0.5) / H : y), w }));
   };
-  const addImage = (src: string, name?: string) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H) }));
-  /** The Freepik picker, open with the id the new image layer will carry (the design use is recorded against it). */
-  const [freepik, setFreepik] = useState<{ layerId: string } | null>(null);
-  const addFreepik = (l: FreepikLayer) => {
-    addAny(newImageLayer(l.src, { ...(freepik ? { id: freepik.layerId } : {}), name: l.name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H) }));
-    setFreepik(null);
-    toast.success(l.flattened ? "Added as a layer: a flattened picture, not editable layers." : "Added as an editable image layer.");
+  const addImage = (src: string, name?: string, source?: ImageLayer["source"]) => addAny(newImageLayer(src, { name, x: 0.25, y: 0.3, w: 0.5, h: round3((0.5 * W) / H), ...(source ? { source } : {}) }));
+  /**
+   * A Freepik asset placed on the design (from the Assets tab here, or carried over from the Photo
+   * studio): an image layer on top, or the background behind the photo. The layer takes the id the
+   * use was recorded against. Free: the design is data drawn over the photo; nothing is generated.
+   */
+  const addFromAsset = (l: FreepikLayer, how: DesignHow) => {
+    const d = designRef.current;
+    if (!d) return;
+    const made = imageLayerFromAsset({ ...l, source: "freepik" }, W, H, () => l.layerId ?? layerId());
+    if (how === "background") {
+      const { design: next, layer } = setBackground(d, made.src, { ...made, name: `Background · ${made.name}`.slice(0, 60) });
+      commit(next);
+      setSelected([layer.id]);
+      setEditing(null);
+      setRightTab("props");
+      toast.success(photoOpaque.current ? "Background added behind the photo. This photo has no transparent areas, so the background shows around it once you make the photo smaller (Properties › Background)." : "Background added behind the photo: it shows through the photo's transparent areas.");
+      return;
+    }
+    addAny(made);
+    if (l.lettering) toast.success(`${LETTERING_LABEL}: placed as a picture. Use “Add editable text” for words you can type.`);
+    else if (l.editable) toast.success("Added as an editable vector: change its colours under Properties › Vector colours.");
+    else toast.success(l.note ?? "Added as a layer: a flattened picture.");
   };
+  /** The asset hand-over from the Photo studio, taken once the design is loaded. */
+  const pendingAssetsRef = useRef<PendingAsset[]>([]);
+  /** True when the photo has no transparent pixel: a background then shows only around a smaller photo. */
+  const photoOpaque = useRef(true);
   const addShape = (kind: ShapeKind) =>
     addAny(
       newShapeLayer(kind, {
@@ -492,7 +545,7 @@ export default function TextStudio(p: Props) {
     if (!p.onUploadGraphic) return toast.error("Save the month first: an uploaded graphic is kept with it.");
     try {
       const src = await p.onUploadGraphic(file);
-      addImage(src, file.name.replace(/\.[^.]+$/, ""));
+      addImage(src, file.name.replace(/\.[^.]+$/, ""), "upload");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -500,51 +553,41 @@ export default function TextStudio(p: Props) {
   const duplicate = (ids: string[]) => {
     const d = designRef.current;
     if (!d) return;
-    const copies: Layer[] = [];
-    const next = [...d.layers];
-    for (const id of ids) {
-      const l = d.layers.find((x) => x.id === id);
-      if (!l) continue;
-      const c: Layer = { ...l, id: layerId(), name: l.name ? `${l.name} copy` : undefined, x: l.x + 0.02, y: l.y + 0.02 };
-      if (isTextLayer(c)) c.role = undefined;
-      copies.push(c);
-      next.push(c);
-    }
-    if (!copies.length) return;
-    commit({ ...d, layers: next });
-    setSelected(copies.map((c) => c.id));
+    const r = duplicateLayers(d, ids);
+    if (!r.copies.length) return;
+    commit(r.design);
+    setSelected(r.copies);
   };
   const remove = (ids: string[]) => {
     const d = designRef.current;
     if (!d) return;
-    commit({ ...d, layers: d.layers.filter((l) => !ids.includes(l.id)) });
+    commit(removeLayers(d, ids));
     setSelected((s) => s.filter((id) => !ids.includes(id)));
     if (editing && ids.includes(editing)) setEditing(null);
   };
   const reorder = (fromTop: number, toTop: number) => {
     const d = designRef.current;
     if (!d) return;
-    const n = d.layers.length;
-    const from = n - 1 - fromTop;
-    const to = n - 1 - toTop;
-    const next = [...d.layers];
-    const [l] = next.splice(from, 1);
-    next.splice(to, 0, l);
-    commit({ ...d, layers: next });
+    const next = reorderLayer(d, fromTop, toTop);
+    if (next !== d) commit(next);
   };
   const zOrder = (how: "up" | "down" | "front" | "back") => {
     const d = designRef.current;
     if (!d || !selected.length) return;
-    const next = [...d.layers];
-    const picked = next.filter((l) => selected.includes(l.id));
-    const rest = next.filter((l) => !selected.includes(l.id));
-    if (how === "front") return commit({ ...d, layers: [...rest, ...picked] });
-    if (how === "back") return commit({ ...d, layers: [...picked, ...rest] });
-    const i = next.findIndex((l) => l.id === selected[0]);
-    const j = how === "up" ? i + 1 : i - 1;
-    if (i < 0 || j < 0 || j >= next.length) return;
-    [next[i], next[j]] = [next[j], next[i]];
-    commit({ ...d, layers: next });
+    const next = zOrderLayers(d, selected, how);
+    if (next !== d) commit(next);
+  };
+  /** Any picture layer as the background (full canvas, behind the photo), or back over the photo. */
+  const makeBackground = (id: string, on: boolean) => {
+    const d = designRef.current;
+    const l = d?.layers.find((x) => x.id === id);
+    if (!d || !l || l.type !== "image") return;
+    if (on) {
+      // The same layer (same id, file and colours) moves to the bottom, full canvas, behind the photo.
+      const { design: next, layer } = setBackground(removeLayers(d, [id]), l.src, { ...l });
+      commit(next);
+      setSelected([layer.id]);
+    } else commit(patchLayers(d, [id], { behind: undefined }));
   };
   const group = (on: boolean) => {
     if (selected.length < (on ? 2 : 1)) return;
@@ -656,7 +699,7 @@ export default function TextStudio(p: Props) {
       return;
     }
     if (target.closest("textarea")) return;
-    const hit = hitLayer(boxesRef.current, d.layers, pt.x, pt.y, 4);
+    const hit = hitLayer(boxesRef.current, d.layers, pt.x, pt.y, 4, selected);
     if (hit) {
       const l = d.layers.find((x) => x.id === hit.id)!;
       const add = e.shiftKey || e.metaKey || e.ctrlKey;
@@ -804,7 +847,7 @@ export default function TextStudio(p: Props) {
     const d = designRef.current;
     if (!d) return;
     const pt = toCanvas(e);
-    const hit = hitLayer(boxesRef.current, d.layers, pt.x, pt.y, 4);
+    const hit = hitLayer(boxesRef.current, d.layers, pt.x, pt.y, 4, selected);
     const l = hit ? d.layers.find((x) => x.id === hit.id) : undefined;
     if (hit && l && isTextLayer(l) && !l.locked) {
       setSelected([hit.id]);
@@ -1223,6 +1266,7 @@ export default function TextStudio(p: Props) {
     <>
       <button type="button" className={rightOn("props")} onClick={() => pickRight("props")}>Properties</button>
       <button type="button" className={rightOn("assist")} onClick={() => pickRight("assist")}><Sparkles size={13} /> Assistant</button>
+      <button type="button" className={rightOn("assets")} onClick={() => pickRight("assets")} title="Freepik icons, photos, backgrounds and lettering as layers"><Images size={13} /> Assets</button>
     </>
   );
   const leftBody = (
@@ -1242,11 +1286,10 @@ export default function TextStudio(p: Props) {
           onAddImage={addImage}
           onAddShape={addShape}
           onUploadGraphic={p.onUploadGraphic ? uploadGraphic : undefined}
-          onAddFreepik={p.batchId ? () => setFreepik({ layerId: layerId() }) : undefined}
+          onAddFreepik={p.batchId ? () => pickRight("assets") : undefined}
           assets={p.assets ?? []}
         />
       )}
-      <FreepikDialog open={!!freepik} onClose={() => setFreepik(null)} title="Freepik asset as a layer" description="A stock photo, vector or template from Freepik as an image layer over the post's picture. It changes nothing else." clientId={brand.id} batchId={p.batchId} post={p.index} mode="design" layerId={freepik?.layerId} onDesign={addFreepik} />
       {leftTab === "layouts" && design && (
         <LayoutsList layouts={layouts} language={lang} languageSource={langSource} thumb={layoutThumb} cacheKey={layoutKey} trialId={trial?.id ?? null} onPreview={previewLayout} onApply={applyLayoutHere} onApplyAll={p.onApplyLayoutToAll ? (l) => void applyLayoutEverywhere(l) : undefined} />
       )}
@@ -1280,7 +1323,19 @@ export default function TextStudio(p: Props) {
           onUploadFont={uploadFont}
           W={W}
           richActive={richActive}
+          onAddText={() => addLayer()}
+          onBackground={makeBackground}
+          photoOpaque={photoOpaque.current}
         />
+      )}
+      {rightTab === "assets" && (
+        <div className="ts-assets">
+          {p.batchId ? (
+            <FreepikPanel fill clientId={brand.id} batchId={p.batchId} post={p.index} mode="all" onDesign={addFromAsset} onAddText={() => addLayer()} layerHint="An image layer on top of the design: move, resize, turn and stack it; free, no picture is made." />
+          ) : (
+            <p className="ts-hint">Freepik assets are available on a saved month of a client.</p>
+          )}
+        </div>
       )}
       {rightTab === "assist" && (
         <Assistant

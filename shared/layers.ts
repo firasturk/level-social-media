@@ -163,6 +163,25 @@ export interface ImageLayer {
   locked?: boolean;
   hidden?: boolean;
   group?: string;
+  /**
+   * The design's background: drawn behind the photograph (it shows where the photograph is
+   * transparent, or around it when the photograph is made smaller), never over it. Free: no
+   * picture is made.
+   */
+  behind?: boolean;
+  /** Where the picture came from, for its badge: a Freepik asset, the client's Drive, an upload, a product photo, a brand asset. */
+  source?: "freepik" | "drive" | "upload" | "product" | "brand";
+  /** The library asset (Freepik), when it came from one. */
+  asset?: string;
+  /** What the file is ("SVG", "EPS/AI", "PNG"…) and the plain sentence on what it allows. */
+  format?: string;
+  note?: string;
+  /** An editable vector's own colours (#rrggbb), the swatches; only for a sanitised SVG. */
+  colors?: string[];
+  /** This layer's recolouring of the vector: original colour → new colour (#rrggbb). */
+  recolor?: Record<string, string>;
+  /** Decorative lettering (a typography illustration): a picture, not editable text. */
+  lettering?: boolean;
 }
 
 export type ShapeKind = "rect" | "ellipse" | "line";
@@ -214,6 +233,8 @@ export interface CanvasFx {
   crop?: FracRect;
   /** A shift of the (cropped) photograph under the layers, as fractions of the canvas width and height. */
   offset?: { x: number; y: number };
+  /** The photograph drawn smaller (0.3–1) over a background layer, centred; the whole canvas when unset. */
+  photoScale?: number;
 }
 
 export interface TextDesign {
@@ -361,6 +382,14 @@ export const IMAGE_LAYER_SCHEMA = z.object({
   crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.01).max(1), h: z.number().min(0.01).max(1) }).optional(),
   fit: z.enum(["cover", "contain"]).optional(),
   radius: z.number().min(0).max(1).optional(),
+  behind: z.boolean().optional(),
+  source: z.enum(["freepik", "drive", "upload", "product", "brand"]).optional(),
+  asset: z.string().max(60).optional(),
+  format: z.string().max(20).optional(),
+  note: z.string().max(240).optional(),
+  colors: z.array(hex).max(24).optional(),
+  recolor: z.record(hex, hex).refine((m) => Object.keys(m).length <= 32, "at most 32 colours").optional(),
+  lettering: z.boolean().optional(),
 });
 
 export const SHAPE_LAYER_SCHEMA = z.object({
@@ -386,6 +415,7 @@ export const TEXT_DESIGN_SCHEMA = z.object({
       blur: z.number().min(0).max(60).optional(),
       crop: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().min(0.05).max(1), h: z.number().min(0.05).max(1) }).optional(),
       offset: z.object({ x: z.number().min(-1).max(1), y: z.number().min(-1).max(1) }).optional(),
+      photoScale: z.number().min(0.3).max(1).optional(),
     })
     .optional(),
 });

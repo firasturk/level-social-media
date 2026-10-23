@@ -529,3 +529,62 @@
   color: var(--ink-500, #6e6e73);
   font-size: 12px;
 }
+
+/* ───────────── Assets (Freepik) in the right panel: only the results scroll ───────────── */
+.ts-right .ts-side-body:has(> .ts-assets) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.ts-assets {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 860px) {
+  .ts .ts-right:has(.ts-assets) {
+    max-height: 60vh;
+  }
+}
+
+/* A picture layer's source, format and colours */
+.ts-source-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.ts-format {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #3a3a3c;
+}
+.ts-lettering {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 11px;
+  font-weight: 600;
+}
+.ts-vector-colours {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+.ts-layer-bg {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: #1d1d1f;
+  color: #fff;
+}

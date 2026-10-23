@@ -112,7 +112,7 @@ export const postSchema = z.object({
   group: z.object({ id: z.string().max(40), kind: z.enum(["carousel", "series"]), slide: z.number().int().min(1).max(10), of: z.number().int().min(1).max(10), role: z.string().max(30).optional() }).optional(),
   exact: z.boolean().optional(),
   ingredients: z.string().max(300).optional(),
-  reference: z.object({ key: z.string().max(200), thumb: z.string().max(200), note: z.string().max(600).optional(), name: z.string().max(200).optional(), at: z.number() }).optional(),
+  reference: z.object({ key: z.string().max(200), thumb: z.string().max(200), note: z.string().max(600).optional(), name: z.string().max(200).optional(), at: z.number(), source: z.enum(["freepik", "drive", "pinterest", "upload"]).optional() }).optional(),
   clientNote: z.object({ note: z.string().max(1000), at: z.number(), summary: z.string().max(300).optional() }).optional(),
   seenBefore: z.string().max(120).optional(),
   offer: z
