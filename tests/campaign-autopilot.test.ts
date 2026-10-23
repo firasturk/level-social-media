@@ -149,10 +149,11 @@ describe("Campaign Autopilot: planning before any spend", () => {
     expect(n.pictures).toBe(3 + n.keyFrames + (n.pictures - 3 - n.keyFrames));
     expect(n.assemblies).toBe(4);
     expect(n.renders).toBe(4);
-    // Units stay apart: list-price dollars for pictures and the Cloud clips (preview fixture), Magnific credits for other angles.
+    // Units stay apart: list-price dollars for pictures (each shot's own picture included) and the Cloud clips (preview fixture).
     const totals = c.proposal.costs.totals;
-    expect(Object.keys(totals).sort()).toEqual(["magnific-credits", "usd"]);
-    expect(totals["magnific-credits"].steps).toBe(n.pictures - 3 - n.keyFrames);
+    expect(Object.keys(totals).sort()).toEqual(["usd"]);
+    expect(c.plan.videos.every((v) => v.frameEngine.kind === "engine" && v.frameEngine.model === "gemini-3-pro-image")).toBe(true);
+    expect(n.pictures - 3 - n.keyFrames).toBeGreaterThan(0);
     expect(c.proposal.caps.find((x) => x.unit === "usd")!.cap).toBeCloseTo(c.proposal.caps.find((x) => x.unit === "usd")!.estimate * 2, 3);
     // Nothing made, nothing reserved: no cards, no tasks, no clips, no ledger rows.
     const config = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as Config;
@@ -193,7 +194,7 @@ describe("Campaign Autopilot: approval and production", () => {
     expect(a.status).toBe(200);
     expect(a.body.campaign.status).toBe("producing");
     const ledger = await spendRows(env);
-    expect(ledger.map((x) => x.scope).sort()).toEqual([`campaign:${c.id}:magnific-credits`, `campaign:${c.id}:usd`]);
+    expect(ledger.map((x) => x.scope).sort()).toEqual([`campaign:${c.id}:usd`]);
     // A second press approves nothing more.
     const again = await approve(env, c);
     expect(again.body.already).toBe(true);

@@ -36,8 +36,9 @@ import { resolveEngineModel, getSetting } from "./settings";
 import { listClient } from "./drive";
 import { approveSpend, spendStatus } from "./spend";
 import { higgsfieldBilling } from "./higgsfield-billing";
-import { advanceCampaign, campaignScope } from "./campaign-runner";
+import { advanceCampaign, campaignScope, redoNote } from "./campaign-runner";
 import { LOOKS } from "@shared/video-project";
+import { suggestInstruction, suggestionsFrom, SUGGEST_SCHEMA, type SuggestInput } from "../shared/campaign-suggest";
 import { estimateCost } from "@shared/pricing";
 import { VIDEO_MODELS, videoModel, videoPriceSetting, durationChoices } from "@shared/video-models";
 import type { Config } from "@shared/config";
@@ -45,6 +46,7 @@ import type { User } from "@shared/types";
 import {
   approvalSignature,
   budgetCaps,
+  isFrameModel,
   normalizePlan,
   normalizeSetup,
   OUTSIDE_THE_CAP,
@@ -234,7 +236,9 @@ export async function planDefaults(env: Env, config: Config, setup: CampaignSetu
     const m = stored?.models?.length ? matchMcpModel(stored.models as Parameters<typeof matchMcpModel>[0], cloud.name) : null;
     if (m) clipEngine = { provider: "higgsfield-mcp", model: m.id, name: `${m.name} (subscription credits)` };
   }
-  return { imageEngine: { kind: "engine", model }, frameEngine: { kind: "mg-camera", model: "images_change_camera" }, clipEngine, frame: setup.videoFrame, videoSeconds: setup.videoSeconds };
+  // Each shot gets its own picture (its action and camera) from the key frame, on Google's engine.
+  const frameModel = isFrameModel(model) ? model : "gemini-3-pro-image";
+  return { imageEngine: { kind: "engine", model }, frameEngine: { kind: "engine", model: frameModel }, clipEngine, frame: setup.videoFrame, videoSeconds: setup.videoSeconds };
 }
 
 /** The lengths a clip engine makes, for rounding each shot up to a clip it can make. */
@@ -503,7 +507,7 @@ campaignRoutes.get("/engines", async (c) => {
     }
   }
   const { listEngineModels } = await import("./campaign-runner");
-  return c.json({ ok: true, billing, images: listEngineModels(), frames: [{ kind: "mg-camera", model: "images_change_camera", name: "Magnific Change camera (Magnific credits)" }], clips: billing === "credits" ? mcp.map((x) => ({ provider: "higgsfield-mcp", model: x.id, name: `${x.name} (subscription credits)` })) : VIDEO_MODELS.map((m) => ({ provider: "higgsfield", model: m.slug, name: `${m.name} (Cloud API)` })) });
+  return c.json({ ok: true, billing, images: listEngineModels(), frames: [...listEngineModels().filter((x) => isFrameModel(x.model)).map((x) => ({ ...x, name: `${x.name.replace(/ \(.*\)$/, "")}: a new picture per shot (list price, US dollars)` })), { kind: "mg-camera", model: "images_change_camera", name: "Magnific Change camera: the key frame from another angle (Magnific credits)" }], clips: billing === "credits" ? mcp.map((x) => ({ provider: "higgsfield-mcp", model: x.id, name: `${x.name} (subscription credits)` })) : VIDEO_MODELS.map((m) => ({ provider: "higgsfield", model: m.slug, name: `${m.name} (Cloud API)` })) });
 });
 
 campaignRoutes.get("/", async (c) => {
@@ -511,6 +515,60 @@ campaignRoutes.get("/", async (c) => {
   const rows = await all<CampaignRow>(c.env.DB, "SELECT * FROM campaign_plans WHERE batch = ? AND status != 'discarded' ORDER BY created DESC LIMIT 20", b.id);
   return c.json({ ok: true, campaigns: rows.map((r) => ({ id: r.id, status: r.status, created: r.created, updated: r.updated, summary: planOf(r).summary.concept.slice(0, 200), simulate: !!r.simulate })) });
 });
+
+/** Three campaigns the text model proposes for the month, from the brand, its Analysis, products, cast, rules and occasions (one text call; nothing is planned or paid). */
+campaignRoutes.post("/suggest", async (c) => {
+  const d = await parseBody(c, z.object({ batch: z.string().min(1), hint: z.string().trim().max(600).optional(), language: z.enum(["ar", "en", "both"]).optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const config = JSON.parse(b.config) as Config;
+  const brand = await brandOf(c.env, config);
+  const { products } = await planSources(c.env, b);
+  const profileRow = config.client ? await first<{ profile: string | null }>(c.env.DB, "SELECT profile FROM client_profiles WHERE client = ?", config.client).catch(() => null) : null;
+  const pastRows = config.client ? await all<{ setup: string }>(c.env.DB, "SELECT setup FROM campaign_plans WHERE client = ? AND status != 'discarded' ORDER BY created DESC LIMIT 6", config.client).catch(() => []) : [];
+  const { occasionsOf } = await import("@shared/occasions");
+  const input: SuggestInput = {
+    brand: { name: brand?.name ?? "the brand", tone: brand?.tone ?? "", audience: brand?.audience ?? "", language: brand?.language ?? "", dos: brand?.dos ?? "", donts: brand?.donts ?? "", style: brand?.style ?? "" },
+    profile: profileText(profileRow?.profile ?? null),
+    products: products.slice(0, 40).map((p, n) => ({ ...p, listId: `P${n + 1}` })),
+    month: config.month ?? "",
+    today: new Date().toISOString().slice(0, 10),
+    occasions: occasionsOf(config.month ?? "").map((o) => ({ date: o.date, name: `${o.name} (${o.ar})` })),
+    cast: await castOf(c.env, config.client ?? null),
+    rules: config.client ? await (await import("./lessons")).lessonsFor(c.env, config.client, { batch: b.id }).catch(() => []) : [],
+    past: [...new Set(pastRows.map((r) => (JSON.parse(r.setup) as Partial<CampaignSetup>).objective?.trim() ?? "").filter(Boolean))],
+    hint: d.hint ?? "",
+    language: d.language ?? "both",
+  };
+  const suggestions = suggestionsFrom(parseJson<unknown>(await askText(c.env, suggestInstruction(input), SUGGEST_SCHEMA)), input);
+  if (!suggestions.length) throw new StudioError("The text model gave no usable suggestion. Try again.", 502);
+  return c.json({ ok: true, suggestions, preview: previewNoImages(c.env) });
+});
+
+/** The Analysis as a few lines for a prompt (what it found that a campaign can use). */
+function profileText(json: string | null): string {
+  if (!json) return "";
+  try {
+    const p = JSON.parse(json) as Partial<import("@shared/profile").ClientProfile>;
+    return [
+      p.summary && `Summary: ${p.summary}`,
+      p.audience && `Audience: ${p.audience}`,
+      p.offer?.heroes?.length && `Hero products: ${p.offer.heroes.join(", ")}`,
+      p.offer?.services?.length && `Services: ${p.offer.services.join(", ")}`,
+      p.tone?.description && `Voice: ${p.tone.description}${p.tone.dialect ? ` (${p.tone.dialect})` : ""}`,
+      p.branding?.colours?.length && `Colours: ${p.branding.colours.join(", ")}`,
+      p.branding?.photography && `Photography: ${p.branding.photography}`,
+      p.content?.works?.length && `What works on their feed: ${p.content.works.join("; ")}`,
+      p.content?.weak?.length && `What is weak: ${p.content.weak.join("; ")}`,
+      p.refs?.length && `Competitors' takeaways: ${p.refs.flatMap((r) => r.takeaways ?? []).slice(0, 6).join("; ")}`,
+      p.direction && `Recommended direction: ${p.direction}`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+      .slice(0, 3000);
+  } catch {
+    return "";
+  }
+}
 
 /** The planner's call for a setup, mapped to a plan (ids resolved against the real lists). */
 async function writePlan(env: Env, b: BatchRow, setup: CampaignSetup, rev: number, extra = ""): Promise<{ plan: CampaignPlan; input: PlannerInput; defaults: PlanDefaults }> {
@@ -847,7 +905,7 @@ campaignRoutes.post("/:id/steps/:step/approve-shots", async (c) => {
  */
 campaignRoutes.post("/:id/steps/:step/redo", async (c) => {
   const user = c.get("user");
-  const d = await parseBody(c, z.object({ angle: z.enum(["front", "left", "right", "top", "low", "closer", "wider"]).optional(), confirm: z.boolean().optional() }));
+  const d = await parseBody(c, z.object({ angle: z.enum(["front", "left", "right", "top", "low", "closer", "wider"]).optional(), note: z.string().trim().max(600).optional(), confirm: z.boolean().optional() }));
   const { row } = await campaignOf(c.env, user, c.req.param("id"));
   const s = await first<StepRow>(c.env.DB, "SELECT * FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, c.req.param("step"));
   if (!s || (s.kind !== "image" && s.kind !== "frame")) throw new StudioError("Only a starting picture is made again here.", 404);
@@ -867,7 +925,10 @@ campaignRoutes.post("/:id/steps/:step/redo", async (c) => {
     if (x.unit && x.estimate) await approveSpend(c.env, campaignScope(row.id, x.unit), x.estimate, `${row.id}:${x.step}:redo:${x.attempts}`);
     const mine = x.step === s.step;
     // Waiting: it starts when what it is made from is done (a key frame being made again comes first).
-    await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", mine && d.angle ? JSON.stringify({ angle: d.angle }) : x.data, mine ? (d.angle ? `Making again, angle: ${d.angle}` : "Making again") : "Made again from the new key frame", t, row.id, x.step);
+    // The note the new take is made with: the admin's words, else the automatic check's notes on the last picture.
+    const fix = mine ? d.note || redoNote({ data: null, note: x.note }) : "";
+    const data = mine ? JSON.stringify({ ...(d.angle ? { angle: d.angle } : {}), ...(fix ? { note: fix } : {}) }) : x.data;
+    await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", data, mine ? ["Making again", d.angle && `angle: ${d.angle}`, fix && `with: ${fix}`].filter(Boolean).join(", ").slice(0, 400) : "Made again from the new key frame", t, row.id, x.step);
   }
   // The clips that start from this picture, and the Reel's review, wait for the new picture.
   await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', updated = ? WHERE campaign = ? AND step = ?", t, row.id, review.step);

@@ -42,6 +42,9 @@ const START_LIMIT: Record<StepRow["kind"], number> = { post: 12, image: 3, frame
 /** A render the browser started and stopped reporting on, after this long, is offered again. */
 const RENDER_STALE_MS = 3 * 60 * 1000;
 
+/** A shot picture still "running" this long after it started lost its pass (the engine answers in about a minute). */
+const ENGINE_FRAME_STALE_MS = 8 * 60 * 1000;
+
 const SIMULATED = "Simulated (preview): no provider was called";
 
 export function listEngineModels(): { kind: "engine"; model: string; name: string }[] {
@@ -223,17 +226,8 @@ async function setCardPicture(env: Env, b: { id: string; owner: string; config: 
 /** A picture to simulate with (a PNG, JPEG or WebP, as an engine returns): the product photo, else the month's newest picture, else a plain card. */
 async function simulatedPicture(env: Env, b: BatchRow, plan: CampaignPlan, item: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
   const raster = (mime: string | undefined) => /^image\/(png|jpeg|webp)$/i.test(mime ?? "");
-  const { image, video } = itemOf(plan, item);
-  const p = (image ?? video)?.product;
-  if (p?.from === "library") {
-    const s = await first<{ key: string; reference_key: string | null }>(env.DB, "SELECT key, reference_key FROM sources WHERE id = ?", p.id);
-    const obj = s ? await env.BUCKET.get(s.reference_key ?? s.key) : null;
-    if (obj && raster(obj.httpMetadata?.contentType)) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata!.contentType! };
-  }
-  if (p?.from === "drive") {
-    const img = await photoBytes(env, p.id, 1600).catch(() => null);
-    if (img && raster(img.mime)) return img;
-  }
+  const photo = await productPhoto(env, plan, item);
+  if (photo) return photo;
   for (const t of await all<{ output: string }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 6", b.id)) {
     const obj = await env.BUCKET.get(t.output);
     if (obj && raster(obj.httpMetadata?.contentType)) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata!.contentType! };
@@ -251,6 +245,8 @@ interface Ctx {
   plan: CampaignPlan;
   steps: Map<string, StepRow>;
   waitUntil: (p: Promise<unknown>) => void;
+  /** A background pass (the cron), which may wait on a picture engine that answers in one long call. */
+  background: boolean;
 }
 
 const postOfItem = (ctx: Ctx, item: string) => ctx.steps.get(`${item}:-:post`)?.post ?? null;
@@ -289,6 +285,95 @@ async function startKey(ctx: Ctx, v: VideoPlanItem, s: ShotPlan, b: BatchRow): P
   const k = ctx.steps.get(`${v.key}:-:image`);
   if (!k?.output_key) throw new StudioError("The key frame is not made yet.", 409);
   return k.output_key;
+}
+
+/** What "Make again" asked for: the admin's note, else the automatic check's notes on the last picture. */
+export function redoNote(s: Pick<StepRow, "data" | "note">): string {
+  let asked = "";
+  try {
+    asked = s.data ? ((JSON.parse(s.data) as { note?: string }).note ?? "").trim() : "";
+  } catch {
+    asked = "";
+  }
+  if (asked) return asked.slice(0, 600);
+  const flagged = /^The automatic check asks you to look: (.+)$/s.exec(s.note ?? "");
+  return flagged ? `Fix what the check found on the last picture: ${flagged[1]}`.slice(0, 600) : "";
+}
+
+/** The prompt a shot's own starting picture is made with: the shot's moment, the key frame's world. */
+export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean } = {}): string {
+  const cast = opts.cast ?? [];
+  const people = peopleRule(cast).replace(/^PEOPLE: /, "");
+  return [
+    "Make one photograph: the starting frame of one shot in a short vertical video ad. It must look like a real photo from the same shoot as the first image.",
+    "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
+    v.product ? `${opts.productPhoto ? "The second image is the product itself: " : ""}keep ${v.product.name} exactly as it is: shape, label, colours and size unchanged.` : "",
+    `The campaign idea: ${v.concept}`,
+    `THIS SHOT: ${s.action}`,
+    s.framing && `Framing: ${s.framing}.`,
+    s.camera && `Camera position for this moment: ${s.camera}.`,
+    "This is a different moment and a different camera position from the key frame: build the composition this shot describes; do not copy the key frame's composition, crop or pose.",
+    `Vertical ${v.frame} photograph, photorealistic, natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no watermark, no split screen.`,
+    showsPeople(s.action) || cast.length ? `People: ${people}` : "",
+    opts.rules?.length ? `Brand rules (never break them): ${opts.rules.slice(0, 8).join(" · ")}` : "",
+    opts.note ? `Fix this from the last try: ${opts.note}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 4000);
+}
+
+/** The product's photo, when the plan names one in the library or on Drive (read-only, free). */
+async function productPhoto(env: Env, plan: CampaignPlan, item: string): Promise<{ bytes: ArrayBuffer; mime: string } | null> {
+  const raster = (mime: string | undefined) => /^image\/(png|jpeg|webp)$/i.test(mime ?? "");
+  const { image, video } = itemOf(plan, item);
+  const p = (image ?? video)?.product;
+  if (p?.from === "library") {
+    const s = await first<{ key: string; reference_key: string | null }>(env.DB, "SELECT key, reference_key FROM sources WHERE id = ?", p.id);
+    const obj = s ? await env.BUCKET.get(s.reference_key ?? s.key) : null;
+    if (obj && raster(obj.httpMetadata?.contentType)) return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata!.contentType! };
+  }
+  if (p?.from === "drive") {
+    const img = await photoBytes(env, p.id, 1600).catch(() => null);
+    if (img && raster(img.mime)) return img;
+  }
+  return null;
+}
+
+/**
+ * A shot's own starting picture, made by Google's image engine from the key frame (and the product's
+ * photo) and the shot's words. Google answers in one call: the step is done or failed when it returns.
+ */
+async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, shot: ShotPlan, index: number | null): Promise<void> {
+  const { env, row } = ctx;
+  const model = v.frameEngine.model;
+  const keyFrame = ctx.steps.get(`${v.key}:-:image`)?.output_key;
+  const keyObj = keyFrame ? await env.BUCKET.get(keyFrame) : null;
+  if (!keyObj) throw new StudioError("The key frame is not made yet.", 409);
+  const config = JSON.parse(b.config) as Config;
+  const { castOf } = await import("./campaign");
+  const cast = await castOf(env, config.client ?? null);
+  const rules = config.client ? await (await import("./lessons")).lessonsFor(env, config.client, { batch: b.id }).catch(() => [] as string[]) : [];
+  const product = await productPhoto(env, ctx.plan, s.item);
+  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product });
+  if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
+  await patchStep(env, s, { post: index, ref_kind: "engine", ref_id: model, note: `Making this shot's picture with ${model}` });
+  const { makeGoogleClient } = await import("./engine");
+  const engine = await makeGoogleClient(env);
+  let img: { bytes: ArrayBuffer; mime: string };
+  try {
+    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : [])], aspectRatio: v.frame, size: config.size ?? "2K" });
+  } catch (e) {
+    // Google bills a picture it returns: a refusal or an error answer returns none; a lost connection may have made one.
+    const message = errorMessage(e);
+    await failAttempt(env, row, s, `${model}: ${message}`, /timed? ?out|abort|network|connection/i.test(message) ? "unknown" : "no");
+    return;
+  }
+  const mime = img.mime || "image/png";
+  const key = `${b.owner}/${b.id}/campaign/${row.id}/${v.key}-${shot.key}-frame-${s.attempts}.${/jpe?g/.test(mime) ? "jpg" : /webp/.test(mime) ? "webp" : "png"}`;
+  await env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: mime } });
+  await settleCost(env, row, s, s.reserved);
+  await patchStep(env, s, { status: "done", output_key: key, finished: now(), note: `Made by ${model} from the key frame${product ? " and the product photo" : ""}, for this shot's own moment` });
 }
 
 async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
@@ -344,7 +429,8 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
         }
         if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
         const had = await first<{ output: string | null }>(env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL LIMIT 1", b.id, index);
-        const r = await generateRun(env, user, { batch: b.id, indexes: [index], regenerate: !!had?.output, approve: true, run: `campaign:${row.id}:${s.step}:${s.attempts}` }, ctx.waitUntil);
+        const fix = redoNote(s);
+        const r = await generateRun(env, user, { batch: b.id, indexes: [index], regenerate: !!had?.output, approve: true, run: `campaign:${row.id}:${s.step}:${s.attempts}`, ...(fix ? { note: fix } : {}) }, ctx.waitUntil);
         if (r.status !== 200) throw new StudioError(String(r.body.error ?? "The image engine did not start."), 409);
         await patchStep(env, s, { post: index, ref_kind: "task", ref_id: String(index), note: "Sent to the image engine" });
         return;
@@ -362,6 +448,20 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
         // "Make again" with an angle the admin picked on the review.
         const asked = s.data ? (JSON.parse(s.data) as { angle?: string }).angle : undefined;
         if (asked) angle = asked;
+        if (v.frameEngine.kind === "engine") {
+          if (row.simulate) {
+            if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
+            await settleCost(env, row, s, null);
+            const k = ctx.steps.get(`${v.key}:-:image`)?.output_key;
+            const obj = k ? await env.BUCKET.get(k) : null;
+            const key = `${b.owner}/${b.id}/campaign/${row.id}/${v.key}-${shot.key}-frame-sim.${k?.endsWith(".png") ? "png" : "jpg"}`;
+            if (obj) await env.BUCKET.put(key, await obj.arrayBuffer(), { httpMetadata: { contentType: obj.httpMetadata?.contentType || "image/jpeg" } });
+            await patchStep(env, s, { status: "done", post: index, output_key: obj ? key : k ?? null, finished: now(), note: `${SIMULATED}: the key frame stands in for this shot's own picture.` });
+            return;
+          }
+          await engineFrame(ctx, s, b, v, shot, index);
+          return;
+        }
         if (row.simulate) {
           if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
           await settleCost(env, row, s, null);
@@ -631,15 +731,17 @@ export async function applyWords(env: Env, user: User, row: CampaignRow, b: Batc
  * Settles what is running, then starts what is ready, then says whether the campaign is done.
  * Completion is "ready for review": nothing is sent to the client or published.
  */
-export async function advanceCampaign(env: Env, user: User, id: string, waitUntil: (p: Promise<unknown>) => void): Promise<void> {
+export async function advanceCampaign(env: Env, user: User, id: string, waitUntil: (p: Promise<unknown>) => void, background = false): Promise<void> {
   const row = await readRow(env, id);
   if (!row || row.status !== "producing") return;
   const plan = stripListIdRefs(JSON.parse(row.plan) as CampaignPlan);
   const approval = row.approval ? (JSON.parse(row.approval) as StoredApproval) : null;
   const held = new Set(approval?.needsApproval ?? []);
   const list = await stepsOf(env, id);
-  const ctx: Ctx = { env, user, row, plan, steps: new Map(list.map((s) => [s.step, s])), waitUntil };
+  const ctx: Ctx = { env, user, row, plan, steps: new Map(list.map((s) => [s.step, s])), waitUntil, background };
   for (const s of list) if (s.status === "running") await settleStep(ctx, s).catch((e) => console.error("[campaign] settle", s.step, errorMessage(e)));
+  // A shot picture whose pass ended before the engine answered: its outcome is unknown (counted, never resent by itself).
+  for (const s of list) if (s.kind === "frame" && s.status === "running" && s.ref_kind === "engine" && now() - (s.started ?? s.updated) > ENGINE_FRAME_STALE_MS) await failAttempt(env, row, s, "The image engine did not answer in time; whether it charged is unknown, so it is held for reconciliation.", "unknown");
   // A running render the tab stopped reporting on is offered again.
   for (const s of list) if (s.kind === "render" && s.status === "running" && now() - s.updated > RENDER_STALE_MS) await patchStep(env, s, { status: "ready" });
   // Waiting steps whose inputs are done become ready.
@@ -649,14 +751,20 @@ export async function advanceCampaign(env: Env, user: User, id: string, waitUnti
     if (deps.every((d) => ctx.steps.get(d)?.status === "done")) await patchStep(env, s, { status: "ready" });
   }
   const started: Record<string, number> = {};
+  const slow: Promise<void>[] = [];
   for (const s of list) {
     if (s.status !== "ready" || held.has(s.item)) continue;
+    const engineMade = s.kind === "frame" && !row.simulate && itemOf(plan, s.item).video?.frameEngine.kind === "engine";
+    // A page's pass leaves those to the cron (within a minute): a closed tab would cut the engine's answer off.
+    if (engineMade && !background) continue;
     const fresh = await readRow(env, id);
     if (fresh?.status !== "producing") break;
     if ((started[s.kind] ?? 0) >= START_LIMIT[s.kind]) continue;
     started[s.kind] = (started[s.kind] ?? 0) + 1;
-    await startStep(ctx, s);
+    if (engineMade) slow.push(startStep(ctx, s));
+    else await startStep(ctx, s);
   }
+  await Promise.all(slow);
   const after = await stepsOf(env, id);
   const open = after.filter((s) => s.status !== "done" && s.status !== "skipped");
   if (!open.length) await run(env.DB, "UPDATE campaign_plans SET status = 'done', pause_reason = NULL, updated = ? WHERE id = ? AND status = 'producing'", now(), id);
@@ -673,6 +781,6 @@ export async function advanceCampaigns(env: Env, waitUntil: (p: Promise<unknown>
   for (const r of rows) {
     const user = await first<User>(env.DB, "SELECT id, email, name, role FROM users WHERE id = ?", r.owner);
     if (!user || user.role !== "admin") continue;
-    await advanceCampaign(env, user, r.id, waitUntil).catch((e) => console.error("[campaign] cron", r.id, errorMessage(e)));
+    await advanceCampaign(env, user, r.id, waitUntil, true).catch((e) => console.error("[campaign] cron", r.id, errorMessage(e)));
   }
 }

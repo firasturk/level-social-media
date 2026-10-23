@@ -126,7 +126,7 @@ export function normalizeSetup(s: Partial<CampaignSetup> | null | undefined): Ca
 
 /** The image engine of the month (the post pipeline) or a picture tool. */
 export interface ImageEngine {
-  /** `engine`: the month's image engine (dollars, list price); `mg-camera`: Magnific "Change camera" (Magnific credits). */
+  /** `engine`: an image engine (dollars, list price); for a shot, a new picture from the key frame and the shot's own words. `mg-camera`: Magnific "Change camera" (Magnific credits), the key frame seen from another angle. */
   kind: "engine" | "mg-camera";
   model: string;
 }
@@ -235,6 +235,9 @@ export interface StepSpec {
 
 export const stepId = (item: string, shot: string | null, kind: StepKind) => `${item}:${shot ?? "-"}:${kind}`;
 
+/** The image engines that make a shot's own starting picture from the key frame (Google's, which take reference pictures). */
+export const isFrameModel = (model: string | undefined): model is string => typeof model === "string" && /^gemini-/.test(model);
+
 export const imagePriceKey = (e: ImageEngine) => (e.kind === "engine" ? `image:${e.model}` : `tool:${e.kind}`);
 export const clipPriceKey = (e: ClipEngine, seconds: number, frame: FrameId) => `clip:${e.provider}:${e.model}:${seconds}:${frame}`;
 export const imageUnit = (e: ImageEngine): CostUnit => (e.kind === "engine" ? "usd" : "magnific-credits");
@@ -279,7 +282,7 @@ export function planSteps(plan: CampaignPlan, selected?: Set<string>, clipLength
         if (s.key === firstStart) starts.set(s.key, key!);
         else {
           const frame = stepId(v.key, s.key, "frame");
-          out.push({ id: frame, item: v.key, shot: s.key, kind: "frame", deps: [key!], priceKey: imagePriceKey(v.frameEngine), unit: imageUnit(v.frameEngine), label: "The shot's starting image (from the key frame)" });
+          out.push({ id: frame, item: v.key, shot: s.key, kind: "frame", deps: [key!], priceKey: imagePriceKey(v.frameEngine), unit: imageUnit(v.frameEngine), label: v.frameEngine.kind === "engine" ? "The shot's starting picture (its own, made from the key frame)" : "The shot's starting image (the key frame from another angle)" });
           starts.set(s.key, frame);
         }
       } else starts.set(s.key, s.asset ? post : key!);
@@ -597,7 +600,7 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
       cta: str(v?.cta, 120),
       caption: str(v?.caption, 600),
       keyFrameEngine: v?.keyFrameEngine?.kind === "engine" && v.keyFrameEngine.model ? { kind: "engine", model: v.keyFrameEngine.model } : defaults.imageEngine,
-      frameEngine: v?.frameEngine?.kind === "mg-camera" ? { kind: "mg-camera", model: "images_change_camera" } : defaults.frameEngine,
+      frameEngine: v?.frameEngine?.kind === "mg-camera" ? { kind: "mg-camera", model: "images_change_camera" } : v?.frameEngine?.kind === "engine" && isFrameModel(v.frameEngine.model) ? { kind: "engine", model: v.frameEngine.model } : defaults.frameEngine,
       clipEngine: v?.clipEngine && (v.clipEngine.provider === "higgsfield-mcp" || v.clipEngine.provider === "higgsfield") && v.clipEngine.model ? { provider: v.clipEngine.provider, model: v.clipEngine.model, name: str(v.clipEngine.name, 80) || v.clipEngine.model } : defaults.clipEngine,
     };
   });

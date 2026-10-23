@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
 import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
-import { approveShots, redoStep, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
+import { approveShots, redoStep, suggestCampaigns, type CampaignSuggestion, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import "./campaign.css";
 
 interface Props {
@@ -75,9 +75,71 @@ function Setup({ batch, sources, onCreated }: { batch: string; sources: Sources 
       setBusy(false);
     }
   };
+  const [hint, setHint] = useState("");
+  const [ideas, setIdeas] = useState<CampaignSuggestion[] | null>(null);
+  const [thinking, setThinking] = useState(false);
+  const [picked, setPicked] = useState<number | null>(null);
+  const suggest = async () => {
+    setThinking(true);
+    setError("");
+    try {
+      const r = await suggestCampaigns(batch, hint.trim() || undefined, s.language);
+      setIdeas(r.suggestions);
+      setPicked(null);
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setThinking(false);
+    }
+  };
+  const use = (n: number) => {
+    const idea = ideas![n];
+    setS((x) => ({ ...x, ...idea.setup, direction: { ...x.direction, ...(idea.setup.direction ?? {}), references: x.direction.references } }));
+    setPicked(n);
+  };
   const num = (k: "imagePosts" | "videos" | "shotsPerVideo" | "videoSeconds", min: number, max: number) => <input type="number" min={min} max={max} value={s[k]} onChange={(e) => set(k, Math.max(min, Math.min(max, Number(e.target.value) || 0)))} />;
   return (
     <div className="ca-setup">
+      <section className="ca-card ca-suggest">
+        <div className="ca-suggest-head">
+          <div>
+            <h3>
+              <Sparkles size={16} /> Suggest a campaign
+            </h3>
+            <span className="ca-muted">Three campaigns written for this brand from its Analysis, products, cast, approved rules and this month's occasions. Pick one to fill the form; nothing is planned or paid until you press Plan.</span>
+          </div>
+        </div>
+        <div className="ca-suggest-ask">
+          <input dir="auto" value={hint} onChange={(e) => setHint(e.target.value)} placeholder="Optional: what you have in mind (e.g. summer, a new flavour, families on the weekend)" maxLength={600} onKeyDown={(e) => e.key === "Enter" && !thinking && void suggest()} />
+          <button type="button" className="cta primary" disabled={thinking} onClick={() => void suggest()}>
+            {thinking ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />} {ideas ? "Suggest again" : "Suggest"}
+          </button>
+        </div>
+        {thinking && <span className="ca-muted">Thinking like the brand's creative director… (about 20 seconds)</span>}
+        {ideas && (
+          <div className="ca-ideas">
+            {ideas.map((idea, n) => (
+              <article key={n} className={`ca-idea${picked === n ? " is-picked" : ""}`}>
+                <b dir="auto">{idea.title}</b>
+                <p dir="auto" className="ca-idea-line">“{idea.setup.message}”</p>
+                <p dir="auto"><span className="ca-muted">Insight:</span> {idea.insight}</p>
+                <p dir="auto"><span className="ca-muted">Why now:</span> {idea.why}</p>
+                {!!idea.setup.products?.length && (
+                  <div className="ca-idea-products">
+                    {idea.setup.products.map((p) => (p.thumb ? <img key={p.id} src={p.thumb} alt={p.name} title={p.name} /> : <span key={p.id} className="ca-pill">{p.name}</span>))}
+                  </div>
+                )}
+                <small className="ca-muted">
+                  {idea.setup.imagePosts} posts · {idea.setup.videos} Reels × {idea.setup.shotsPerVideo} shots · {idea.setup.videoSeconds} s{idea.setup.offer ? ` · ${idea.setup.offer}` : ""}
+                </small>
+                <button type="button" className={picked === n ? "cta" : "cta primary"} onClick={() => use(n)}>
+                  {picked === n ? <><Check size={15} /> In the form below</> : "Use this campaign"}
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
       <section className="ca-card">
         <h3>The campaign</h3>
         <div className="ca-grid2">
@@ -533,6 +595,18 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
             ))}
           </select>
         </Field>
+        <Field label="Shot pictures">
+          <select value={`${v.frameEngine.kind}|${v.frameEngine.model}`} onChange={(e) => {
+            const [kind, model] = e.target.value.split("|");
+            onChange({ ...v, frameEngine: { kind: kind as "engine" | "mg-camera", model } });
+          }}>
+            {[{ kind: v.frameEngine.kind, model: v.frameEngine.model, name: v.frameEngine.model }, ...(engines?.frames ?? [])]
+              .filter((x, i, all) => all.findIndex((y) => y.kind === x.kind && y.model === x.model) === i)
+              .map((x) => (
+                <option key={`${x.kind}|${x.model}`} value={`${x.kind}|${x.model}`}>{engines?.frames.find((y) => y.kind === x.kind && y.model === x.model)?.name ?? x.name}</option>
+              ))}
+          </select>
+        </Field>
         <Field label="Video engine">
           <select value={`${v.clipEngine.provider}|${v.clipEngine.model}`} onChange={(e) => {
             const [provider, model] = e.target.value.split("|");
@@ -572,9 +646,10 @@ const ANGLES = [
  * each shot's picture (or the client's own media), its length and action, "Make again" for one
  * picture, and the approval that lets the clips be made.
  */
-function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPlanItem; onApprove: (step: string) => void; onRedo: (step: string, angle?: string) => void; busy: boolean }) {
+function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPlanItem; onApprove: (step: string) => void; onRedo: (step: string, angle?: string, note?: string) => void; busy: boolean }) {
   const review = c.steps.find((s) => s.step === `${v.key}:-:review`);
   const [angles, setAngles] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   if (!review || review.status === "done" || review.status === "skipped") return null;
   const firstStart = v.shots.find((x) => x.source === "start-image")?.key;
   const stepOf = (shot: ShotPlan) => (shot.source === "existing" || (shot.source === "animate" && shot.asset) ? null : shot.source === "start-image" && shot.key !== firstStart ? c.steps.find((s) => s.step === `${v.key}:${shot.key}:frame`) : c.steps.find((s) => s.step === `${v.key}:-:image`));
@@ -605,7 +680,8 @@ function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPl
               {!st && <small className="ca-muted">{shot.source === "existing" ? "The client's own media, used as it is" : "The client's photo, animated"}</small>}
               {st && st.status !== "running" && (
                 <span className="ca-review-redo">
-                  {st.kind === "frame" && (
+                  <input type="text" dir="auto" aria-label="What to change" placeholder={st.note?.startsWith("The automatic check") ? "What to change (empty: fix what the check found)" : "What to change (optional)"} value={notes[st.step] ?? ""} onChange={(e) => setNotes({ ...notes, [st.step]: e.target.value })} disabled={busy} maxLength={600} />
+                  {st.kind === "frame" && v.frameEngine.kind === "mg-camera" && (
                     <select aria-label="Angle" value={angles[st.step] ?? ""} onChange={(e) => setAngles({ ...angles, [st.step]: e.target.value })} disabled={busy}>
                       <option value="">Same angle</option>
                       {ANGLES.map(([id, label]) => (
@@ -613,7 +689,7 @@ function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPl
                       ))}
                     </select>
                   )}
-                  <button type="button" className="text-button" disabled={busy} onClick={() => onRedo(st.step, angles[st.step] || undefined)} title={st.kind === "image" ? "Another take of the key frame (its other angles are made again from it)" : "This angle made again"}>
+                  <button type="button" className="text-button" disabled={busy} onClick={() => onRedo(st.step, angles[st.step] || undefined, notes[st.step]?.trim() || undefined)} title={st.kind === "image" ? "Another take of the key frame (the other shots' pictures are made again from it)" : "This shot's picture made again"}>
                     <RefreshCw size={13} /> Make again
                   </button>
                 </span>
@@ -635,7 +711,7 @@ function ShotReview({ c, v, onApprove, onRedo, busy }: { c: Campaign; v: VideoPl
   );
 }
 
-function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAgain, onApproveShots, onRedo, busy }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null; renderFailed: Record<string, string>; onRenderAgain: (step: string) => void; onApproveShots: (step: string) => void; onRedo: (step: string, angle?: string) => void; busy: boolean }) {
+function Progress({ c, onRetry, onOpenCard, rendering, renderFailed, onRenderAgain, onApproveShots, onRedo, busy }: { c: Campaign; onRetry: (s: CampaignStep) => void; onOpenCard: (n: number) => void; rendering: { step: string; fraction: number; phase: string } | null; renderFailed: Record<string, string>; onRenderAgain: (step: string) => void; onApproveShots: (step: string) => void; onRedo: (step: string, angle?: string, note?: string) => void; busy: boolean }) {
   const items = [...c.plan.images.map((i) => ({ key: i.key, title: i.headline || i.idea.slice(0, 50), video: false })), ...c.plan.videos.map((v) => ({ key: v.key, title: v.hook || v.concept.slice(0, 50), video: true }))];
   return (
     <section className="ca-card">
@@ -873,11 +949,11 @@ export default function CampaignAutopilot({ batch, onClose, onOpenCard }: Props)
                 {needs.length > 0 && <span className="ca-warn-inline">Changed after approval, waiting for approval: {needs.join(", ")}</span>}
               </div>
             </section>
-            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} busy={!!busy} onApproveShots={(step) => void act("shots", () => approveShots(c.id, step))} onRedo={(step, angle) => void act("redo", async () => {
+            {(c.status === "producing" || c.status === "paused" || c.status === "done" || c.steps.length > 0) && <Progress c={c} busy={!!busy} onApproveShots={(step) => void act("shots", () => approveShots(c.id, step))} onRedo={(step, angle, note) => void act("redo", async () => {
               try {
-                return await redoStep(c.id, step, angle);
+                return await redoStep(c.id, step, angle, false, note);
               } catch (e) {
-                if (e instanceof ApiError && (e.data as { needsConfirm?: boolean }).needsConfirm && window.confirm(e.message)) return redoStep(c.id, step, angle, true);
+                if (e instanceof ApiError && (e.data as { needsConfirm?: boolean }).needsConfirm && window.confirm(e.message)) return redoStep(c.id, step, angle, true, note);
                 throw e;
               }
             })} onOpenCard={onOpenCard} rendering={rendering} renderFailed={renderFailed} onRenderAgain={(step) => setRenderFailed((f) => Object.fromEntries(Object.entries(f).filter(([k]) => k !== step)))} onRetry={(s) => void act("retry", async () => {

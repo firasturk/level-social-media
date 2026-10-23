@@ -92,4 +92,19 @@
 .ca-review-pic .ca-pill { position: absolute; top: 6px; left: 6px; }
 .ca-review-redo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .ca-review-redo select { font-size: 12px; padding: 3px 6px; }
+.ca-review-redo input { font-size: 12px; padding: 4px 6px; width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
 .ca-review > .cta { align-self: flex-start; }
+
+/* Suggest a campaign */
+.ca-suggest h3 { display: flex; align-items: center; gap: 6px; }
+.ca-suggest-ask { display: flex; gap: 8px; margin: 10px 0 6px; }
+.ca-suggest-ask input { flex: 1; min-width: 0; }
+.ca-ideas { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 10px; }
+.ca-idea { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.ca-idea.is-picked { border-color: var(--accent, var(--ink-900)); box-shadow: 0 0 0 1px var(--accent, var(--ink-900)) inset; }
+.ca-idea p { margin: 0; font-size: 13px; line-height: 1.45; }
+.ca-idea-line { font-weight: 600; font-size: 14px !important; }
+.ca-idea-products { display: flex; gap: 4px; flex-wrap: wrap; }
+.ca-idea-products img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+.ca-idea .cta { margin-top: auto; align-self: flex-start; }
+@media (max-width: 640px) { .ca-suggest-ask { flex-direction: column; } }

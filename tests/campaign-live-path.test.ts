@@ -22,6 +22,7 @@ const ADMIN: User = { id: "u1", email: "admin@test", name: "Firas", role: "admin
 const calls = vi.hoisted(() => ({
   generate: [] as { indexes?: number[]; approve?: boolean; run?: string; regenerate?: boolean; reserved: number }[],
   tool: [] as { index: number; camera: string; reserved: number }[],
+  frame: [] as { model: string; prompt: string; images: number; aspectRatio: string; reserved: number }[],
   clip: [] as { index: number; model: string; duration?: number; aspect?: string; prompt: string; posterKey?: string; reserved: number }[],
   billing: "credits" as "credits" | "cloud",
   env: null as unknown as { DB: D1Database; BUCKET: R2Bucket },
@@ -71,6 +72,20 @@ vi.mock("../server/photo-tools", async (orig) => {
   };
 });
 
+vi.mock("../server/engine", async (orig) => {
+  const real = await orig<typeof import("../server/engine")>();
+  return {
+    ...real,
+    // Google's image engine for each shot's own starting picture: one call, a picture back.
+    makeGoogleClient: async () => ({
+      edit: async (job: { model: string; prompt: string; images: unknown[]; aspectRatio: string }) => {
+        calls.frame.push({ model: job.model, prompt: job.prompt, images: job.images.length, aspectRatio: job.aspectRatio, reserved: await reservedNow("usd") });
+        return { bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer, mime: "image/png" };
+      },
+    }),
+  };
+});
+
 vi.mock("../server/higgsfield-billing", async (orig) => ({ ...(await orig<typeof import("../server/higgsfield-billing")>()), higgsfieldBilling: async () => calls.billing }));
 
 vi.mock("../server/higgsfield-mcp", async (orig) => {
@@ -93,6 +108,7 @@ vi.mock("../server/higgsfield-mcp", async (orig) => {
 });
 
 const { studioRoutes } = await import("../server/studio");
+const { advanceCampaigns } = await import("../server/campaign-runner");
 const { StudioError } = await import("../server/errors");
 
 const pending: Promise<unknown>[] = [];
@@ -146,11 +162,14 @@ async function plannedAndPriced(env: FakeEnv): Promise<C> {
   return (await call<{ campaign: C }>(env, "GET", `/${c.id}`)).body.campaign;
 }
 
-/** Production passes; the admin approves each Reel's starting pictures as they are ready. */
+/** Production passes (the page's and the cron's); the admin approves each Reel's starting pictures as they are ready. */
 async function tick(env: FakeEnv, id: string, n = 8): Promise<C> {
   let c = (await call<{ campaign: C }>(env, "GET", `/${id}`)).body.campaign;
   for (let i = 0; i < n; i++) {
     c = (await call<{ campaign: C }>(env, "POST", `/${id}/tick`)).body.campaign;
+    await advanceCampaigns(env as never, ctx.waitUntil);
+    await Promise.all(pending.splice(0));
+    c = (await call<{ campaign: C }>(env, "GET", `/${id}`)).body.campaign;
     for (const r of c.steps.filter((s) => s.kind === "review" && s.status === "ready")) c = (await call<{ campaign: C }>(env, "POST", `/${id}/steps/${encodeURIComponent(r.step)}/approve-shots`)).body.campaign;
   }
   return c;
@@ -161,6 +180,7 @@ beforeEach(() => {
   reached = guardFetch().reached;
   calls.generate.length = 0;
   calls.tool.length = 0;
+  calls.frame.length = 0;
   calls.clip.length = 0;
   calls.billing = "credits";
 });
@@ -172,7 +192,7 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     const c = await plannedAndPriced(env);
     expect(c.proposal.unaccepted).toEqual([]);
     await tick(env, c.id, 2);
-    expect([calls.generate.length, calls.tool.length, calls.clip.length]).toEqual([0, 0, 0]);
+    expect([calls.generate.length, calls.tool.length, calls.frame.length, calls.clip.length]).toEqual([0, 0, 0, 0]);
 
     const a = await call<{ campaign: C }>(env, "POST", `/${c.id}/approve`, { items: c.proposal.items, retries: 1, signature: c.proposal.signature, acceptedUnknown: [] });
     expect(a.status).toBe(200);
@@ -180,11 +200,12 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     // 3 post pictures and 4 key frames through the image engine, each approved for its run id.
     expect(calls.generate).toHaveLength(7);
     expect(calls.generate.every((g) => g.approve === true && g.indexes?.length === 1 && g.run?.startsWith(`campaign:${c.id}:`))).toBe(true);
-    // 3 other angles per video through Magnific, never the same angle twice in a video.
-    expect(calls.tool).toHaveLength(12);
-    const byCard = new Map<number, string[]>();
-    for (const t of calls.tool) byCard.set(t.index, [...(byCard.get(t.index) ?? []), t.camera]);
-    for (const cams of byCard.values()) expect(new Set(cams).size).toBe(cams.length);
+    // 3 other shots per video, each its own picture from Google's engine: the key frame as reference, the shot's own words.
+    expect(calls.tool).toHaveLength(0);
+    expect(calls.frame).toHaveLength(12);
+    expect(calls.frame.every((f) => f.model === "gemini-3-pro-image" && f.aspectRatio === "9:16" && f.images >= 1 && f.reserved > 0)).toBe(true);
+    for (const v of p.plan.videos as unknown as { shots: { key: string; source: string; action: string }[] }[]) for (const shot of v.shots.slice(1)) expect(calls.frame.some((f) => f.prompt.includes(`THIS SHOT: ${shot.action}`))).toBe(true);
+    expect(calls.frame.every((f) => /different moment and a different camera position/.test(f.prompt))).toBe(true);
     // 16 clips on the subscription credits, each from its shot's starting picture.
     expect(calls.clip).toHaveLength(16);
     for (const v of p.plan.videos) {
@@ -194,23 +215,48 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
       const clips = calls.clip.filter((x) => x.index === post);
       expect(clips).toHaveLength(4);
       expect(clips[0].posterKey).toBe(keyPicture);
-      for (const x of clips.slice(1)) expect(x.posterKey).toMatch(/\/tools\/job-/);
+      for (const x of clips.slice(1)) expect(x.posterKey).toMatch(/\/campaign\/.+-frame-1\.png$/);
       expect(new Set(clips.map((x) => x.posterKey)).size).toBe(4);
       expect(clips.every((x) => x.aspect === "9:16" && x.duration === 5 && x.model === "seedance")).toBe(true);
     }
     // Every request found its reservation already made in its unit.
     expect(calls.generate.every((g) => g.reserved > 0)).toBe(true);
-    expect(calls.tool.every((t) => t.reserved > 0)).toBe(true);
     expect(calls.clip.every((x) => x.reserved > 0)).toBe(true);
-    // Reported costs settle the reservations: Magnific reported 11.5 per angle.
-    const magnific = await env.DB.prepare("SELECT approved, reserved FROM spend WHERE scope = ?").bind(`campaign:${c.id}:magnific-credits`).first<{ approved: number; reserved: number }>();
-    expect(magnific!.reserved).toBeCloseTo(12 * 11.5, 3);
-    expect(magnific!.reserved).toBeLessThanOrEqual(magnific!.approved);
+    const usd = await env.DB.prepare("SELECT approved, reserved FROM spend WHERE scope = ?").bind(`campaign:${c.id}:usd`).first<{ approved: number; reserved: number }>();
+    expect(usd!.reserved).toBeLessThanOrEqual(usd!.approved);
     // The Reels: assembled as editable projects, waiting for the browser render.
     expect(p.steps.filter((s) => s.kind === "assemble").every((s) => s.status === "done")).toBe(true);
     expect(p.steps.filter((s) => s.kind === "render").every((s) => s.status === "ready")).toBe(true);
     const projects = await env.DB.prepare("SELECT COUNT(*) AS n FROM video_projects WHERE batch = 'b1'").first<{ n: number }>();
     expect(projects!.n).toBe(4);
+  });
+
+  it("Magnific Change camera stays a choice for the shot pictures: other angles of the key frame, never the same twice", async () => {
+    const env = await seed();
+    let c = await plannedAndPriced(env);
+    const full = (await env.DB.prepare("SELECT plan FROM campaign_plans WHERE id = ?").bind(c.id).first<{ plan: string }>())!;
+    const plan = JSON.parse(full.plan) as { rev: number; videos: { frameEngine: { kind: string; model: string } }[] };
+    plan.videos = plan.videos.map((v) => ({ ...v, frameEngine: { kind: "mg-camera", model: "images_change_camera" } }));
+    const saved = await call<{ campaign: C }>(env, "PUT", `/${c.id}/plan`, { plan, rev: plan.rev });
+    expect(saved.status).toBe(200);
+    c = saved.body.campaign;
+    const row = await env.DB.prepare("SELECT prices FROM campaign_plans WHERE id = ?").bind(c.id).first<{ prices: string }>();
+    const prices = JSON.parse(row!.prices) as Record<string, { amount: number | null; unit: string; source: string | null }>;
+    prices["tool:mg-camera"] = { amount: 12, unit: "magnific-credits", source: "provider" };
+    await env.DB.prepare("UPDATE campaign_plans SET prices = ? WHERE id = ?").bind(JSON.stringify(prices), c.id).run();
+    c = (await call<{ campaign: C }>(env, "GET", `/${c.id}`)).body.campaign;
+    await call(env, "POST", `/${c.id}/approve`, { items: c.proposal.items, retries: 1, signature: c.proposal.signature, acceptedUnknown: [] });
+    await tick(env, c.id, 14);
+    expect(calls.frame).toHaveLength(0);
+    expect(calls.tool).toHaveLength(12);
+    const byCard = new Map<number, string[]>();
+    for (const t of calls.tool) byCard.set(t.index, [...(byCard.get(t.index) ?? []), t.camera]);
+    for (const cams of byCard.values()) expect(new Set(cams).size).toBe(cams.length);
+    expect(calls.tool.every((t) => t.reserved > 0)).toBe(true);
+    // Reported costs settle the reservations: Magnific reported 11.5 per angle.
+    const magnific = await env.DB.prepare("SELECT approved, reserved FROM spend WHERE scope = ?").bind(`campaign:${c.id}:magnific-credits`).first<{ approved: number; reserved: number }>();
+    expect(magnific!.reserved).toBeCloseTo(12 * 11.5, 3);
+    expect(magnific!.reserved).toBeLessThanOrEqual(magnific!.approved);
   });
 
   it("switching the Higgsfield billing after approval pauses the clips: no clip goes to the other account", async () => {

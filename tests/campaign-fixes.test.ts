@@ -9,7 +9,7 @@ import { declinedPresetIn } from "../server/higgsfield-mcp";
 import { photoTool } from "../shared/photo-tools";
 import { campaignInstruction, peopleRule, showsPeople } from "../shared/campaign-planner";
 import { defaultSetup } from "../shared/campaign-plan";
-import { clipPrompt } from "../server/campaign-runner";
+import { clipPrompt, framePrompt, redoNote } from "../server/campaign-runner";
 
 describe("Magnific Change camera", () => {
   it("moves the camera with rotate, vertical and closeup (the tool takes no angle name)", () => {
@@ -54,5 +54,27 @@ describe("only the brand's cast appears", () => {
     expect(showsPeople("شاب يمسك كوب")).toBe(true);
     expect(showsPeople("A hand reaching for the cup")).toBe(true);
     expect(showsPeople("Ice cubes falling into the cup")).toBe(false);
+  });
+});
+
+describe("each shot gets its own starting picture (23 Oct: four shots came out as one picture)", () => {
+  const men = [{ name: "omar", gender: "man", modest: true }];
+  const shot = { key: "s2", seconds: 4, action: "Omar pours the smoothie into a cup on the dashboard", framing: "medium shot", camera: "low angle from the passenger seat", reference: null, source: "start-image" as const, asset: null, text: "" };
+  const v = { concept: "A cold smoothie on a hot drive", frame: "9:16", product: { name: "Sakina Mango", id: "p1", from: "library" } } as never;
+  it("the prompt is the shot's own moment and camera, in the key frame's world, with the cast and the brand rules", () => {
+    const p = framePrompt(v, shot, { cast: men, rules: ["Never show a woman, not even her hand."], productPhoto: true });
+    expect(p).toMatch(/THIS SHOT: Omar pours the smoothie/);
+    expect(p).toMatch(/Camera position for this moment: low angle from the passenger seat/);
+    expect(p).toMatch(/do not copy the key frame's composition/);
+    expect(p).toMatch(/The second image is the product itself: keep Sakina Mango exactly/);
+    expect(p).toMatch(/People: only the brand's cast/);
+    expect(p).toMatch(/Brand rules \(never break them\): Never show a woman/);
+    expect(p).toMatch(/Vertical 9:16 photograph/);
+  });
+  it("Make again carries the admin's words, else what the automatic check found", () => {
+    expect(redoNote({ data: JSON.stringify({ note: "No third hand" }), note: null })).toBe("No third hand");
+    expect(redoNote({ data: null, note: "The automatic check asks you to look: A third hand is reaching for the cup." })).toBe("Fix what the check found on the last picture: A third hand is reaching for the cup.");
+    expect(redoNote({ data: null, note: "Made by gemini-3-pro-image" })).toBe("");
+    expect(framePrompt(v, shot, { note: "No third hand" })).toMatch(/Fix this from the last try: No third hand/);
   });
 });

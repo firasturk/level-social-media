@@ -68,7 +68,7 @@ export interface Sources {
 export interface Engines {
   billing: "credits" | "cloud";
   images: { kind: "engine"; model: string; name: string }[];
-  frames: { kind: "mg-camera"; model: string; name: string }[];
+  frames: { kind: "engine" | "mg-camera"; model: string; name: string }[];
   clips: { provider: "higgsfield-mcp" | "higgsfield"; model: string; name: string }[];
 }
 
@@ -78,6 +78,13 @@ type One = { campaign: Campaign };
 export const listCampaigns = (batch: string) => get<{ campaigns: { id: string; status: string; created: number; summary: string; simulate: boolean }[] }>(`${base}?batch=${encodeURIComponent(batch)}`);
 export const campaignSources = (batch: string) => get<Sources>(`${base}/sources?batch=${encodeURIComponent(batch)}`);
 export const campaignEngines = () => get<Engines>(`${base}/engines`);
+export interface CampaignSuggestion {
+  title: string;
+  insight: string;
+  why: string;
+  setup: Partial<CampaignSetup>;
+}
+export const suggestCampaigns = (batch: string, hint?: string, language?: CampaignSetup["language"]) => post<{ suggestions: CampaignSuggestion[]; preview: boolean }>(`${base}/suggest`, { batch, ...(hint ? { hint } : {}), ...(language ? { language } : {}) });
 export const createCampaign = (batch: string, setup: CampaignSetup) => post<One>(base, { batch, setup });
 export function loadCampaign(id: string, opts: { items?: string[]; retries?: number } = {}): Promise<One> {
   const qs = new URLSearchParams();
@@ -96,7 +103,7 @@ export const resumeCampaign = (id: string) => post<One>(`${base}/${id}/resume`);
 export const retryStep = (id: string, step: string, extra = false) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/retry`, { extra });
 export const renderedStep = (id: string, step: string, videoId: string) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/rendered`, { videoId });
 export const approveShots = (id: string, step: string) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/approve-shots`);
-export const redoStep = (id: string, step: string, angle?: string, confirm = false) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/redo`, { ...(angle ? { angle } : {}), confirm });
+export const redoStep = (id: string, step: string, angle?: string, confirm = false, note?: string) => post<One>(`${base}/${id}/steps/${encodeURIComponent(step)}/redo`, { ...(angle ? { angle } : {}), ...(note ? { note } : {}), confirm });
 export const discardCampaign = (id: string) => post<{ ok: true }>(`${base}/${id}/discard`);
 
 export type { Price };
