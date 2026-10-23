@@ -2,7 +2,8 @@
  * A picture as a short clip, made in this tab: the Video editor's footage is H.264 MP4 only, so a
  * picture card joining "Combine into one video" is drawn on the editor's 1080×1920 frame (whole,
  * on a blurred copy of itself) and encoded for a few seconds with the same WebCodecs encoder the
- * editor's export uses. Nothing is sent anywhere and nothing is generated; a browser without an
+ * editor's export uses. Campaign Autopilot draws a Reel's photo shots the same way, at the Reel's
+ * own size and for its shot's length (src/video-editor/headless-render.ts). Nothing is sent anywhere and nothing is generated; a browser without an
  * H.264 encoder says so with the editor's own message.
  */
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
@@ -29,8 +30,8 @@ function drawFrame(ctx: CanvasRenderingContext2D, img: ImageBitmap, w: number, h
   ctx.drawImage(img, (w - img.width * fit) / 2, (h - img.height * fit) / 2, img.width * fit, img.height * fit);
 }
 
-export async function stillToClip(url: string, name: string, seconds = STILL_SECONDS): Promise<File> {
-  const output = { width: 1080, height: 1920, fps: 30 };
+/** The picture at `url` as a `seconds`-long H.264 clip at `output`'s size (a Reel, 1080×1920 at 30 fps, by default). */
+export async function stillToClip(url: string, name: string, seconds = STILL_SECONDS, output: { width: number; height: number; fps: number } = { width: 1080, height: 1920, fps: 30 }): Promise<File> {
   const caps = await checkCapabilities(output);
   if (!caps.videoCodec) throw new Error(`${caps.message} ${caps.details.join(" ")}`.trim());
   const img = await loadImage(url);
