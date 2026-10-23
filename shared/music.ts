@@ -269,6 +269,10 @@ export function tempoFromEnvelope(energy: ArrayLike<number>, hop: number, minCon
     flux[i] = Math.max(0, l - prev);
     prev = l;
   }
+  // Spread each rise over its neighbours: a beat that is not a whole number of hops lands on
+  // alternating hops, and unsmoothed it correlates better at twice the period (half time).
+  const raw = flux.slice();
+  for (let i = 1; i < n - 1; i++) flux[i] = 0.5 * raw[i] + 0.25 * (raw[i - 1] + raw[i + 1]);
   let mean = 0;
   for (let i = 0; i < n; i++) mean += flux[i];
   mean /= n;

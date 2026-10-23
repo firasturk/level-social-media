@@ -702,7 +702,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       const buffer = await decodeAudio(await r.arrayBuffer());
       if (!buffer) throw new Error(`${pick.track.title} could not be decoded as audio.`);
       setMusicBusy("Finding the beats…");
-      const found = beatsOf(buffer);
+      const found = beatsOf(buffer, pick.track.bpm);
       const source = musicSourceFromTrack(pick.track);
       setMusicFile({ name: pick.track.title, buffer, beats: found });
       history.commit((p) => ({ ...p, music: { source, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found, start: p.music?.start ?? 0, ...(p.music?.end !== undefined ? { end: p.music.end } : {}), duck: p.music?.duck ?? { ...DEFAULT_DUCKING } } }));

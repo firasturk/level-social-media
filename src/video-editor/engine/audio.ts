@@ -52,8 +52,9 @@ export function energyEnvelope(buffer: AudioBuffer, hop = BEAT_HOP): Float32Arra
   return out;
 }
 
-export function beatsOf(buffer: AudioBuffer): number[] {
-  return detectBeats(energyEnvelope(buffer), BEAT_HOP, { minGap: 0.25, window: 1, threshold: 1.3 });
+/** The beat grid; `bpm` when the track's tempo is already known (a music library track's). */
+export function beatsOf(buffer: AudioBuffer, bpm?: number | null): number[] {
+  return detectBeats(energyEnvelope(buffer), BEAT_HOP, { minGap: 0.25, window: 1, threshold: 1.3, bpm });
 }
 
 /** The music's buffer source and where it plays: from timeline time `from`, when to start (seconds after `from`), where in the track, for how long. */

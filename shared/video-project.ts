@@ -20,7 +20,7 @@ import { checkOverlays, DEFAULT_FRAMING, normaliseFraming, type Framing, type Ov
 import { checkKeyframes, CLIP_PROPS, CLIP_RANGE, splitKeyframes, valueAt, type Keyframes } from "./video-keyframes";
 import { checkMatch, type ColourMatch } from "./colour-match";
 import { MAX_STORED_LUT_SIZE, storedLutChars } from "./cube-lut";
-import { creditLine, isContentId, isLicenceId, type ContentIdStatus, type LicenceId, type MusicTrack } from "./music";
+import { creditLine, isContentId, isLicenceId, tempoFromEnvelope, type ContentIdStatus, type LicenceId, type MusicTrack } from "./music";
 
 /**
  * 3 (phase 3): colour presets with an intensity (`lookAmount`, a clip's own `look`), vibrance,
@@ -864,13 +864,16 @@ export function snapCutsToBeats(clips: readonly Clip[], beats: readonly number[]
 }
 
 /**
- * Beat times from an energy envelope (one value per `hop` seconds, e.g. the RMS of 1024-sample
- * windows): an onset is a hop whose energy rises above the local average by a margin, at least a
- * minimum gap apart; then a steady grid is fitted to the most common onset spacing so quiet bars
- * still get a tick. Energy-based, so it finds pulses, not musical downbeats; a track without a
- * clear pulse gets a grid from the loudest rises only. This is a heuristic, not a transcription.
+ * Beat times from an energy envelope (one value per `hop` seconds, e.g. the RMS of 20 ms hops):
+ * the tempo comes from the autocorrelation of the onset strength (shared/music.ts
+ * `tempoFromEnvelope`), or from `bpm` when the track's tempo is already known (the music
+ * library's); the grid's phase is the one whose ticks land on the strongest rises; then each tick
+ * moves onto an onset close to it, so a recording that drifts a little stays on the beat and quiet
+ * bars still get a tick. Without a clear tempo the grid falls back to the most common spacing
+ * between onsets. Energy-based, so it finds pulses, not musical downbeats: a heuristic, not a
+ * transcription. (The spacing-only grid picked 0.36 s on a 128 BPM track, cuts off the beat.)
  */
-export function detectBeats(energy: ArrayLike<number>, hop: number, opts: { minGap?: number; window?: number; threshold?: number } = {}): number[] {
+export function detectBeats(energy: ArrayLike<number>, hop: number, opts: { minGap?: number; window?: number; threshold?: number; bpm?: number | null } = {}): number[] {
   const n = energy.length;
   if (n < 4 || hop <= 0) return [];
   const minGap = opts.minGap ?? 0.25;
@@ -891,8 +894,12 @@ export function detectBeats(energy: ArrayLike<number>, hop: number, opts: { minG
     }
   }
   if (onsets.length < 2) return onsets;
-  // The most common spacing (to 20 ms) becomes the grid period; the grid starts at the first onset
-  // and drifts back to the nearest onset where there is one.
+  const end = (n - 1) * hop;
+  const hint = opts.bpm && opts.bpm >= 40 && opts.bpm <= 240 ? opts.bpm : null;
+  const bpm = hint ?? tempoFromEnvelope(energy, hop).bpm;
+  if (bpm) return tempoGrid(energy, hop, 60 / bpm, onsets, end);
+  // No clear tempo: the most common spacing (to 20 ms) becomes the grid period; the grid starts at
+  // the first onset and drifts back to the nearest onset where there is one.
   const spacings = new Map<number, number>();
   for (let i = 1; i < onsets.length; i++) {
     const s = Math.round((onsets[i] - onsets[i - 1]) / 0.02) * 0.02;
@@ -902,13 +909,45 @@ export function detectBeats(energy: ArrayLike<number>, hop: number, opts: { minG
   let count = 0;
   for (const [s, c] of spacings) if (c > count || (c === count && s < period)) [period, count] = [s, c];
   if (!period || count < 2) return onsets;
-  const end = (n - 1) * hop;
   const grid: number[] = [];
   let t = onsets[0];
   while (t <= end + 1e-9) {
     const near = nearestBeat(t, onsets, period * 0.3);
     grid.push(Math.round(near * 1000) / 1000);
     t = near + period;
+  }
+  return grid;
+}
+
+/** A steady grid at `period`: the phase where the ticks meet the strongest rises, each tick then moved onto an onset within a fifth of a beat. */
+function tempoGrid(energy: ArrayLike<number>, hop: number, period: number, onsets: readonly number[], end: number): number[] {
+  const n = energy.length;
+  const flux = new Float32Array(n);
+  let prev = Math.log(1e-4 + energy[0]);
+  for (let i = 1; i < n; i++) {
+    const l = Math.log(1e-4 + energy[i]);
+    flux[i] = Math.max(0, l - prev);
+    prev = l;
+  }
+  // The phase from the first minute (or the whole track when shorter).
+  const span = Math.min(end, 60);
+  let phase = 0;
+  let best = -1;
+  for (let p = 0; p < period; p += hop) {
+    let s = 0;
+    for (let t = p; t <= span; t += period) {
+      const i = Math.round(t / hop);
+      s += Math.max(flux[i] ?? 0, flux[i + 1] ?? 0);
+    }
+    if (s > best) [best, phase] = [s, p];
+  }
+  const grid: number[] = [];
+  let t = phase;
+  while (t <= end + 1e-9) {
+    const near = nearestBeat(t, onsets, period * 0.2);
+    grid.push(Math.round(near * 1000) / 1000);
+    // The next tick from this one, pulled half way back to the steady grid so one stray onset does not drag it.
+    t = (near + t) / 2 + period;
   }
   return grid;
 }

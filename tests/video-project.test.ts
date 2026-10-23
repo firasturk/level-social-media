@@ -139,6 +139,27 @@ describe("beats", () => {
     expect(detectBeats(new Float32Array(100).fill(0.2), hop)).toEqual([]);
     expect(detectBeats([], hop)).toEqual([]);
   });
+
+  it("keeps the tempo when an off-beat hit makes the spacings misleading (QA: 128 BPM read as 167)", () => {
+    // 128 BPM kicks plus a quieter hit three quarters into each beat: onsets alternate 0.35 s and
+    // 0.47 s apart, and the most common spacing alone picked the wrong one.
+    const hop = 0.02;
+    const period = 60 / 128;
+    const energy = new Float32Array(Math.round(30 / hop)).fill(0.05);
+    for (let t = 0.2; t < 30; t += period) {
+      energy[Math.round(t / hop)] = 1;
+      energy[Math.round((t + period * 0.75) / hop)] = 0.6;
+    }
+    const check = (beats: number[]) => {
+      const gaps = beats.slice(1).map((b, i) => b - beats[i]);
+      const median = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)];
+      expect(median).toBeCloseTo(period, 1);
+      // On the kicks, not on the off-beat hits.
+      expect(beats.filter((b) => b > 1 && b < 29).every((b) => Math.abs(((b - 0.2 + period / 2) % period) - period / 2) < 0.05)).toBe(true);
+    };
+    check(detectBeats(energy, hop));
+    check(detectBeats(energy, hop, { bpm: 128 }));
+  });
 });
 
 describe("auto edit", () => {
