@@ -175,7 +175,7 @@ export default function HelpAssistant({ user }: { user: User }) {
               <div className="help-thread">
                 {!turns.length && (
                   <div className="help-empty">
-                    <p>Hi, I'm Firas, the studio's assistant. Ask me how to do anything in the studio, in Arabic or English. If it isn't in the studio yet, I pass it to Firas himself.</p>
+                    <p>I'm Firas, the studio's assistant 😠 Grumpy, but I answer. Ask me how to do anything in the studio, in Arabic or English. If it isn't in the studio yet, I pass it to Firas himself.</p>
                     <div className="help-examples">
                       {["How do I make a carousel?", "How do I change the words on a post?", "How do I send the month to the client?"].map((q) => (
                         <button key={q} type="button" onClick={() => setText(q)}>

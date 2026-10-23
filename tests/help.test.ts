@@ -69,6 +69,11 @@ describe("asking", () => {
     const text = helpInstruction({ message: "q?", history: [{ role: "user", text: "earlier" }], role: "member", name: "Nour" });
     expect(text).toContain("Member: earlier");
     expect(text).toContain("member, not an admin");
+    // The character the owner asked for: grumpy, laughs at simple questions, but the request to Firas stays plain.
+    expect(text).toContain("للمرة المليون 😠");
+    expect(text).toContain("شغل مخك");
+    expect(text).toContain("آخر مرة بتسأل");
+    expect(text).toContain("written plainly and politely");
   });
 });
 
