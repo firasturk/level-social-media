@@ -42,6 +42,17 @@ export const OLDEST_PROJECT_VERSION = 1;
 /** Where a clip's footage comes from: a stored version of the post, a file picked in the browser, or nothing (a gap). */
 export type ClipSource = { kind: "version"; batch: string; videoId: string } | { kind: "upload"; name: string; size: number } | { kind: "gap" };
 
+/**
+ * The footage a first cut or a template may pick from: the post's clips without the editor's own
+ * renders (`rendered`: their version ids), which already carry words, logo and grade and would come
+ * back twice. When renders are all there is, they are all there is. (QA: an auto edit took the
+ * combined video it had just rendered as a shot.)
+ */
+export function footageOnly<T extends { source: ClipSource }>(items: readonly T[], rendered: ReadonlySet<string>): T[] {
+  const own = items.filter((m) => !(m.source.kind === "version" && rendered.has(m.source.videoId)));
+  return own.length ? own : [...items];
+}
+
 /** Restrained joins only: a cut, a crossfade, a dip to black, a dip to white. */
 export type Transition = "cut" | "crossfade" | "dipBlack" | "dipWhite";
 export const TRANSITIONS: readonly { id: Transition; name: string }[] = [

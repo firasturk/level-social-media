@@ -36,6 +36,8 @@ export interface PanelCtx {
   patch: (fn: (p: VideoProject) => VideoProject) => void;
   mark: () => void;
   sources: Media[];
+  /** The sources a first cut or a template picks from: without the editor's own renders. */
+  footage: Media[];
   labelOf: (clip: Clip) => string;
   onAddClip: (m: Media) => void;
   onAddFootage: (files: FileList) => Promise<void>;

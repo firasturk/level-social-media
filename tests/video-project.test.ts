@@ -9,6 +9,7 @@ import {
   clipLength,
   cutTimes,
   detectBeats,
+  footageOnly,
   estimateBytes,
   frameAt,
   moveClip,
@@ -237,5 +238,13 @@ describe(".cube LUTs", () => {
     expect(parseCube("LUT_3D_SIZE 2\n0 0\n")).toMatchObject({ ok: false, reason: expect.stringContaining("three numbers") });
     expect(parseCube("hello")).toMatchObject({ ok: false });
     expect(parseCube("LUT_3D_SIZE 999\n")).toMatchObject({ ok: false });
+  });
+});
+
+describe("footage for a first cut", () => {
+  const v = (videoId: string) => ({ source: { kind: "version" as const, batch: "b", videoId } });
+  it("leaves out the editor's own renders, unless they are all there is", () => {
+    expect(footageOnly([v("a"), v("r"), { source: { kind: "upload" as const, name: "x.mp4", size: 1 } }], new Set(["r"])).map((m) => (m.source.kind === "version" ? m.source.videoId : "upload"))).toEqual(["a", "upload"]);
+    expect(footageOnly([v("r")], new Set(["r"]))).toHaveLength(1);
   });
 });

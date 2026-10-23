@@ -71,7 +71,7 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
       const m = ctx.sources.find((s) => s.key === sourceKey(c.source));
       if (m) add(m);
     }
-    for (const m of ctx.sources) add(m);
+    for (const m of ctx.footage) add(m);
     const brand = ctx.layers.logoUrl && ctx.layers.logoUrl.startsWith("/") ? { src: ctx.layers.logoUrl, name: "Client logo" } : null;
     ctx.commit((q) => applyTemplate(tpl, q, media, { language, logo: brand, frame: isReel ? "keep" : frame }));
     const moods = tpl.music.moods.map((id) => MUSIC_MOODS.find((m) => m.id === id)?.label ?? id).join(", ");

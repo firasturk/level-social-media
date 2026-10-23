@@ -23,7 +23,7 @@ import { saveBlob } from "@/lib/zip";
 import { Orb } from "@/components/Orb";
 import type { Approval } from "@shared/config";
 import { parseCube, serialiseCube, type CubeLut } from "@shared/cube-lut";
-import { cutTimes, DEFAULT_DUCKING, musicFileUrl, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
+import { cutTimes, DEFAULT_DUCKING, footageOnly, musicFileUrl, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
 import { alignCutsToBeats, clickSelect, deleteClips, formatTimecode, moveClips, splitAt, stepFrames } from "@shared/video-timeline";
 import { planEdit, withEditPlan, type AutoRunOptions, type PlanSource } from "@shared/edit-plan";
 import { footageAnalysis, timelineGrid } from "../engine/analyse";
@@ -193,6 +193,8 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   // A post opens on Generate (or the panel asked for); once its versions are read, a post with no clip opens on Presets instead.
   const [panel, setPanel] = useState<StudioPanel>(post ? (initialPanel ?? "generate") : "edit");
   const [videos, setVideos] = useState<VideoItem[]>([]);
+  // The editor's own renders: never footage for a first cut or a template.
+  const renderedIds = useMemo(() => new Set(videos.filter((v) => v.source === "editor").map((v) => v.id)), [videos]);
   const [videosLoaded, setVideosLoaded] = useState(false);
   const [admin, setAdmin] = useState(!post);
   const [shownId, setShownId] = useState<string | null>(initialVideoId ?? null);
@@ -609,7 +611,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
    * its clips marked "has speech". Shared by the auto edit and "Edit like this video".
    */
   const planSources = async (): Promise<PlanSource[]> => {
-    const media = mediaRef.current.all();
+    const media = footageOnly(mediaRef.current.all(), renderedIds);
     const p0 = projectRef.current!;
     const out: PlanSource[] = [];
     for (const [i, m] of media.entries()) {
@@ -1112,6 +1114,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                   ? { cls: "done", text: lastRender.outcome === "review" ? "Rendered · Send for review" : lastRender.outcome === "superseded" ? "Rendered · kept as a version" : "Rendered · on the card" }
                   : { cls: "draft", text: "Draft saved · Render needed" };
 
+  const footage = useMemo(() => footageOnly(sources, renderedIds), [sources, renderedIds]);
   const ctx: PanelCtx | null = project
     ? {
         project,
@@ -1123,6 +1126,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         patch: history.patch,
         mark: history.mark,
         sources,
+        footage,
         labelOf,
         onAddClip: addClip,
         onAddFootage: addFootage,
