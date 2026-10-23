@@ -19,6 +19,8 @@ const types = {
   ".json": "application/json",
   ".txt": "text/plain; charset=utf-8",
   ".woff2": "font/woff2",
+  // The video editor's AAC encoder (src/video-editor/engine/aac-encoder.wasm), fetched only by the AAC fallback.
+  ".wasm": "application/wasm",
 };
 
 function walk(dir, out = []) {

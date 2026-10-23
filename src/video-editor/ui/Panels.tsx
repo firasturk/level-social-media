@@ -74,6 +74,8 @@ export interface PanelCtx {
     stop: () => void;
     canExport: boolean;
     capsMessage: string;
+    /** Rendering works, differently from usual (the AAC fallback's one-time download); empty otherwise. */
+    capsNotice: string;
     standalone: boolean;
     running: boolean;
     renders: RenderItem[];
@@ -621,6 +623,7 @@ const PHASE_TEXT: Record<ExportProgress["phase"], string> = {
   checking: "Checking this browser",
   reading: "Reading the footage",
   sound: "Mixing the sound",
+  audio: "Encoding audio…",
   frames: "Rendering the frames",
   finishing: "Finishing the file",
 };
@@ -675,6 +678,7 @@ export function ExportPanel({ ctx }: { ctx: PanelCtx }) {
           <Download size={14} /> {x.standalone ? "Render to a file" : last?.status === "interrupted" || last?.status === "failed" ? "Render again" : "Render & update card"}
         </button>
       )}
+      {x.canExport && x.capsNotice && <p className="ts-hint">{x.capsNotice}</p>}
       {!x.standalone && x.chip && <p className="ve-render-state">{x.chip}</p>}
       {x.progress && (
         <div className="ve-progress" role="status">

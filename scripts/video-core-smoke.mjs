@@ -15,8 +15,12 @@
  * Open-source Chromium has no H.264, so the page is told to use the engine's test codecs (VP9 +
  * Opus) through `localStorage["lsm-video-test-codecs"] = "vp9"`; everything else is the studio's
  * path. Screenshots at 1440 and 390 land in --out (default ./smoke).
+ * With --studio-codecs (for a branded Chrome, PW_CHROMIUM=<binary>) the clip is H.264 + AAC and the
+ * render uses the studio's codecs, H.264 + AAC; where that Chrome has no AAC encoder the render
+ * goes through the WebAssembly fallback, and the Render panel's progress lines are recorded (it
+ * must say "Encoding audio…") and the uploaded file's streams are checked (h264, aac LC 48 kHz).
  *
- * Usage:  npm run build && node scripts/video-core-smoke.mjs [--out dir]   (needs ffmpeg/ffprobe)
+ * Usage:  npm run build && node scripts/video-core-smoke.mjs [--out dir] [--studio-codecs]   (needs ffmpeg/ffprobe)
  */
 import { createServer } from "node:http";
 import { execFileSync, execSync } from "node:child_process";
@@ -38,11 +42,12 @@ const { chromium } = await loadPlaywright();
 const args = process.argv.slice(2);
 const outDir = args.includes("--out") ? args[args.indexOf("--out") + 1] : join(process.cwd(), "smoke");
 await mkdir(outDir, { recursive: true });
+const studioCodecs = args.includes("--studio-codecs");
 const dist = join(process.cwd(), "dist", "client");
 const work = mkdtempSync(join(tmpdir(), "video-core-smoke-"));
 
 // The post's clip: three bands (red | green | blue), 640×360 landscape, VP9 + Opus, 3 s.
-execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=214x360:r=30:d=3", "-f", "lavfi", "-i", "color=c=0x00ff00:s=212x360:r=30:d=3", "-f", "lavfi", "-i", "color=c=blue:s=214x360:r=30:d=3", "-f", "lavfi", "-i", "sine=f=440:d=3", "-filter_complex", "[0][1][2]hstack=3,format=yuv420p[v]", "-map", "[v]", "-map", "3:a", "-c:v", "libvpx-vp9", "-b:v", "600k", "-c:a", "libopus", "-b:a", "64k", join(work, "bands.mp4")]);
+execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=214x360:r=30:d=3", "-f", "lavfi", "-i", "color=c=0x00ff00:s=212x360:r=30:d=3", "-f", "lavfi", "-i", "color=c=blue:s=214x360:r=30:d=3", "-f", "lavfi", "-i", "sine=f=440:d=3", "-filter_complex", "[0][1][2]hstack=3,format=yuv420p[v]", "-map", "[v]", "-map", "3:a", ...(studioCodecs ? ["-c:v", "libx264", "-profile:v", "high", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2", "-movflags", "+faststart"] : ["-c:v", "libvpx-vp9", "-b:v", "600k", "-c:a", "libopus", "-b:a", "64k"]), join(work, "bands.mp4")]);
 const CLIP = readFileSync(join(work, "bands.mp4"));
 const PICTURE = readFileSync(join(process.cwd(), "public", "guide", "product.jpg"));
 
@@ -140,7 +145,10 @@ async function api(req, res, path, u) {
     const info = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", out], { encoding: "utf8" }));
     const v = info.streams.find((s) => s.codec_type === "video");
     const r = state.renders.get(String(form.get("renderId")));
-    state.uploads.push({ id, renderId: r?.id ?? null, width: v.width, height: v.height, audio: info.streams.some((s) => s.codec_type === "audio"), duration: Number(info.format.duration), still: form.get("still") instanceof File });
+    const a = info.streams.find((s) => s.codec_type === "audio");
+    const streams = { video: `${v.codec_name} ${v.profile} ${v.pix_fmt}`, audio: a ? `${a.codec_name} ${a.profile} ${a.sample_rate} ${a.channels}` : null };
+    if (studioCodecs) writeFileSync(join(outDir, `video-core-upload-${id}.mp4`), bytes);
+    state.uploads.push({ id, renderId: r?.id ?? null, width: v.width, height: v.height, audio: !!a, streams, duration: Number(info.format.duration), still: form.get("still") instanceof File });
     for (const x of state.videos) x.forClient = false;
     const made = item(id, state.videos.length + 1, { provider: "editor", source: "editor", frame: v.width < v.height ? "9:16" : "16:9", width: v.width, height: v.height, duration: Math.round(Number(info.format.duration) * 10) / 10, forClient: true, project: { id: "p1", rev: r?.projectRev ?? 0 } });
     state.videos.push(made);
@@ -176,7 +184,7 @@ async function api(req, res, path, u) {
   return send(200, b);
 }
 
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".json": "application/json", ".ico": "image/x-icon" };
+const MIME = { ".wasm": "application/wasm", ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".json": "application/json", ".ico": "image/x-icon" };
 const server = createServer(async (req, res) => {
   const u = new URL(req.url ?? "/", "http://x");
   const path = decodeURIComponent(u.pathname);
@@ -204,25 +212,28 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const url = `http://127.0.0.1:${server.address().port}`;
 
-const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || "/opt/pw-browsers/chromium", headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM || "/opt/pw-browsers/chromium", headless: true, args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 const outside = [];
 page.on("pageerror", (e) => errors.push(`page error: ${String(e)}`));
 const ALLOWED = [url, "data:", "blob:", "https://fonts.googleapis.com/", "https://fonts.gstatic.com/"];
+const wasmFetched = [];
 page.on("request", (r) => {
   if (!ALLOWED.some((a) => r.url().startsWith(a))) outside.push(r.url());
+  if (r.url().endsWith(".wasm")) wasmFetched.push(new URL(r.url()).pathname);
 });
-await page.addInitScript(() => {
+await page.addInitScript((test) => {
   try {
     sessionStorage.setItem("lsm-journey-done", "1");
     localStorage.setItem("lsm-journey-done", "1");
     localStorage.setItem("lsm-client", "c1");
-    localStorage.setItem("lsm-video-test-codecs", "vp9");
+    if (test) localStorage.setItem("lsm-video-test-codecs", "vp9");
+    else localStorage.removeItem("lsm-video-test-codecs");
   } catch {
     /* storage blocked */
   }
-});
+}, !studioCodecs);
 
 const result = {};
 const studio = page.locator('[role="dialog"][aria-label="Video studio"]');
@@ -360,17 +371,30 @@ try {
   result.afterReload = { frame: await frameOn(), canvas: await canvasAspect(), textLayers: await studio.locator(".ve-layer-block.text").allInnerTexts().then((l) => l.map((x) => x.trim())), chip: await chip() };
   if (result.afterReload.frame !== "9:16" || !result.afterReload.textLayers.some((t) => t.includes("MOVE YOUR WAY"))) errors.push(`The reopened project lost edits: ${JSON.stringify(result.afterReload)}`);
   await phase2();
-  // Render & update card.
-  await studio.getByRole("button", { name: /Render & update card/ }).click();
+  // Render & update card (with the studio's codecs, the Render panel is open to watch its progress lines).
+  if (studioCodecs) {
+    await studio.locator(".vs-tabs button", { hasText: "Render" }).click();
+    result.renderPanelNote = (await studio.locator(".ts-side-body .ts-hint").allInnerTexts()).find((h) => /AAC/.test(h)) ?? null;
+  }
+  await studio.getByRole("button", { name: /Render & update card/ }).first().click(); // the top bar's (the Render panel, when open, has one too)
   const seen = new Set();
+  const progressLines = new Set();
   const until = Date.now() + 240000;
   while (Date.now() < until) {
     const c = await chip().catch(() => "");
     seen.add(c.replace(/\d+%/, "n%"));
+    if (studioCodecs) {
+      const line = await studio.locator(".ve-progress span").first().innerText({ timeout: 100 }).catch(() => "");
+      if (line) progressLines.add(line.replace(/ · \d+ of \d+/, " · n of N").trim());
+    }
     if (/^Rendered/.test(c) || /failed/i.test(c)) break;
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(studioCodecs ? 50 : 500);
   }
   result.chipsDuringRender = [...seen];
+  if (studioCodecs) {
+    result.progressLines = [...progressLines];
+    result.wasmFetched = wasmFetched;
+  }
   result.chipAfterRender = await chip();
   if (!/^Rendered · on the card/.test(result.chipAfterRender)) errors.push(`After the render the chip read "${result.chipAfterRender}" (${(await studio.locator(".ve-panel .warn").allInnerTexts()).join(" | ")}).`);
   if (!result.chipsDuringRender.some((c) => /^Rendering n%/.test(c))) errors.push("The chip never showed Rendering n%.");
@@ -378,6 +402,11 @@ try {
   result.heartbeats = state.reports;
   if (!result.upload || result.upload.width !== 1080 || result.upload.height !== 1920) errors.push(`The uploaded render is not 1080×1920: ${JSON.stringify(result.upload)}`);
   if (result.upload && !result.upload.audio) errors.push("The uploaded render has no audio track.");
+  if (studioCodecs && result.upload) {
+    const s = result.upload.streams;
+    if (!/^h264 High/.test(s.video) || s.audio !== "aac LC 48000 2") errors.push(`The uploaded render should be H.264 High + AAC LC 48 kHz stereo: ${JSON.stringify(s)}`);
+    if (wasmFetched.length && !result.progressLines.includes("Encoding audio…")) errors.push(`The AAC fallback ran but the Render panel never said "Encoding audio…": ${JSON.stringify(result.progressLines)}`);
+  }
   if (!result.upload?.renderId) errors.push("The upload did not name its render job.");
   await page.screenshot({ path: join(outDir, "video-core-rendered-1440.png") });
   // Close: the card plays the new version.

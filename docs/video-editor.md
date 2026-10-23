@@ -136,7 +136,7 @@ ffprobe (below).
 | Arabic (shaping, RTL) | The browser's text engine: shaped, bidi (measured in the render) | Vendor text engine: to verify on a trial | Their text assets; RTL to verify | The browser's (headless Chromium): good |
 | Timeline / templates | Our JSON project; lanes now; templates to build | Rich editor UI and templates out of the box | JSON edit spec with tracks; templates API | Code: templates are React components we write |
 | Colour | Our shader: looks, sliders, LUT | Filters, LUTs | Basic filters | Whatever we write (CSS/WebGL) |
-| Browser / mobile | WebCodecs: Chrome, Edge, Safari 16.4+ for video; WebCodecs **audio** encoding came to Safari much later (as we read WebKit's notes, Safari 26), so older iPhones stop at the capability message; long 1080p renders on a phone are slow and memory-bound | Also WebCodecs-bound in the browser; server renderer otherwise | No device limit (cloud) | No device limit (cloud) |
+| Browser / mobile | WebCodecs: Chrome, Edge, Safari 16.4+ for video; WebCodecs **audio** encoding came to Safari much later (as we read WebKit's notes, Safari 26) and Chrome on Linux has none, so since 23 Oct 2026 the editor encodes AAC itself there (WebAssembly, "AAC without WebCodecs" below); long 1080p renders on a phone are slow and memory-bound | Also WebCodecs-bound in the browser; server renderer otherwise | No device limit (cloud) | No device limit (cloud) |
 | Infrastructure / running cost | None (the person's machine); R2 storage only | Licence + optional render servers we run | Pay per rendered minute | AWS account, Lambda, S3; per-render cost plus our ops |
 | Licence | Ours (mp4box BSD-3, mp4-muxer MIT) | Commercial licence required (pricing on request) | Commercial subscription | Free only for very small teams; a company licence is required for us |
 | Portability | Our JSON (shared/video-project.ts) | Their scene format | Their edit JSON | Our props JSON + our components |
@@ -145,8 +145,8 @@ ffprobe (below).
 matter most here (preview and export identical, Arabic correct, colour controlled, 9:16/4:5/1:1/
 16:9 at the right encoded size), costs nothing to run, needs no licence and keeps the project
 portable. Nothing renders on Workers (CPU and time limits); a Worker only stores the result. What
-it cannot do is render without the tab or on browsers without WebCodecs audio; if that becomes a
-need, the next step is a server render of the **same** compositor (this engine bundle in a
+it cannot do is render without the tab (browsers without WebCodecs audio are covered by the AAC
+fallback since 23 Oct 2026); if that becomes a need, the next step is a server render of the **same** compositor (this engine bundle in a
 branded headless Chrome in a container, with the same project JSON), not a second engine. A
 commercial SDK or cloud API would only be worth a trial (no purchase made, none assumed free) if
 the template phase needs an off-the-shelf template editor; its Arabic text must be tested first.
@@ -527,6 +527,168 @@ provider, nothing is charged.
 4. **Templates in other frames**: templates keep the cut's frame; say if a template should switch
    a new cut to 9:16.
 
+## AAC without WebCodecs: the WebAssembly fallback (23 Oct 2026)
+
+**The problem.** The render needed the browser's WebCodecs AAC encoder (`mp4a.40.2`) and stopped
+without it. Measured on 23 Oct 2026: Google Chrome 156 on Linux has H.264 encode and decode in
+WebCodecs but **no AAC `AudioEncoder`** (`isConfigSupported` answers `supported: false`); Safari
+before 26 has no `AudioEncoder` at all (as we read WebKit's notes; not run here). A team member on
+either could not render.
+
+**What happens now.** When the browser has H.264 (encode and decode) but no AAC encoder, the
+capability check says `audioEncoder: "wasm"` instead of stopping, the Render panel shows "This
+browser has no built-in AAC audio encoder, so the editor encodes the sound itself: the first
+render downloads its encoder (0.6 MB). The file is the same H.264 + AAC mp4.", and the render
+encodes the already-mixed sound (the same `renderMix` as always) with FFmpeg's AAC-LC encoder
+compiled to WebAssembly. The progress line reads "Encoding audio…" during that step. The output
+is unchanged in kind: H.264 High + AAC-LC 48 kHz stereo 128 kbit/s in an MP4 with `moov` first.
+Browsers with a native AAC encoder (Chrome/Edge on Windows and Mac, Safari 26+) keep the native
+path untouched, and the test codecs (VP9 + Opus) are untouched. A browser with no H.264 still gets
+the stop message. Saving and rendering stay admin-only on the server, as before.
+
+### How it is put together
+
+- `scripts/aac-wasm/aac_wrapper.c` + `scripts/aac-wasm/build.sh` → `src/video-editor/engine/aac-encoder.wasm`
+  (628 KB, 233 KB gzip). FFmpeg 8.1.3 as released (sha256 pinned in the script), configured with
+  `--disable-everything --enable-encoder=aac` and no external library, compiled with clang for
+  `wasm32-wasi` against wasi-libc (no Emscripten runtime: the glue is `shared/aac-wasm.ts`; Ubuntu packages `clang lld
+  wasi-libc libclang-rt-18-dev-wasm32`). The script refuses a build whose `config.h` says GPL.
+  The build is reproducible: a second build in a fresh directory gave the same bytes (sha256
+  `3947865693d8afb624ee57cd8c71bdc22f4f5abebff7b2721c898c8d5b72fb02`).
+  The wrapper exports `aac_open`, `aac_input` (the encoder frame's planar float buffers),
+  `aac_encode` (one frame, or a flush) and readers for the packets; the encoder writes **raw access
+  units** (no ADTS, so there is no header to strip) and its own AudioSpecificConfig.
+- `shared/aac-wasm.ts`: instantiates the module (each render gets a fresh instance), answers the
+  dozen WASI imports libavutil links with "nothing there" (no file, no environment is ever used),
+  feeds 1024-sample frames, collects units with their sample times. DOM-free, so the Node tests run
+  the real encoder.
+- `shared/aac-mp4.ts`: the AudioSpecificConfig built and read (`11 90` for AAC-LC 48 kHz stereo;
+  FFmpeg's own `11 90 56 e5 00`, which adds an explicit "no SBR", must start with the same two bytes
+  or the render stops), each unit's time (unit *i* at *i* × 1024 samples, rounded to µs from the
+  sample count so nothing accumulates; the muxer turns them back into exact 1024 deltas), and
+  `addEditList`.
+- `src/video-editor/engine/aac-fallback.ts`: loaded with `import()` only by a render that needs it
+  (its own 4 KB chunk); fetches the wasm once per tab (a failed download is retried on the next
+  render), encodes the mix, yields to the page every 64 frames so progress and Stop work, and hands
+  the units to `mp4-muxer` (`addAudioChunkRaw`, the decoder config with the two-byte ASC on the
+  first). `export.ts` picks this path when `caps.audioEncoder === "wasm"`.
+- **Priming and sync.** FFmpeg's encoder starts 1024 samples early (its first unit is at −1024).
+  `mp4-muxer` writes no edit lists, so after `finalize()` the file gets an `edts`/`elst` on the
+  sound track (one segment: media time 1024, duration = the mix's length): the 1024 priming
+  samples and the padding after the last sample are not played, exactly as FFmpeg and iPhone write
+  their own AAC files. The box is inserted after `tkhd`; `trak`, `moov`, the track and movie
+  durations and every `stco` chunk offset (moov is in front of mdat) are moved by its 36 bytes.
+- Hosting: the wasm is a Vite asset (`/assets/aac-encoder-<hash>.wasm`), embedded into the Worker
+  with the rest of `dist/client` by `scripts/embed-assets.mjs` (now typed `application/wasm`) and
+  served same-origin with the immutable cache header. No CDN and no new host: the studio's pages
+  send no Content-Security-Policy today; if one is added it needs `'wasm-unsafe-eval'` in
+  `script-src` for this. The embedded asset module grows from 4,431 KB to 5,250 KB (gzip 1,835 →
+  2,134 KB, +0.3 MB compressed).
+- Failure is recoverable: a failed download says "The audio encoder could not be downloaded …
+  render again" (the render fails cleanly, the job is marked failed with that message, the card
+  keeps its version, Render again works); a browser without WebAssembly keeps the stop message.
+
+### The options weighed
+
+| Option | Size | Licence | Verdict |
+| - | - | - | - |
+| **FFmpeg's native `aac` encoder, our own wasm build** (above) | 0.63 MB (0.23 MB gzip) | LGPL-2.1-or-later (FFmpeg built without `--enable-gpl`, no external libraries) | **Chosen**: small enough to serve from the studio itself, no SharedArrayBuffer/COOP/COEP, no CDN, the encoder Instagram's own pipeline and most tools use, reproducible from a pinned release |
+| `@ffmpeg/core` 0.12.10 (ffmpeg.wasm, single-thread) | ~31 MB wasm | **GPL-2.0-or-later** (built with x264/x265 etc.) | Rejected: GPL, too large for the Worker bundle (would need R2 or a CDN) and a full CLI for one encoder |
+| libav.js 6.10.9 (`@libav.js/variant-*`, LGPL) | 2.3 MB (webcodecs variant) | LGPL-2.1 | Rejected: no published variant carries the AAC *encoder* (the author does not publish AAC builds; the `webcodecs` variant only parses AAC); building its `aac` variant is the same FFmpeg encoder with more glue |
+| Fraunhofer FDK AAC in wasm | ~0.5–1 MB | FDK licence: not open-source by OSI/FSF terms, no patent licence, GPL-incompatible | Rejected: licence risk; better quality at low bit rates, which 128 kbit/s stereo does not need |
+| A JavaScript AAC encoder | — | — | None maintained with acceptable quality; writing one is a large, risky project |
+| Server-side encode | — | — | Not available (Workers cannot run an encoder; no render server) |
+
+### Verified, and how
+
+Google Chrome 156.0.8078.47, Linux, headless, `--no-sandbox`; real files,
+inspected with ffprobe/ffmpeg 6.1.1.
+
+- `node scripts/video-aac-fallback-check.mjs --chrome <chrome> --talk <clip> --out <dir>` builds the
+  render-check harness, asks the editor's capability check (`audioEncoder: "wasm"`, the notice),
+  renders four projects with the studio's codecs and inspects the files. The fixtures: a 640×360
+  H.264 + AAC clip, black with one white frame and a 1 kHz beep of one frame's length at 1.0, 2.5,
+  4.0 and 5.0 s (made with ffmpeg), the same beep as a WAV, and `01-talk.mp4` (Blender Foundation,
+  CC BY, dialogue). Observed:
+
+  | Check | Expected | Observed |
+  | - | - | - |
+  | Who encoded the sound | wasm (this Chrome has no AAC) | wasm, all four renders |
+  | Video stream | h264 High yuv420p 1080×1920 | h264 High (level 4.0) yuv420p 1080×1920 |
+  | Audio stream | aac LC 48 kHz 2 ch | aac LC 48000 Hz 2 ch; 127.3 kbit/s on the dialogue |
+  | Box order | moov before mdat | ftyp moov mdat |
+  | Sound edit list | one entry, media time 1024 | one entry, media time 1024, 6000 ms (30000 ms on the 30 s render) |
+  | Start times (video / audio) | 0 / 0 | 0 / 0 |
+  | Stream lengths | equal within one AAC frame (21.3 ms) | 6.0000 s / 6.0000 s (0.0 ms); 30.0000 / 30.0000 s on the 30 s render |
+  | Clean decode (`ffmpeg -v error … -f null -`) | no errors | none |
+  | Beep onset − flash in the source clip itself (reference) | 0 | +0.04 ms at each |
+  | Beep onset − flash, the clip's own sound, 4 pairs | within ±33.3 ms (one frame) | +0.04 ms at each (the onset detector's two-sample step) |
+  | The same, beep as WAV music, clip muted | within ±33.3 ms | +0.04 ms at each |
+  | The same with the edit list ignored (`-ignore_editlist 1`) | (what the edit list removes) | +21.37 ms at each: the 1024 priming samples |
+  | Drift: 30 s timeline (the sync clip five times), 20 pairs | within ±33.3 ms, first = last | +0.04 ms at all 20 (0–30 s): no drift |
+  | Dialogue 1–7 s against the source's sound, cross-correlation (±50 ms) | peak at 0 | peak lag 0 samples, r = 0.9947 |
+  | The wasm downloaded | once, only by the fallback | once (`/assets/aac-encoder-<hash>.wasm`) |
+  | Encoder speed, 60 s of 48 kHz stereo | | 1.8–2.2 s (≈30× real time, two runs); the "Encoding audio…" step 0.4–0.9 s for 6 s of sound (the first one including the download and compile), 0.8 s for 30 s |
+
+- `npx vitest run tests/aac-fallback.test.ts`: the ASC (built, FFmpeg's longer form, an escaped
+  object type, an explicit rate, a short one refused); unit times over 3,000 units (64 s) land on
+  their exact sample with no drift; unit counts with priming; `addEditList` on real `mp4-muxer`
+  files: sizes add up, the edit sits after `tkhd` with the right values, `tkhd`/`mvhd` durations,
+  and every video and audio sample read back by mp4box through the moved offsets is the one
+  written (faststart and not), every AAC sample lasts 1024; refusals (second edit list, no track,
+  bad media time); the real wasm in Node: 3 s of stereo → the expected unit count, times −1024,
+  0, 1024…, raw blocks (a CPE first, FFmpeg's fill element in the first unit, no ADTS), 90–160
+  kbit/s, two encoders independent.
+- `PW_CHROMIUM=<chrome> node scripts/video-editor-smoke.mjs` now expects the fallback note (not the
+  stop) where H.264 is present and AAC is not; `PW_CHROMIUM=<chrome> node scripts/video-core-smoke.mjs
+  --studio-codecs` renders through the real studio UI with H.264 + AAC and records the Render
+  panel's progress lines. Run in Chrome 156: the editor smoke saw `h264: true, aac: false`, no stop
+  message and the note in the Render panel; the core smoke rendered through the real studio UI
+  (mocked routes), the Render panel read "Encoding audio…", "Rendering the frames · n of N",
+  "Finishing the file", the wasm was fetched once, and the uploaded file was h264 High + aac LC
+  48 kHz stereo, 1080×1920, 3.0 s, both streams starting at 0, decoding cleanly; it went on the
+  card. In the Playwright Chromium (no H.264): the stop message as before, no note, and
+  `scripts/video-render-check.mjs` (VP9 + Opus) still OK.
+- A blocked download of the encoder (the check routes the `.wasm` request to a network error): the
+  render stopped with "The audio encoder could not be downloaded: check the connection and render
+  again."; the next render in the same tab, download allowed, rendered (30 frames, AAC from the
+  wasm).
+
+### Not verified here
+
+- Safari (any version) and iPhone: not available in this sandbox. Safari before 26 should take the
+  fallback (it has `VideoEncoder`/`VideoDecoder` but no `AudioEncoder`); that the iPhone plays the
+  result is expected (the same codecs, `moov` first, an edit list as in its own recordings) but was
+  not tried on a device. The first render on a Mac in Safari and a play on an iPhone are still due.
+- A browser with a native AAC encoder (Chrome/Edge on Windows or Mac, Safari 26): the native path
+  was not changed, but it was not run here either (no such browser in the sandbox).
+- Upload to Instagram.
+- The Worker deploy with the larger embedded bundle (no deploy was made).
+
+### Limits
+
+- The fallback runs on the page's main thread in short slices: about 2 s per minute of sound on
+  this machine, longer on a phone; the page stays responsive between slices.
+- FFmpeg's native AAC encoder at 128 kbit/s: good for speech and music on social media (Instagram
+  re-encodes anyway), below Apple's or FDK's encoder at low bit rates.
+- 48 kHz stereo only (what the mix always is).
+- The native path's own priming (Chrome's or Apple's encoder) is not corrected by an edit list;
+  that is how it was before and was left alone.
+
+### Decisions for the owner
+
+1. **Hosting of the wasm**: it is served by the Worker with the app (no CDN, no R2). The embedded
+   bundle grows by about 0.3 MB compressed; if a deploy hits the Worker size limit, move the file
+   to R2 behind a same-origin route (one URL change in `aac-fallback.ts`).
+2. **LGPL notice**: the encoder is FFmpeg (LGPL-2.1-or-later), loaded as a separate, replaceable
+   file; its source is the FFmpeg 8.1.3 release plus `scripts/aac-wasm/`. Add FFmpeg to the app's
+   credits/licences page with the LGPL text and where the source is, as the LGPL asks.
+3. **AAC patents**: browsers' and Apple's encoders come with their makers' licences; this encoder
+   ships with the studio. Most AAC-LC patents have expired, but whether an AAC licence (Via LA) is
+   needed for distributing an encoder is a legal question we cannot answer here.
+4. **Safari 26+ and Chrome/Edge on Windows/Mac** keep the native encoder; say if the fallback
+   should be the one path everywhere (same sound everywhere, and the priming handled the same way).
+
 ## Architecture
 
 **Where rendering happens.** A Cloudflare Worker cannot decode, render or mux video: there is no
@@ -539,7 +701,7 @@ renders, with the codecs the person's machine already has.
 | Way | What it needs | Verdict |
 | - | - | - |
 | **WebCodecs** (`VideoDecoder`, `VideoEncoder`, `AudioEncoder`) with `mp4box.js` to read the mp4 and `mp4-muxer` to write it | A browser with hardware H.264/AAC: Chrome, Edge (all platforms), Safari 16.4+ on Mac and iPhone | **Chosen.** Real-time or faster on a laptop, ~160 KB of JavaScript, no special headers, the exact codecs the output needs |
-| `ffmpeg.wasm` | A 30 MB download per session, `SharedArrayBuffer` (so COOP/COEP headers on the studio and every embedded resource), software x264 at well under real time, no GPU | Rejected: too slow and too heavy for a 60 s reel, and the headers would break the share pages and signed links |
+| `ffmpeg.wasm` | A 30 MB download per session, `SharedArrayBuffer` (so COOP/COEP headers on the studio and every embedded resource), software x264 at well under real time, no GPU | Rejected: too slow and too heavy for a 60 s reel, and the headers would break the share pages and signed links (only FFmpeg's AAC encoder is used, as a 0.6 MB WebAssembly file, where the browser has no AAC encoder: see "AAC without WebCodecs") |
 | A server render | A machine with ffmpeg | Not available |
 
 The two packages, pinned exactly:
@@ -553,10 +715,12 @@ Both are published, widely used, and do one thing each; no other new dependency.
 
 **Browser support.** H.264 decode and encode through WebCodecs: Chrome and Edge on Windows, Mac,
 Linux (hardware where present, software otherwise), Safari 16.4+ on Mac and iPhone (hardware).
-AAC encode: the same. Open-source Chromium builds (the Playwright one here included) carry **no
-H.264 and no AAC** at all; Firefox has no `VideoEncoder` for H.264. The editor asks up front
-(`VideoEncoder.isConfigSupported` for `avc1.64002A` / `avc1.640028`, `AudioEncoder` for
-`mp4a.40.2`, `VideoDecoder` for H.264) and, when anything is missing, shows "This browser cannot
+AAC encode: Chrome and Edge on Windows and Mac, Safari 26+; **not** Google Chrome on Linux (measured,
+Chrome 156) nor Safari before 26, where the editor's own WebAssembly AAC encoder takes over
+("AAC without WebCodecs" above). Open-source Chromium builds (the Playwright one here included)
+carry **no H.264 and no AAC** at all; Firefox has no `VideoEncoder` for H.264. The editor asks up
+front (`VideoEncoder.isConfigSupported` for `avc1.64002A` / `avc1.640028`, `AudioEncoder` for
+`mp4a.40.2`, `VideoDecoder` for H.264) and, when H.264 is missing, shows "This browser cannot
 make an H.264 + AAC video. Use Chrome, Edge or Safari on a computer." and stops. There is no
 fallback to VP9/Opus or WebM: iPhone and Instagram need H.264 + AAC, so a file in another codec
 would be a file nobody can use.
@@ -593,12 +757,14 @@ made).
 
 **The render pipeline**, step by step (`src/video-editor/engine/export.ts`):
 
-1. Capability check; stop with the message when H.264 or AAC is missing.
+1. Capability check; stop with the message when H.264 is missing; AAC from WebCodecs, or from the
+   editor's WebAssembly encoder when WebCodecs has none.
 2. Each clip's bytes (the Range route for a version, the File for an upload) demuxed once with
    mp4box; its sound decoded with `decodeAudioData` when no music is set.
 3. The sound rendered in an `OfflineAudioContext` (music with its offset, volume and fades, or
    the clips' own sound trimmed, sped and crossfaded like the pictures), then encoded with
-   `AudioEncoder` into the muxer.
+   `AudioEncoder` into the muxer (or with the WebAssembly AAC encoder, whose priming an edit list
+   removes after `finalize()`).
 4. For each output frame time t: `frameAt` (shared) says which clip is on screen, at which source
    time, and the mix during a crossfade; a `FrameCursor` per clip hands out the decoded
    `VideoFrame` at that source time (sequential decode; reopened at the key frame before t only
@@ -610,8 +776,8 @@ made).
 
 **What is not possible**, and is said so in the UI: no server-side render; no Instagram music
 library (a track comes from the person's computer or the studio, and they must hold its rights;
-Instagram's own music can only be added in the Instagram app when posting); no cheaper
-codec path when the browser lacks H.264/AAC; no editing of the words baked into a clip (that is
+Instagram's own music can only be added in the Instagram app when posting); no other codec path
+when the browser lacks H.264 (a missing AAC encoder is covered by the WebAssembly fallback); no editing of the words baked into a clip (that is
 the Text Studio's job, before the clip is made); a track picked from this computer in the
 standalone editor is not kept (a post's tracks and library tracks are, and since phase 3 the LUT
 table is too).
@@ -641,6 +807,9 @@ render and the upload are unchanged and stay admin-only on the server (`requireI
   is unchanged. Raw footage goes through `/upload` as before and is listed as a version.
 - The provider is the existing `editor` switch (`PROVIDER_LABELS.editor = "Video editor"`); its
   description now says what it gates. Members get 403 "Admins only for now: Video editor …".
+- AAC fallback: `src/video-editor/engine/aac-fallback.ts` (lazy), `aac-encoder.wasm`,
+  `shared/aac-wasm.ts`, `shared/aac-mp4.ts`, `scripts/aac-wasm/` (build), `tests/aac-fallback.test.ts`,
+  `scripts/video-aac-fallback-check.mjs` (see "AAC without WebCodecs").
 - `src/video-editor/engine/`: `capabilities.ts`, `demux.ts` (mp4box + `FrameCursor`),
   `grader.ts` (the WebGL2 shader, LUT as a 3D texture), `audio.ts` (decode, energy envelope, beat
   grid, offline mix, AAC encode, the preview's music), `energy.ts` (frame-difference motion
@@ -722,7 +891,7 @@ document but has no button.
   itself with the studio's boot calls answered by a small mock (a signed-in admin, no months), so
   no Worker, D1 or wrangler is needed; it opens `/video-editor`, asks the browser about its codecs
   on the served origin (WebCodecs exists only in a secure context, which `127.0.0.1` is), and
-  checks that the editor mounts, that the stop message appears exactly when H.264/AAC are missing
+  checks that the editor mounts, that the stop message appears exactly when H.264 is missing (AAC alone missing: the fallback note instead, since 23 Oct 2026)
   (and the Export panel shows it instead of the Export button), that the bottom toolbar shows the
   one Edit tool with its five tabs inside the panel (the Video studio's layout with no post open),
   and that there is no uncaught error and no network call outside the server (the
@@ -789,10 +958,12 @@ JSON report are kept outside the repo, under the session's scratchpad `video-sam
 
 ## What could not be verified here
 
-- **The H.264 + AAC encoders themselves**: the Playwright Chromium has none, so the demuxer, the
-  decode cursor, the compositor, the I420 pass, the muxer and the upload were run end to end with
-  VP9 + Opus (above), but the `avc`/`aac` encoder configuration was not. The first run on Chrome,
-  Edge or Safari should render a post, check the new version's warnings line (nothing about AAC
+- **The native AAC encoder**: the Playwright Chromium has neither H.264 nor AAC, so the pipeline was
+  first run end to end with VP9 + Opus (above). Since 23 Oct 2026 H.264 encode/decode was run for
+  real in Google Chrome 156 on Linux with the WebAssembly AAC encoder (see "AAC without
+  WebCodecs": h264 High, aac LC 48 kHz, moov first, A/V sync measured); a browser with a *native*
+  WebCodecs AAC encoder (Chrome/Edge on Windows or Mac, Safari 26) was still not available. The
+  first run there should render a post, check the new version's warnings line (nothing about AAC
   or moov), its size on the badge, and that the iPhone plays it. If `avc1.64002A` is refused on a
   machine, the check falls back to level 4.0 and the Main profile strings.
 - The server's promotion was run against the in-memory D1, not production D1 (not touched).

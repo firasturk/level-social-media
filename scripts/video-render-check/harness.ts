@@ -4,10 +4,10 @@
  * Nothing here is part of the studio's bundle.
  */
 import { MediaStore } from "@/video-editor/engine/media";
-import { exportProject, type ExportResult } from "@/video-editor/engine/export";
+import { exportProject, type ExportProgress, type ExportResult } from "@/video-editor/engine/export";
 import { Player } from "@/video-editor/engine/preview";
 import { decodeAudio } from "@/video-editor/engine/audio";
-import { TEST_CODECS } from "@/video-editor/engine/capabilities";
+import { checkCapabilities, STUDIO_CODECS, TEST_CODECS } from "@/video-editor/engine/capabilities";
 import { newClip, type VideoProject } from "@shared/video-project";
 import { alignCutsToBeats, deleteClips, moveClips, splitAt } from "@shared/video-timeline";
 
@@ -43,12 +43,52 @@ function b64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-async function render(project: VideoProject): Promise<Omit<ExportResult, "blob" | "still"> & { mp4: string; still: string | null; ms: number }> {
+/**
+ * One render. `codecs` is "test" (VP9 + Opus, what open-source Chromium can do) or "studio" (H.264 +
+ * AAC, for a branded Chrome; AAC through the WebAssembly fallback where WebCodecs has none). The
+ * milliseconds spent in each progress phase come back too.
+ */
+async function render(project: VideoProject, codecs: "test" | "studio" = "test"): Promise<Omit<ExportResult, "blob" | "still"> & { mp4: string; still: string | null; ms: number; phases: Record<string, number> }> {
   const t0 = performance.now();
-  const r = await exportProject({ project, media, music, voices, lut: null, codecs: TEST_CODECS, onProgress: () => undefined });
+  const phases: Record<string, number> = {};
+  let phase: ExportProgress["phase"] | null = null;
+  let since = t0;
+  const onProgress = (p: ExportProgress) => {
+    if (p.phase === phase) return;
+    const now = performance.now();
+    if (phase) phases[phase] = (phases[phase] ?? 0) + Math.round(now - since);
+    phase = p.phase;
+    since = now;
+  };
+  const r = await exportProject({ project, media, music, voices, lut: null, codecs: codecs === "studio" ? STUDIO_CODECS : TEST_CODECS, onProgress });
+  if (phase) phases[phase] = (phases[phase] ?? 0) + Math.round(performance.now() - since);
   const mp4 = b64(new Uint8Array(await r.blob.arrayBuffer()));
   const still = r.still ? b64(new Uint8Array(await r.still.arrayBuffer())) : null;
-  return { width: r.width, height: r.height, duration: r.duration, frames: r.frames, videoCodec: r.videoCodec, colour: r.colour, sources: r.sources, mp4, still, ms: Math.round(performance.now() - t0) };
+  return { width: r.width, height: r.height, duration: r.duration, frames: r.frames, videoCodec: r.videoCodec, audioEncoder: r.audioEncoder, colour: r.colour, sources: r.sources, mp4, still, ms: Math.round(performance.now() - t0), phases };
+}
+
+/** What the editor's capability check says here, for the studio's codecs. */
+const capabilities = () => checkCapabilities(undefined, STUDIO_CODECS);
+
+/** The WebAssembly AAC encoder alone on `seconds` of 48 kHz stereo noise-and-tone: milliseconds and units (the fallback's speed). */
+async function aacBench(seconds: number): Promise<{ ms: number; units: number; bytes: number; firstLoadMs: number }> {
+  const ctx = new OfflineAudioContext(2, Math.round(seconds * 48000), 48000);
+  const buf = ctx.createBuffer(2, Math.round(seconds * 48000), 48000);
+  for (let c = 0; c < 2; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < d.length; i++) d[i] = 0.3 * Math.sin((2 * Math.PI * (220 + 110 * c) * i) / 48000) + 0.05 * (Math.random() * 2 - 1);
+  }
+  const { encodeAacFallback } = await import("@/video-editor/engine/aac-fallback");
+  const t0 = performance.now();
+  let units = 0;
+  let bytes = 0;
+  let first = 0;
+  await encodeAacFallback(buf, 128_000, (data) => {
+    if (!units) first = performance.now() - t0;
+    units++;
+    bytes += data.length;
+  }, () => undefined, () => undefined);
+  return { ms: Math.round(performance.now() - t0), units, bytes, firstLoadMs: Math.round(first) };
 }
 
 /** The preview drawn at t: the canvas's pixels at the given fractions of the frame, after the hidden videos have seeked. */
@@ -97,5 +137,5 @@ function elementOf(key: string) {
   return m ? { videoWidth: m.video.videoWidth, videoHeight: m.video.videoHeight } : null;
 }
 
-Object.assign(window, { harness: { addSource, setMusic, setVoice, render, previewPixels, previewPng, elementOf, ops } });
+Object.assign(window, { harness: { addSource, setMusic, setVoice, render, previewPixels, previewPng, elementOf, ops, capabilities, aacBench } });
 document.title = "ready";
