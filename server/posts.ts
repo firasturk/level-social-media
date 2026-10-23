@@ -34,7 +34,7 @@ import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
 import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
-import { olderIdea, planShape, postRevision } from "@shared/posts";
+import { isMediaPost, olderIdea, planShape, postRevision } from "@shared/posts";
 import { resolveLanguage } from "@shared/language";
 import { monthIssues, sceneContext } from "@shared/issues";
 import { campaignSizeSchema, postSchema } from "@shared/config-schema";
@@ -1944,7 +1944,7 @@ interface TaskLite {
 }
 
 /** A plain background in one colour, the size of the post: a typographic tile's picture. */
-async function plainBackground(hex: string, format: string): Promise<ArrayBuffer> {
+export async function plainBackground(hex: string, format: string): Promise<ArrayBuffer> {
   const [w, h] = format === "1:1" ? [1080, 1080] : format === "9:16" ? [1080, 1920] : [1080, 1350];
   const n = parseInt(hex.slice(1), 16);
   const px = new Uint8Array(w * h * 4);
@@ -2224,6 +2224,14 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       }
     }
     if (!wanted.has(post.index)) continue;
+    // A media card is the client's own picture or clip: it is never generated (nor made again from
+    // an empty idea). Its picture changes only through the editors and the confirmed card steps.
+    if (isMediaPost(post)) {
+      const has = !!byPost.get(post.index)?.output;
+      if (!has) skipped.push(post.index);
+      outcomes.push({ index: post.index, title: post.title, status: has ? "made" : "blocked", ...(has ? {} : { why: "A card made from the client's own file: add the file again from Start." }) });
+      continue;
+    }
     // An offer is generated only once the designer filled it: products, price and contents.
     if (post.type === "offer" && !offerReady(post.offer)) {
       skipped.push(post.index);

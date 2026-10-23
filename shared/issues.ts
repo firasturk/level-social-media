@@ -1,6 +1,6 @@
 import type { Config } from "./config";
 import { occasionsOf, pickedOccasions } from "./occasions";
-import { matchProduct, offerReady, type Post } from "./posts";
+import { isMediaPost, matchProduct, offerReady, type Post } from "./posts";
 import { postProblems, type PostProblem } from "./qa";
 import { FOREIGN_ITEMS } from "./brief";
 
@@ -53,7 +53,7 @@ export function themeOptional(config: Pick<Config, "campaign" | "gridRef" | "pla
   if (!config) return true;
   if (config.campaign || config.gridRef) return true;
   const plan = config.plan ?? [];
-  return plan.length > 0 && plan.every((p) => !!p.style || (p.tileSpec?.kind === "text" && !p.product));
+  return plan.length > 0 && plan.every((p) => !!p.style || isMediaPost(p) || (p.tileSpec?.kind === "text" && !p.product));
 }
 
 export function monthIssues(i: MonthIssueInput): MonthIssue[] {
@@ -65,7 +65,9 @@ export function monthIssues(i: MonthIssueInput): MonthIssue[] {
   const month = config.month ?? "";
   // Products
   // A grid month can be made from the grid's tiles alone (the products are matched to them when they exist).
-  if (!i.products.length && !client.service?.trim() && !config.campaign)
+  // A month of media cards alone (the client's own pictures and clips) needs no product photos.
+  const mediaOnly = plan.length > 0 && plan.every(isMediaPost);
+  if (!i.products.length && !client.service?.trim() && !config.campaign && !mediaOnly)
     out.push({ code: "products", warn: !!config.gridRef, text: config.gridRef ? "No product photos yet: the posts follow the grid's tiles without the real products." : "No products yet.", how: "Upload product photos, pick them from the gallery, write a brief (it picks products from the Drive), or tick \"sells a service\"." });
   // Count and occasions
   if ((config.postCount ?? 0) < 1 && !plan.length) out.push({ code: "count", text: "Pick how many posts this month has." });
@@ -108,6 +110,8 @@ export function postIssues(
   scene?: { needsScene: boolean; sellsDrinks?: boolean; hasPlaces?: boolean; cast: { name: string; description: string; gender?: string; modest?: boolean }[] },
 ): MonthIssue[] {
   const out: MonthIssue[] = [];
+  // A media card is the client's own file: no idea, shot, product or offer to check.
+  if (isMediaPost(p)) return out;
   if (p.type === "offer" && !offerReady(p.offer)) out.push({ code: "offer", post: p.index, text: `Post ${p.index}: fill the offer's products, price and contents.` });
   const typographic = p.tileSpec?.kind === "text" && !p.product;
   const names = p.type === "offer" ? (p.offer?.products ?? []) : typographic ? [] : [p.product, ...(p.products ?? [])].filter((n): n is string => !!n);

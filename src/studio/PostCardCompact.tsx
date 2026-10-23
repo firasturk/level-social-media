@@ -42,6 +42,7 @@ export default function PostCardCompact({
   menu,
   primary,
   extra,
+  select,
 }: {
   post: Post;
   task: Task | null;
@@ -74,6 +75,8 @@ export default function PostCardCompact({
   primary?: { label: string; title: string; onClick: () => void; disabled?: boolean; busy?: boolean };
   /** Anything the card still shows under its title (an unsaved-changes row, a client's note). */
   extra?: ReactNode;
+  /** While cards are being chosen for one step (a style, the Text studio, one video): the tick and its place in the order. */
+  select?: { on: boolean; n: number; onToggle: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -95,6 +98,22 @@ export default function PostCardCompact({
     <>
       <div className="post-media pc-media" onClick={() => onEdit(task?.output ? "image" : "idea")} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onEdit(task?.output ? "image" : "idea")}>
         <header className="post-head">
+          {select && (
+            <button
+              type="button"
+              className={`pc-select ${select.on ? "on" : ""}`}
+              role="checkbox"
+              aria-checked={select.on}
+              aria-label={`Choose post ${post.index}`}
+              title={select.on ? `Chosen (${select.n}): click to leave it out` : "Choose this card"}
+              onClick={(e) => {
+                e.stopPropagation();
+                select.onToggle();
+              }}
+            >
+              {select.on ? <span className="pc-select-n">{select.n}</span> : null}
+            </button>
+          )}
           <span className="post-num">{String(post.index).padStart(2, "0")}</span>
           <span className="post-type-pill">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>
           {post.group && (

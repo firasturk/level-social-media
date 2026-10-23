@@ -28,6 +28,8 @@ export interface MockFile {
   color: string;
   /** In the Drive bin: listed, but no longer available. */
   trashed?: boolean;
+  /** The file's own bytes (a clip a test adds); without them the file is an SVG card. */
+  media?: Uint8Array;
 }
 
 export const DEMO_FOLDERS: readonly MockFolder[] = [

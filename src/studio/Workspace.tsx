@@ -2097,6 +2097,7 @@ export default function Workspace({
                 onGeneratePosts={(i, r) => void generatePosts(i, r, true, false, !!r && i?.length === 1)}
                 onOpen={setSelected}
                 compact={useFlow}
+                admin={user.role === "admin"}
                 onEdit={openEditor}
                 onPhotoStudio={openPhotoStudio}
                 onExport={() => void exportMonth()}

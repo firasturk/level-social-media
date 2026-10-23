@@ -199,6 +199,34 @@ export interface Post {
   productLock?: boolean;
   /** This post's content language, when it differs from the month's and the brand kit's (see shared/language). */
   language?: "ar" | "en" | "both";
+  /**
+   * "media": a card made straight from the client's own picture or clip (Start → Edit images or
+   * Create or edit video, docs/direct-to-studio.md). The file is the post: no idea, shot or product
+   * is asked for, the Plan and Direction checks leave it alone, and nothing is generated for it.
+   */
+  source?: "media";
+  /** What a media card was made from (only with `source: "media"`). */
+  media?: PostMedia;
+}
+
+/** The file behind a media card: where it came from and its fingerprint (the same pick twice is one card). */
+export interface PostMedia {
+  kind: "image" | "video";
+  /** The client's Drive (copied, never changed there), an upload from the computer, or clips combined in the Studio. */
+  from: "drive" | "upload" | "combine";
+  /** The file's own name. */
+  name: string;
+  /** Drive id and version, or the upload's SHA-256: a second pick of the same file finds this card. */
+  fp: string;
+  drive?: { id: string; version: string; md5?: string };
+  /** The gallery style the picture was last restyled in (a confirmed, paid step on the card). */
+  styled?: string;
+  at: number;
+}
+
+/** A card made from the client's own picture or clip: its file is the post, nothing is generated for it. */
+export function isMediaPost(p: Pick<Post, "source"> | null | undefined): boolean {
+  return p?.source === "media";
 }
 
 /** What a generated post was built from; stored on its task so retries and revisions keep it. */
@@ -1837,7 +1865,9 @@ export interface Lineage {
 }
 
 /** The picture was made for an earlier revision of this post's idea (never guessed from timestamps). */
-export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): boolean {
+export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile"> & { source?: Post["source"] }, config: RevisionConfig | null | undefined): boolean {
+  // A media card's picture is the client's own file: there is no idea for it to be older than.
+  if (post.source === "media") return false;
   return !!task?.output && task.made_for != null && task.made_for < postRevision(post, config);
 }
 

@@ -6,11 +6,15 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, UserRound, Wand2, X } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Play, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
 import { FreepikDialog } from "./FreepikPanel";
 import LevelLogo from "@/components/LevelLogo";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
+import MediaIntake, { ROUTE_TEXT } from "./MediaIntake";
+import { latestClip, rememberNewCards, type IntakeAnswer, type MediaRoute, type StartClip } from "./mediaApi";
+import "./media-intake.css";
 import { Orb } from "@/components/Orb";
 import { get, post, postForm } from "@/api";
 import VoiceInput from "@/components/VoiceInput";
@@ -48,16 +52,34 @@ import Ambassadors, { MAX_CAST } from "./Ambassadors";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { defaultPaletteSource, gridColours, PALETTE_SOURCE_LABELS, PALETTE_SOURCES, paletteSourceLine, resolvePalette, savedPaletteSource, type PaletteSource } from "@shared/palette-source";
 
-type Way = "brief" | "grid" | "refs" | "style";
+/**
+ * How the month is led. The Start screen offers four: a brief, a grid, and the two direct routes
+ * (the client's own pictures or clips straight onto Studio cards). "refs" (the theme's references
+ * lead) and "style" (one post from a gallery style) are no longer Start cards: the theme's
+ * references live in Direction, styles on the Studio cards and the style gallery.
+ */
+type Way = "brief" | "grid" | "refs" | "style" | "images" | "video";
+type StartWay = "brief" | "grid" | "images" | "video";
 type Stage = 0 | 1 | 2;
 
-/** The four ways to start, each with the same four lines: what it is, what it needs, what it creates, what it controls. */
-const WAYS: { key: Way; title: string; desc: string; needs: string; makes: string; controls: string; action: string; icon: React.ReactNode }[] = [
-  { key: "brief", title: "Quick Campaign", desc: "Say what you want in your words, typed or spoken: the posts, the products, the look, the text on the pictures.", needs: "a few sentences; reference pictures optional", makes: "a draft of posts to review, then the whole month", controls: "ideas, words, colours, exact references", action: "Plan it", icon: <MessageSquareText size={18} /> },
-  { key: "grid", title: "Follow a grid", desc: "A whole feed from the library: one tile per post, its order, its text tiles and fonts.", needs: "one grid from the library", makes: "one post per tile, in the grid's order", controls: "the composition of every post", action: "Pick a grid", icon: <Grid3x3 size={18} /> },
-  { key: "refs", title: "Use theme references", desc: "Pins or photos that set the month's look: light, colours, props, camera. Never their objects.", needs: "pins or photos on the theme", makes: "the month's posts in that light and palette", controls: "mood, palette, shot list", action: "Add pins or photos", icon: <Images size={18} /> },
-  { key: "style", title: "One post from a style", desc: "One look from the gallery for one post. The style is saved on the post first; making the picture is a separate step you confirm.", needs: "one style and the post it goes on", makes: "that post's idea and shot (its picture is a separate step)", controls: "one post's look and idea", action: "Pick a style", icon: <Sparkles size={18} /> },
+/** The four ways to start: one card design each (a picture, a title, one line, the same buttons). */
+const WAYS: { key: StartWay; title: string; desc: string; direct?: boolean }[] = [
+  { key: "brief", title: "Quick Campaign", desc: "Turn a brief into a campaign, typed or spoken." },
+  { key: "grid", title: "Follow a grid", desc: "Plan a campaign from a grid, one post per tile." },
+  { key: "images", title: "Edit images", desc: "Choose one or more images. Edit, style and add text.", direct: true },
+  { key: "video", title: "Create or edit video", desc: "Choose images or clips. Create and edit your video.", direct: true },
 ];
+
+/** Every way's name, the two that are no longer Start cards included (a month can still be led by them). */
+const WAY_TITLES: Record<Way, string> = {
+  brief: "Quick Campaign",
+  grid: "Follow a grid",
+  refs: "Theme references",
+  style: "One post from a style",
+  images: "Edit images",
+  video: "Create or edit video",
+};
+const isDirect = (w: Way): w is "images" | "video" => w === "images" || w === "video";
 
 const LEADS: Record<Way, { title: string; text: string; meet: string; add: string[] }> = {
   brief: {
@@ -83,6 +105,18 @@ const LEADS: Record<Way, { title: string; text: string; meet: string; add: strin
     text: "A style from the gallery writes the post's idea and shot. It is saved on the post first; making the picture is the step you confirm, with its cost shown.",
     meet: "The style wins over a grid tile or a theme reference on that post. A picture pinned to the post still wins over the style.",
     add: ["Your product photo on that post", "A caption written for it", "More posts later, from the Studio"],
+  },
+  images: {
+    title: "Direct to Studio: your pictures",
+    text: "Pick pictures from the client's Drive or this computer, or both. Each one becomes its own card in the Studio, ready for the Photo studio, the Text studio and styles. No brief, theme or product is asked for, and nothing is generated.",
+    meet: "The month's other posts stay exactly as they are; the new cards come after them. Styling or editing a picture with AI is a separate step you confirm on its card, with its cost.",
+    add: ["A style on chosen cards", "Words in the Text studio", "A video from a picture"],
+  },
+  video: {
+    title: "Direct to Studio: your clips and pictures",
+    text: "Pick clips and pictures from the client's Drive or this computer. Each one becomes its own card first; then choose the cards to combine into one video in the Video editor.",
+    meet: "Pictures are never turned into video by themselves: making a clip with AI stays a confirmed step in the Video editor's Generate panel.",
+    add: ["Combine chosen cards into one video", "Music and cuts in the Video editor", "Words in the Text studio"],
   },
 };
 
@@ -729,6 +763,63 @@ export default function Flow(p: FlowProps) {
     };
   }, [clientId]);
 
+  /* ── Direct to Studio: Edit images and Create or edit video skip Direction and Plan ── */
+  const admin = p.user.role === "admin";
+  const [intake, setIntake] = useState<{ route: MediaRoute; tab: "drive" | "upload"; files?: File[] } | null>(null);
+  const uploadPick = useRef<HTMLInputElement>(null);
+  const uploadRoute = useRef<MediaRoute>("images");
+  function openIntake(route: MediaRoute, tab: "drive" | "upload", files?: File[]) {
+    setWay(route);
+    setIntake({ route, tab, files });
+  }
+  /** "Upload files" opens this computer's file chooser at once; the files picked open the dialog's tray. */
+  function pickUploads(route: MediaRoute) {
+    uploadRoute.current = route;
+    setWay(route);
+    const el = uploadPick.current;
+    if (!el) return;
+    el.accept = ROUTE_TEXT[route].accept;
+    el.click();
+  }
+  /** The cards are made: the Studio opens on them, with them chosen for the next explicit step. */
+  async function intakeDone(a: IntakeAnswer, dest: { client: string; month: string }) {
+    const route = intake?.route ?? (way === "video" ? "video" : "images");
+    const made = a.created.map((x) => x.index);
+    const all = [...new Set([...made, ...a.existing.map((x) => x.index)])];
+    if (a.batch && all.length) rememberNewCards(a.batch, route, all);
+    const list = (ns: number[]) => ns.map((n) => String(n).padStart(2, "0")).join(", ");
+    if (made.length) toast.success(`${made.length} card${made.length === 1 ? "" : "s"} added (post${made.length === 1 ? "" : "s"} ${list(made)}).${a.existing.length ? ` ${a.existing.length} already in this month (post${a.existing.length === 1 ? "" : "s"} ${list([...new Set(a.existing.map((x) => x.index))])}).` : ""} Nothing was generated.`);
+    else if (a.existing.length) toast.message(`Already in this month: post${a.existing.length === 1 ? "" : "s"} ${list([...new Set(a.existing.map((x) => x.index))])}. No card was added twice.`);
+    setIntake(null);
+    if (client && dest.client !== client.id) p.onClient(dest.client);
+    if (dest.month !== p.month) p.onMonth(dest.month);
+    await p.refresh();
+    p.onDone(all[0]);
+  }
+  // A direct route has no Direction or Plan: when those stages open, the month's own lead is shown.
+  useEffect(() => {
+    if (stage > 0 && isDirect(way)) setWay(p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "refs");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage]);
+  /** The pictures on the two direct cards: the month's own pictures, else its product photos, else the client's pins. */
+  const startPictures = [
+    ...p.tasks.filter((t) => t.post && t.output).map((t) => p.outputThumb(t)),
+    ...p.products.map((s) => p.sourceUrl(s.id)),
+    ...(daily?.refs ?? []).map((s) => styleThumb(s)),
+  ].slice(0, 4);
+  /** The client's newest finished clip, moving on the video card. */
+  const [startClip, setStartClip] = useState<StartClip | null>(null);
+  useEffect(() => {
+    if (!clientId) return;
+    let live = true;
+    latestClip(clientId)
+      .then((c) => live && setStartClip(c))
+      .catch(() => live && setStartClip(null));
+    return () => {
+      live = false;
+    };
+  }, [clientId]);
+
   return (
     <div className="journey flow" role="dialog" aria-modal="true" aria-label="Create content">
       <header className="journey-top">
@@ -773,7 +864,7 @@ export default function Flow(p: FlowProps) {
               <div className="journey-head">
                 <div>
                   <h2>Create content</h2>
-                  <p>Choose one way to start. Supporting inputs can be added on the next screen, and nothing costs money until the plan is approved.</p>
+                  <p>Choose one way to start. A campaign or a grid goes through Direction and Plan; your own images and clips go straight to the Studio. Nothing costs money until you confirm it.</p>
                 </div>
               </div>
               {p.plan.length > 0 && (
@@ -790,13 +881,18 @@ export default function Flow(p: FlowProps) {
                   </button>
                 </div>
               )}
-              <div className="flow-ways" role="radiogroup" aria-label="Start with">
+              <div className="flow-ways four" role="group" aria-label="Start with">
                 {WAYS.map((w) => (
-                  <button key={w.key} type="button" role="radio" aria-checked={way === w.key} className={`flow-way ${way === w.key ? "on" : ""}`} onClick={() => setWay(w.key)}>
+                  <div key={w.key} className={`flow-way ${way === w.key ? "on" : ""}`} data-way={w.key} aria-current={way === w.key ? "true" : undefined}>
                     <span className="flow-way-check" aria-hidden>
                       <Check size={12} />
                     </span>
-                    <span className="flow-way-art" aria-hidden>
+                    <span className="flow-way-art" aria-hidden onClick={() => (w.direct ? openIntake(w.key as "images" | "video", "drive") : setWay(w.key))}>
+                      {w.direct && (
+                        <span className="flow-way-tag">
+                          <Zap size={11} /> Direct to Studio
+                        </span>
+                      )}
                       {w.key === "brief" && (
                         <span className="flow-art-brief">
                           <i className="bar long" />
@@ -828,39 +924,105 @@ export default function Flow(p: FlowProps) {
                             })}
                           </span>
                         ))}
-                      {w.key === "refs" && (
-                        <span className="flow-art-refs">
-                          {(daily?.refs.length ? daily.refs.map((s) => styleThumb(s)) : p.themeRefs.length ? p.themeRefs.slice(0, 3).map((r) => `/api/studio/references/${r.id}/file`) : p.products.slice(0, 3).map((s) => p.sourceUrl(s.id))).map((src, i) => (
-                            <img key={i} src={src} alt="" style={{ left: 14 + i * 70, top: [14, 8, 18][i], transform: `rotate(${[-4, 2, 5][i]}deg)` }} />
-                          ))}
+                      {w.key === "images" && (
+                        <span className="flow-art-images">
+                          {startPictures[0] ? <img src={startPictures[0]} alt="" /> : <span className="flow-art-tile" />}
+                          {[1, 2, 3].map((i) => (startPictures[i] ? <img key={i} src={startPictures[i]} alt="" /> : <span key={i} className="flow-art-tile" />))}
+                          <span className="flow-art-plus">+</span>
                         </span>
                       )}
-                      {w.key === "style" && (
-                        <span className="flow-art-style">
-                          {startStyle ? <img src={styleThumb(startStyle)} alt="" /> : daily?.style ? <img src={styleThumb(daily.style)} alt="" /> : p.products[0] ? <img src={p.sourceUrl(p.products[0].id)} alt="" /> : <span className="flow-art-tile" />}
-                          <span className="flow-art-label">{startStyle?.title ?? "A look from the gallery"}</span>
+                      {w.key === "video" && (
+                        <span className="flow-art-video">
+                          <span className="flow-art-screen">
+                            {startClip ? (
+                              <AutoplayVideo src={startClip.url} poster={startClip.poster ?? startPictures[0] ?? null} mode="preview" bare label={`${client?.name ?? "The client"}'s latest clip`} />
+                            ) : startPictures[0] ? (
+                              <>
+                                <img src={startPictures[0]} alt="" />
+                                <span className="flow-art-play">
+                                  <Play size={16} />
+                                </span>
+                              </>
+                            ) : (
+                              <span className="flow-art-play">
+                                <Play size={16} />
+                              </span>
+                            )}
+                          </span>
+                          <span className="flow-art-strip">
+                            {[0, 1, 2, 3].map((i) => (startPictures[i] ? <img key={i} src={startPictures[i]} alt="" /> : <i key={i} />))}
+                            <i className="wave" />
+                          </span>
                         </span>
                       )}
                     </span>
-                    <strong>{w.title}</strong>
+                    <button type="button" className="flow-way-title" onClick={() => (w.direct ? openIntake(w.key as "images" | "video", "drive") : setWay(w.key))}>
+                      {w.title}
+                    </button>
                     <span className="flow-way-desc">{w.desc}</span>
-                    <dl className="flow-way-facts">
-                      <dt>Needs</dt>
-                      <dd>{w.needs}</dd>
-                      <dt>Creates</dt>
-                      <dd>{w.makes}</dd>
-                      <dt>Controls</dt>
-                      <dd>{w.controls}</dd>
-                    </dl>
-                    <span className="flow-way-foot">
-                      <span className={`flow-way-action ${way === w.key ? "on" : ""}`}>
-                        {w.icon} {w.action}
+                    {w.direct ? (
+                      <span className="flow-way-buttons two">
+                        <Cta icon={<FolderOpen size={16} />} onClick={() => openIntake(w.key as "images" | "video", "drive")}>
+                          <span>Choose from Drive</span>
+                        </Cta>
+                        <Cta kind="secondary" icon={<Upload size={16} />} onClick={() => pickUploads(w.key as "images" | "video")}>
+                          <span>Upload files</span>
+                        </Cta>
                       </span>
-                      {w.key === "brief" && <span className="flow-way-rec">Most months start here</span>}
-                    </span>
-                  </button>
+                    ) : (
+                      <span className="flow-way-buttons">
+                        {w.key === "brief" ? (
+                          <Cta
+                            icon={<FileText size={16} />}
+                            onClick={() => {
+                              setWay("brief");
+                              setTimeout(() => {
+                                const t = document.querySelector<HTMLTextAreaElement>(".flow-brief textarea");
+                                t?.scrollIntoView({ behavior: "smooth", block: "center" });
+                                t?.focus({ preventScroll: true });
+                              }, 60);
+                            }}
+                          >
+                            <span>Write a brief</span>
+                          </Cta>
+                        ) : (
+                          <Cta
+                            icon={<Grid3x3 size={16} />}
+                            onClick={() => {
+                              setWay("grid");
+                              setPicking("grid");
+                            }}
+                          >
+                            <span>Pick a grid</span>
+                          </Cta>
+                        )}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
+              <p className="flow-start-steps" aria-hidden>
+                {isDirect(way) ? (
+                  <>
+                    Select files <ArrowRight size={12} /> Open Studio cards <ArrowRight size={12} /> Edit
+                  </>
+                ) : (
+                  <>
+                    Start <ArrowRight size={12} /> Direction <ArrowRight size={12} /> Plan <ArrowRight size={12} /> Studio
+                  </>
+                )}
+              </p>
+              <input
+                ref={uploadPick}
+                type="file"
+                multiple
+                hidden
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  if (files.length) openIntake(uploadRoute.current, "upload", files);
+                }}
+              />
               <div className="flow-two">
                 <section className="journey-box flow-box">
                   <span className="flow-eyebrow">{lead.title}</span>
@@ -1076,6 +1238,19 @@ export default function Flow(p: FlowProps) {
                       )}
                     </div>
                   )}
+                  {isDirect(way) && (
+                    <div className="flow-pick-row">
+                      <Cta icon={<FolderOpen size={16} />} onClick={() => openIntake(way, "drive")}>
+                        Choose from Drive
+                      </Cta>
+                      <Cta kind="secondary" icon={<Upload size={16} />} onClick={() => pickUploads(way)}>
+                        Upload files
+                      </Cta>
+                      <small className="flow-muted">
+                        {way === "video" ? (admin ? "Pictures up to 20 MB, MP4 clips up to 60 MB." : "Pictures up to 20 MB. Clips are added by an admin for now.") : "PNG, JPEG or WebP, up to 20 MB each."} Both sources can be combined in one selection.
+                      </small>
+                    </div>
+                  )}
                   {way === "style" && (
                     <div className="flow-choice-wrap">
                       {startStyle ? (
@@ -1209,10 +1384,21 @@ export default function Flow(p: FlowProps) {
                 </section>
               </div>
               <footer className="flow-foot">
-                <span className="flow-muted">Starting with {WAYS.find((w) => w.key === way)?.title.toLowerCase()}. You can change this until the plan is approved.</span>
-                <button type="button" className="primary btn-pill" disabled={moving || planning} onClick={() => void toDirection()}>
-                  {moving || planning ? <Orb size={14} /> : <ArrowRight size={14} />} Continue to Direction
-                </button>
+                {isDirect(way) ? (
+                  <>
+                    <span className="flow-muted">{WAY_TITLES[way]} goes straight to the Studio: no Direction or Plan, and nothing is generated.</span>
+                    <button type="button" className="primary btn-pill" onClick={() => openIntake(way, "drive")}>
+                      <ArrowRight size={14} /> Choose the files
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flow-muted">Starting with {WAY_TITLES[way].toLowerCase()}. You can change this until the plan is approved.</span>
+                    <button type="button" className="primary btn-pill" disabled={moving || planning} onClick={() => void toDirection()}>
+                      {moving || planning ? <Orb size={14} /> : <ArrowRight size={14} />} Continue to Direction
+                    </button>
+                  </>
+                )}
               </footer>
             </>
           )}
@@ -1230,7 +1416,7 @@ export default function Flow(p: FlowProps) {
                 <section className="journey-box flow-box">
                   <div className="flow-row-head">
                     <span className="flow-eyebrow">Leads this month</span>
-                    <span className="flow-pill dark">{WAYS.find((w) => w.key === way)?.title}</span>
+                    <span className="flow-pill dark">{WAY_TITLES[way]}</span>
                     <button type="button" className="text-button" onClick={() => setStage(0)}>
                       Start another way
                     </button>
@@ -1657,7 +1843,7 @@ export default function Flow(p: FlowProps) {
               </div>
               <footer className="flow-foot">
                 <span className="flow-muted">
-                  {WAYS.find((w) => w.key === way)?.title} leads · {pinned} pinned · colours {paletteFrom} · {p.cast.length ? `${p.cast.length} model${p.cast.length === 1 ? "" : "s"}` : "no models"} · {p.products.length} product photo{p.products.length === 1 ? "" : "s"}
+                  {WAY_TITLES[way]} leads · {pinned} pinned · colours {paletteFrom} · {p.cast.length ? `${p.cast.length} model${p.cast.length === 1 ? "" : "s"}` : "no models"} · {p.products.length} product photo{p.products.length === 1 ? "" : "s"}
                 </span>
                 <button type="button" className="primary btn-pill" disabled={moving} onClick={() => void toPlan()}>
                   {moving ? <Orb size={14} /> : <ArrowRight size={14} />} {p.plan.length ? "Open the plan" : "Write the plan"}
@@ -1777,7 +1963,7 @@ export default function Flow(p: FlowProps) {
                 <div className="flow-sum-cell">
                   <span className="flow-eyebrow">Visual direction</span>
                   <p>
-                    <b>{WAYS.find((w) => w.key === way)?.title} leads</b> · {monthGrid ? `grid “${monthGrid.title}”` : "no grid"} · {theme ? `theme “${theme.title}”${theme.references ? "" : " (no pins, optional)"}` : "no theme"} · colours {p.config?.palette?.length ? `this month only, ${paletteFrom}` : savedSource === "theme" ? paletteFrom : "the client's brand colours"}
+                    <b>{WAY_TITLES[way]} leads</b> · {monthGrid ? `grid “${monthGrid.title}”` : "no grid"} · {theme ? `theme “${theme.title}”${theme.references ? "" : " (no pins, optional)"}` : "no theme"} · colours {p.config?.palette?.length ? `this month only, ${paletteFrom}` : savedSource === "theme" ? paletteFrom : "the client's brand colours"}
                   </p>
                   <button type="button" className="text-button" onClick={() => setStage(1)}>
                     Change
@@ -1902,7 +2088,7 @@ export default function Flow(p: FlowProps) {
                 <span className="flow-eyebrow">Product images</span>
                 <ProductChoice variant="bar" batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} onChanged={loadPreview} />
               </section>
-              <p className="flow-muted flow-precedence-line">{precedenceLine(way, { grid: !!monthGrid, theme: !!theme?.references, pinned, styled: p.plan.filter((x) => x.style).length })}</p>
+              <p className="flow-muted flow-precedence-line">{precedenceLine(isDirect(way) ? "refs" : way, { grid: !!monthGrid, theme: !!theme?.references, pinned, styled: p.plan.filter((x) => x.style).length })}</p>
               {counts.older > 0 && onePost === null && (
                 <section className="flow-older" role="note">
                   <div className="flow-older-text">
@@ -2276,6 +2462,23 @@ export default function Flow(p: FlowProps) {
           if (stage === 2) await loadPreview();
         }}
       />
+      {intake && (
+        <MediaIntake
+          open
+          route={intake.route}
+          startTab={intake.tab}
+          initialFiles={intake.files}
+          clients={p.clients}
+          clientId={client?.id ?? null}
+          month={p.month}
+          batchId={p.batchId}
+          posts={p.plan.length}
+          admin={admin}
+          ensurePlan={p.ensurePlan}
+          onClose={() => setIntake(null)}
+          onDone={intakeDone}
+        />
+      )}
       {picking && client && (
         <StyleScreen
           open
