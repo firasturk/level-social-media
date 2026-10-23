@@ -739,6 +739,38 @@ export async function driveFileCopy(
   return { bytes, mime: info.mimeType };
 }
 
+/**
+ * An audio file from Drive, read whole (the music library's import: docs/music-library.md). Only
+ * a file shared with the service account is reachable; the answer carries the version the studio
+ * records with the copy (modifiedTime) and Drive's checksum. The demo Drive has no audio.
+ */
+export async function driveAudioFile(
+  env: Env,
+  id: string,
+  maxBytes: number,
+): Promise<{ bytes: ArrayBuffer; name: string; mime: string; version: string; md5: string | null }> {
+  if (await isDemoDrive(env))
+    throw new StudioError("The demo Drive has no audio files. Connect Google Drive (Vertex) to import from Drive, or upload the track.", 409);
+  const m = await fileMeta(env, id);
+  if ("missing" in m) throw new StudioError(m.missing, 404);
+  const file = m.file;
+  const looksAudio = file.mimeType.startsWith("audio/") || /\.(mp3|m4a|aac|wav)$/i.test(file.name);
+  if (!looksAudio) throw new StudioError(`"${file.name}" is not an audio file (Drive says ${file.mimeType}).`, 415);
+  if (Number(file.size ?? 0) > maxBytes)
+    throw new StudioError(`"${file.name}" is too large (${Math.round(maxBytes / 1024 / 1024)} MB at most).`, 413);
+  const { token } = await auth(env);
+  const r = await fetch(`${API}/${encodeURIComponent(id)}?alt=media&${ALL_DRIVES}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (r.status === 404) throw new StudioError(REASON_GONE, 404);
+  if (!r.ok) throw new StudioError(`Google Drive answered ${r.status} for the audio file.`, 502);
+  const bytes = await r.arrayBuffer();
+  if (bytes.byteLength > maxBytes)
+    throw new StudioError(`"${file.name}" is too large (${Math.round(maxBytes / 1024 / 1024)} MB at most).`, 413);
+  return { bytes, name: file.name, mime: file.mimeType, version: versionOf(file), md5: file.md5Checksum ?? null };
+}
+
 const extOf = (mime: string) =>
   mime === "image/png"
     ? "png"

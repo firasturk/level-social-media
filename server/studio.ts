@@ -71,6 +71,7 @@ import { describeUpload, postRoutes } from "./posts";
 import { videoRoutes } from "./video";
 import { videoAudioRoutes } from "./video-audio";
 import { videoEditorRoutes } from "./video-editor";
+import { musicRoutes } from "./music";
 import { videoPresetRoutes } from "./video-presets";
 import { videoMagnificRoutes } from "./video-magnific";
 import { videoHiggsfieldRoutes } from "./video-enhance";
@@ -108,6 +109,8 @@ studioRoutes.route("/posts/video", videoRoutes);
 studioRoutes.route("/posts/video/editor", videoEditorRoutes);
 // The Video studio: the preset gallery (Higgsfield), Magnific's engines and clip tools, Higgsfield's clip tools and checks.
 studioRoutes.route("/video/presets", videoPresetRoutes);
+// The music library: the catalog and each client's licensed tracks (docs/music-library.md).
+studioRoutes.route("/music", musicRoutes);
 studioRoutes.route("/video/magnific", videoMagnificRoutes);
 studioRoutes.route("/video/higgsfield", videoHiggsfieldRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
