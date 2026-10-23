@@ -41,6 +41,8 @@ interface HelpItem {
 }
 
 const STORE = "lsm-help-chat";
+/** What Firas is doing while he answers (the character: grumpy, but on it). */
+const THINKING = ["Firas is sighing…", "Firas is finishing his coffee first…", "Firas is looking it up, grudgingly…", "Firas is rolling his eyes…", "Firas is muttering something…", "Firas is opening the guide (again)…"];
 const when = (t: number) => new Date(t).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const screenNow = () => `${window.location.pathname}${window.location.search}`.slice(0, 200);
 
@@ -65,6 +67,7 @@ export default function HelpAssistant({ user }: { user: User }) {
   const [items, setItems] = useState<HelpItem[] | null>(null);
   const [openCount, setOpenCount] = useState(0);
   const end = useRef<HTMLDivElement | null>(null);
+  const [thinking, setThinking] = useState(THINKING[0]);
 
   useEffect(() => {
     try {
@@ -105,9 +108,10 @@ export default function HelpAssistant({ user }: { user: User }) {
     setTurns((t) => [...t, { role: "user", text: message }]);
     setText("");
     setDraft(null);
+    setThinking(THINKING[Math.floor(Math.random() * THINKING.length)]);
     setBusy(true);
     try {
-      const r = await post<{ answer: string; steps: string[]; known: boolean; request: string }>("/api/studio/help/ask", { message, history, screen: screenNow() });
+      const r = await post<{ answer: string; steps: string[]; known: boolean; request: string }>("/api/studio/help/ask", { message, history, screen: screenNow(), local: { hour: new Date().getHours(), weekday: new Date().getDay() } });
       setTurns((t) => [...t, { role: "assistant", text: r.answer, steps: r.steps, known: r.known, request: r.request, question: message }]);
       if (!r.known && r.request) setDraft({ at: Date.now(), message: r.request, question: message, answer: r.answer });
     } catch (e) {
@@ -205,7 +209,7 @@ export default function HelpAssistant({ user }: { user: User }) {
                 {busy && (
                   <div className="help-msg assistant">
                     <p>
-                      <Orb size={14} /> Firas is looking it up…
+                      <Orb size={14} /> {thinking}
                     </p>
                   </div>
                 )}
