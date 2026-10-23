@@ -5,7 +5,7 @@
  */
 import { isMediaPost } from "@shared/posts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Aperture, Check, Clapperboard, Ellipsis, Pencil, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
+import { Aperture, Check, Clapperboard, Ellipsis, GalleryHorizontalEnd, Image as ImageIcon, Pencil, Rows3, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
@@ -118,10 +118,16 @@ export default function PostCardCompact({
           <span className="post-num">{String(post.index).padStart(2, "0")}</span>
           {/* A picture or clip brought in as it is has no post type of its own: no type tag on it. */}
           {!isMediaPost(post) && <span className="post-type-pill">{POST_TYPE_INFO[post.type]?.label ?? post.type}</span>}
-          {post.group && (
-            <span className={`post-group ${post.group.kind}`}>
-              {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+          {post.group ? (
+            <span className={`post-group ${post.group.kind}`} title={post.group.kind === "carousel" ? `Carousel: slide ${post.group.slide} of ${post.group.of}, posted together` : `Series: part ${post.group.slide} of ${post.group.of}`}>
+              {post.group.kind === "carousel" ? <GalleryHorizontalEnd size={12} aria-hidden /> : <Rows3 size={12} aria-hidden />} {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
             </span>
+          ) : (
+            post.media?.kind !== "video" && (
+              <span className="post-group single" title="A single post: one picture">
+                <ImageIcon size={12} aria-hidden /> Post
+              </span>
+            )
           )}
           {post.date && (
             <span className="post-day" title={dayTitle || "Posting day"}>

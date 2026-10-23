@@ -375,7 +375,7 @@ export async function productBrief(env: Env, user: User, batchId: string, index:
     const photo = await first<{ name: string; note: string }>(env.DB, "SELECT name, note FROM drive_photos WHERE id = ?", drive);
     if (photo && (photo.name || photo.note)) {
       name = photo.name.replace(/\.[a-z0-9]+$/i, "");
-      note = photo.note;
+      note = photo.note.trim().replace(/[.\s]+$/, "");
       from.push("the client's Drive");
       break;
     }
@@ -383,7 +383,7 @@ export async function productBrief(env: Env, user: User, batchId: string, index:
   if (!name && post?.product) {
     const src = await first<{ name: string; note: string | null }>(env.DB, "SELECT name, note FROM sources WHERE batch = ? AND kind = 'product' AND (lower(stem) = lower(?) OR lower(name) = lower(?)) LIMIT 1", b.id, post.product, post.product);
     name = src?.name?.replace(/\.[a-z0-9]+$/i, "") ?? post.product;
-    note = src?.note ?? "";
+    note = (src?.note ?? "").trim().replace(/[.\s]+$/, "");
     from.push("the post's product photo");
   }
   // "Post 3" and a file's name ("01-talk", "IMG_2041") say nothing about the product.

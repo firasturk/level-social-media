@@ -6,7 +6,7 @@
  * is `usePhotoTools`; the Photo lab (Freepik's API, in dollars) stays its own panel.
  */
 import { useEffect } from "react";
-import { Check, Download, ImagePlus, Lock, Play, RefreshCw, Sparkles, TriangleAlert, Wallet } from "lucide-react";
+import { Check, Download, GalleryHorizontalEnd, ImagePlus, Lock, Play, RefreshCw, Sparkles, SquarePlus, TriangleAlert, Wallet } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import VoiceInput from "@/components/VoiceInput";
 import { TOOL_PROVIDER_LABELS, type ToolProvider } from "@shared/photo-tools";
@@ -183,7 +183,22 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
                 Before and after are on the canvas: drag the slider.{job.reported !== null ? ` ${job.reported} credits reported.` : ""}
               </p>
               <div className="ps-row ps-wrap">
-                {t.canUseAsPicture && (
+                {t.admin && job.addedAs.length > 0 && (
+                  <span className="ts-btn" aria-disabled="true">
+                    <Check size={14} /> {job.addedAs.length === 1 ? `Added as post ${job.addedAs[0]}` : `Added as posts ${job.addedAs[0]}–${job.addedAs[job.addedAs.length - 1]}`}
+                  </span>
+                )}
+                {t.admin && !job.addedAs.length && (
+                  <>
+                    <button type="button" className={`ts-btn ${job.tool === "mg-variations" ? "primary" : ""}`} disabled={!!t.using} onClick={() => void t.addAsPosts("posts")} title="Keep this post as it is and add the result as new posts after the month's posts (nothing is run or paid)">
+                      {t.using === "posts" ? <Orb size={14} /> : <SquarePlus size={14} />} {job.tool === "mg-variations" ? "Add each picture as a new post" : "Add as a new post"}
+                    </button>
+                    <button type="button" className="ts-btn" disabled={!!t.using} onClick={() => void t.addAsPosts("carousel")} title="This post becomes a carousel: its picture is slide 1 and the result the next slides (ten slides at most; nothing is run or paid)">
+                      {t.using === "carousel" ? <Orb size={14} /> : <GalleryHorizontalEnd size={14} />} Add as a carousel
+                    </button>
+                  </>
+                )}
+                {t.canUseAsPicture && job.tool !== "mg-variations" && (
                   <button type="button" className="ts-btn primary" disabled={!!t.using} onClick={() => void t.applyResult("picture")}>
                     {t.using === "picture" ? <Orb size={14} /> : <Check size={14} />} Use as the post's picture
                   </button>

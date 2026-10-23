@@ -242,6 +242,9 @@ export function magnificStub(opts: MagnificOptions = {}) {
   const fn: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url === "https://cdn.test/magnific/out.jpg") return new Response(RESULT_PNG.slice(0), { status: 200, headers: { "content-type": "image/jpeg" } });
+    // The separate pictures of a variations grid (`results.tiles`): JPEG bytes, a different last byte each.
+    const tile = /^https:\/\/cdn\.test\/magnific\/tile(\d)\.jpg$/.exec(url);
+    if (tile) return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, Number(tile[1])]).buffer, { status: 200, headers: { "content-type": "image/jpeg" } });
     if (url === "https://upload.test/put/1") {
       puts.push({ url, bytes: (init?.body as ArrayBuffer).byteLength, type: (init?.headers as Record<string, string>)["Content-Type"] });
       return new Response(null, { status: 200 });

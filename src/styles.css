@@ -11947,6 +11947,8 @@ button.shot-product:hover {
   white-space: nowrap;
 }
 .post-group.series { background: rgba(16, 185, 129, 0.18); color: #a7f3d0; }
+.post-group { gap: 4px; }
+.post-group.single { background: rgba(148, 163, 184, 0.18); color: #e2e8f0; font-weight: 600; }
 .share-group { background: #eef2ff; color: #3730a3; margin-left: 6px; }
 
 .brief-outcome {

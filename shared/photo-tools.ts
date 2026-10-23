@@ -94,7 +94,7 @@ export const PHOTO_TOOLS: readonly ToolDef[] = [
       },
     ],
   },
-  { id: "mg-variations", provider: "magnific", label: "Variations", hint: "A close variation of the picture.", mcpTool: "images_variations", options: [] },
+  { id: "mg-variations", provider: "magnific", label: "Variations", hint: "Nine close variations, each a picture of its own: add them as nine new posts.", mcpTool: "images_variations", options: [{ id: "aspect", label: "Frame of each picture (the post's when left empty)", kind: "choice", choices: ASPECTS }] },
 ] as const;
 
 export function photoTool(id: string): ToolDef | undefined {
@@ -119,6 +119,8 @@ export interface PhotoToolJob {
   error: string | null;
   input: string;
   output: string | null;
+  /** The posts the result was added as ("Add as new posts"); empty until then. */
+  addedAs: number[];
   created: number;
   updated: number;
 }

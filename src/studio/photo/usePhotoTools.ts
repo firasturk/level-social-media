@@ -14,7 +14,7 @@ import { PHOTO_TOOLS, photoTool, TOOL_PROVIDER_LABELS, type PhotoToolJob, type T
 import type { PhotoPresetCard, PresetUse } from "@shared/photo-presets";
 import { heldMessage } from "@shared/client-hold";
 import { patchSession } from "../editing-session";
-import { applyToolResult, listPhotoPresets, recheckToolJob, toolCatalog, toolEstimate, toolJobs, toolRun, type ConfirmAsk } from "./photoApi";
+import { addResultAsPosts, applyToolResult, listPhotoPresets, recheckToolJob, toolCatalog, toolEstimate, toolJobs, toolRun, type ConfirmAsk } from "./photoApi";
 
 export interface PhotoToolsOptions {
   batchId?: string | null;
@@ -44,7 +44,7 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
   const [running, setRunning] = useState(false);
   const [jobs, setJobs] = useState<PhotoToolJob[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [using, setUsing] = useState<"picture" | "product" | null>(null);
+  const [using, setUsing] = useState<"picture" | "product" | "posts" | "carousel" | null>(null);
   const [checking, setChecking] = useState<string | null>(null);
   const [soulStyles, setSoulStyles] = useState<ToolChoice[]>([]);
   const [styleNames, setStyleNames] = useState<Record<string, string>>({});
@@ -234,6 +234,23 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
     }
   }
 
+  /** The result as new posts beside this one (variations: one post per picture), or as the next slides of this post's carousel; the post's own picture stays. */
+  async function addAsPosts(as: "posts" | "carousel") {
+    if (!job || !batchId) return;
+    setUsing(as);
+    try {
+      const r = await addResultAsPosts(job.id, batchId, as);
+      const added = r.posts.length === 1 ? `post ${r.posts[0]}` : `${r.posts.length} new posts (${r.posts[0]}–${r.posts[r.posts.length - 1]})`;
+      toast.success(r.carousel ? `Post ${post} is now a carousel: its picture is slide 1, the ${r.posts.length === 1 ? "result is the next slide" : `${r.posts.length} pictures are the next slides`} (${added}).` : `Added as ${added}, after the month's posts. Post ${post} keeps its picture.`);
+      setJobs((all) => all.map((x) => (x.id === job.id ? { ...x, addedAs: r.posts } : x)));
+      await onChanged?.();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setUsing(null);
+    }
+  }
+
   /** "Check again" on a job recorded as failed: the provider says whether it finished after all (a status read, free; nothing is run again). */
   async function checkAgain(j: PhotoToolJob) {
     setChecking(j.id);
@@ -285,6 +302,7 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
     pending,
     using,
     applyResult,
+    addAsPosts,
     checking,
     checkAgain,
     prefill,

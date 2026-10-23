@@ -38,7 +38,7 @@ import { all, first, now, run, uuid } from "./db";
 import { imageSize } from "./ocr";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
-import { ownedPlan } from "./posts";
+import { ownedPlan, saveConfig } from "./posts";
 import { signObjectUrl } from "./signed";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
@@ -49,7 +49,8 @@ import { parseCreations, parseIdentifiers } from "./video-magnific";
 import { findNumber, findString, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
 import { askJobStatus, DONE, FAILED, jobObject, notCollected, resultLink, RUNNING } from "./provider-status";
 import { PHOTO_TOOLS, photoTool, TOOL_PROVIDER_LABELS, type PhotoToolJob, type ProviderCatalog, type ToolCatalog, type ToolChoice, type ToolDef, type ToolOption, type ToolProvider } from "@shared/photo-tools";
-import { postRevision } from "@shared/posts";
+import { MAX_POST_COUNT, postRevision, type Post } from "@shared/posts";
+import { CAROUSEL_MAX } from "@shared/publish";
 import { clientHold, heldMessage } from "@shared/client-hold";
 import { freeName } from "@shared/drive";
 import { stemKey } from "@shared/naming";
@@ -120,6 +121,8 @@ interface JobSettings {
   notes?: string[];
   jobIds?: string[];
   outcomeUnknown?: boolean;
+  /** The posts the result was added as ("Add as new posts"), so a second press adds nothing. */
+  posts?: number[];
 }
 
 function parseJson<T>(s: string | null | undefined, fallback: T): T {
@@ -147,6 +150,7 @@ export function jobJson(j: PhotoJobRow): PhotoToolJob {
     error: j.error,
     input: `${base}?which=in`,
     output: j.output_key ? `${base}?which=out&v=${j.updated}` : null,
+    addedAs: parseJson<JobSettings>(j.settings, {}).posts ?? [],
     created: j.created,
     updated: j.updated,
   };
@@ -615,6 +619,14 @@ async function prepareMagnific(env: Env, tool: ToolDef, t: { output: string }, o
   return { tool, mcpTool: tool.mcpTool, args, credits, balance, notes: [...opts.notes, `picture: ${pic.how}`], text, call: () => mcp.callTool(tool.mcpTool, args), balanceAfter: () => magnificBalance(mcp, tools, true) };
 }
 
+/** Variations come back in the post's own frame (Magnific's default is square) unless a frame was picked. */
+export function withPostFrame(tool: ToolDef, options: Record<string, string>, b: { config: string }, index: number): Record<string, string> {
+  if (tool.id !== "mg-variations" || options.aspect?.trim()) return options;
+  const config = JSON.parse(b.config) as Config;
+  const frame = (config.plan ?? []).find((p) => p.index === index)?.format ?? config.format ?? "4:5";
+  return { ...options, aspect: frame };
+}
+
 function requireOptions(tool: ToolDef, options: Record<string, string>): void {
   for (const o of tool.options) if (o.required && !options[o.id]?.trim()) throw new StudioError(`${o.label} is needed for ${tool.label}.`);
 }
@@ -625,7 +637,7 @@ export async function estimatePhotoTool(env: Env, user: User, d: PhotoToolAsk): 
   if (!tool) throw new StudioError("Unknown tool.");
   requireOptions(tool, d.options);
   const { b, t } = await postPicture(env, user, d.batch, d.index);
-  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, d.options);
+  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, withPostFrame(tool, d.options, b, d.index));
   // Higgsfield's picture tools take no `get_cost`: when the provider names no price, the credits the
   // last finished run of the same tool reported (balance before → after) stand as the estimate, said so.
   if (p.credits === null && tool.provider === "higgsfield") {
@@ -783,7 +795,7 @@ export async function runPhotoTool(env: Env, user: User, d: PhotoToolRun): Promi
   requireOptions(tool, d.options);
   const { b, t } = await postPicture(env, user, d.batch, d.index);
   const provider = ledgerProvider(tool.provider);
-  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, d.options);
+  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, withPostFrame(tool, d.options, b, d.index));
   const label = `${tool.label} (${TOOL_PROVIDER_LABELS[tool.provider]})`;
   const base = { provider, kind: "image.tool", user: user.id, batch: b.id, post: d.index };
   if (p.credits === null) {
@@ -1111,5 +1123,140 @@ photoToolRoutes.post("/jobs/:id/use", async (c) => {
   if (t.output && t.output !== job.output_key)
     await run(c.env.DB, "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)", uuid(), b.id, `Post ${post} before the AI tools`, JSON.stringify({ [String(post)]: t.output }), JSON.stringify([{ post, key: t.output, at: now() }]), now());
   return c.json({ ok: true, task: t.id, key: job.output_key, previous: t.output, current: job.output_key, held: null });
+});
+
+/** The separate pictures of a Magnific variations grid (`results.tiles`), as the creation lists them. */
+export function variationTiles(raw: unknown, identifier: string): string[] {
+  const found = objectsWith(raw, "identifier").find((o) => o.identifier === identifier) as { results?: { tiles?: { url?: unknown }[] } } | undefined;
+  const tiles = found?.results?.tiles;
+  return Array.isArray(tiles) ? tiles.map((x) => (typeof x?.url === "string" ? x.url : "")).filter((u) => /^https:\/\//.test(u)) : [];
+}
+
+/** What a new post copies from the post the result was made on: its idea, product, words and design, not its client answers, checks, date or place in a grid. */
+export function siblingPost(from: Post, index: number, title: string, fp: string, at: number): Post {
+  const post: Post = { ...from, index, title: title.slice(0, 80), ideaAt: at };
+  for (const k of ["textCheck", "prechecks", "group", "clientNote", "seenBefore", "date", "tile", "tileSpec", "shot"] as const) delete post[k];
+  if (from.source === "media" && from.media) post.media = { ...from.media, fp, at };
+  return post;
+}
+
+/**
+ * "Add as new posts" / "Add as a carousel": a result kept beside the post it was made on instead of
+ * replacing its picture. As a carousel, the post becomes slide 1 (or keeps its carousel) and the
+ * results are the next slides, ten at most.
+ * Variations: each of the grid's pictures (Magnific lists them one by one; free to read) becomes a
+ * post; any other tool: the result becomes one post. Each new post copies the original's idea and
+ * words, is appended after the month's posts, and starts with the result as its picture. Nothing is
+ * run or paid; a second press adds nothing. Admins.
+ */
+photoToolRoutes.post("/jobs/:id/posts", async (c) => {
+  const job = await jobById(c.env, c.req.param("id"));
+  const user = requireIntegrationAdmin(c, ledgerProvider(job.provider));
+  if (job.status !== "done" || !job.output_key) throw new StudioError("The result is not ready yet.", 409);
+  const d = await parseBody(c, z.object({ batch: z.string().min(1), as: z.enum(["posts", "carousel"]).default("posts") }));
+  const b = await ownedPlan(c.env, user, d.batch);
+  if (b.id !== job.batch) throw new StudioError("This result belongs to another month.", 409);
+  const settings = parseJson<JobSettings>(job.settings, {});
+  const start = (JSON.parse(b.config) as Config).plan?.find((p) => p.index === job.post);
+  if (d.as === "carousel" && start?.group?.kind === "series") throw new StudioError(`Post ${job.post} is part of a series, so it cannot also be a carousel: add the result as new posts instead.`, 409);
+  if (settings.posts?.length) throw new StudioError(`This result is already in the month as ${settings.posts.length === 1 ? `post ${settings.posts[0]}` : `posts ${settings.posts[0]}–${settings.posts[settings.posts.length - 1]}`}.`, 409, false, { posts: settings.posts });
+  if (!(await claimSubmission(c.env, `photojob-posts:${job.id}`, CLAIM_TTL_MS))) throw new StudioError("These posts are being added already.", 409);
+
+  // The pictures: the variation tiles one by one (read from Magnific, free), else the stored result.
+  const pictures: { bytes: ArrayBuffer; mime: string }[] = [];
+  if (job.tool === "mg-variations" && job.provider_job) {
+    const mcp = await MagnificMcp.open(c.env);
+    if (!mcp) throw new StudioError(MCP_NOT_CONNECTED, 409);
+    const answer = await mcp.callTool("creations_wait", { identifiers: [job.provider_job], timeoutSeconds: 1 });
+    const urls = variationTiles(jsonOf(answer) ?? answer, job.provider_job);
+    if (!urls.length) throw new StudioError("Magnific did not list the separate pictures of this grid; nothing was added.", 502);
+    const fetchFn = magnificFetcher();
+    for (const url of urls) {
+      const r = await fetchFn(url, { signal: AbortSignal.timeout(120_000) });
+      if (!r.ok) throw new StudioError(`A picture of the grid could not be downloaded (${r.status}); nothing was added.`, 502);
+      const bytes = await r.arrayBuffer();
+      const kind = sniffPicture(bytes);
+      if (!kind) throw new StudioError("A picture of the grid is not a picture; nothing was added.", 502);
+      pictures.push({ bytes, mime: PICTURE_TYPES[kind] });
+    }
+  } else {
+    const obj = await c.env.BUCKET.get(job.output_key);
+    if (!obj) throw new StudioError("The result is no longer in storage.", 404);
+    const bytes = await obj.arrayBuffer();
+    pictures.push({ bytes, mime: obj.httpMetadata?.contentType || PICTURE_TYPES[sniffPicture(bytes) ?? "png"] });
+  }
+
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  const from = plan.find((p) => p.index === job.post);
+  if (!from) throw new StudioError(`Post ${job.post} is no longer in the month.`, 404);
+  const carousel = d.as === "carousel" ? (from.group ? plan.filter((p) => p.group?.id === from.group!.id).length : 1) : 0;
+  if (carousel && carousel + pictures.length > CAROUSEL_MAX) throw new StudioError(`A carousel holds at most ${CAROUSEL_MAX} pictures: ${carousel === 1 ? "this post" : `this carousel (${carousel} slides)`} and ${pictures.length} more would be ${carousel + pictures.length}. Add them as new posts instead.`, 409);
+  if (plan.length + pictures.length > MAX_POST_COUNT) throw new StudioError(`A month holds at most ${MAX_POST_COUNT} posts: ${pictures.length} more do not fit (it has ${plan.length}).`, 409);
+  const src = await first<{ source: string }>(c.env.DB, "SELECT source FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, job.post);
+  if (!src) throw new StudioError(`Post ${job.post} has no picture slot.`, 409);
+  const t = now();
+  const what = job.label.replace(/\s*\(.*\)$/, "");
+  const credits = job.reported ?? job.estimate;
+  const written: string[] = [];
+  const added: { post: Post; task: string; key: string }[] = [];
+  let next = plan.reduce((m, p) => Math.max(m, p.index), 0);
+  try {
+    for (const [i, pic] of pictures.entries()) {
+      const task = uuid();
+      const key = `${b.owner}/${b.id}/output/${task}/${uuid()}.${extOf(pic.mime)}`;
+      await c.env.BUCKET.put(key, pic.bytes, { httpMetadata: { contentType: pic.mime } });
+      written.push(key);
+      const title = d.as === "carousel" ? `${from.title} · slide ${carousel + i + 1}` : `${from.title} · ${what.toLowerCase()}${pictures.length > 1 ? ` ${i + 1}` : ""}`;
+      added.push({ post: siblingPost(from, ++next, title, `tool:${job.id}:${i}`, t), task, key });
+    }
+    const fresh = await ownedPlan(c.env, user, b.id);
+    const cfg = JSON.parse(fresh.config) as Config;
+    const list = cfg.plan ?? [];
+    // Another tab may have added posts meanwhile: number after the latest.
+    let top = list.reduce((m, p) => Math.max(m, p.index), 0);
+    for (const a of added) a.post.index = ++top;
+    if (d.as === "carousel") {
+      // The post becomes (or stays) slide 1 of a carousel; the results are the next slides, in order.
+      const lead = list.find((p) => p.index === job.post)!;
+      const group = lead.group?.kind === "carousel" ? lead.group : { id: uuid(), kind: "carousel" as const, slide: 1, of: 1 };
+      const members = list.filter((p) => p.group?.id === group.id);
+      const of = Math.max(members.length, 1) + added.length;
+      if (!lead.group) lead.group = { ...group, of };
+      for (const p of list) if (p.group?.id === group.id) p.group = { ...p.group, of };
+      added.forEach((a, i) => (a.post.group = { id: group.id, kind: "carousel", slide: of - added.length + i + 1, of }));
+    }
+    cfg.plan = [...list, ...added.map((a) => a.post)];
+    cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? list.length, list.length) + added.length);
+    await saveConfig(c.env, fresh, cfg);
+    const statements: D1PreparedStatement[] = [];
+    for (const a of added) {
+      const made = postRevision(a.post, cfg);
+      statements.push(
+        c.env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, NULL, ?, ?, ?)").bind(
+          a.task,
+          b.id,
+          src.source,
+          a.post.index,
+          a.key,
+          JSON.stringify({ post: true, index: a.post.index, type: a.post.type, from: { post: job.post, job: job.id } }),
+          a.post.index,
+          JSON.stringify({ text: a.post.caption ?? "", hashtags: a.post.hashtags ?? "" }),
+          made,
+          made,
+          t,
+        ),
+        c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, a.post.index, a.task, a.key, `AI tools: ${job.label} on post ${job.post}${credits !== null ? ` · ${credits} credits for the run` : ""}`.slice(0, 500), made, t),
+      );
+    }
+    await c.env.DB.batch(statements);
+  } catch (e) {
+    await c.env.BUCKET.delete(written).catch(() => undefined);
+    throw e;
+  }
+  const posts = added.map((a) => a.post.index);
+  await run(c.env.DB, "UPDATE photo_tool_jobs SET settings = ?, updated = ? WHERE id = ?", JSON.stringify({ ...settings, posts }), now(), job.id);
+  await recordIntegrationOp(c.env, { provider: ledgerProvider(job.provider), kind: "image.result.posts", user: user.id, batch: b.id, post: job.post, taskId: job.provider_job, estimate: 0, reported: 0, status: "done", note: `Job ${job.id} (${job.label}) added ${d.as === "carousel" ? `to post ${job.post}'s carousel ` : ""}as ${posts.length === 1 ? `post ${posts[0]}` : `posts ${posts[0]}–${posts[posts.length - 1]}`} (no spend)` });
+  return c.json({ ok: true, posts, carousel: d.as === "carousel" });
 });
 

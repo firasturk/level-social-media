@@ -72,6 +72,8 @@ export const toolRun = (ask: ToolAsk & { confirm?: boolean }) => post<{ job: Pho
 export const toolJobs = (batch: string, index: number) => get<{ jobs: PhotoToolJob[] }>(`/api/studio/photo/tools/jobs?batch=${encodeURIComponent(batch)}&index=${index}`);
 /** `held`: the client answered the post, so the result was kept as a new version beside the client's (Send it for review makes it theirs). */
 export const applyToolResult = (id: string, body: { as: "picture" | "product"; batch: string; post?: number }) => post<{ ok: true; key?: string; source?: { name: string }; held?: HoldReason | null; message?: string }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/use`, body);
+/** The result kept beside the post as new posts (variations: one post per picture of the grid). Nothing is run or paid. Admins. */
+export const addResultAsPosts = (id: string, batch: string, as: "posts" | "carousel") => post<{ ok: true; posts: number[]; carousel: boolean }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/posts`, { batch, as });
 /** "Check again" on a job recorded as failed: the provider is asked for its status (free; nothing is run again). Admins. */
 export const recheckToolJob = (id: string) => post<{ ok: true; outcome: "done" | "running" | "failed" | "unknown"; message: string; job: PhotoToolJob }>(`/api/studio/photo/tools/jobs/${encodeURIComponent(id)}/check`);
 
