@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ArrowRight, BadgeCheck, Menu,Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, MessageSquareText, Moon, Play, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
+import { ArrowRight, BadgeCheck, Check, ChevronDown, ChevronUp, FileText, FolderOpen, Grid3x3, ImagePlus, Images, Menu, MessageSquareText, Moon, Sparkles, Sun, TriangleAlert, Upload, UserRound, Wand2, X, Zap } from "lucide-react";
 import { pickedOccasions } from "@shared/occasions";
 import { referenceThumb } from "./PostTools";
 import { FreepikDialog } from "./FreepikPanel";
@@ -944,17 +944,9 @@ export default function Flow(p: FlowProps) {
                             {startClip ? (
                               <AutoplayVideo src={startClip.url} poster={startClip.poster ?? startPictures[0] ?? null} mode="preview" bare label={`${client?.name ?? "The client"}'s latest clip`} />
                             ) : startPictures[0] ? (
-                              <>
-                                <img src={startPictures[0]} alt="" />
-                                <span className="flow-art-play">
-                                  <Play size={16} />
-                                </span>
-                              </>
-                            ) : (
-                              <span className="flow-art-play">
-                                <Play size={16} />
-                              </span>
-                            )}
+                              // No clip of this client yet: the picture drifts slowly; no play button that plays nothing.
+                              <img className="flow-art-drift" src={startPictures[0]} alt="" />
+                            ) : null}
                           </span>
                           <span className="flow-art-strip">
                             {[0, 1, 2, 3].map((i) => (startPictures[i] ? <img key={i} src={startPictures[i]} alt="" /> : <i key={i} />))}

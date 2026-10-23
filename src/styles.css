@@ -4845,6 +4845,28 @@ h1 {
   object-fit: cover;
   display: block;
 }
+/* A picture whose shape is not the month's: all of it, as exported, on a neutral ground. */
+.post-media img.pc-fit {
+  object-fit: contain;
+  background: #15161a;
+}
+.pc-frame-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 3;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgb(255 255 255 / 0.94);
+  color: #111;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
 .post-media .post-placeholder {
   opacity: 0.55;
   filter: grayscale(0.4);
@@ -19450,6 +19472,10 @@ a.publish-pill.published:hover {
   pointer-events: auto;
 }
 .studio-card .post-head .pc-head-tools .pc-text-studio {
+  margin-left: 0;
+}
+/* The status sits beside the tools at the right, not halfway: a brand logo at the top centre stays clear. */
+.studio-card .post-head .post-state + .pc-head-tools {
   margin-left: 0;
 }
 /* The editor reuses the Text studio's shell (.ts) for its top bar, buttons, tabs and sliders. */

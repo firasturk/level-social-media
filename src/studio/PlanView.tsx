@@ -251,7 +251,7 @@ export default function PlanView({
   toolbar?: boolean;
   onEdit?: (index: number, group?: EditorGroup) => void;
   /** The Photo studio (the full-screen picture workspace) on a post with a picture; the card's "Edit picture" opens it. */
-  onPhotoStudio?: (index: number, panel?: "edit" | "versions") => void;
+  onPhotoStudio?: (index: number, panel?: "edit" | "versions" | "adjust") => void;
   /** The team accepts a flagged post as it is. */
   onAccept?: (index: number) => Promise<void>;
   onDeletePlan: () => void;
@@ -500,6 +500,20 @@ export default function PlanView({
     toast("Regenerating", { description: `Post ${index}: the previous picture stays one click away on the card (Previous picture).`, duration: 6000 });
   }
   const [accepting, setAccepting] = useState<number | null>(null);
+  // A picture whose shape is not the month's (a client's own wide photo) is shown whole on its card,
+  // as it would be exported, with a way to crop it, instead of a card crop that hides what is drawn.
+  const [shapes, setShapes] = useState<Record<number, number>>({});
+  const noteShape = (index: number, w: number, h: number) => {
+    if (!w || !h) return;
+    const a = w / h;
+    setShapes((s) => (s[index] && Math.abs(s[index] - a) < 0.001 ? s : { ...s, [index]: a }));
+  };
+  const frameAspect = format === "1:1" ? 1 : format === "9:16" ? 9 / 16 : 4 / 5;
+  const offFrame = (index: number): "wide" | "tall" | null => {
+    const a = shapes[index];
+    if (!a || Math.abs(a - frameAspect) / frameAspect < 0.04) return null;
+    return a > frameAspect ? "wide" : "tall";
+  };
   /** The making state in words: a realism pass has its own. */
   const makingLabel = (t: Task | null) => {
     const edit = (t as { edit?: string | null } | null)?.edit ?? "";
@@ -807,11 +821,12 @@ export default function PlanView({
         </div>
       </div>
 
-      {themeChanged && plan.length > 0 && !running && (
+      {/* Only posts written from ideas follow the theme: a month of the client's own pictures has none to rewrite. */}
+      {themeChanged && plan.some((x) => !isMediaPost(x)) && !running && (
         <div className="plan-alert" role="status">
           <AlertTriangle size={16} />
           <div>
-            <strong>The theme changed after these ideas were written.</strong> The posts still follow the
+            <strong>The theme changed after these ideas were written.</strong> {plan.filter((x) => !isMediaPost(x)).length === 1 ? "The planned post still follows" : `The ${plan.filter((x) => !isMediaPost(x)).length} planned posts still follow`} the
             old reference, colours or props. Regenerate ideas so they follow the theme as it is now.
           </div>
           <button type="button" className="primary" onClick={() => onGenerateIdeas(notes)} disabled={!!busy}>
@@ -1071,9 +1086,9 @@ export default function PlanView({
                       media={
                         <>
                           {img && showOverlay && p.overlay !== false ? (
-                            <OverlayPreview src={img} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={facesOf(t?.qa)} width={720} alt={p.title} />
+                            <OverlayPreview src={img} spec={overlay} text={{ headline: p.headline, subline: p.subline }} logoSrc={logoSrc} patch={p.ov} faces={facesOf(t?.qa)} width={720} alt={p.title} className={offFrame(p.index) ? "pc-fit" : undefined} onSize={(w, h) => noteShape(p.index, w, h)} />
                           ) : img ? (
-                            <img src={img} alt={p.title} loading="lazy" />
+                            <img src={img} alt={p.title} loading="lazy" className={offFrame(p.index) ? "pc-fit" : undefined} onLoad={(e) => noteShape(p.index, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} />
                           ) : (
                             <img className="post-placeholder" src={`/guide/${p.type}.jpg`} alt="" onError={(e) => (e.currentTarget.style.visibility = "hidden")} />
                           )}
@@ -1084,6 +1099,19 @@ export default function PlanView({
                             </span>
                           )}
                           {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
+                          {img && !inFlight && offFrame(p.index) && onPhotoStudio && (
+                            <button
+                              type="button"
+                              className="pc-frame-chip"
+                              title={`The picture is not ${format}: the card shows all of it, as it would be exported. Crop it to ${format} in the Photo studio (Adjust); nothing is generated.`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPhotoStudio(p.index, "adjust");
+                              }}
+                            >
+                              {offFrame(p.index) === "wide" ? "Wider" : "Taller"} than {format} · Crop
+                            </button>
+                          )}
                           {img && !inFlight && videos[String(p.index)] && <VideoOnCard summary={videos[String(p.index)]} onEdit={(id) => openVideoEditor(p.index, id, "edit")} />}
                           {product && !img && <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />}
                         </>

@@ -305,11 +305,21 @@ function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { c
   const [role, setRole] = useState<DriveRole | "all">("all");
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(60);
-  const photos = useMemo(() => state?.photos ?? [], [state]);
+  const [kind, setKind] = useState<"all" | "pictures" | "clips">("all");
+  const everything = useMemo(() => state?.photos ?? [], [state]);
+  // Edit images lists pictures only: a Drive with hundreds of clips first would bury every picture behind them.
+  const photos = useMemo(() => (route === "images" ? everything.filter((ph) => !ph.video) : everything), [everything, route]);
+  const clipsLeftOut = everything.length - photos.length;
+  const clipCount = photos.filter((ph) => ph.video).length;
   const list = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return photos.filter((ph) => (role === "all" || (ph.role ?? "product") === role) && (!needle || `${ph.name} ${ph.file} ${ph.folder}`.toLowerCase().includes(needle)));
-  }, [photos, role, q]);
+    return photos.filter(
+      (ph) =>
+        (role === "all" || (ph.role ?? "product") === role) &&
+        (kind === "all" || (kind === "clips") === !!ph.video) &&
+        (!needle || `${ph.name} ${ph.file} ${ph.folder}`.toLowerCase().includes(needle)),
+    );
+  }, [photos, role, kind, q]);
   if (!state)
     return (
       <div className="journey-reading">
@@ -319,7 +329,7 @@ function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { c
   if (state.error || (!state.demo && !photos.length))
     return (
       <div className="media-empty">
-        <p className="flow-muted">{state.error ?? `No pictures in ${clientName}'s Drive folders yet.`}</p>
+        <p className="flow-muted">{state.error ?? (clipsLeftOut ? `${clientName}'s Drive folders hold clips only (${clipsLeftOut}): use Create or edit video for them.` : `No pictures in ${clientName}'s Drive folders yet.`)}</p>
         <p className="flow-muted">Connect or approve the folders from the Studio's Drive picker (Products → Drive); files from this computer work meanwhile.</p>
         <button type="button" className="text-button" onClick={() => load(true)}>
           Read the Drive again
@@ -340,6 +350,15 @@ function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { c
             </button>
           ))}
         </div>
+        {clipCount > 0 && clipCount < photos.length && (
+          <div className="media-chips" role="group" aria-label="Pictures or clips">
+            {(["all", "pictures", "clips"] as const).map((k) => (
+              <button key={k} type="button" className={`media-chip ${kind === k ? "on" : ""}`} onClick={() => setKind(k)}>
+                {k === "all" ? "Both" : k === "pictures" ? "Pictures" : "Clips"} <small>{k === "all" ? photos.length : k === "clips" ? clipCount : photos.length - clipCount}</small>
+              </button>
+            ))}
+          </div>
+        )}
         <label className="media-search">
           <Search size={14} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search names and folders" aria-label="Search the Drive" />
@@ -382,9 +401,9 @@ function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { c
           Show more ({list.length - shown} left)
         </button>
       )}
-      {route === "images" && photos.some((ph) => ph.video) && (
+      {route === "images" && clipsLeftOut > 0 && (
         <small className="flow-muted">
-          <ImageIcon size={12} /> Clips are listed but not picked here: Create or edit video takes them.
+          <ImageIcon size={12} /> {clipsLeftOut} clip{clipsLeftOut === 1 ? "" : "s"} in the Drive {clipsLeftOut === 1 ? "is" : "are"} left out here: Create or edit video takes them.
         </small>
       )}
     </div>

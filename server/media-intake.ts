@@ -261,7 +261,8 @@ mediaRoutes.post("/intake", async (c) => {
       if (p.kind === "image") {
         const img = p.from === "drive" ? await driveFileCopy(c.env, p.drive!, MEDIA_IMAGE_MAX) : { bytes: p.bytes!, mime: p.mime! };
         const key = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.${extOf(img.mime)}`;
-        await c.env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: img.mime } });
+        // A Drive copy keeps its Drive id: a camera original too large to shrink here is shrunk by Drive (server/thumbs.ts).
+        await c.env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: img.mime }, ...(p.from === "drive" && !demo ? { customMetadata: { drive: p.drive!.id } } : {}) });
         written.push(key);
         stored.push({ p, taskId, picture: key });
       } else {

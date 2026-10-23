@@ -130,20 +130,23 @@
   object-fit: cover;
   display: block;
 }
-.flow-art-play {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: rgb(255 255 255 / 0.92);
-  color: #111;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
+/* A client with no clip yet: their picture moves slowly instead of a play button that plays nothing. */
+.flow-art-video .flow-art-screen img.flow-art-drift {
+  animation: flow-art-drift 14s ease-in-out infinite alternate;
+  transform-origin: 30% 50%;
+}
+@keyframes flow-art-drift {
+  from {
+    transform: scale(1.04) translateX(0);
+  }
+  to {
+    transform: scale(1.14) translateX(-3%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .flow-art-video .flow-art-screen img.flow-art-drift {
+    animation: none;
+  }
 }
 .flow-art-strip {
   display: grid;

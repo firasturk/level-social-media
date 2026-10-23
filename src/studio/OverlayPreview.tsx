@@ -13,6 +13,7 @@ export default function OverlayPreview({
   width = 720,
   alt = "",
   className,
+  onSize,
 }: {
   src: string;
   spec: OverlaySpec;
@@ -24,6 +25,8 @@ export default function OverlayPreview({
   width?: number;
   alt?: string;
   className?: string;
+  /** The drawn picture's size, once drawn (the card compares it with the month's frame). */
+  onSize?: (width: number, height: number) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [seen, setSeen] = useState(false);
@@ -44,7 +47,11 @@ export default function OverlayPreview({
     if (!seen) return;
     let alive = true;
     renderOverlay(src, spec, text, logoSrc, width, { patch, faces })
-      .then((canvas) => alive && setUrl(canvas.toDataURL("image/jpeg", 0.86)))
+      .then((canvas) => {
+        if (!alive) return;
+        setUrl(canvas.toDataURL("image/jpeg", 0.86));
+        onSize?.(canvas.width, canvas.height);
+      })
       .catch((e) => {
         console.error("[overlay] could not draw the words:", e);
         if (alive) setUrl(null);

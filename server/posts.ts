@@ -8,6 +8,7 @@ import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
 import { demoAnswer, demoMode } from "./demo";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, run, now, uuid } from "./db";
+import { resizedPicture } from "./thumbs";
 import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
@@ -1303,9 +1304,15 @@ postRoutes.post("/ideas", async (c) => {
     void traceEvent(c.env, { kind: "plan", traceId: b.id, spanId: `plan:${now()}`, name: "ideas-append", input: { count, notes: d.notes ?? config.notes ?? "", types: d.types ?? [] }, output: { added: added.length, total: config.plan.length, shape: planShape(config.plan) }, metadata: { client: config.client ?? null, revision: config.plannedAt ?? null } });
     return c.json({ ok: true, plan: config.plan, added: added.length });
   }
+  // The client's own pictures and clips are not ideas: writing the ideas again keeps them, with their numbers.
+  const own = (config.plan ?? []).filter(isMediaPost);
   config.plan = withPortraits(withDates(greetingDates(plan, config), config.month ?? ""), config, b.id);
   // The writer may skip a picked occasion: it gets its greeting post all the same.
   config.plan = withMemory((await ensureOccasionPosts(c.env, b.id, config, client, theme, products, productNotes, cast)).plan, earlier);
+  if (own.length) {
+    const start = own.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+    config.plan = [...own, ...config.plan.map((p, i) => ({ ...p, index: start + i }))];
+  }
   config.plannedAt = now();
   config.postCount = count;
   await refreshCountNote(c.env, b.id, config);
@@ -2905,7 +2912,9 @@ postRoutes.post("/captions", async (c) => {
       products: names.map((n) => ({ name: n.trim(), note: notes.get(n.trim().toLowerCase()) })),
     });
     try {
-      const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" };
+      // The card-size copy, not the original: four camera originals at once are beyond the Worker's memory.
+      const small = await resizedPicture(c.env, output, 1080);
+      const image = small ? { bytes: small.bytes, mime: small.mime } : { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" };
       const r = parseCaption(await askText(c.env, instruction, CAPTION_SCHEMA, [image]));
       if (!r) return void failed.push(p.index);
       written.set(p.index, { ...r, from: output });

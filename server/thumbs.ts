@@ -4,6 +4,8 @@
  * as JPEG. The full-size picture stays what is downloaded and exported.
  */
 import type { Env } from "./env";
+import { photoBytes } from "./drive";
+import { imageSize } from "./image-size";
 
 /** Widths a page may ask for: a card, a phone-wide card, a lightbox. */
 export const THUMB_WIDTHS = [480, 720, 1080, 1440] as const;
@@ -14,14 +16,40 @@ export function thumbWidth(raw: string | undefined): ThumbWidth | null {
   return (THUMB_WIDTHS as readonly number[]).includes(n) ? (n as ThumbWidth) : null;
 }
 
-/** The picture at `key`, at most `w` wide, as JPEG bytes (null when the picture is gone). */
-export async function resizedPicture(env: Env, key: string, w: ThumbWidth): Promise<{ bytes: ArrayBuffer; mime: string } | null> {
+/**
+ * The most pixels a picture may have for the Worker to decode it here. A camera original (a 30 MP
+ * Drive photo is 120 MB of RGBA) is beyond the Worker's 128 MB: decoding it kills the request.
+ */
+export const MAX_DECODE_PIXELS = 12_000_000;
+
+/** Whether a picture of this size can be decoded here; an unreadable header is tried. */
+export function decodable(size: { width: number; height: number } | null): boolean {
+  return !size || size.width * size.height <= MAX_DECODE_PIXELS;
+}
+
+/**
+ * The picture at `key`, at most `w` wide, as JPEG bytes (null when the picture is gone). A picture
+ * too large to decode here is shrunk by Google Drive when it came from the client's Drive (the copy
+ * keeps the Drive id), else served as it is: the browser draws it, nothing fails.
+ */
+export async function resizedPicture(env: Env, key: string, w: ThumbWidth): Promise<{ bytes: ArrayBuffer; mime: string; key: string } | null> {
   const cacheKey = `${key}.w${w}.jpg`;
   const cached = await env.BUCKET.get(cacheKey);
-  if (cached) return { bytes: await cached.arrayBuffer(), mime: "image/jpeg" };
+  if (cached) return { bytes: await cached.arrayBuffer(), mime: cached.httpMetadata?.contentType || "image/jpeg", key: cacheKey };
   const obj = await env.BUCKET.get(key);
   if (!obj) return null;
   const original = await obj.arrayBuffer();
+  if (!decodable(imageSize(original))) {
+    const driveId = obj.customMetadata?.drive;
+    if (driveId) {
+      const small = await photoBytes(env, driveId, w).catch(() => null);
+      if (small) {
+        await env.BUCKET.put(cacheKey, small.bytes, { httpMetadata: { contentType: small.mime } });
+        return { ...small, key: cacheKey };
+      }
+    }
+    return { bytes: original, mime: obj.httpMetadata?.contentType || "image/jpeg", key };
+  }
   const { PhotonImage, resize, SamplingFilter } = await import("@cf-wasm/photon");
   const img = PhotonImage.new_from_byteslice(new Uint8Array(original));
   try {
@@ -31,14 +59,14 @@ export async function resizedPicture(env: Env, key: string, w: ThumbWidth): Prom
       const same = img.get_bytes_jpeg(90);
       const bytes = same.buffer.slice(same.byteOffset, same.byteOffset + same.byteLength) as ArrayBuffer;
       await env.BUCKET.put(cacheKey, bytes, { httpMetadata: { contentType: "image/jpeg" } });
-      return { bytes, mime: "image/jpeg" };
+      return { bytes, mime: "image/jpeg", key: cacheKey };
     }
     const small = resize(img, w, Math.round((height * w) / width), SamplingFilter.Lanczos3);
     try {
       const jpeg = small.get_bytes_jpeg(90);
       const bytes = jpeg.buffer.slice(jpeg.byteOffset, jpeg.byteOffset + jpeg.byteLength) as ArrayBuffer;
       await env.BUCKET.put(cacheKey, bytes, { httpMetadata: { contentType: "image/jpeg" } });
-      return { bytes, mime: "image/jpeg" };
+      return { bytes, mime: "image/jpeg", key: cacheKey };
     } finally {
       small.free();
     }

@@ -973,7 +973,8 @@ photoToolRoutes.post("/jobs/:id/use", async (c) => {
     let referenceKey: string | null = null;
     try {
       const { resizedPicture } = await import("./thumbs");
-      if (await resizedPicture(c.env, key, 720)) referenceKey = `${key}.w720.jpg`;
+      const small = await resizedPicture(c.env, key, 720);
+      if (small) referenceKey = small.key;
     } catch {
       referenceKey = null;
     }
