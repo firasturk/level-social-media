@@ -11,7 +11,7 @@
  * bottom 15 % except the call to action, which sits just above).
  */
 import type { MusicMood } from "./music";
-import { MAX_CLIPS, MAX_TIMELINE_SECONDS, newClip, placeClips, type Clip, type ClipSource, type Transition, type VideoProject } from "./video-project";
+import { gapClip, MAX_CLIPS, MAX_TIMELINE_SECONDS, newClip, placeClips, type Clip, type ClipSource, type Transition, type VideoProject } from "./video-project";
 import { newOverlayId, type Framing, type LogoOverlay, type Overlay, type TextOverlay } from "./video-compose";
 
 export interface TemplateSlot {
@@ -25,6 +25,21 @@ export interface TemplateSlot {
   /** How it joins the slot before (ignored on the first). */
   transition: Transition;
   transitionDuration?: number;
+  /** A slow zoom over the slot: the zoom it ends on, from the framing's (a push in above it, a pull out below). */
+  push?: number;
+  /** How much happens in the shot (0 … 1), when the template was read from a video ("Edit like this video"). */
+  action?: number;
+}
+
+/** The footage chosen for a slot by a planner (shared/edit-plan.ts), in place of the gallery's round robin. */
+export interface SlotWindow {
+  source: ClipSource;
+  duration: number;
+  in: number;
+  out: number;
+  speed?: number;
+  framing?: Framing;
+  colour?: Clip["colour"];
 }
 
 export type TextRole = "headline" | "subline" | "offer" | "cta" | "caption" | "name";
@@ -234,6 +249,10 @@ export interface ApplyOptions {
   id?: () => string;
   /** The cut's frame: a Reel (9:16, 1080×1920) by default, or the frame the cut already has. */
   frame?: "reel" | "keep";
+  /** The footage for each slot, chosen by a planner (shared/edit-plan.ts); a null slot becomes a gap of its length. */
+  windows?: readonly (SlotWindow | null)[];
+  /** Keep the project's colour (a template read from a reference video has no look of its own). */
+  keepLook?: boolean;
 }
 
 /**
@@ -252,7 +271,26 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
   const totalUses = new Map<number, number>();
   for (const m of plan) if (m >= 0) totalUses.set(m, (totalUses.get(m) ?? 0) + 1);
   const clips: Clip[] = [];
+  const pushed = (c: Clip, slot: TemplateSlot): Clip => {
+    if (!slot.push || Math.abs(slot.push - slot.framing.zoom) < 1e-3) return c;
+    const len = round3((c.out - c.in) / c.speed);
+    return { ...c, keyframes: { zoom: [{ t: 0, v: slot.framing.zoom, ease: "linear" }, { t: len, v: Math.min(4, Math.max(1, slot.push)), ease: "linear" }] } };
+  };
+  if (opts.windows) {
+    slots.forEach((slot, i) => {
+      const w = opts.windows![i];
+      const join = { transition: i === 0 ? ("cut" as const) : slot.transition, transitionDuration: slot.transitionDuration ?? 0.5 };
+      if (!w) {
+        clips.push({ ...gapClip(slot.duration, `c${nextId()}`), ...join });
+        return;
+      }
+      const c = newClip(w.source, w.duration, `c${nextId()}`);
+      const framing = { ...(w.framing ?? slot.framing) };
+      clips.push(pushed({ ...c, in: round6(w.in), out: round6(w.out), speed: w.speed ?? 1, ...join, framing, ...(w.colour ? { colour: w.colour } : {}) }, { ...slot, framing }));
+    });
+  }
   slots.forEach((slot, i) => {
+    if (opts.windows) return;
     const mi = plan[i];
     if (mi < 0) return;
     const m = usable[mi];
@@ -264,7 +302,7 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
     // The k-th use of the same footage takes the k-th window across it; a single use takes the middle.
     const start = n > 1 ? (spare * k) / (n - 1) : spare / 2;
     const c = newClip(m.source, m.duration, `c${nextId()}`);
-    clips.push({ ...c, in: round3(start), out: round3(start + len), transition: i === 0 ? "cut" : slot.transition, transitionDuration: slot.transitionDuration ?? 0.5, framing: { ...slot.framing } });
+    clips.push(pushed({ ...c, in: round3(start), out: round3(start + len), transition: i === 0 ? "cut" : slot.transition, transitionDuration: slot.transitionDuration ?? 0.5, framing: { ...slot.framing } }, slot));
   });
   // When the timeline would run past the limit (it cannot with these templates), the last clips are dropped.
   while (clips.length && placeClips(clips).at(-1)!.end > MAX_TIMELINE_SECONDS) clips.pop();
@@ -294,26 +332,7 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
   const overlays: Overlay[] = [];
   for (const tx of t.texts) {
     const { start, end } = span(tx.from, tx.to);
-    const width = tx.width ?? 0.86;
-    let blocks: { text: string; dy: number; size: number }[];
-    if (language === "en") blocks = [{ text: tx.en, dy: 0, size: tx.size }];
-    else if (language === "ar") blocks = [{ text: tx.ar, dy: 0, size: tx.size }];
-    else {
-      // Arabic above English, a little smaller, stacked by their estimated line counts so they never overlap.
-      const size = round3(tx.size * 0.85);
-      const hA = estimateLines(tx.ar, size, width, aspect) * size * LINE;
-      const hE = estimateLines(tx.en, size, width, aspect) * size * LINE;
-      const gap = size * 0.45;
-      const top = -(hA + gap + hE) / 2;
-      blocks = [
-        { text: tx.ar, dy: top + hA / 2, size },
-        { text: tx.en, dy: top + hA + gap + hE / 2, size },
-      ];
-    }
-    for (const b of blocks) {
-      const o: TextOverlay = { id: `o${nextId()}`, kind: "text", text: b.text, start, end, x: tx.x, y: round3(tx.y + b.dy), size: b.size, color: tx.color, font: tx.font, weight: tx.weight, align: "center", box: tx.box, width };
-      overlays.push(o);
-    }
+    overlays.push(...textOverlays(tx, start, end, language, aspect, nextId));
   }
   if (opts.logo?.src) {
     const { start, end } = span(t.logo.from, t.logo.to);
@@ -324,10 +343,7 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
     ...base,
     output,
     clips,
-    look: t.look.id,
-    lookAmount: t.look.amount,
-    protectSkin: t.protectSkin,
-    background: t.background,
+    ...(opts.keepLook ? {} : { look: t.look.id, lookAmount: t.look.amount, protectSkin: t.protectSkin, background: t.background }),
     overlays,
     snapToBeats: t.pace === "fast" && !!base.music?.beats?.length,
     template: { id: t.id, at: opts.now ?? Date.now() },
@@ -336,6 +352,30 @@ export function applyTemplate(t: VideoTemplate, base: VideoProject, media: reado
 }
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
+
+/**
+ * A template text as layers from `start` to `end`: one block in English or Arabic, or both (Arabic
+ * above English, a little smaller, stacked by their estimated line counts so they never overlap).
+ */
+export function textOverlays(tx: Pick<TemplateText, "en" | "ar" | "x" | "y" | "size" | "font" | "weight" | "color" | "box" | "width">, start: number, end: number, language: TemplateLanguage, aspect: number, nextId: () => string): TextOverlay[] {
+  const width = tx.width ?? 0.86;
+  let blocks: { text: string; dy: number; size: number }[];
+  if (language === "en") blocks = [{ text: tx.en, dy: 0, size: tx.size }];
+  else if (language === "ar") blocks = [{ text: tx.ar, dy: 0, size: tx.size }];
+  else {
+    const size = round3(tx.size * 0.85);
+    const hA = estimateLines(tx.ar, size, width, aspect) * size * LINE;
+    const hE = estimateLines(tx.en, size, width, aspect) * size * LINE;
+    const gap = size * 0.45;
+    const top = -(hA + gap + hE) / 2;
+    blocks = [
+      { text: tx.ar, dy: top + hA / 2, size },
+      { text: tx.en, dy: top + hA + gap + hE / 2, size },
+    ];
+  }
+  return blocks.map((b) => ({ id: `o${nextId()}`, kind: "text", text: b.text, start: round3(start), end: round3(end), x: tx.x, y: round3(tx.y + b.dy), size: b.size, color: tx.color, font: tx.font, weight: tx.weight, align: "center", box: tx.box, width }));
+}
 
 /** The overlay engine's line height, as a multiple of the font size (src/video-editor/engine/overlays.ts). */
 const LINE = 1.22;

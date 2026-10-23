@@ -15,6 +15,7 @@
  *   POST /renders/:id/progress    {progress, phase}: the tab's heartbeat (admins)
  *   POST /renders/:id/fail        {error}: the tab gave up (admins)
  *   GET  /renders?project=        the project's last render jobs (every signed-in user of the month)
+ *   POST /reference, GET /reference/:id   "Edit like this video": a reference video copied for analysis (server/video-reference.ts)
  *
  * Render jobs (migration 0076, `video_renders`): the browser renders, so a job is a record of what
  * was asked (the project and the saved revision, its document frozen in the row), the progress the
@@ -36,6 +37,7 @@ import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationAccess } from "./integrations";
 import { MAX_VIDEO_FILE, renditionFrom, storeVideoFile, type VideoItem, type VideoRow } from "./video";
 import { readMp4 } from "./mp4";
+import { referenceRoutes } from "./video-reference";
 import { validateProject, type VideoProject } from "@shared/video-project";
 import type { User } from "@shared/types";
 import type { Approval, Config } from "@shared/config";
@@ -117,6 +119,9 @@ async function projectRow(env: Env, user: User, id: string): Promise<{ row: Vide
   const batch = await ownedPlan(env, user, row.batch);
   return { row, batch };
 }
+
+/** "Edit like this video": the reference file fetched for analysis (server/video-reference.ts). */
+videoEditorRoutes.route("/reference", referenceRoutes);
 
 /** The post's projects, newest first, with what the viewer may do. */
 videoEditorRoutes.get("/projects", async (c) => {

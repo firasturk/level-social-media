@@ -465,7 +465,8 @@ describe("project version 2 and the migration from version 1", () => {
   };
   it("opens a version 1 draft as version 2, sounding as it did (clips muted under its music)", () => {
     // Phase 3 moved the current version to 3 (2 → 3 after this 1 → 2 step); the phase-2 fields are unchanged.
-    expect(PROJECT_VERSION).toBe(3);
+    // Phase 3 moved the current version to 3 and edit quality to 4 (1 → 2 → 3 → 4); the phase-2 fields are unchanged.
+    expect(PROJECT_VERSION).toBe(4);
     const r = validateProject(v1);
     expect(r.ok).toBe(true);
     if (!r.ok) return;

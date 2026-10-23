@@ -524,12 +524,12 @@ describe("drafts saved before phase 3", () => {
     const r = validateProject(v2);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.project).toMatchObject({ v: 3, look: "punch", lookAmount: 1, protectSkin: false, voices: [{ id: "vo", volume: 0.8 }] });
+    expect(r.project).toMatchObject({ v: PROJECT_VERSION, look: "punch", lookAmount: 1, protectSkin: false, voices: [{ id: "vo", volume: 0.8 }] });
     expect(r.project.clips[0]).toMatchObject({ muted: true, volume: 0.5 });
     expect(resolveGrade(r.project, r.project.clips[0]).params).toEqual(addParams(lookOf("punch").params));
     // Version 1 goes through phase 2's step (its clips muted under the music) and then phase 3's.
     const one = validateProject(v1);
-    expect(one.ok && one.project).toMatchObject({ v: 3, lookAmount: 1, clips: [{ muted: true }, { muted: true }], voices: [] });
+    expect(one.ok && one.project).toMatchObject({ v: PROJECT_VERSION, lookAmount: 1, clips: [{ muted: true }, { muted: true }], voices: [] });
   });
 
   it("draws a phase-1 document handed straight to the engine (no lookAmount, no protectSkin) like phase 1", () => {

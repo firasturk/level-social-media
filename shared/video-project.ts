@@ -20,6 +20,7 @@ import { checkOverlays, DEFAULT_FRAMING, normaliseFraming, type Framing, type Ov
 import { checkKeyframes, CLIP_PROPS, CLIP_RANGE, splitKeyframes, valueAt, type Keyframes } from "./video-keyframes";
 import { checkMatch, type ColourMatch } from "./colour-match";
 import { MAX_STORED_LUT_SIZE, storedLutChars } from "./cube-lut";
+import { checkReference, type ReferenceAnalysis } from "./reference-check";
 import { creditLine, isContentId, isLicenceId, tempoFromEnvelope, type ContentIdStatus, type LicenceId, type MusicTrack } from "./music";
 
 /**
@@ -29,8 +30,12 @@ import { creditLine, isContentId, isLicenceId, tempoFromEnvelope, type ContentId
  * template a cut was started from. Older documents are read and migrated by `validateProject`:
  * 1 → 2 (`migrateV1`, phase 2's sound and timeline), then 2 → 3 (`migrateV2`): every new field
  * takes the value that draws the same picture.
+ *
+ * 4 (edit quality): what the auto edit did (`edit`: its plain summary) and "Edit like this video"
+ * (`reference`: the reference's analysis, never its pictures). 3 → 4 (`migrateV3`) adds neither,
+ * so every older document draws and sounds exactly as before.
  */
-export const PROJECT_VERSION = 3;
+export const PROJECT_VERSION = 4;
 /** The oldest document version this code still reads. */
 export const OLDEST_PROJECT_VERSION = 1;
 
@@ -265,6 +270,25 @@ export interface VideoProject {
   template?: { id: string; at: number } | null;
   /** Voice-over recordings on the Voice lane. */
   voices: VoiceClip[];
+  /** What the last auto edit did, in plain lines (shared/edit-plan.ts), shown again on reopen. */
+  edit?: AutoEditRecord | null;
+  /** "Edit like this video": the reference's analysis (its shots, pace, colour, beat), for the template and the comparison; never its pictures. */
+  reference?: ReferenceRecord | null;
+}
+
+export interface AutoEditRecord {
+  purpose: string;
+  pace: string;
+  summary: string[];
+  at: number;
+}
+
+export interface ReferenceRecord {
+  analysis: ReferenceAnalysis;
+  /** When its template was applied to the cut (null: analysed only). */
+  appliedAt: number | null;
+  /** The cut's colour was matched to the reference's. */
+  matchColour: boolean;
 }
 
 export interface OutputPreset {
@@ -416,11 +440,17 @@ export function migrateV2(x: Record<string, unknown>): Record<string, unknown> {
   return { ...x, v: 3, lookAmount: x.lookAmount ?? 1, protectSkin: x.protectSkin ?? false };
 }
 
-/** An older document brought to the current version step by step (1 → 2 → 3); other versions are returned as they are. */
+/** A version 3 document read as version 4 (edit quality): no auto edit summary and no reference yet; nothing drawn changes. */
+export function migrateV3(x: Record<string, unknown>): Record<string, unknown> {
+  return { ...x, v: 4, edit: x.edit ?? null, reference: x.reference ?? null };
+}
+
+/** An older document brought to the current version step by step (1 → 2 → 3 → 4); other versions are returned as they are. */
 export function migrateProject(x: Record<string, unknown>): Record<string, unknown> {
   let doc = x;
   if (doc.v === 1) doc = migrateV1(doc);
   if (doc.v === 2) doc = migrateV2(doc);
+  if (doc.v === 3) doc = migrateV3(doc);
   return doc;
 }
 
@@ -486,13 +516,13 @@ function checkClipLook(x: unknown, where: string): ClipLook | string {
   return { id: x.id, amount };
 }
 
-/** The document a save carries, checked field by field; the reason says what is wrong in plain words. Older versions (1, 2) are migrated first. */
+/** The document a save carries, checked field by field; the reason says what is wrong in plain words. Older versions (1, 2, 3) are migrated first. */
 export function validateProject(input: unknown): Check {
   if (!isObj(input)) return { ok: false, reason: "The project must be an object." };
   if (typeof input.v === "number" && input.v > PROJECT_VERSION) return { ok: false, reason: `This project was saved by a newer editor (version ${input.v}); reload the studio to open it.` };
-  if (typeof input.v !== "number" || !Number.isInteger(input.v) || input.v < OLDEST_PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1 or 2, which are read as ${PROJECT_VERSION}).` };
+  if (typeof input.v !== "number" || !Number.isInteger(input.v) || input.v < OLDEST_PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1, 2 or 3, which are read as ${PROJECT_VERSION}).` };
   const x = migrateProject(input);
-  if (x.v !== PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1 or 2, which are read as ${PROJECT_VERSION}).` };
+  if (x.v !== PROJECT_VERSION) return { ok: false, reason: `The project version must be ${PROJECT_VERSION} (or 1, 2 or 3, which are read as ${PROJECT_VERSION}).` };
   if (!num(x.rev, 0, 1e9) || !Number.isInteger(x.rev)) return { ok: false, reason: "rev must be a whole number." };
   if (!num(x.createdAt, 0, 1e14) || !num(x.updatedAt ?? x.createdAt, 0, 1e14)) return { ok: false, reason: "createdAt and updatedAt must be timestamps." };
   if (!str(x.name, 120)) return { ok: false, reason: "The name is too long (120 characters at most)." };
@@ -631,6 +661,21 @@ export function validateProject(input: unknown): Check {
     if (!isObj(x.template) || !str(x.template.id, 40) || !x.template.id || !num(x.template.at ?? 0, 0, 1e14)) return { ok: false, reason: "template needs an id." };
     template = { id: x.template.id, at: (x.template.at as number | undefined) ?? 0 };
   }
+  let edit: AutoEditRecord | null = null;
+  if (x.edit !== undefined && x.edit !== null) {
+    const e = x.edit;
+    if (!isObj(e) || !str(e.purpose, 40) || !str(e.pace, 40) || !Array.isArray(e.summary) || e.summary.length > 16 || !e.summary.every((l) => str(l, 400)) || !num(e.at, 0, 1e14)) return { ok: false, reason: "edit needs a purpose, a pace, a summary of at most 16 short lines and a time." };
+    edit = { purpose: e.purpose, pace: e.pace, summary: e.summary as string[], at: e.at };
+  }
+  let reference: ReferenceRecord | null = null;
+  if (x.reference !== undefined && x.reference !== null) {
+    const r = x.reference;
+    if (!isObj(r)) return { ok: false, reason: "reference must be an object." };
+    const a = checkReference(r.analysis);
+    if (typeof a === "string") return { ok: false, reason: a };
+    if (!(r.appliedAt === null || r.appliedAt === undefined || num(r.appliedAt, 0, 1e14))) return { ok: false, reason: "reference.appliedAt must be a timestamp or null." };
+    reference = { analysis: a, appliedAt: (r.appliedAt as number | null | undefined) ?? null, matchColour: r.matchColour === true };
+  }
   const project: VideoProject = {
     v: PROJECT_VERSION,
     rev: x.rev,
@@ -651,6 +696,8 @@ export function validateProject(input: unknown): Check {
     overlays,
     ...(template ? { template } : {}),
     voices,
+    ...(edit ? { edit } : {}),
+    ...(reference ? { reference } : {}),
   };
   const total = totalLength(project);
   if (total > MAX_TIMELINE_SECONDS + 1e-6) return { ok: false, reason: `The timeline is ${total.toFixed(1)} s; the editor renders up to ${MAX_TIMELINE_SECONDS} s.` };
@@ -729,13 +776,17 @@ export interface FrameAt {
   b: { placed: Placed; source: number; mix: number } | null;
 }
 
+/** Seconds a cut may sit after a frame time and still start on it (a microsecond). */
+export const CUT_EPSILON = 1e-6;
+
 /** What is on screen at timeline time t: one clip, or two with a mix during a crossfade. */
 export function frameAt(clips: readonly Clip[], t: number): FrameAt {
   const placed = placeClips(clips);
-  const on = placed.filter((pl) => t >= pl.start && t < pl.end);
+  // A cut that floating-point sums put a hair after a frame time (0.1 + 0.2 = 0.30000000000000004) still lands on that frame.
+  const on = placed.filter((pl) => t >= pl.start - CUT_EPSILON && t < pl.end - CUT_EPSILON);
   if (!on.length) {
     const last = placed[placed.length - 1];
-    return last && t >= last.end ? { a: { placed: last, source: last.clip.out }, b: null } : { a: null, b: null };
+    return last && t >= last.end - CUT_EPSILON ? { a: { placed: last, source: last.clip.out }, b: null } : { a: null, b: null };
   }
   if (on.length === 1) return { a: { placed: on[0], source: sourceTimeAt(on[0], t) }, b: null };
   const [a, b] = on.slice(-2);

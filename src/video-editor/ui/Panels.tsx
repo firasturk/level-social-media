@@ -14,7 +14,8 @@ import type { LooksCtx } from "./looks-ctx";
 import TemplatesGallery from "./TemplatesGallery";
 import MusicSourcePanel from "./MusicSourcePanel";
 import { DEFAULT_FRAMING, MAX_LOGO_DATA_URL, MAX_ZOOM, textDirection, type Framing, type LogoOverlay, type Overlay, type TextOverlay } from "@shared/video-compose";
-import type { Pace, Purpose } from "@shared/video-autoedit";
+import type { AutoRunOptions } from "@shared/edit-plan";
+import type { ReferenceCtx } from "./ReferencePanel";
 import type { Keyframes } from "@shared/video-keyframes";
 import KeyframeControls, { isAnimated } from "./KeyframeControls";
 import { MusicMixControls, type VoiceCtx } from "./MusicMix";
@@ -48,7 +49,8 @@ export interface PanelCtx {
   onToggleLock: () => void;
   /** Moves the playhead (timeline seconds). */
   seek: (t: number) => void;
-  auto: { busy: string; run: (opts: { purpose: Purpose; pace: Pace; target: number }) => Promise<void>; notes: string[] };
+  /** Auto edit (shared/edit-plan.ts) and "Edit like this video" (ReferencePanel). */
+  auto: { busy: string; run: (opts: AutoRunOptions) => Promise<void>; notes: string[]; reference: ReferenceCtx };
   /** The voice-over lane. */
   voice: VoiceCtx;
   music: {

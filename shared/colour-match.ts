@@ -150,8 +150,8 @@ export function fitTransfer(clip: LabStats, ref: LabStats): Transfer {
 
 const round4 = (v: number) => Math.round(v * 10000) / 10000;
 
-/** Where the reference came from: a picture saved in the studio, this post's reference, a Drive photo, or a file from this computer. */
-export type MatchRefKind = "studio" | "post" | "drive" | "upload";
+/** Where the reference came from: a picture saved in the studio, this post's reference, a Drive photo, a file from this computer, or a reference video ("Edit like this video": its pooled colour). */
+export type MatchRefKind = "studio" | "post" | "drive" | "upload" | "video";
 
 /** A clip's colour match, stored with the project: the fitted transfer and where its reference came from. */
 export interface ColourMatch {
@@ -213,7 +213,7 @@ const vec = (x: unknown, lo: number, hi: number): x is Vec3 => Array.isArray(x) 
 export function checkMatch(x: unknown, where: string): ColourMatch | string {
   if (!isObj(x)) return `${where}: match must be an object.`;
   const ref = x.ref;
-  if (!isObj(ref) || !["studio", "post", "drive", "upload"].includes(String(ref.kind))) return `${where}: match.ref needs a kind (studio, post, drive or upload).`;
+  if (!isObj(ref) || !["studio", "post", "drive", "upload", "video"].includes(String(ref.kind))) return `${where}: match.ref needs a kind (studio, post, drive, upload or video).`;
   if (typeof ref.id !== "string" || !ref.id || ref.id.length > 200) return `${where}: match.ref needs an id.`;
   if (typeof ref.name !== "string" || ref.name.length > 200) return `${where}: match.ref.name is too long.`;
   if (ref.thumb !== undefined && (typeof ref.thumb !== "string" || ref.thumb.length > MAX_MATCH_THUMB || !/^data:image\/(jpeg|png|webp);base64,/.test(ref.thumb))) return `${where}: match.ref.thumb must be a small picture (8 KB at most).`;

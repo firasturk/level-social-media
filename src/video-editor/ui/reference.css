@@ -1,0 +1,253 @@
+/* Edit quality: the auto edit's summary, "Edit like this video" and the comparison of the two videos. */
+
+.ve-summary {
+  margin: 0;
+  padding: 8px 10px 8px 24px;
+  border-radius: 10px;
+  background: rgba(17, 41, 211, 0.05);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ve-summary li + li {
+  margin-top: 3px;
+}
+.ve-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.ve-check input {
+  margin-top: 2px;
+}
+
+.vr-panel {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ts-line, rgba(0, 0, 0, 0.1));
+}
+.vr-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.vr-row input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--ts-line, rgba(0, 0, 0, 0.15));
+  background: #fff;
+  font-size: 12.5px;
+}
+.vr-drive {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.vr-drive button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff1f0;
+  color: #9b1c1c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.vr-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.vr-title {
+  margin: 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.vr-strip {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+}
+.vr-strip span {
+  flex-basis: 0;
+  min-width: 2px;
+  border-radius: 3px;
+}
+.vr-strip .hi {
+  background: #1129d3;
+}
+.vr-strip .mid {
+  background: #6f82f0;
+}
+.vr-strip .lo {
+  background: #c2cbf7;
+}
+.vr-facts {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The comparison, over the editor. */
+.vr-compare {
+  position: fixed;
+  inset: 0;
+  z-index: 980;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #111214;
+  color: #f2f2f4;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.vr-compare header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.vr-compare header .ts-hint {
+  flex: 1;
+  min-width: 0;
+  color: #b9bac2;
+}
+.vr-compare .ts-icon {
+  color: inherit;
+}
+.vr-panes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.vr-panes figure {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+}
+.vr-panes figcaption {
+  font-size: 12px;
+  color: #b9bac2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vr-panes video,
+.vr-panes canvas {
+  display: block;
+  width: 100%;
+  height: min(58vh, 640px);
+  object-fit: contain;
+  background: #000;
+  border-radius: 8px;
+}
+.vr-missing {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  height: min(58vh, 640px);
+  border-radius: 8px;
+  background: #000;
+  text-align: center;
+  font-size: 12px;
+  padding: 8px;
+}
+.vr-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.vr-transport input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+}
+.vr-transport .vl-seg {
+  flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+}
+.vr-transport .vl-seg button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: #f2f2f4;
+}
+.vr-transport .vl-seg button.on {
+  background: #f2f2f4;
+  color: #111214;
+}
+.vr-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.vr-table-wrap {
+  overflow-x: auto;
+  min-width: 0;
+  border-radius: 8px;
+  background: #1b1c20;
+}
+.vr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.vr-table th,
+.vr-table td {
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.vr-table th {
+  color: #9a9ba4;
+  font-weight: 500;
+}
+.vr-table tbody tr {
+  cursor: pointer;
+}
+.vr-table tr.on {
+  background: rgba(111, 130, 240, 0.25);
+}
+.vr-table td.ok {
+  color: #7ee2a8;
+}
+.vr-table td.off {
+  color: #ffb86b;
+}
+@media (max-width: 600px) {
+  .vr-compare {
+    padding: 10px 16px;
+  }
+  .vr-panes video,
+  .vr-panes canvas,
+  .vr-missing {
+    height: min(42vh, 420px);
+  }
+  .vr-table th,
+  .vr-table td {
+    padding: 4px 6px;
+  }
+}

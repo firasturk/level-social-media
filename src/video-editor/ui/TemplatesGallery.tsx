@@ -88,6 +88,7 @@ export default function TemplatesGallery({ ctx }: { ctx: PanelCtx }) {
       </button>
       {open && (
         <>
+          <p className="ts-hint">Have a video whose editing you like, a Pinterest pin or a clip? Auto edit → “Edit like this video” makes a template from it and cuts your footage the same way.</p>
           <div className="vl-templates" role="list">
             {TEMPLATES.map((x) => (
               <button key={x.id} type="button" role="listitem" className={`vl-template ${pick === x.id ? "on" : ""}`} onClick={() => setPick(x.id)} aria-pressed={pick === x.id} data-template={x.id}>

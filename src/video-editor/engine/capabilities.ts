@@ -90,14 +90,15 @@ export async function checkCapabilities(output = { width: 1080, height: 1920, fp
     if (!videoCodec) details.push("No H.264 video encoder (open-source Chromium builds have none; Chrome, Edge and Safari do).");
     let nativeAac = false;
     try {
-      if (typeof AudioEncoder !== "undefined") nativeAac = !!(await AudioEncoder.isConfigSupported({ codec: "mp4a.40.2", sampleRate: AUDIO_SAMPLE_RATE, numberOfChannels: 2, bitrate: 128_000 })).supported;
+      // The studio's renders are always AAC; the automated checks may ask for Opus where Chrome has H.264 but no AAC encoder.
+      if (typeof AudioEncoder !== "undefined") nativeAac = !!(await AudioEncoder.isConfigSupported({ codec: codecs.audio === "opus" ? "opus" : "mp4a.40.2", sampleRate: AUDIO_SAMPLE_RATE, numberOfChannels: 2, bitrate: 128_000 })).supported;
     } catch {
       /* an unknown codec throws in some browsers: no native AAC */
     }
     if (nativeAac) {
       audioEncoder = "native";
       if (!videoCodec) details.push("AAC audio is available, but video needs H.264 as well.");
-    } else if (videoCodec && typeof WebAssembly === "object" && typeof WebAssembly.compile === "function") {
+    } else if (videoCodec && codecs.audio !== "opus" && typeof WebAssembly === "object" && typeof WebAssembly.compile === "function") {
       audioEncoder = "wasm";
       details.push("No built-in AAC audio encoder: the editor's own AAC encoder (WebAssembly) is used.");
     } else details.push("No AAC audio encoder.");

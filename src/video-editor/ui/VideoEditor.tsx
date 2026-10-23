@@ -25,7 +25,8 @@ import type { Approval } from "@shared/config";
 import { parseCube, serialiseCube, type CubeLut } from "@shared/cube-lut";
 import { cutTimes, DEFAULT_DUCKING, musicFileUrl, musicSourceFromTrack, newClip, newClipId, newProject, placeClips, timelineBeats, totalLength, validateProject, type Clip, type ClipSource, type VideoProject } from "@shared/video-project";
 import { alignCutsToBeats, clickSelect, deleteClips, formatTimecode, moveClips, splitAt, stepFrames } from "@shared/video-timeline";
-import { planFirstCut, type FirstCutInput, type Pace, type Purpose } from "@shared/video-autoedit";
+import { planEdit, withEditPlan, type AutoRunOptions, type PlanSource } from "@shared/edit-plan";
+import { footageAnalysis, timelineGrid } from "../engine/analyse";
 import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
 import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
@@ -603,37 +604,52 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   };
 
   /**
-   * Auto edit: the footage's motion measured, then a first cut for the purpose, length and pace
-   * (shared/video-autoedit.ts), on the music's beats when there is music. Locked clips stay at
-   * their place; the source seconds of clips marked "has speech" come back whole.
+   * The footage read for the planners: each source decoded and measured once per tab
+   * (engine/analyse.ts: sharpness, light, steadiness, movement, its own cuts), with the seconds of
+   * its clips marked "has speech". Shared by the auto edit and "Edit like this video".
    */
-  const runAuto = async (opts: { purpose: Purpose; pace: Pace; target: number }) => {
+  const planSources = async (): Promise<PlanSource[]> => {
     const media = mediaRef.current.all();
-    if (!media.length) return;
+    const p0 = projectRef.current!;
+    const out: PlanSource[] = [];
+    for (const [i, m] of media.entries()) {
+      setAutoBusy(`Reading ${m.label} (${i + 1}/${media.length})…`);
+      const analysis = await footageAnalysis(mediaRef.current, m, (f) => setAutoBusy(`Reading ${m.label} (${i + 1}/${media.length}) ${Math.round(f * 100)}%`));
+      const speech = p0.clips.filter((c) => c.speech && c.source.kind !== "gap" && mediaRef.current.get(c.source)?.key === m.key).map((c) => ({ in: c.in, out: c.out }));
+      out.push({ id: `s${i}`, source: m.source, label: m.label.replace(/\.(mp4|mov|m4v)$/i, ""), duration: m.duration, width: m.width, height: m.height, analysis, ...(speech.length ? { speech } : {}) });
+    }
+    setAutoBusy("");
+    return out;
+  };
+
+  /**
+   * Auto edit: the footage read, then a first cut with a structure for the purpose, length and pace
+   * (shared/edit-plan.ts), on the music's beat and bars when there is music, with placeholder words.
+   * Locked clips stay at their place; the source seconds of clips marked "has speech" come back whole.
+   */
+  const runAuto = async (opts: AutoRunOptions) => {
+    if (!mediaRef.current.all().length) return;
     try {
-      const p0 = projectRef.current!;
-      const inputs: FirstCutInput[] = [];
-      for (const [i, m] of media.entries()) {
-        setAutoBusy(`Measuring motion in ${m.label} (${i + 1}/${media.length})…`);
-        const energy = await mediaRef.current.energy(m).catch(() => new Float32Array(0));
-        const speech = p0.clips.filter((c) => c.speech && c.source.kind !== "gap" && mediaRef.current.get(c.source)?.key === m.key).map((c) => ({ in: c.in, out: c.out }));
-        inputs.push({ id: `s${i}`, source: m.source, duration: m.duration, energy, step: 0.5, ...(speech.length ? { speech } : {}) });
-      }
+      const sources = await planSources();
       setAutoBusy("Building the cut…");
       const p = projectRef.current!;
-      const grid = timelineBeats(p.music, Math.max(opts.target, totalLength(p)) + 5);
+      const grid = timelineGrid(p, Math.max(opts.target, totalLength(p)) + 5, musicFile?.buffer ?? null);
       const locked = placeClips(p.clips)
         .filter((pl) => pl.clip.locked)
         .map((pl) => ({ clip: pl.clip, start: pl.start }));
-      const plan = planFirstCut(inputs, { ...opts, beats: grid.length ? grid : undefined, locked });
+      const logo = logoUrl && logoUrl.startsWith("/") ? { src: logoUrl, name: "Client logo" } : null;
+      // A Reel by default (Instagram and TikTok want 9:16); "keep" leaves the frame the cut has.
+      const output = opts.frame === "reel" ? { ...p.output, width: 1080, height: 1920 } : p.output;
+      const plan = planEdit(sources, { purpose: opts.purpose, pace: opts.pace, target: opts.target, grid, locked, output, text: opts.text, language: opts.language, logo, ramps: opts.ramps });
       // Fresh ids for the new shots; locked clips keep theirs.
       const clips = plan.clips.map((c) => (c.locked ? c : { ...c, id: newClipId() }));
       if (!clips.length) {
         toast.error("Nothing could be cut from this footage.");
         return;
       }
-      history.commit((q) => ({ ...q, clips, look: q.look === "none" ? plan.look : q.look }));
-      setAutoNotes(plan.notes);
+      history.commit((q) => withEditPlan(q, { ...plan, clips }, { purpose: opts.purpose, pace: opts.pace, at: Date.now(), output }));
+      const unread = sources.filter((s) => !s.analysis).length;
+      setAutoNotes([...plan.notes, ...(unread ? [`${unread} clip${unread === 1 ? "" : "s"} could not be read frame by frame in this browser: ${unread === 1 ? "its" : "their"} middle was used.`] : [])]);
       setSelection([]);
       seek(0);
       toast.success(`A first cut of ${clips.length} shots, ${totalLength({ clips }).toFixed(1)} s.`);
@@ -1117,7 +1133,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         selection,
         onToggleLock: toggleLock,
         seek,
-        auto: { busy: autoBusy, run: runAuto, notes: autoNotes },
+        auto: { busy: autoBusy, run: runAuto, notes: autoNotes, reference: { sources: planSources, batch: post?.batch ?? null, media: mediaRef.current, holdMain: (on) => (on ? playerRef.current?.suspend() : (playerRef.current?.resume(), playerRef.current?.seek(time))) } },
         voice: { busy: voiceBusy, add: addVoice, remove: removeVoice, selected: selectedVoice, select: setSelectedVoice, loaded: (id) => voiceBuffers.has(id) },
         music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, tracks, choose: chooseTrack, keeps: !!post && !readOnly, align: alignBeats },
         colour: { lutName: lut?.name ?? null, pickLut, clearLut, bypass, setBypass },
