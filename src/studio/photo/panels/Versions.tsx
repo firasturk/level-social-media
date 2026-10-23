@@ -3,7 +3,7 @@
  * acceptance), compare any two on the canvas, "Use this picture" (a restore), the video versions
  * when the post has clips, and the month's earlier versions.
  */
-import { Check, Columns2, History, RotateCcw } from "lucide-react";
+import { Check, Columns2, History, PenLine, RotateCcw } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { formatUsd } from "@shared/pricing";
 import type { StudioCtx } from "../types";
@@ -37,6 +37,14 @@ export default function VersionsPanel({ ctx, busy }: { ctx: StudioCtx; busy: boo
           </button>
         </p>
       )}
+      {ctx.picked && ctx.pickVersion && (
+        <p className="ts-hint ps-compare-note">
+          <PenLine size={13} /> The studios work on an earlier take; the post's picture stays until you apply an edit.{" "}
+          <button type="button" className="ts-link" onClick={() => ctx.pickVersion!(null)}>
+            Back to the current picture
+          </button>
+        </p>
+      )}
       {editor.onPrevious && (
         <button type="button" className="ts-mini" disabled={busy || inFlight} onClick={() => void editor.onPrevious!()} title="The picture from before the last remake, back on the post">
           <RotateCcw size={13} /> Previous picture
@@ -66,6 +74,11 @@ export default function VersionsPanel({ ctx, busy }: { ctx: StudioCtx; busy: boo
                   {!tk.current && (
                     <button type="button" className={`ts-mini ${picked ? "primary" : ""}`} onClick={() => toggleComparePick(tk.key!)} title="Put this take on the canvas beside the current picture (pick two takes to compare them with each other)">
                       <Columns2 size={12} /> {picked ? "Comparing" : "Compare"}
+                    </button>
+                  )}
+                  {!tk.current && ctx.pickVersion && (
+                    <button type="button" className={`ts-mini ${ctx.picked === tk.key ? "primary" : ""}`} onClick={() => ctx.pickVersion!(ctx.picked === tk.key ? null : tk)} title="Edit this take: the Photo, Text and Video studios open on it; the post's picture changes only when you apply an edit">
+                      <PenLine size={12} /> {ctx.picked === tk.key ? "Editing" : "Edit this version"}
                     </button>
                   )}
                   {!tk.current && editor.onUseTake && (

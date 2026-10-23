@@ -8,20 +8,23 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { FlaskConical, History, Images, LayoutGrid, Lock, Minus, Plus, Redo2, ScanSearch, SlidersHorizontal, Sparkles, Type, Undo2, Wand2, X } from "lucide-react";
+import { Clapperboard, FlaskConical, History, Images, LayoutGrid, Lock, Minus, Plus, Redo2, ScanSearch, SlidersHorizontal, Sparkles, Type, Undo2, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { postForm } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { formatUsd } from "@shared/pricing";
 import { POST_TYPE_INFO } from "@shared/posts";
-import type { Task } from "@shared/types";
+import type { Take, Task } from "@shared/types";
+import { heldMessage, holdNote, type HoldReason } from "@shared/client-hold";
 import { DEFAULT_ADJUST, describeAdjust, isDefaultAdjust, rotatedSize, type AdjustParams } from "@shared/photo-adjust";
 import type { PostEditorTools } from "../ReviewDialog";
 import { useFreepikStatus } from "../FreepikPanel";
 import { usePhotoLab } from "../photolab/usePhotoLab";
 import { usePhotoTools } from "./usePhotoTools";
 import { useParamsHistory } from "./history";
-import { canvasFile, drawAdjusted, loadPicture, MAX_OUTPUT_EDGE } from "./render";
+import { drawAdjusted, loadPicture, MAX_OUTPUT_EDGE } from "./render";
+import { commitSession, flashCard, getSession, patchSession, pendingLabel, pendingParts, uploadAdjusted, useEditingSession } from "../editing-session";
+import "../editing-session.css";
 import Stage from "./Stage";
 import EditPanel from "./panels/Edit";
 import AdjustPanel from "./panels/Adjust";
@@ -54,8 +57,12 @@ interface Props {
   onPrev?: () => void;
   onNext?: () => void;
   onClose: () => void;
-  /** Opens the Text studio on the same post. */
+  /** Opens the Text studio on the same post (the session carries what is not applied yet). */
   onTextStudio?: () => void;
+  /** Opens the Video studio on the same post (the session carries what is not applied yet). */
+  onVideoStudio?: () => void;
+  /** The client holds the current picture (approved it, or sees it on the review link): a save makes a new version. */
+  hold?: HoldReason | null;
   /** The post's picture changed (Adjust applied): the month is read again. */
   onPictureChanged: () => Promise<void> | void;
 }
@@ -85,12 +92,21 @@ export default function PhotoStudio(p: Props) {
   const index = post.index;
   const inFlight = task.status === "queued" || task.status === "processing";
   const cost = editor.perPicture ? ` · about ${formatUsd(editor.perPicture)}` : "";
+  // The card's editing session: the picture version the studios work on, and what is not applied yet.
+  const batch = editor.batchId ?? null;
+  const session = useEditingSession(batch, index);
+  const pick = session?.picture && session.picture.key !== task.output ? session.picture : null;
+  /** The picture the canvas and the Adjust tool work on: the card's, or the version picked under Versions. */
+  const baseUrl = pick?.url ?? resultUrl;
+  const baseLabel = pick ? pick.label : "The AI result";
+  const png = /\.png(\?|$)/i.test(pick?.key ?? task.output ?? "");
+  const [returning, setReturning] = useState(false);
 
   // A post with no picture yet opens on the presets: a picture can start from one.
   const [panel, setPanel] = useState<PhotoPanel>(p.initialPanel ?? (task.output ? "edit" : "presets"));
   const [panelOpen, setPanelOpen] = useState(true);
   const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches);
-  const [view, setView] = useState<StageView>({ kind: "picture", src: resultUrl, label: "The AI result" });
+  const [view, setView] = useState<StageView>({ kind: "picture", src: baseUrl, label: baseLabel });
   const [zoom, setZoom] = useState(1);
   const fitRef = useRef(1);
   const onFit = useCallback((f: number) => {
@@ -107,7 +123,12 @@ export default function PhotoStudio(p: Props) {
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
   const [preview, setPreview] = useState<HTMLCanvasElement | null>(null);
-  const history = useParamsHistory<AdjustParams>(DEFAULT_ADJUST);
+  /** Adjustments kept in the session for this very picture (from before a switch to another studio). */
+  const keptAdjust = (url: string): AdjustParams => {
+    const kept = getSession(batch, index)?.photo;
+    return kept && kept.basis === url ? kept.adjust : DEFAULT_ADJUST;
+  };
+  const history = useParamsHistory<AdjustParams>(keptAdjust(baseUrl));
   const params = history.value;
   const rootRef = useRef<HTMLDivElement>(null);
   const freepik = useFreepikStatus();
@@ -135,9 +156,9 @@ export default function PhotoStudio(p: Props) {
     setArea(null);
     setMarking(false);
     setComparePick([]);
-    history.reset(DEFAULT_ADJUST);
-    setView((v) => (v.kind === "adjust" ? v : { kind: "picture", src: resultUrl, label: "The AI result" }));
-    loadPicture(resultUrl)
+    history.reset(keptAdjust(baseUrl));
+    setView((v) => (v.kind === "adjust" ? v : { kind: "picture", src: baseUrl, label: baseLabel }));
+    loadPicture(baseUrl)
       .then((im) => {
         if (!alive) return;
         imgRef.current = im;
@@ -149,28 +170,46 @@ export default function PhotoStudio(p: Props) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, resultUrl]);
+  }, [open, baseUrl]);
+
+  /* ───────────── The session: this studio is open; what is not applied travels with a switch ───────────── */
+  useEffect(() => {
+    if (!open || !batch) return;
+    patchSession(batch, index, { studio: "photo" });
+    return () => {
+      patchSession(batch, index, (s) => ({ studio: s.studio === "photo" ? null : s.studio }));
+    };
+  }, [open, batch, index]);
+  const params0 = history.value;
+  useEffect(() => {
+    if (!open || !batch) return;
+    const cur = getSession(batch, index)?.photo ?? null;
+    const want = isDefaultAdjust(params0) ? null : { adjust: params0, basis: baseUrl, png };
+    if (!want && !cur) return;
+    if (want && cur && cur.adjust === params0 && cur.basis === baseUrl) return;
+    patchSession(batch, index, { photo: want });
+  }, [open, batch, index, params0, baseUrl, png]);
 
   /* ───────────── The panel decides what the canvas shows ───────────── */
   useEffect(() => {
     if (panel === "adjust") setView({ kind: "adjust" });
-    else setView((v) => (v.kind === "adjust" ? { kind: "picture", src: resultUrl, label: "The AI result" } : v));
-  }, [panel, resultUrl]);
+    else setView((v) => (v.kind === "adjust" ? { kind: "picture", src: baseUrl, label: baseLabel } : v));
+  }, [panel, baseUrl, baseLabel]);
   const takes = useMemo(() => editor.takes ?? [], [editor.takes]);
   useEffect(() => {
     if (panel !== "versions") return;
     const pics = comparePick.map((k) => takes.find((t) => t.key === k)?.image).filter((x): x is string => !!x);
     if (pics.length === 2) setView({ kind: "compare", before: pics[0], after: pics[1], beforeLabel: "First pick", afterLabel: "Second pick" });
     else if (pics.length === 1) setView({ kind: "compare", before: pics[0], after: resultUrl, beforeLabel: "Earlier take", afterLabel: "Current picture" });
-    else setView({ kind: "picture", src: resultUrl, label: "The AI result" });
-  }, [panel, comparePick, takes, resultUrl]);
+    else setView({ kind: "picture", src: baseUrl, label: baseLabel });
+  }, [panel, comparePick, takes, resultUrl, baseUrl, baseLabel]);
   const toggleComparePick = useCallback((key: string) => {
     setComparePick((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s.slice(-1), key]));
   }, []);
   // Marking a box needs the picture alone under the pointer.
   useEffect(() => {
-    if (marking) setView((v) => (v.kind === "compare" ? { kind: "picture", src: resultUrl, label: "The AI result" } : v));
-  }, [marking, resultUrl]);
+    if (marking) setView((v) => (v.kind === "compare" ? { kind: "picture", src: baseUrl, label: baseLabel } : v));
+  }, [marking, baseUrl, baseLabel]);
 
   /* ───────────── The Adjust preview ───────────── */
   useEffect(() => {
@@ -192,46 +231,72 @@ export default function PhotoStudio(p: Props) {
   const setParams = useCallback((next: AdjustParams, coalesce?: string) => history.set(next, coalesce), [history]);
   const resetParams = useCallback(() => history.set(DEFAULT_ADJUST), [history]);
   const applyAdjust = useCallback(
-    async (confirm = true): Promise<boolean> => {
+    async (confirm = true, strict = false): Promise<boolean> => {
       const im = imgRef.current;
       const prm = history.value;
       const changes = describeAdjust(prm);
       if (!im || !editor.batchId || !changes.length) return false;
       if (confirm) {
-        const ok = await askConfirm(`Apply to post ${index}'s picture: ${changes.join(", ")}. The adjusted picture becomes the post's picture (free: drawn here, nothing is generated); the current one stays under Versions. The words and the logo are redrawn over it.`, { ok: "Apply", danger: false, cancel: "Not yet" });
+        const held = p.hold ? ` ${p.hold === "approved" ? "The client approved the current picture" : "The client's review link shows the current picture"}: the adjusted one is saved as a new version and the client's stays.` : "";
+        const ok = await askConfirm(`Apply to post ${index}'s picture${pick ? ` (from the ${pick.label.toLowerCase()})` : ""}: ${changes.join(", ")}. The adjusted picture becomes the post's picture (free: drawn here, nothing is generated); the current one stays under Versions. The words and the logo are redrawn over it.${held}`, { ok: "Apply", danger: false, cancel: "Not yet" });
         if (!ok) return false;
       }
       setApplying(true);
       try {
         const { canvas } = drawAdjusted(im, prm, MAX_OUTPUT_EDGE, true);
-        const png = /\.png(\?|$)/i.test(task.output ?? "");
-        const file = await canvasFile(canvas, `post-${index}-adjusted`, png);
-        const form = new FormData();
-        form.set("batch", editor.batchId);
-        form.set("index", String(index));
-        form.set("note", `Adjusted in the Photo studio: ${changes.join(", ")}`);
-        form.set("file", file, file.name);
-        await postForm("/api/studio/posts/picture/upload", form);
+        const r = await uploadAdjusted(editor.batchId, index, canvas, png, `Adjusted in the Photo studio${pick ? " from an earlier take" : ""}: ${changes.join(", ")}`);
         history.reset(DEFAULT_ADJUST);
-        toast.success(`Post ${index}'s picture adjusted. The previous one is under Versions.`);
+        patchSession(editor.batchId, index, { photo: null, picture: null });
+        if (r.held) toast.message(r.message || heldMessage(r.held), { duration: 9000 });
+        else toast.success(`Post ${index}'s picture adjusted. The previous one is under Versions.`);
         await onPictureChanged();
         return true;
       } catch (e) {
+        if (strict) throw e;
         toast.error((e as Error).message);
         return false;
       } finally {
         setApplying(false);
       }
     },
-    [editor.batchId, history, index, onPictureChanged, task.output],
+    [editor.batchId, history, index, onPictureChanged, png, pick, p.hold],
   );
+  /** "Save & return": everything the card's session holds is saved, then the card comes back into view. */
+  const saveAndReturn = useCallback(async () => {
+    if (!batch) return onClose();
+    setReturning(true);
+    try {
+      const r = await commitSession(batch, index, { applyPhoto: () => applyAdjust(false, true), hold: p.hold });
+      if (!r.ok) return;
+      patchSession(batch, index, { studio: null, picture: null });
+      onClose();
+      flashCard(index);
+    } finally {
+      setReturning(false);
+    }
+  }, [applyAdjust, batch, index, onClose, p.hold]);
+  /** Closing never drops work: what is not saved is saved now, or kept on the card for later. */
   const close = useCallback(async () => {
-    if (!isDefaultAdjust(history.value)) {
-      const ok = await askConfirm("Adjustments not applied yet. Apply them as the post's new picture before closing, or leave without them?", { ok: "Apply and close", danger: false, cancel: "Leave without applying" });
-      if (ok && !(await applyAdjust(false))) return;
+    const parts = pendingParts(getSession(batch, index));
+    if (parts.length) {
+      const ok = await askConfirm(`Not saved yet: ${pendingLabel(parts)}. Save now and go back to the card, or keep them for later? Kept edits wait on the card until you save or discard them.`, { ok: "Save & return", danger: false, cancel: "Keep for later" });
+      if (ok) return saveAndReturn();
     }
     onClose();
-  }, [applyAdjust, history.value, onClose]);
+  }, [batch, index, onClose, saveAndReturn]);
+  /** A take picked under Versions becomes the picture the studios work on (the post's picture stays). */
+  const pickVersion = useCallback(
+    (tk: Take | null) => {
+      if (!batch) return;
+      if (!isDefaultAdjust(history.value)) {
+        toast.message("Apply or reset the adjustments first: they belong to the picture on the canvas.");
+        return;
+      }
+      patchSession(batch, index, { picture: tk && tk.key && tk.image && tk.key !== task.output ? { key: tk.key, url: tk.image, label: `Earlier take of ${new Date(tk.created).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` } : null });
+      setComparePick([]);
+    },
+    [batch, history.value, index, task.output],
+  );
   const revise = useCallback(
     async (text: string) => {
       if (!text) return;
@@ -300,7 +365,7 @@ export default function PhotoStudio(p: Props) {
         if (marking) setMarking(false);
         else if (view.kind === "compare") {
           setComparePick([]);
-          setView({ kind: "picture", src: resultUrl, label: "The AI result" });
+          setView({ kind: "picture", src: baseUrl, label: baseLabel });
         } else if (panel === "adjust" && params.crop) history.set({ ...params, crop: null, aspect: "free" });
         else void close();
       }
@@ -317,7 +382,7 @@ export default function PhotoStudio(p: Props) {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onUp);
     };
-  }, [open, p, panel, marking, view.kind, params, history, close, resultUrl]);
+  }, [open, p, panel, marking, view.kind, params, history, close, baseUrl, baseLabel]);
   // ⌘/ctrl + wheel over the picture zooms; a plain wheel scrolls (pans) the stage.
   useEffect(() => {
     const el = rootRef.current;
@@ -371,6 +436,8 @@ export default function PhotoStudio(p: Props) {
     tools,
     comparePick,
     toggleComparePick,
+    picked: pick?.key ?? null,
+    pickVersion,
     ocrPanel: editor.ocrPanel,
     freepik: editor.freepik,
     drivePicker: editor.drivePicker,
@@ -397,6 +464,11 @@ export default function PhotoStudio(p: Props) {
           </span>
           <span className={`ps-state ${state}`}>{STATE_LABEL[task.status] ?? task.status}</span>
           {dirty && <span className="ts-save dirty">Adjustments not applied</span>}
+          {p.hold && (
+            <span className="ts-hold" title={heldMessage(p.hold)}>
+              {holdNote(p.hold)}
+            </span>
+          )}
         </div>
         <div className="ts-tools ps-tools" role="toolbar" aria-label="History">
           <span className="ts-tool-group">
@@ -413,12 +485,17 @@ export default function PhotoStudio(p: Props) {
             <History size={14} /> <span>Versions · {madeTakes}</span>
           </button>
           {p.onTextStudio && (
-            <button type="button" className="ts-btn" onClick={p.onTextStudio} title="The words and layers on this picture, in the Text studio (no picture is made)">
+            <button type="button" className="ts-btn" onClick={p.onTextStudio} title="The words and layers on this picture, in the Text studio (no picture is made; adjustments not applied yet come along)">
               <Type size={14} /> <span>Text studio</span>
             </button>
           )}
-          <button type="button" className="ts-btn primary" onClick={() => void close()}>
-            Close
+          {p.onVideoStudio && (
+            <button type="button" className="ts-btn" onClick={p.onVideoStudio} title="This post's videos, in the Video studio (adjustments not applied yet come along)">
+              <Clapperboard size={14} /> <span>Video studio</span>
+            </button>
+          )}
+          <button type="button" className="ts-btn primary ts-save-return" onClick={() => void saveAndReturn()} disabled={returning || applying} title="Save every edit of this post (picture, words, video cut) and go back to its card">
+            {returning ? "Saving…" : "Save & return"}
           </button>
         </div>
       </header>
@@ -437,7 +514,7 @@ export default function PhotoStudio(p: Props) {
         {panel === "presets" ? (
           <PresetsGallery ctx={ctx} />
         ) : (
-          <Stage view={stageView} size={stageSize} zoom={zoom} onFit={onFit} marking={marking} area={area} onArea={setArea} preview={preview} holdBefore={holdBefore} beforeSrc={resultUrl} crop={cropFrame} loading={!img && !!task.output}>
+          <Stage view={stageView} size={stageSize} zoom={zoom} onFit={onFit} marking={marking} area={area} onArea={setArea} preview={preview} holdBefore={holdBefore} beforeSrc={baseUrl} crop={cropFrame} loading={!img && !!task.output}>
             {marking && <div className="ps-hint-pill">{area && area.w > 0.01 ? "Marked: put it in the instruction from the Edit panel. Not a mask; the whole picture is redrawn." : "Drag on the picture to mark the area to change."}</div>}
             {view.kind === "compare" && !marking && <div className="ps-hint-pill">Drag the slider to compare · Esc to stop</div>}
             {holdOriginal && <div className="ps-hint-pill">The product photo</div>}

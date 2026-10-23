@@ -98,6 +98,13 @@ codec path when the browser lacks H.264/AAC; no editing of the words baked into 
 the Text Studio's job, before the clip is made); a saved project keeps the music's and the LUT's
 names, not their files, so they are picked again when a project is reopened for an export.
 
+## Inside the post studios
+
+Opened from a card, the editor is the Video studio's Edit panel: the unsaved cut (with its music
+file and LUT, in memory) travels with the card's editing session when the designer switches to the
+Photo or Text studio and back (`docs/photo-studio.md` → *Moving between editors*). Saving, the
+render and the upload are unchanged and stay admin-only on the server (`requireIntegrationAdmin`).
+
 ## What is implemented
 
 - `shared/video-project.ts`: the document, `validateProject`, the timeline arithmetic (`placeClips`,
