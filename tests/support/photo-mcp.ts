@@ -47,7 +47,8 @@ export async function seed() {
   await env.DB.prepare("INSERT INTO batches (id, owner, name, config, state, created, updated, client, month) VALUES ('b1', 'u2', 'October', ?, 'idle', ?, ?, 'c1', '2026-10')").bind(JSON.stringify(config), t, t).run();
   await env.DB.prepare("INSERT INTO sources (id, batch, name, stem, key, mime, size, created, kind) VALUES ('s1', 'b1', 'cup.jpg', 'cup', 'u2/b1/src/s1.jpg', 'image/jpeg', 10, ?, 'product')").bind(t).run();
   await env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, post, updated) VALUES ('t1', 'b1', 's1', 1, 'ready', 'u2/b1/output/t1/a.png', '', 1, ?)").bind(t).run();
-  await env.BUCKET.put("u2/b1/output/t1/a.png", new Uint8Array([137, 80, 78, 71, 1, 2, 3]).buffer, { httpMetadata: { contentType: "image/png" } });
+  // A PNG header the size reader understands: 1080 × 1350 (the tools that require the source size read it).
+  await env.BUCKET.put("u2/b1/output/t1/a.png", new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 4, 56, 0, 0, 5, 70, 8, 6, 0, 0, 0]).buffer, { httpMetadata: { contentType: "image/png" } });
   return env;
 }
 
@@ -110,10 +111,10 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
     { name: "get_presets", inputSchema: { type: "object", properties: { source: {}, category: {}, query: {}, preset_id: {}, initial_inputs: {}, limit: {} } } },
     { name: "get_preset_instructions", inputSchema: { type: "object", properties: { preset: {} } } },
     { name: "execute_preset", inputSchema: { type: "object", properties: { source: {}, preset_id: {}, inputs: {} } } },
-    { name: "upscale_image", inputSchema: { type: "object", properties: { media_id: {}, scale: {}, get_cost: {} } } },
-    { name: "remove_background", inputSchema: { type: "object", properties: { media_id: {} } } },
+    // The live shapes (23 Oct 2026): the picture tools nest their arguments under `params`.
+    { name: "upscale_image", inputSchema: { type: "object", properties: { params: { type: "object", properties: { image_id: {}, width: {}, height: {}, resolution: {}, provider: {}, get_cost: {} }, required: ["image_id", "width", "height"] } }, required: ["params"] } },
+    { name: "remove_background", inputSchema: { type: "object", properties: { params: { type: "object", properties: { media_id: {}, media_type: {} }, required: ["media_id", "media_type"] } }, required: ["params"] } },
     { name: "relight_image", inputSchema: { type: "object", properties: { media_id: {}, prompt: {}, get_cost: {} } } },
-    { name: "reframe", inputSchema: { type: "object", properties: { params: {} } } },
     { name: "generate_image", inputSchema: { type: "object", properties: { params: {} } } },
   ];
   const hero = opts.noPrice ? { ...HERO, price: undefined } : HERO;
@@ -162,8 +163,10 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
       return text(b.id, { jobs: [{ index: 0, job_id: "job-p1", status: "queued" }] });
     }
     if (name === "upscale_image") {
-      expect(args.media_id).toBe("med_1");
-      if (args.get_cost) return text(b.id, { cost: 12, currency: "credits" });
+      const p = args.params as Record<string, unknown>;
+      expect(p).toMatchObject({ image_id: "med_1", width: 1080, height: 1350 });
+      expect(args.media_id).toBeUndefined();
+      if (p.get_cost) return text(b.id, { cost: 12, currency: "credits" });
       if (opts.syncUpscale) return text(b.id, { status: "completed", result: { url: "https://cdn.test/out.png" } });
       return text(b.id, { job_id: "job-up-1", status: "queued" });
     }
@@ -171,12 +174,10 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
       if (args.get_cost) return text(b.id, { cost: 9 });
       return text(b.id, { job_id: "job-rl-1", status: "queued" });
     }
-    if (name === "remove_background") return text(b.id, { job_id: "job-bg-1", status: "queued" });
-    if (name === "reframe") {
+    if (name === "remove_background") {
       const p = args.params as Record<string, unknown>;
-      expect(p.media_id).toBe("med_1");
-      expect(p.get_cost).toBeUndefined();
-      return text(b.id, { job_id: "job-rf-1", status: "queued" });
+      expect(p).toEqual({ media_id: "med_1", media_type: "image" });
+      return text(b.id, { job_id: "job-bg-1", status: "queued" });
     }
     if (name === "generate_image") {
       const p = args.params as Record<string, unknown>;

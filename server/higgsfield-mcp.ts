@@ -113,6 +113,24 @@ export const storedTokens = (env: Env) => higgsfieldSignIn.storedTokens(env);
 
 /* ───────────── The MCP session: tools by name, one refresh on 401 ───────────── */
 
+interface JsonSchema {
+  properties?: Record<string, unknown>;
+  required?: string[];
+  oneOf?: unknown[];
+  anyOf?: unknown[];
+}
+
+export interface ToolShape {
+  /** The argument names (the inner ones when nested under `params`). */
+  names: string[];
+  /** The names the schema requires, across every branch. */
+  required: string[];
+  /** The arguments go under `params`. */
+  wrapped: boolean;
+  /** Other top-level fields the tool takes beside `params` (`action`, `context`). */
+  top: string[];
+}
+
 export class HiggsfieldMcp {
   private client: McpClient | null = null;
   private refreshed = false;
@@ -160,6 +178,33 @@ export class HiggsfieldMcp {
     const t = (await this.tools()).find((x) => x.name === name);
     const props = (t?.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
     return props && typeof props === "object" ? Object.keys(props) : [];
+  }
+
+  /**
+   * The shape of a tool's arguments: the parameter names and whether they sit under a `params`
+   * block (the live catalog nests most tools that way: `upscale_image` takes `{params: {image_id,
+   * width, height, get_cost}}`, `remove_background` `{params: {media_id, media_type}}`,
+   * `upscale_video` `{params: {provider, video_id, …}}` with two `oneOf` branches). `names` are the
+   * inner names when nested, `required` the names the schema requires (every branch's), `top` the
+   * other top-level fields (`action`, `context`) when there are any.
+   */
+  async toolShape(name: string): Promise<ToolShape> {
+    const t = (await this.tools()).find((x) => x.name === name);
+    const schema = (t?.inputSchema ?? {}) as JsonSchema;
+    const props = schema.properties ?? {};
+    const params = props.params as JsonSchema | undefined;
+    const others = Object.keys(props).filter((k) => k !== "params");
+    if (params && typeof params === "object" && others.every((k) => ["context", "action"].includes(k))) {
+      const branches = [params, ...(params.oneOf ?? []), ...(params.anyOf ?? [])].filter((b): b is JsonSchema => !!b && typeof b === "object");
+      const names = new Set<string>();
+      const required = new Set<string>();
+      for (const b of branches) {
+        for (const k of Object.keys(b.properties ?? {})) names.add(k);
+        for (const k of b.required ?? []) required.add(k);
+      }
+      return { names: [...names], required: [...required], wrapped: true, top: others };
+    }
+    return { names: Object.keys(props), required: schema.required ?? [], wrapped: false, top: [] };
   }
 
   async hasTool(name: string): Promise<boolean> {

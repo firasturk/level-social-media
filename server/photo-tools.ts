@@ -34,12 +34,13 @@ import type { Env } from "./env";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
+import { imageSize } from "./ocr";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
 import { signObjectUrl } from "./signed";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
-import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
+import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
 /** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
 const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to Higgsfield. The picture styles and tools run on that sign-in, paid from the subscription credits.";
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
@@ -233,22 +234,31 @@ export interface BuiltArgs {
   notes: string[];
 }
 
+/** A picture's size, for the tools that require it (`upscale_image`: "You MUST pass the source image's width and height"). */
+export interface PictureSize {
+  width: number;
+  height: number;
+}
+
 /**
- * The arguments of a Higgsfield picture tool: the media id under the name the schema has
- * (`media_id` by default, `medias` for the generators), the options under theirs, and `get_cost`
- * only where the tool lists it (or for `generate_image`, whose description says so), so an estimate
- * can never turn into a submission by mistake.
+ * The arguments of a Higgsfield picture tool, from the live schema's shape (`HiggsfieldMcp.toolShape`):
+ * the picture under the name the tool has (`image_id`, `media_id`, or `medias` for the generators),
+ * `media_type: "image"` where the tool asks which kind the media is, the source size where the tool
+ * requires it, the options under their names, and `get_cost` only where the tool lists it (or for
+ * `generate_image`, whose description says so), so an estimate can never turn into a submission by
+ * mistake. Everything goes under `params` when the schema nests it there.
  */
-export function higgsfieldArgs(tool: ToolDef, params: string[], mediaId: string, options: Record<string, string>, getCost: boolean): BuiltArgs {
+export function higgsfieldArgs(tool: ToolDef, shape: ToolShape, mediaId: string, options: Record<string, string>, getCost: boolean, size: PictureSize | null = null): BuiltArgs {
   const notes: string[] = [];
   const generator = tool.mcpTool === "generate_image";
-  const wrapped = generator || (params.includes("params") && params.filter((p) => p !== "get_cost").length === 1);
-  const names = wrapped ? [] : params;
+  const names = shape.names;
   const inner: Record<string, unknown> = {};
   if (generator) {
     inner.model = "soul_2";
     inner.medias = [{ value: mediaId, role: "image" }];
     inner.count = 1;
+  } else if (names.includes("image_id")) {
+    inner.image_id = mediaId;
   } else if (!names.length || names.includes("media_id")) {
     inner.media_id = mediaId;
   } else if (names.includes("medias")) {
@@ -258,6 +268,13 @@ export function higgsfieldArgs(tool: ToolDef, params: string[], mediaId: string,
     inner[k] = mediaId;
     notes.push(`picture as ${k}`);
   }
+  if (names.includes("media_type")) inner.media_type = "image";
+  if (shape.required.includes("width") && shape.required.includes("height")) {
+    if (size) {
+      inner.width = size.width;
+      inner.height = size.height;
+    } else notes.push("the picture's size could not be read; the tool requires it");
+  }
   for (const o of tool.options) {
     const v = options[o.id]?.trim();
     if (!v) continue;
@@ -265,8 +282,9 @@ export function higgsfieldArgs(tool: ToolDef, params: string[], mediaId: string,
     if (k) inner[k] = v;
     else notes.push(`${o.label.toLowerCase()} not taken by ${tool.mcpTool}`);
   }
-  const costable = generator || params.includes("get_cost");
+  const costable = generator || names.includes("get_cost");
   if (getCost && costable) inner.get_cost = true;
+  const wrapped = generator || shape.wrapped;
   return { args: wrapped ? { params: inner } : inner, costable, notes };
 }
 
@@ -535,9 +553,10 @@ async function prepareHiggsfield(env: Env, tool: ToolDef, t: { output: string },
   const mcp = new HiggsfieldMcp(env, higgsfieldFetcher());
   await mcp.connect();
   await mcp.requireTool(tool.mcpTool);
-  const params = await mcp.toolParams(tool.mcpTool);
+  const shape = await mcp.toolShape(tool.mcpTool);
   const mediaId = await mediaFor(env, mcp, t.output, "image");
-  const est = higgsfieldArgs(tool, params, mediaId, options, true);
+  const size = shape.required.includes("width") ? await pictureSize(env, t.output) : null;
+  const est = higgsfieldArgs(tool, shape, mediaId, options, true, size);
   let credits: number | null = null;
   let text = "";
   if (est.costable) {
@@ -546,7 +565,7 @@ async function prepareHiggsfield(env: Env, tool: ToolDef, t: { output: string },
     if (!r.isError && !unlimChoiceIn(r)) credits = parseCost(r);
   } else est.notes.push(`${tool.mcpTool} lists no get_cost: cost not known before the run`);
   const bal = await balanceOf(mcp).catch(() => ({ credits: null as number | null }));
-  const { args } = higgsfieldArgs(tool, params, mediaId, options, false);
+  const { args } = higgsfieldArgs(tool, shape, mediaId, options, false, size);
   return { tool, mcpTool: tool.mcpTool, args, credits, balance: bal.credits, notes: est.notes, text, call: () => mcp.call(tool.mcpTool, args), balanceAfter: async () => (await balanceOf(mcp, true)).credits };
 }
 
@@ -585,6 +604,15 @@ export async function estimatePhotoTool(env: Env, user: User, d: PhotoToolAsk): 
   requireOptions(tool, d.options);
   const { b, t } = await postPicture(env, user, d.batch, d.index);
   const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, d.options);
+  // Higgsfield's picture tools take no `get_cost`: when the provider names no price, the credits the
+  // last finished run of the same tool reported (balance before → after) stand as the estimate, said so.
+  if (p.credits === null && tool.provider === "higgsfield") {
+    const last = await lastReportedRun(env, tool);
+    if (last) {
+      p.credits = last.credits;
+      p.notes.push(`estimate from the last run of ${tool.label.toLowerCase()} (${last.credits} credits reported on ${new Date(last.at).toISOString().slice(0, 10)}); Higgsfield names no price before a run`);
+    }
+  }
   await recordIntegrationOp(env, {
     provider: ledgerProvider(tool.provider),
     kind: "image.estimate",
@@ -597,6 +625,24 @@ export async function estimatePhotoTool(env: Env, user: User, d: PhotoToolAsk): 
     note: `${p.credits ?? "?"} credits · ${tool.label} (${TOOL_PROVIDER_LABELS[tool.provider]} · ${p.mcpTool})${p.notes.length ? ` · ${p.notes.join("; ")}` : ""}${p.credits === null ? ` · answer: ${p.text.slice(0, 160)}` : ""}`,
   });
   return { credits: p.credits, balance: p.balance, notes: p.notes, text: p.text.slice(0, 300) };
+}
+
+/** The credits the newest finished run of this tool reported, from the ledger (`image.tool`, done, a figure above zero). */
+export async function lastReportedRun(env: Env, tool: ToolDef): Promise<{ credits: number; at: number } | null> {
+  const row = await first<{ reported: number; updated: number }>(
+    env.DB,
+    "SELECT reported, updated FROM integration_ops WHERE provider = ? AND kind = 'image.tool' AND status = 'done' AND reported > 0 AND note LIKE ? ORDER BY updated DESC LIMIT 1",
+    ledgerProvider(tool.provider),
+    `${tool.label} (${TOOL_PROVIDER_LABELS[tool.provider]}) · %`,
+  );
+  return row ? { credits: row.reported, at: row.updated } : null;
+}
+
+/** The stored picture's width and height from its file header (PNG, JPEG, WebP). */
+export async function pictureSize(env: Env, key: string): Promise<PictureSize | null> {
+  const obj = await env.BUCKET.get(key);
+  if (!obj) return null;
+  return imageSize(await obj.arrayBuffer());
 }
 
 async function fingerprint(parts: string[]): Promise<string> {

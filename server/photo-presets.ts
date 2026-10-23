@@ -294,12 +294,12 @@ export async function fetchHiggsfieldCategory(mcp: HiggsfieldMcp, category: Excl
 
 export async function fetchMagnificLooks(mcp: MagnificMcp, q: string): Promise<PhotoPresetCard[]> {
   const tools = await magnificTools(mcp);
-  const ask = async (name: string) => {
+  const ask = async (name: string, args: Record<string, unknown> = {}) => {
     if (!tools.has(name)) return null;
-    const r = await mcp.callTool(name, {});
+    const r = await mcp.callTool(name, args);
     return r.isError ? null : r;
   };
-  const items = parseMagnificLooks(await ask("images_models_list"), await ask("images_upscale_presets_list"));
+  const items = parseMagnificLooks(await ask("images_models_list", { includePreviews: true }), await ask("images_upscale_presets_list"));
   return q ? items.filter((c) => matchesPhoto(c, q)) : items;
 }
 

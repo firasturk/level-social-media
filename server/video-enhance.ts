@@ -25,7 +25,7 @@ import { first, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { signObjectUrl } from "./signed";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
-import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, parseCost, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
+import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findString, firstUrl, jsonOf, resultText, type McpCallResult } from "./mcp-client";
 import { finishedVersion, insertVideoRow, parseSettings, patchVideoSettings, sha256, storeFinishedClip, versionItem, type VideoItem, type VideoRow } from "./video";
@@ -60,28 +60,36 @@ const URL_PARAMS = ["video_url", "url", "input_url", "source_url"];
  * id under the name the schema uses, or a signed link when the tool takes one. With no schema the
  * studio assumes `media_id` (the first live run tells).
  */
-export async function clipArgs(env: Env, mcp: HiggsfieldMcp, v: VideoRow, params: string[]): Promise<{ args: Record<string, unknown>; how: string }> {
+export async function clipArgs(env: Env, mcp: HiggsfieldMcp, v: VideoRow, shape: ToolShape, tool = ""): Promise<{ args: Record<string, unknown>; how: string }> {
+  const params = shape.names;
   const idParam = ID_PARAMS.find((p) => params.includes(p));
   const urlParam = URL_PARAMS.find((p) => params.includes(p));
   if (!idParam && urlParam) return { args: { [urlParam]: await signObjectUrl(env, v.key!, 2 * 60 * 60 * 1000) }, how: `link as ${urlParam}` };
   const mediaId = await mediaFor(env, mcp, v.key!, "video");
   const name = idParam ?? "media_id";
-  if (name === "medias") return { args: { medias: [{ value: mediaId, role: "video" }] }, how: "media id in medias[]" };
-  return { args: { [name]: mediaId }, how: `media id as ${name}` };
+  // The Virality Predictor: `medias[].id` with the fixed model, under action "create".
+  if (tool === "virality_predictor") return { args: { model: "virality_predictor", medias: [{ id: mediaId, role: "video" }] }, how: "media id in medias[] (virality_predictor)" };
+  const args: Record<string, unknown> = name === "medias" ? { medias: [{ value: mediaId, role: "video" }] } : { [name]: mediaId };
+  if (params.includes("media_type")) args.media_type = "video";
+  // upscale_video: the Topaz branch needs no source size (the ByteDance one requires width and height the studio does not know).
+  if (tool === "upscale_video" && params.includes("provider")) args.provider = "topaz";
+  return { args, how: name === "medias" ? "media id in medias[]" : `media id as ${name}` };
 }
 
-/** Tools whose schema nests everything under `params` (as generate_video does) get the same nesting. */
-function shaped(params: string[], args: Record<string, unknown>): Record<string, unknown> {
-  return params.includes("params") && !params.some((p) => ID_PARAMS.includes(p) || URL_PARAMS.includes(p)) ? { params: args } : args;
+/** Tools whose schema nests everything under `params` (as generate_video does) get the same nesting; the top-level `action` where the tool takes one. */
+function shaped(shape: ToolShape, args: Record<string, unknown>): Record<string, unknown> {
+  if (!shape.wrapped) return args;
+  const out: Record<string, unknown> = { params: args };
+  if (shape.top.includes("action")) out.action = "create";
+  return out;
 }
 
 /* ───────────── The estimate: a get_cost preflight when the tool offers it ───────────── */
 
-async function preflight(mcp: HiggsfieldMcp, tool: string, params: string[], args: Record<string, unknown>): Promise<{ credits: number | null; offered: boolean }> {
-  const nested = params.includes("params") && !params.some((p) => ID_PARAMS.includes(p) || URL_PARAMS.includes(p));
-  if (!params.includes("get_cost") && !nested) return { credits: null, offered: false };
+async function preflight(mcp: HiggsfieldMcp, tool: string, shape: ToolShape, args: Record<string, unknown>): Promise<{ credits: number | null; offered: boolean }> {
+  if (!shape.names.includes("get_cost")) return { credits: null, offered: false };
   try {
-    const r = await mcp.call(tool, nested ? { params: { ...args, get_cost: true } } : { ...args, get_cost: true });
+    const r = await mcp.call(tool, shaped(shape, { ...args, get_cost: true }));
     return { credits: r.isError ? null : parseCost(r), offered: true };
   } catch (e) {
     console.error("[video-enhance] get_cost", tool, errorMessage(e));
@@ -115,11 +123,11 @@ export async function runClipTool(env: Env, user: User, d: HiggsfieldToolInput):
   const v = await finishedVersion(env, b.id, d.videoId);
   const mcp = await session(env);
   await mcp.requireTool(d.tool);
-  const params = await mcp.toolParams(d.tool);
+  const shape = await mcp.toolShape(d.tool);
   const extra = Object.fromEntries(Object.entries(d.arguments).filter(([k, val]) => !ID_PARAMS.includes(k) && !URL_PARAMS.includes(k) && k !== "get_cost" && val !== undefined && val !== null && val !== "" && JSON.stringify(val).length < 2000));
-  const clip = await clipArgs(env, mcp, v, params);
+  const clip = await clipArgs(env, mcp, v, shape, d.tool);
   const args = { ...clip.args, ...extra };
-  const est = await preflight(mcp, d.tool, params, args);
+  const est = await preflight(mcp, d.tool, shape, args);
   const bal = await balanceOf(mcp).catch(() => ({ credits: null as number | null, plan: null as string | null, text: "" }));
   if (est.credits === null && !d.confirm) throw new StudioError(`The cost of ${meta.label.toLowerCase()} is not known: ${est.offered ? "Higgsfield gave no figure" : "this tool offers no estimate"}. Confirm it at an unknown cost, or leave it.`, 409, false, { needsEstimate: true, tool: d.tool });
   if (!d.confirm) throw new StudioError(`Confirm ${meta.label.toLowerCase()}: about ${est.credits} credits from the subscription balance${bal.credits !== null ? ` (${bal.credits} available)` : ""}.`, 409, false, { needsConfirm: true, credits: est.credits, balance: bal.credits });
@@ -141,7 +149,7 @@ export async function runClipTool(env: Env, user: User, d: HiggsfieldToolInput):
   const row = { id, batch: b.id, post: v.post, task: v.task, owner: user.id, model: `tool:${d.tool}`, prompt: v.prompt, provider: MCP_PROVIDER, posterKey: v.poster_key, source: v.source, opId };
   let r: McpCallResult;
   try {
-    r = await mcp.call(d.tool, shaped(params, args));
+    r = await mcp.call(d.tool, shaped(shape, args));
   } catch (e) {
     const timeout = e instanceof Error && (/TimeoutError|AbortError/.test(e.name) || /timed? ?out/i.test(e.message));
     if (timeout) {
@@ -205,16 +213,16 @@ export async function runCheck(env: Env, user: User, d: HiggsfieldCheckInput): P
   const v = await finishedVersion(env, b.id, d.videoId);
   const mcp = await session(env);
   if (!(await mcp.hasTool(d.tool))) throw new StudioError(`${meta.label} is not available on this plan (Higgsfield lists no "${d.tool}" tool today).`, 409, false, { notAvailable: true, tool: d.tool });
-  const params = await mcp.toolParams(d.tool);
-  const clip = await clipArgs(env, mcp, v, params);
-  const est = await preflight(mcp, d.tool, params, clip.args);
+  const shape = await mcp.toolShape(d.tool);
+  const clip = await clipArgs(env, mcp, v, shape, d.tool);
+  const est = await preflight(mcp, d.tool, shape, clip.args);
   if (est.credits === null && !d.confirm) throw new StudioError(`The cost of the ${meta.label.toLowerCase()} is not known: ${est.offered ? "Higgsfield gave no figure" : "this tool offers no estimate"}. Confirm it at an unknown cost, or leave it.`, 409, false, { needsEstimate: true, tool: d.tool });
   if (!d.confirm && est.credits !== null && est.credits > 0) throw new StudioError(`Confirm the ${meta.label.toLowerCase()}: about ${est.credits} credits from the subscription balance.`, 409, false, { needsConfirm: true, credits: est.credits });
   if (!(await claimSubmission(env, `check:${b.id}:${v.id}:${d.tool}`, 60_000))) throw new StudioError("This check is already running.", 409);
   const opId = await recordIntegrationOp(env, { provider: "higgsfield", kind: "video.check", user: user.id, batch: b.id, post: v.post, estimate: est.credits, status: "running", note: `${meta.label} (${d.tool}) of version ${v.id.slice(0, 8)} · ${est.credits ?? "unknown"} credits · clip as ${clip.how}` });
   let r: McpCallResult;
   try {
-    r = await mcp.call(d.tool, shaped(params, clip.args));
+    r = await mcp.call(d.tool, shaped(shape, clip.args));
   } catch (e) {
     await updateIntegrationOp(env, opId, { status: "failed", note: errorMessage(e).slice(0, 300) });
     throw e;

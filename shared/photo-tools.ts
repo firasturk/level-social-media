@@ -48,7 +48,6 @@ export const PHOTO_TOOLS: readonly ToolDef[] = [
   { id: "hf-upscale", provider: "higgsfield", label: "Upscale", hint: "A sharper, larger picture for print and big posts.", mcpTool: "upscale_image", options: [] },
   { id: "hf-remove-bg", provider: "higgsfield", label: "Remove background", hint: "The product cut out on transparency.", mcpTool: "remove_background", options: [] },
   { id: "hf-outpaint", provider: "higgsfield", label: "Outpaint", hint: "More picture painted around the edges, in the same scene.", mcpTool: "outpaint_image", options: [{ id: "aspect", label: "New frame", kind: "choice", choices: ASPECTS }, { id: "prompt", label: "What the new edges show (optional)", kind: "text", placeholder: "e.g. more of the marble counter, soft shadows" }] },
-  { id: "hf-reframe", provider: "higgsfield", label: "Reframe", hint: "The same picture recomposed to a square, a portrait or a story frame.", mcpTool: "reframe", options: [{ id: "aspect", label: "Frame", kind: "choice", required: true, choices: ASPECTS.slice(0, 3) }] },
   { id: "hf-relight", provider: "higgsfield", label: "Relight", hint: "New light on the picture from a few words; the product stays.", mcpTool: "relight_image", options: [{ id: "prompt", label: "The light wanted", kind: "text", required: true, placeholder: "e.g. warm evening light from the left" }] },
   {
     id: "hf-generate",

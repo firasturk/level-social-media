@@ -15,6 +15,7 @@ import { PHOTO_TOOLS, photoTool } from "../shared/photo-tools";
 import { resetHiggsfieldMcpCaches, useHiggsfieldMcpFetch } from "../server/higgsfield-mcp";
 import { useMcpFetch } from "../server/freepik-mcp";
 import { higgsfieldArgs, magnificOptionArgs, MAGNIFIC_LISTS_SETTING, paramFor, parseMagnificEntries, resetPhotoToolCaches } from "../server/photo-tools";
+import type { ToolShape } from "../server/higgsfield-mcp";
 import { getSetting, setSetting, FREEPIK_MCP_TOKEN_SETTING } from "../server/settings";
 import { setIntegrationSwitch } from "../server/integrations";
 
@@ -48,21 +49,28 @@ describe("mapping options onto a tool's arguments", () => {
     expect(paramFor(["imageUrl"], "prompt")).toBeNull();
   });
 
-  it("builds Higgsfield arguments: media_id by default, medias for the generator, get_cost only where listed, params wrapped when the schema wraps", () => {
-    const up = higgsfieldArgs(photoTool("hf-upscale")!, ["media_id", "scale", "get_cost"], "med_1", {}, true);
-    expect(up).toEqual({ args: { media_id: "med_1", get_cost: true }, costable: true, notes: [] });
-    const bg = higgsfieldArgs(photoTool("hf-remove-bg")!, ["media_id"], "med_1", {}, true);
-    expect(bg).toEqual({ args: { media_id: "med_1" }, costable: false, notes: [] });
-    const rf = higgsfieldArgs(photoTool("hf-reframe")!, ["params"], "med_1", { aspect: "4:5" }, true);
-    expect(rf.args).toEqual({ params: { media_id: "med_1", aspect_ratio: "4:5" } });
-    expect(rf.costable).toBe(false);
-    const gen = higgsfieldArgs(photoTool("hf-generate")!, ["params"], "med_1", { styleId: "soul_film", prompt: "a cup", aspect: "1:1" }, true);
+  it("builds Higgsfield arguments from the live shapes: image_id with the source size for upscale_image, media_id + media_type for remove_background, medias for the generator, get_cost only where listed, params wrapped when the schema wraps", () => {
+    const flat = (names: string[]): ToolShape => ({ names, required: [], wrapped: false, top: [] });
+    const nested = (names: string[], required: string[] = []): ToolShape => ({ names, required, wrapped: true, top: [] });
+    const up = higgsfieldArgs(photoTool("hf-upscale")!, nested(["image_id", "width", "height", "resolution", "provider", "get_cost"], ["image_id", "width", "height"]), "med_1", {}, true, { width: 1856, height: 2304 });
+    expect(up).toEqual({ args: { params: { image_id: "med_1", width: 1856, height: 2304, get_cost: true } }, costable: true, notes: [] });
+    // The size unknown: the tool still gets the picture, and the note says what is missing.
+    expect(higgsfieldArgs(photoTool("hf-upscale")!, nested(["image_id", "width", "height", "get_cost"], ["image_id", "width", "height"]), "med_1", {}, false, null)).toEqual({ args: { params: { image_id: "med_1" } }, costable: true, notes: ["the picture's size could not be read; the tool requires it"] });
+    const bg = higgsfieldArgs(photoTool("hf-remove-bg")!, nested(["media_id", "media_type"], ["media_id", "media_type"]), "med_1", {}, true);
+    expect(bg).toEqual({ args: { params: { media_id: "med_1", media_type: "image" } }, costable: false, notes: [] });
+    const out = higgsfieldArgs(photoTool("hf-outpaint")!, nested(["image_id", "aspect_ratio", "width", "height", "get_cost"], ["image_id"]), "med_1", { aspect: "4:5", prompt: "more counter" }, true);
+    expect(out.args).toEqual({ params: { image_id: "med_1", aspect_ratio: "4:5", get_cost: true } });
+    expect(out.notes).toEqual(["what the new edges show (optional) not taken by outpaint_image"]);
+    // The older flat shape still reads.
+    const upFlat = higgsfieldArgs(photoTool("hf-upscale")!, flat(["media_id", "scale", "get_cost"]), "med_1", {}, true);
+    expect(upFlat).toEqual({ args: { media_id: "med_1", get_cost: true }, costable: true, notes: [] });
+    const gen = higgsfieldArgs(photoTool("hf-generate")!, nested([]), "med_1", { styleId: "soul_film", prompt: "a cup", aspect: "1:1" }, true);
     expect(gen.args).toEqual({ params: { model: "soul_2", medias: [{ value: "med_1", role: "image" }], count: 1, style_id: "soul_film", prompt: "a cup", aspect_ratio: "1:1", get_cost: true } });
     expect(gen.costable).toBe(true);
-    const odd = higgsfieldArgs(photoTool("hf-relight")!, ["image", "text"], "med_1", { prompt: "warm" }, false);
+    const odd = higgsfieldArgs(photoTool("hf-relight")!, flat(["image", "text"]), "med_1", { prompt: "warm" }, false);
     expect(odd.args).toEqual({ image: "med_1", text: "warm" });
     expect(odd.notes).toEqual(["picture as image"]);
-    const dropped = higgsfieldArgs(photoTool("hf-relight")!, ["media_id"], "med_1", { prompt: "warm" }, false);
+    const dropped = higgsfieldArgs(photoTool("hf-relight")!, flat(["media_id"]), "med_1", { prompt: "warm" }, false);
     expect(dropped.notes).toEqual(["the light wanted not taken by relight_image"]);
   });
 
@@ -104,7 +112,7 @@ describe("the catalog", () => {
     expect(admin.admin).toBe(true);
     expect(admin.higgsfield.reason).toBe("");
     expect(admin.higgsfield.balance).toBe(1500);
-    expect(admin.higgsfield.available).toMatchObject({ "hf-upscale": true, "hf-remove-bg": true, "hf-reframe": true, "hf-generate": true, "hf-outpaint": false });
+    expect(admin.higgsfield.available).toMatchObject({ "hf-upscale": true, "hf-remove-bg": true, "hf-generate": true, "hf-outpaint": false });
     expect(admin.magnific.balance).toBe(320);
     expect(admin.magnific.available).toMatchObject({ "mg-upscale": true, "mg-relight": true, "mg-skin": false });
     expect(admin.upscalePresets).toEqual([
@@ -145,15 +153,16 @@ describe("Higgsfield tools on the post's picture", () => {
     useHiggsfieldMcpFetch(stub.fn);
     const est = (await json(await estimate(env, { tool: "hf-upscale" }))) as { credits: number; balance: number; unit: string };
     expect(est).toMatchObject({ credits: 12, balance: 1500, unit: "credits" });
-    expect(stub.rpc.filter((x) => x.name === "upscale_image").map((x) => x.args)).toEqual([{ media_id: "med_1", get_cost: true }]);
+    // The picture under image_id with its size read from the stored file, nested under params, get_cost only on the estimate.
+    expect(stub.rpc.filter((x) => x.name === "upscale_image").map((x) => x.args)).toEqual([{ params: { image_id: "med_1", width: 1080, height: 1350, get_cost: true } }]);
     expect((await ops(env)).results.filter((o) => o.kind === "image.estimate")[0]).toMatchObject({ provider: "higgsfield", estimate: 12, status: "done" });
     const ask = await run(env, { tool: "hf-upscale" });
     expect(ask.status).toBe(409);
     expect(await json(ask)).toMatchObject({ needsConfirm: true, credits: 12, balance: 1500 });
-    expect(stub.rpc.filter((x) => x.name === "upscale_image" && !x.args?.get_cost)).toHaveLength(0);
+    expect(stub.rpc.filter((x) => x.name === "upscale_image" && !(x.args?.params as Record<string, unknown>)?.get_cost)).toHaveLength(0);
     const go = (await json(await run(env, { tool: "hf-upscale", confirm: true }))) as { job: Job };
     expect(go.job).toMatchObject({ status: "running", provider: "higgsfield", tool: "hf-upscale", label: "Upscale (Higgsfield)", estimate: 12 });
-    expect(stub.rpc.filter((x) => x.name === "upscale_image" && !x.args?.get_cost).map((x) => x.args)).toEqual([{ media_id: "med_1" }]);
+    expect(stub.rpc.filter((x) => x.name === "upscale_image" && !(x.args?.params as Record<string, unknown>)?.get_cost).map((x) => x.args)).toEqual([{ params: { image_id: "med_1", width: 1080, height: 1350 } }]);
     // The picture was imported once for the estimate and the run alike.
     expect(stub.rpc.filter((x) => x.name === "media_import_url")).toHaveLength(1);
     const twice = await run(env, { tool: "hf-upscale", confirm: true });
@@ -202,16 +211,16 @@ describe("Higgsfield tools on the post's picture", () => {
     await signedInHiggsfield(env);
     const stub = higgsfieldStub({ syncUpscale: true });
     useHiggsfieldMcpFetch(stub.fn);
-    expect((await json(await estimate(env, { tool: "hf-reframe", options: { aspect: "4:5" } }))).credits).toBeNull();
+    expect((await json(await estimate(env, { tool: "hf-remove-bg" }))).credits).toBeNull();
     expect((await ops(env)).results.filter((o) => o.kind === "image.estimate")[0]).toMatchObject({ estimate: null, status: "refused" });
-    expect(await run(env, { tool: "hf-reframe" })).toHaveProperty("status", 400);
-    const ask = await run(env, { tool: "hf-reframe", options: { aspect: "4:5" } });
+    expect(await run(env, { tool: "hf-relight" })).toHaveProperty("status", 400);
+    const ask = await run(env, { tool: "hf-remove-bg" });
     expect(ask.status).toBe(409);
-    expect(await json(ask)).toMatchObject({ needsEstimate: true, tool: "hf-reframe" });
-    expect(stub.rpc.filter((x) => x.name === "reframe")).toHaveLength(0);
-    const go = (await json(await run(env, { tool: "hf-reframe", options: { aspect: "4:5" }, confirm: true }))) as { job: Job };
-    expect(go.job).toMatchObject({ status: "running", estimate: null, options: { aspect: "4:5" } });
-    expect(stub.rpc.find((x) => x.name === "reframe")!.args).toEqual({ params: { media_id: "med_1", aspect_ratio: "4:5" } });
+    expect(await json(ask)).toMatchObject({ needsEstimate: true, tool: "hf-remove-bg" });
+    expect(stub.rpc.filter((x) => x.name === "remove_background")).toHaveLength(0);
+    const go = (await json(await run(env, { tool: "hf-remove-bg", confirm: true }))) as { job: Job };
+    expect(go.job).toMatchObject({ status: "running", estimate: null });
+    expect(stub.rpc.find((x) => x.name === "remove_background")!.args).toEqual({ params: { media_id: "med_1", media_type: "image" } });
     const runOps = (await ops(env)).results.filter((o) => o.kind === "image.tool");
     expect(runOps[0].note).toMatch(/cost unknown, confirmed/);
     // A tool that answers the finished picture at once (no job id) is done on return.
@@ -277,8 +286,8 @@ describe("Magnific tools on the post's picture", () => {
     useMcpFetch(stub.fn);
     const go = (await json(await run(env, { tool: "mg-relight", options: { prompt: "soft light" }, confirm: true }))) as { job: Job };
     expect(go.job).toMatchObject({ status: "running", estimate: 5 });
-    expect(stub.rpc.find((x) => x.name === "creations_request_upload")?.args).toMatchObject({ contentType: "image/png", size: 7, type: "image" });
-    expect(stub.puts).toEqual([{ url: "https://upload.test/put/1", bytes: 7, type: "image/png" }]);
+    expect(stub.rpc.find((x) => x.name === "creations_request_upload")?.args).toMatchObject({ contentType: "image/png", size: 29, type: "image" });
+    expect(stub.puts).toEqual([{ url: "https://upload.test/put/1", bytes: 29, type: "image/png" }]);
     expect(stub.rpc.find((x) => x.name === "creations_finalize_upload")?.args).toMatchObject({ identifier: "up_1" });
     expect(stub.rpc.find((x) => x.name === "images_relight")!.args).toEqual({ prompt: "soft light", creationIdentifier: "cr_pic_1" });
     expect((await ops(env)).results.filter((o) => o.kind === "image.tool")[0].note).toMatch(/creation as creationIdentifier/);
