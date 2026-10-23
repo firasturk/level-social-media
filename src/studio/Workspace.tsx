@@ -9,6 +9,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { toast } from "sonner";
 import { ApiError, del, get, post, postForm, postPaid, put } from "@/api";
 import { useTheme } from "@/theme";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { makeReference } from "@/lib/image";
 import { buildZips, saveBlob, saveZips, type ZipEntry } from "@/lib/zip";
 import { canvasBlob, loadFont, loadImage, renderOverlay, facesOf } from "@/lib/overlay";
@@ -1808,7 +1809,7 @@ export default function Workspace({
               );
               return hero ? (
                 <div className="hero-banner">
-                  <video src={`/api/studio/hero?v=${hero}`} autoPlay muted loop playsInline preload="metadata" aria-hidden="true" />
+                  <AutoplayVideo src={`/api/studio/hero?v=${hero}`} fallbackSrc={`/api/studio/hero?f=webm&v=${hero}`} decorative label="Studio hero video" />
                   <div className="hero-veil" />
                   <p className="hero-claim" aria-hidden="true">
                     <span>AI is the future.</span>

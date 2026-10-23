@@ -1,5 +1,6 @@
 /**
- * Versions: every clip of this post, newest first, with who made it (the provider's label), its
+ * Versions: every clip of this post, newest first (a small muted preview of each that plays by
+ * itself while on screen), with who made it (the provider's label), its
  * frame, its cost, its state, the one the client sees (the first finished clip by itself, or the
  * one the team selected), the client's answers on each version, Compare (two versions side by side
  * on the stage), "Select for client review" and "Show the picture instead".
@@ -8,6 +9,7 @@ import { useState } from "react";
 import { Check, Columns2, Download, History, Scissors, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { videoModel } from "@shared/video-models";
 import { audioLine, costLabel, engineLabel, frameLine, inFlight, inputLine, selectForClient, STATUS_TEXT, versionLabel, type VideoItem } from "@/studio/videoApi";
 import type { StudioShared } from "./types";
@@ -88,7 +90,13 @@ export default function VersionsPanel({ s }: { s: StudioShared }) {
           const picked = s.shownId === v.id || s.compareId === v.id;
           return (
             <li key={v.id} className={`${v.status} ${v.forClient ? "current" : ""} ${picked ? "shown" : ""}`}>
-              {v.poster ? <img src={v.poster} alt="" loading="lazy" /> : <span className="vs-blank" aria-hidden />}
+              {v.status === "done" && v.url ? (
+                <AutoplayVideo className="apv-mini vs-clip" src={v.preview ?? v.url} fallbackSrc={v.preview ? v.url : null} poster={v.poster} mode="preview" bare label={versionLabel(v)} />
+              ) : v.poster ? (
+                <img src={v.poster} alt="" loading="lazy" />
+              ) : (
+                <span className="vs-blank" aria-hidden />
+              )}
               <span className="vs-list-text">
                 <b>
                   {versionLabel(v)}

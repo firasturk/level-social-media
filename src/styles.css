@@ -19254,31 +19254,16 @@ a.publish-pill.published:hover {
   background: var(--surface-2);
   color: var(--ink-900);
 }
-.pc-video-player {
+/* The card's clip: the shared preview over the picture, under the card's header and badge. */
+.pc-video-preview.apv {
   position: absolute;
   inset: 0;
-  z-index: 3;
-  background: #000;
+  width: auto;
+  height: auto;
+  z-index: 1;
 }
-.pc-video-player video {
-  width: 100%;
-  height: 100%;
+.pc-video-preview.apv > video {
   object-fit: contain;
-  display: block;
-}
-.pc-video-close {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  color: #fff;
-  background: rgb(0 0 0 / 0.6);
-  cursor: pointer;
 }
 .pc-video-state {
   z-index: 2;
@@ -20239,6 +20224,8 @@ a.publish-pill.published:hover {
   height: 100%;
   overflow: hidden;
   background: var(--ink-900, #111);
+  /* Its buttons stack inside it, under whatever the surface draws on top (a hero's title, a card's badges). */
+  isolation: isolate;
 }
 .apv > video,
 .apv > .apv-poster {
@@ -20246,6 +20233,10 @@ a.publish-pill.published:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.apv > .apv-poster {
+  position: absolute;
+  inset: 0;
 }
 .apv-player > video,
 .apv-editor > video {
@@ -20304,6 +20295,44 @@ a.publish-pill.published:hover {
   padding: 11px;
   border-radius: 999px;
   background: rgba(17, 17, 17, 0.7);
+}
+/* A thumbnail-sized preview (the versions lists): a smaller Play, no words. */
+.apv-mini .apv-play {
+  gap: 0;
+}
+.apv-mini .apv-play svg {
+  width: 26px;
+  height: 26px;
+  padding: 6px;
+}
+.apv-mini .apv-play span,
+.apv-mini .apv-play small {
+  display: none;
+}
+.take-clip.apv {
+  width: 56px;
+  height: 70px;
+  border-radius: 8px;
+  flex: none;
+}
+.apv-play small {
+  font-size: 11px;
+  opacity: 0.85;
+}
+/* A decorative hero: a small Play in the top corner, the title and actions stay free. */
+.apv-decor .apv-play {
+  inset: 12px auto auto 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.6);
+}
+.apv-decor .apv-play svg {
+  width: 26px;
+  height: 26px;
+  padding: 6px;
 }
 @media (prefers-reduced-motion: reduce) {
   .apv-btn {

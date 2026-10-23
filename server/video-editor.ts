@@ -21,7 +21,7 @@ import { StudioError } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationAccess } from "./integrations";
-import { MAX_VIDEO_FILE, storeVideoFile, type VideoItem } from "./video";
+import { MAX_VIDEO_FILE, renditionFrom, storeVideoFile, type VideoItem } from "./video";
 import { validateProject, type VideoProject } from "@shared/video-project";
 import type { User } from "@shared/types";
 
@@ -190,7 +190,7 @@ videoEditorRoutes.post("/render", async (c) => {
   const opId = await recordIntegrationOp(c.env, { provider: PROVIDER, kind: "editor.render", user: user.id, batch: b.id, post, estimate: 0, status: "running", note: `Export${row ? ` of "${row.name}" (save ${row.rev})` : ""} rendered in the browser · ${Math.round(file.size / 1024)} KB` });
   let stored: { video: VideoItem; info: unknown };
   try {
-    stored = await storeVideoFile(c.env, user, b, { file, index: post, note: note || (row ? `Export of ${row.name}` : "Export"), provider: "editor", source: "editor", model: row ? `editor:${row.id}` : "editor", extra: row ? { project: row.id, rev: row.rev } : {}, opId });
+    stored = await storeVideoFile(c.env, user, b, { file, index: post, note: note || (row ? `Export of ${row.name}` : "Export"), provider: "editor", source: "editor", model: row ? `editor:${row.id}` : "editor", extra: row ? { project: row.id, rev: row.rev } : {}, opId, rendition: renditionFrom(form) });
   } catch (e) {
     await updateIntegrationOp(c.env, opId, { status: "failed", note: (e as Error).message.slice(0, 300) });
     throw e;

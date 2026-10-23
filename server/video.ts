@@ -9,9 +9,11 @@
  *   GET  /list        a post's clips, newest first; in-flight ones are asked about and stored when done
  *   GET  /summary     one line per post of the month (the cards)
  *   POST /select      the version the client sees (for_client), or none
- *   POST /upload      an mp4 sample (admins), stored as a done version
+ *   POST /upload      an mp4 sample (admins), stored as a done version, with its preview rendition when the browser made one
  *   GET|HEAD /file    the mp4, with Range
- *   GET  /poster      the still the clip started from
+ *   GET|HEAD /preview the lightweight preview of the mp4 (small, short, muted), with Range
+ *   POST /preview     a preview rendition (small mp4 and/or still) kept with a finished version (admins)
+ *   GET  /poster      the clip's own still when one was kept, else the still the clip started from
  *
  * The cron never submits a clip: only a person does, here.
  */
@@ -88,6 +90,11 @@ interface StoredSettings extends Partial<VideoSettings> {
   frameFill?: FrameFill | null;
   /** True when the words and logo were drawn into the first frame; false for the bare picture (composed to a frame or not). */
   words?: boolean | null;
+  /** The lightweight preview rendition (a small, short, muted H.264 mp4 the browser made), for cards and galleries. */
+  previewKey?: string;
+  previewBytes?: number;
+  /** A small JPEG/WebP/PNG still of the clip's own first frame (the browser made it), the poster when present. */
+  stillKey?: string;
 }
 
 /** The frame fields a submit body may carry: `frame` (one of the four), `fill` (crop | blur), `words` (the words drawn in). */
@@ -143,6 +150,8 @@ export interface VideoItem {
   requestId: string | null;
   url: string | null;
   poster: string | null;
+  /** The lightweight preview rendition for cards and galleries (small, short, muted); null when none was made: use `url`. */
+  preview: string | null;
   /** The clip's number among the post's clips, oldest first ("Video 2"). */
   version: number;
   warnings: string[];
@@ -191,7 +200,8 @@ export function videoItem(v: VideoRow, version: number, audioNames?: Map<string,
     forClient: v.for_client === 1,
     requestId: v.request_id,
     url: v.key ? `/api/studio/posts/video/file?${q}` : null,
-    poster: v.poster_key ? `/api/studio/posts/video/poster?${q}` : null,
+    poster: v.poster_key || s.stillKey ? `/api/studio/posts/video/poster?${q}` : null,
+    preview: v.key && s.previewKey ? `/api/studio/posts/video/preview?${q}` : null,
     version,
     warnings: s.warnings ?? [],
     audioChoice,
@@ -666,6 +676,65 @@ videoRoutes.post("/select", async (c) => {
 
 export const MAX_VIDEO_FILE = MAX_UPLOAD;
 
+/** The lightweight preview rendition is small by design; anything larger is not a preview. */
+export const MAX_PREVIEW = 6 * 1024 * 1024;
+export const MAX_STILL = 1024 * 1024;
+
+/**
+ * The lightweight versions of a clip the browser made from it (Workers cannot transcode): a small,
+ * short, muted H.264 mp4 for cards and galleries, and a still of its first frame for the poster.
+ * Either may be missing (a browser without an H.264 encoder makes only the still).
+ */
+export interface Rendition {
+  preview?: File | null;
+  still?: File | null;
+}
+
+/** The still's type from its first bytes (JPEG, PNG, WebP), or null for anything else. */
+export function stillType(b: Uint8Array): string | null {
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length >= 12 && String.fromCharCode(...b.subarray(0, 4)) === "RIFF" && String.fromCharCode(...b.subarray(8, 12)) === "WEBP") return "image/webp";
+  return null;
+}
+
+/** A rendition's form fields ('preview', 'still'), when they are files. */
+export function renditionFrom(form: FormData): Rendition {
+  const preview = form.get("preview");
+  const still = form.get("still");
+  return { preview: preview instanceof File ? preview : null, still: still instanceof File ? still : null };
+}
+
+/**
+ * The rendition stored next to the clip (`<clip>.preview.mp4`, `<clip>.still.<ext>`), after its
+ * checks: the preview a real H.264 mp4 of at most 6 MB, the still a JPEG, PNG or WebP of at most
+ * 1 MB. What fails a check is left out (the full file still plays); the clip is never refused for it.
+ */
+export async function storeRendition(env: Env, clipKey: string, r: Rendition): Promise<Pick<StoredSettings, "previewKey" | "previewBytes" | "stillKey">> {
+  const base = clipKey.replace(/\.mp4$/i, "");
+  const out: Pick<StoredSettings, "previewKey" | "previewBytes" | "stillKey"> = {};
+  if (r.preview && r.preview.size > 0 && r.preview.size <= MAX_PREVIEW) {
+    const bytes = await r.preview.arrayBuffer();
+    const info = readMp4(bytes);
+    if (info.isMp4 && info.video === "h264") {
+      const key = `${base}.preview.mp4`;
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
+      out.previewKey = key;
+      out.previewBytes = bytes.byteLength;
+    }
+  }
+  if (r.still && r.still.size > 0 && r.still.size <= MAX_STILL) {
+    const bytes = new Uint8Array(await r.still.arrayBuffer());
+    const type = stillType(bytes);
+    if (type) {
+      const key = `${base}.still.${type === "image/jpeg" ? "jpg" : type === "image/png" ? "png" : "webp"}`;
+      await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: type } });
+      out.stillKey = key;
+    }
+  }
+  return out;
+}
+
 export interface StoreVideoAsk {
   /** The mp4 file as sent. */
   file: File;
@@ -679,6 +748,8 @@ export interface StoreVideoAsk {
   /** Extra settings kept with the clip (the editor notes its project id and rev). */
   extra?: Record<string, unknown>;
   opId?: string | null;
+  /** The lightweight preview and still the browser made from the file, when it could. */
+  rendition?: Rendition;
 }
 
 /**
@@ -703,8 +774,9 @@ export async function storeVideoFile(env: Env, user: User, b: { id: string; owne
   const id = uuid();
   const key = `${b.owner}/${b.id}/video/${t.id}/${id}.mp4`;
   await env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
+  const rendition = ask.rendition ? await storeRendition(env, key, ask.rendition) : {};
   const note = ask.note.slice(0, 200);
-  const settings: StoredSettings & Record<string, unknown> = { ...(ask.extra ?? {}), duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog" };
+  const settings: StoredSettings & Record<string, unknown> = { ...(ask.extra ?? {}), duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: note || undefined, estimate: 0, estimateSource: "catalog", ...rendition };
   const ts = now();
   await run(
     env.DB,
@@ -749,8 +821,39 @@ videoRoutes.post("/upload", async (c) => {
   if (file.size > MAX_UPLOAD) throw new StudioError("The video is too large (60 MB at most).");
   if (!Number.isInteger(index) || index < 1) throw new StudioError("Post index is required.");
   const b = await ownedPlan(c.env, user, batch);
-  const { video, info } = await storeVideoFile(c.env, user, b, { file, index, note, provider: "upload", source: "upload" });
+  const { video, info } = await storeVideoFile(c.env, user, b, { file, index, note, provider: "upload", source: "upload", rendition: renditionFrom(form) });
   return c.json({ ok: true, video, info });
+});
+
+/**
+ * A preview rendition kept with a finished version after the fact (admins): the Video studio makes
+ * one in the browser for a clip an engine delivered (Workers cannot transcode). Nothing is generated
+ * and no provider is called; the full file is untouched.
+ */
+videoRoutes.post("/preview", async (c) => {
+  const user = c.get("user");
+  if (user.role !== "admin") throw new StudioError("Only an admin can keep a preview.", 403);
+  const form = await c.req.formData().catch(() => null);
+  if (!form) throw new StudioError("Send the preview as a form upload.");
+  const b = await ownedPlan(c.env, user, String(form.get("batch") ?? ""));
+  const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", String(form.get("id") ?? ""), b.id);
+  if (!v) throw new StudioError("Video not found.", 404);
+  if (v.status !== "done" || !v.key) throw new StudioError("Only a finished clip has a preview.", 409);
+  const kept = await storeRendition(c.env, v.key, renditionFrom(form));
+  if (!kept.previewKey && !kept.stillKey) throw new StudioError("Nothing to keep: the preview must be an H.264 mp4 of at most 6 MB, the still a JPEG, PNG or WebP of at most 1 MB.");
+  await patchVideoSettings(c.env, v, kept);
+  const rows = await postRows(c.env, b.id, v.post);
+  const names = await audioNamesFor(c.env, b.id, v.post);
+  return c.json({ ok: true, video: videoItem(v, versionNumbers(rows).get(v.id) ?? 0, names) });
+});
+
+/** The lightweight preview, with Range and HEAD; the same access as the full file. */
+videoRoutes.on(["GET", "HEAD"], "/preview", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", c.req.query("id") ?? "", b.id);
+  const key = v?.key ? parseSettings(v).previewKey : undefined;
+  if (!v || !key) throw new StudioError("Preview not found.", 404);
+  return serveObject(c.env.BUCKET, key, c.req.raw, { contentType: "video/mp4", cacheControl: "private, max-age=86400" });
 });
 
 /** The stored mp4, with Range (seeking, iPhone) and HEAD. */
@@ -761,11 +864,16 @@ videoRoutes.on(["GET", "HEAD"], "/file", async (c) => {
   return serveObject(c.env.BUCKET, v.key, c.req.raw, { contentType: "video/mp4", cacheControl: "private, max-age=86400", filename: `post-${v.post}-video-${v.id.slice(0, 8)}.mp4` });
 });
 
-/** The still the clip started from (the poster under the player). */
+/** The poster under the player: the clip's own still when the browser kept one, else the still the clip started from. */
+export function posterKeyOf(v: VideoRow): string | null {
+  return parseSettings(v).stillKey ?? v.poster_key;
+}
+
 videoRoutes.get("/poster", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
   const v = await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ? AND batch = ?", c.req.query("id") ?? "", b.id);
-  const obj = v?.poster_key ? await c.env.BUCKET.get(v.poster_key) : null;
+  const key = v ? posterKeyOf(v) : null;
+  const obj = key ? await c.env.BUCKET.get(key) : null;
   if (!obj) throw new StudioError("Poster not found.", 404);
   return new Response(obj.body ?? (await obj.arrayBuffer()), {
     headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png", "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff" },

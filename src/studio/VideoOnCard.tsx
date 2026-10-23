@@ -1,52 +1,54 @@
 /**
- * A post's video on its card: a badge with the length and the frame ("Video · 5s · Reel 9:16") over
- * the poster, the inline player when tapped (seek, mute and fullscreen are the browser's own
- * controls), and the state of the newest clip while it is being made or when it failed. The badge
- * says when the client sees this clip on the review link.
+ * A post's video on its card: the clip plays by itself over the picture while the card is on
+ * screen (muted, inline, looping: the shared preview, src/components/AutoplayVideo.tsx), with
+ * pause and sound buttons in its corner; a badge with the length and the frame ("Video · 5s ·
+ * Reel 9:16") says when the client sees this clip on the review link, and switches the card back
+ * to the picture. The lightweight preview file plays when one was kept, else the full clip (loaded
+ * only near the screen). The state of the newest clip shows while it is being made or when it failed.
  */
 import { useState } from "react";
-import { Play, X } from "lucide-react";
+import { Clapperboard, Image as ImageIcon } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { frameLabel } from "@shared/video-frame";
 import { inFlight, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
 
 export default function VideoOnCard({ summary }: { summary: { latest: VideoItem; client: VideoItem | null; done: VideoItem | null } }) {
-  const [playing, setPlaying] = useState(false);
+  // The card shows the clip; the badge brings the picture back (and the clip again).
+  const [picture, setPicture] = useState(false);
   // The client's version when one is selected, else the newest finished clip.
   const clip = summary.client ?? summary.done;
   const latest = summary.latest;
+  const frame = clip ? frameLabel(clip.frame) : "";
   return (
     <>
-      {clip && !playing && (
+      {clip && !picture && (
+        <AutoplayVideo
+          key={clip.id}
+          className="pc-video-preview"
+          src={clip.preview ?? clip.url}
+          fallbackSrc={clip.preview ? clip.url : null}
+          poster={clip.poster}
+          mode="preview"
+          label={`Post ${clip.post} · ${versionLabel(clip)}`}
+        />
+      )}
+      {clip && (
         <button
           type="button"
           className={`pc-video-badge ${clip.forClient ? "client" : ""}`}
-          title={`${versionLabel(clip)}${frameLabel(clip.frame) ? ` · ${frameLabel(clip.frame)}` : ""}${clip.forClient ? " · the client sees this" : " · not shown to the client yet"} · play`}
+          title={`${versionLabel(clip)}${frame ? ` · ${frame}` : ""}${clip.forClient ? " · the client sees this" : " · not shown to the client yet"} · ${picture ? "show the clip" : "show the picture"}`}
+          aria-pressed={!picture}
+          onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            setPlaying(true);
+            setPicture((p) => !p);
           }}
         >
-          <Play size={11} /> Video{clip.duration ? ` · ${clip.duration}s` : ""}
-          {frameLabel(clip.frame) ? ` · ${frameLabel(clip.frame)}` : ""}
+          {picture ? <Clapperboard size={11} /> : <ImageIcon size={11} />} Video{clip.duration ? ` · ${clip.duration}s` : ""}
+          {frame ? ` · ${frame}` : ""}
           {clip.forClient ? <small className="pc-video-client">the client sees this</small> : null}
         </button>
-      )}
-      {clip && playing && (
-        <div className="pc-video-player" role="presentation" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-          <video key={clip.id} src={clip.url ?? undefined} poster={clip.poster ?? undefined} controls playsInline preload="metadata" autoPlay />
-          <button
-            type="button"
-            className="pc-video-close"
-            aria-label="Close the video"
-            onClick={(e) => {
-              e.stopPropagation();
-              setPlaying(false);
-            }}
-          >
-            <X size={12} />
-          </button>
-        </div>
       )}
       {inFlight(latest) && (
         <span className="post-progress pc-video-state">
@@ -54,7 +56,7 @@ export default function VideoOnCard({ summary }: { summary: { latest: VideoItem;
           {STATUS_TEXT[latest.status]}…
         </span>
       )}
-      {latest.status === "failed" && !playing && (
+      {latest.status === "failed" && (
         <span className="post-failed pc-video-state" title={latest.error ?? undefined}>
           Video failed · {latest.error}
         </span>

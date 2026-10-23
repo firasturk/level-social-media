@@ -11,7 +11,7 @@ import { all, first, now, run } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
 import { recordClientAnswer } from "./notify";
 import { serveObject } from "./range";
-import { parseSettings, versionNumbers, type VideoRow } from "./video";
+import { parseSettings, posterKeyOf, versionNumbers, type VideoRow } from "./video";
 import { effectiveApproval, type Config, type ReviewAnswer, type ReviewVersion } from "@shared/config";
 
 /** "22 Oct", for the version labels the reviewer sees. */
@@ -117,7 +117,7 @@ shareRoutes.get("/:token", async (c) => {
       ? {
           id: cv.row.id,
           url: `/api/share/${token}/video/${p.index}?v=${cv.row.updated}`,
-          poster: cv.row.poster_key ? `/api/share/${token}/video/${p.index}/poster?v=${cv.row.updated}` : null,
+          poster: posterKeyOf(cv.row) ? `/api/share/${token}/video/${p.index}/poster?v=${cv.row.updated}` : null,
           duration: parseSettings(cv.row).duration ?? null,
           version: { kind: "video", id: cv.row.id, label: `Video ${cv.version} (${shortDay(cv.row.created)})` } satisfies ReviewVersion,
         }
@@ -250,7 +250,8 @@ shareRoutes.on(["GET", "HEAD"], "/:token/video/:index", async (c) => {
 shareRoutes.get("/:token/video/:index/poster", async (c) => {
   const { b } = await sharedBatch(c.env, c.req.param("token"));
   const v = await clientVideo(c.env, b.id, Number(c.req.param("index")) || 0);
-  const obj = v?.poster_key ? await c.env.BUCKET.get(v.poster_key) : null;
+  const key = v ? posterKeyOf(v) : null;
+  const obj = key ? await c.env.BUCKET.get(key) : null;
   if (!obj) throw new StudioError("Not found.", 404);
   return imageResponse(obj);
 });

@@ -31,7 +31,9 @@ Studio, under `/api/studio/posts/video` (`server/video.ts`, mounted from `server
 - `POST /api/studio/posts/video/upload` — multipart `batch`, `index`, `file` (mp4, 60 MB at most), `note`. Admins only. Stored as a `done` version with `provider = 'upload'`, `source = 'upload'` through `storeVideoFile` (the checks shared with the video editor's export), the client's version when the post had none. The video editor also uses this route for the footage a person brings from their computer.
 - `/api/studio/posts/video/editor/*` — the video editor's projects and its export, which becomes a `done` version with `provider = 'editor'`, `source = 'editor'` (`server/video-editor.ts`, docs/video-editor.md). An exported version is selected for the client with the same `POST /select` as any other.
 - `GET|HEAD /api/studio/posts/video/file?batch=&id=` — the mp4 with Range.
-- `GET /api/studio/posts/video/poster?batch=&id=` — the still the clip started from.
+- `GET|HEAD /api/studio/posts/video/preview?batch=&id=` — the lightweight preview (first 8 s, 360 px, no sound) with Range, when the browser made one; each version lists it as `preview` (else null: play `url`).
+- `POST /api/studio/posts/video/preview` — multipart `batch`, `id`, `preview` (H.264 mp4, 6 MB at most) and/or `still` (JPEG/PNG/WebP, 1 MB at most): a rendition kept with a finished version after the fact (admins). Nothing is generated and no provider is called. `/upload` and the editor's `/render` take the same two optional fields.
+- `GET /api/studio/posts/video/poster?batch=&id=` — the clip's own still when the browser kept one, else the still the clip started from.
 - `GET /api/studio/engine/video-prices`, `POST /api/studio/engine/video-price {model, usd|null}` — the fallback prices (Connection → Higgsfield, admins write).
 
 Client link (`server/share.ts`):
@@ -45,7 +47,7 @@ Client link (`server/share.ts`):
 
 Migration `0069_video_versions.sql` adds to `videos`: `provider` (`higgsfield` | `higgsfield-mcp` | `magnific` | `upload` | `editor`; the Video studio's preset runs and Higgsfield clip tools are `higgsfield-mcp` rows with a `model` of `preset:<id>` or `tool:<name>`, Magnific's clips and tools `magnific` rows, docs/video-studio.md), `settings` (JSON: duration, aspect, resolution, audio, estimate, estimateSource, credits, frame, frameFill, words, and for stored files faststart, codecs, width, height, warnings), `poster_key`, `source` (`picture` | `artwork` | `upload` | `editor`; `artwork` is any picture the browser composed: the words and logo drawn in, or the bare picture fitted to the frame — `settings.words` tells them apart), `for_client` (set by itself on the first finished clip of a post, changed under Versions), `op_id`. Status values: `queued` | `generating` | `done` | `failed`.
 
-Keys: the mp4 at `<owner>/<batch>/video/<task>/<video id>.mp4`; an artwork first frame at `<owner>/<batch>/video/<task>/<uuid>.artwork.(jpg|png|webp)`. For a `picture` clip the poster is the task's own output key (no copy).
+Keys: the mp4 at `<owner>/<batch>/video/<task>/<video id>.mp4`, its preview rendition beside it at `….preview.mp4` and its still at `….still.jpg` (`settings.previewKey`, `previewBytes`, `stillKey`); an artwork first frame at `<owner>/<batch>/video/<task>/<uuid>.artwork.(jpg|png|webp)`. For a `picture` clip the poster is the task's own output key (no copy).
 
 ## The model catalog and its source
 
@@ -73,11 +75,15 @@ ffmpeg -f lavfi -i "color=c=0x1a1a2e:s=64x80:d=1:r=24" -f lavfi -i "anullsrc=r=4
   -movflags +faststart tests/fixtures/sample-1s.mp4
 ```
 
-The client page never autoplays and never mutes by itself: the viewer taps play, with sound as the clip carries it.
+The client page plays each clip by itself while it is on screen, muted and inline, with the browser's controls and a sound button (the shared preview behaviour, docs/video-studio.md → *Autoplaying previews*); sound starts only when the viewer turns it on.
 
 ## Studio
 
-- Card: a "Video · 5s · Reel 9:16" badge over the poster when the post has a finished clip (the client's version when one is selected, else the newest finished one), with *the client sees this* when it is the client's; tapping it opens the inline player (the browser's own seek, mute and fullscreen controls); "Making the video…" and "Video failed · …" come from the newest clip.
+- Card: the post's clip (the client's version when one is selected, else the newest finished one) plays by itself over the picture while the card is on screen, muted and looping, with pause and sound buttons; it plays the lightweight preview when one was kept, else the full file. A "Video · 5s · Reel 9:16" badge says *the client sees this* when it is the client's, and switches the card back to the picture (and to the clip again); "Making the video…" and "Video failed · …" come from the newest clip.
+
+## Autoplaying previews
+
+Every clip (cards, versions, presets, dialogs, the version stage, the client link, the heroes) uses the one shared component, `src/components/AutoplayVideo.tsx`, with its rules in `shared/video-preview.ts`: visible clips play muted and inline, off-screen, background-tab, closed-dialog and covered clips pause, at most six play at once, a person's pause and playhead are never overridden, one clip is audible at a time, reduced motion keeps the poster with a Play button, and a refused or broken clip shows Play / Try again. The lightweight renditions (a still and an 8-second 360 px silent mp4 made in the browser; Workers cannot transcode) and exactly where they are and are not used are described in docs/video-studio.md → *Autoplaying previews*. `scripts/autoplay-smoke.mjs` checks all of it in Chromium at 1440×1000 and 390×844.
 - Dialog ("Video from this picture"): the motion idea, the engine, length / resolution / sound as the model allows, the **Frame** control (Reel 9:16 by default; the picture is composed to the frame in the browser when the engine follows the picture), "Include the words and logo in the video input" (the browser composes the artwork and sends it as the first frame), the cost line, "Make the video", "Try again" on a failed clip, the versions list with "Select for client review" / "The client sees this". It reconnects to a running clip when opened.
 - Editor → Versions: the picture (shown to the client when no clip is selected), each video version with its frame and state, "Select for client review" / "The client sees this" / "Show the picture instead".
 - Approval view: each answer says which version it referred to.

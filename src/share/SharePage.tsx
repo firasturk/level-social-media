@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { Check, MessageSquare, Play } from "lucide-react";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { applyTheme } from "@/theme";
 import { loadFont } from "@/lib/overlay";
 import LevelLogo from "@/components/LevelLogo";
@@ -349,8 +350,8 @@ function SharedCard({
     <article id={`post-${post.index}`} className={`design-card share-card ${post.approval?.status === "approved" ? "text-ok" : post.approval?.status === "changes" ? "text-warn" : ""}`}>
       <div className="design-card-picture share-media">
         {post.video ? (
-          // The clip plays here, inline on iPhone too; the words are already in it (or not): nothing is drawn over it.
-          <video src={post.video.url} poster={post.video.poster ?? src ?? undefined} controls playsInline preload="metadata" />
+          // The clip plays by itself while on screen, muted and inline on iPhone too, with the browser's controls and a sound button; the words are already in it (or not): nothing is drawn over it.
+          <AutoplayVideo key={post.video.id} src={post.video.url} poster={post.video.poster ?? src} mode="player" label={`Post ${post.index} video`} />
         ) : src ? (
           post.overlay && spec.template !== "none" ? (
             <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} />

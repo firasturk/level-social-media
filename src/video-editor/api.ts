@@ -42,25 +42,39 @@ export function saveProject(id: string, project: VideoProject, rev: number): Pro
   return put(`${BASE}/projects/${encodeURIComponent(id)}`, { project, rev });
 }
 
-/** The rendered mp4 stored as a new version of the post. */
-export function uploadRender(args: { batch: string; post: number; projectId: string | null; file: Blob; note: string }): Promise<{ video: VideoItem; project: ProjectItem | null }> {
+/**
+ * The lightweight preview and still of a clip about to be stored, made in this browser (best
+ * effort: src/lib/video-rendition.ts), so cards and galleries do not play the full file.
+ */
+async function withRendition(form: FormData, file: Blob): Promise<FormData> {
+  try {
+    const { addRendition, makeRendition } = await import("@/lib/video-rendition");
+    addRendition(form, await makeRendition(file));
+  } catch {
+    /* the full file plays instead */
+  }
+  return form;
+}
+
+/** The rendered mp4 stored as a new version of the post, with its preview rendition. */
+export async function uploadRender(args: { batch: string; post: number; projectId: string | null; file: Blob; note: string }): Promise<{ video: VideoItem; project: ProjectItem | null }> {
   const form = new FormData();
   form.set("batch", args.batch);
   form.set("post", String(args.post));
   if (args.projectId) form.set("projectId", args.projectId);
   form.set("note", args.note);
   form.set("file", new File([args.file], "export.mp4", { type: "video/mp4" }));
-  return postForm(`${BASE}/render`, form);
+  return postForm(`${BASE}/render`, await withRendition(form, args.file));
 }
 
-/** Raw footage the person brings for a post: stored as an uploaded version through the existing route. */
-export function uploadFootage(batch: string, index: number, file: File): Promise<{ video: VideoItem }> {
+/** Raw footage the person brings for a post: stored as an uploaded version through the existing route, with its preview rendition. */
+export async function uploadFootage(batch: string, index: number, file: File): Promise<{ video: VideoItem }> {
   const form = new FormData();
   form.set("batch", batch);
   form.set("index", String(index));
   form.set("note", file.name.replace(/\.[^.]+$/, "").slice(0, 80));
   form.set("file", file);
-  return postForm("/api/studio/posts/video/upload", form);
+  return postForm("/api/studio/posts/video/upload", await withRendition(form, file));
 }
 
 export const versionFileUrl = (batch: string, id: string) => `/api/studio/posts/video/file?batch=${encodeURIComponent(batch)}&id=${encodeURIComponent(id)}`;

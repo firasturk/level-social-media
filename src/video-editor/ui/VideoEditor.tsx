@@ -723,7 +723,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           {post && panel === "presets" ? (
             <PresetsGallery s={shared} ps={presets} />
           ) : post && !editing ? (
-            <VersionStage shown={shown} compare={compare} pictureUrl={pictureUrl ?? null} hint={compare ? "Two versions side by side · Esc to stop" : undefined} />
+            <VersionStage shown={shown} compare={compare} pictureUrl={pictureUrl ?? null} hint={compare ? "Two versions side by side · Esc to stop" : undefined} backfill={shared.admin} onPreview={() => void shared.reloadVideos()} />
           ) : (
             <>
               <div className="ve-stage">

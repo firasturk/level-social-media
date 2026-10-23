@@ -2,17 +2,19 @@
  * The preset gallery (the ask's core): Higgsfield's presets page inside the studio, videos only
  * (the server keeps the cards with a reference video; picture presets go to the Photo studio;
  * shared/video-presets.ts). The stage shows the category list on the left and
- * the cards, each with the provider's own reference video (plays on hover or tap, muted, looping,
- * hotlinked from the provider), its title, one line of
+ * the cards, each with the provider's own reference video (it plays by itself while on screen,
+ * muted, inline and looping, as on Higgsfield's page: the shared preview, src/components/AutoplayVideo.tsx;
+ * the provider's own preview files, hotlinked and fetched only near the screen), its title, one line of
  * description, chips (the slash command, the source, the category) and what it needs. The right
  * panel shows the picked preset in full: the video large, the instructions ("Learn more"), the
  * price, "Use this preset" (the Generate panel prefilled) and, for an admin on a runnable preset,
  * "Run this preset" with the confirm. Members browse; nothing is invented when a category is empty.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { BookOpen, LayoutGrid, Lock, Play, RefreshCw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Orb } from "@/components/Orb";
+import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
@@ -148,39 +150,22 @@ export function usePresets(s: StudioShared, active: boolean): PresetsState {
 
 /* ───────────── The stage: categories and cards ───────────── */
 
-function playOn(e: MouseEvent<HTMLElement>, on: boolean) {
-  const v = e.currentTarget.querySelector("video");
-  if (!v) return;
-  if (on) void v.play().catch(() => undefined);
-  else {
-    v.pause();
-    v.currentTime = 0;
-  }
-}
-
 export function PresetCardView({ card, selected, onSelect, onUse, children }: { card: PresetCard; selected: boolean; onSelect: () => void; onUse: () => void; children?: ReactNode }) {
   return (
-    <article className={`vs-preset ${selected ? "on" : ""}`} onMouseEnter={(e) => playOn(e, true)} onMouseLeave={(e) => playOn(e, false)}>
-      <button
-        type="button"
-        className="vs-preset-media"
-        onClick={(e) => {
-          // A tap plays the reference (muted) and opens the detail; hover already plays it on a computer.
-          const v = e.currentTarget.querySelector("video");
-          if (v && v.paused) void v.play().catch(() => undefined);
-          onSelect();
-        }}
-        title={card.description || card.title}
-        aria-label={`${card.title}: open`}
-      >
-        {card.video ? <video src={card.video} poster={card.poster ?? undefined} muted loop playsInline preload="none" /> : card.poster ? <img src={card.poster} alt="" loading="lazy" /> : <span className="vs-preset-blank">No preview</span>}
-        {card.video && (
-          <span className="vs-preset-play" aria-hidden>
-            <Play size={14} />
-          </span>
+    <article className={`vs-preset ${selected ? "on" : ""}`}>
+      <div className="vs-preset-media">
+        {/* The reference plays by itself while the card is on screen; a tap on it opens the detail. */}
+        {card.video ? (
+          <AutoplayVideo src={card.video} poster={card.poster} mode="preview" label={card.title}>
+            <button type="button" className="vs-preset-open" onClick={onSelect} title={card.description || card.title} aria-label={`${card.title}: open`} />
+          </AutoplayVideo>
+        ) : (
+          <button type="button" className="vs-preset-open still" onClick={onSelect} title={card.description || card.title} aria-label={`${card.title}: open`}>
+            {card.poster ? <img src={card.poster} alt="" loading="lazy" /> : <span className="vs-preset-blank">No preview</span>}
+          </button>
         )}
         {card.price !== null && <span className="vs-preset-price">{card.price} credits</span>}
-      </button>
+      </div>
       <div className="vs-preset-text">
         <b>{card.title}</b>
         {card.description && <small className="vs-preset-desc">{card.description}</small>}
@@ -355,8 +340,8 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
           <X size={13} />
         </button>
       </div>
-      <div className="vs-detail-media" onMouseEnter={(e) => playOn(e, true)}>
-        {card.video ? <video key={card.video} src={card.video} poster={card.poster ?? undefined} muted loop playsInline controls preload="metadata" /> : card.poster ? <img src={card.poster} alt="" /> : <span className="vs-preset-blank">No preview</span>}
+      <div className="vs-detail-media">
+        {card.video ? <AutoplayVideo key={card.video} src={card.video} poster={card.poster} mode="player" loop label={card.title} /> : card.poster ? <img src={card.poster} alt="" /> : <span className="vs-preset-blank">No preview</span>}
       </div>
       <b className="vs-detail-title">{card.title}</b>
       {card.description && <p className="vs-detail-desc">{card.description}</p>}
