@@ -195,6 +195,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   const [videos, setVideos] = useState<VideoItem[]>([]);
   // The editor's own renders: never footage for a first cut or a template.
   const renderedIds = useMemo(() => new Set(videos.filter((v) => v.source === "editor").map((v) => v.id)), [videos]);
+  const footage = useMemo(() => footageOnly(sources, renderedIds), [sources, renderedIds]);
   const [videosLoaded, setVideosLoaded] = useState(false);
   const [admin, setAdmin] = useState(!post);
   const [shownId, setShownId] = useState<string | null>(initialVideoId ?? null);
@@ -1114,7 +1115,6 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
                   ? { cls: "done", text: lastRender.outcome === "review" ? "Rendered · Send for review" : lastRender.outcome === "superseded" ? "Rendered · kept as a version" : "Rendered · on the card" }
                   : { cls: "draft", text: "Draft saved · Render needed" };
 
-  const footage = useMemo(() => footageOnly(sources, renderedIds), [sources, renderedIds]);
   const ctx: PanelCtx | null = project
     ? {
         project,
