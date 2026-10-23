@@ -1,0 +1,310 @@
+/* The phase 2 timeline: toolbar, a fixed column of lane labels, and the lanes in a scroller that zooms. */
+.ve .ve-timeline.ve-tl2 {
+  height: auto;
+  overflow: visible;
+  padding-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.ve-tl-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--ts-line, #e2e2e7);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ve-tl-bar::-webkit-scrollbar {
+  display: none;
+}
+.ve-tl-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+  border-right: 1px solid var(--ts-line, #e2e2e7);
+  flex: none;
+}
+.ve-tl-group:last-of-type {
+  border-right: 0;
+}
+.ve-tl-bar .ts-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: auto;
+  min-width: 30px;
+  padding: 0 6px;
+}
+.ve-tl-bar .ts-icon small {
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.ve-tl-bar .ts-icon.on {
+  background: var(--ts-accent, #1129d3);
+  color: #fff;
+}
+.ve-tc {
+  width: 84px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--ts-line, #e2e2e7);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  background: #fff;
+}
+.ve-tl-len {
+  font-size: 11px;
+  color: #6e6e73;
+  font-variant-numeric: tabular-nums;
+  padding-left: 2px;
+}
+.ve-tl-count {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ts-accent, #1129d3);
+  white-space: nowrap;
+}
+.ve-tl-body {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.ve-tl-labels {
+  display: flex;
+  flex-direction: column;
+}
+.ve-tl-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6e6e73;
+  height: 28px;
+  box-sizing: border-box;
+}
+.ve-tl-label.ruler {
+  height: 24px;
+}
+.ve-tl-label.video {
+  height: 64px;
+}
+.ve-tl-scroll {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  touch-action: pan-x;
+  margin-right: 8px;
+}
+.ve-tl-inner {
+  position: relative;
+  min-width: 100%;
+}
+.ve-tl2 .ve-ruler {
+  height: 24px;
+  box-sizing: border-box;
+}
+.ve-tl2 .ve-tick {
+  white-space: nowrap;
+}
+.ve-tl2 .ve-ruler .ve-beat {
+  height: 8px;
+  width: 2px;
+  margin-left: -1px;
+  opacity: 0.9;
+}
+.ve-tl-lane {
+  position: relative;
+  height: 28px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  box-sizing: border-box;
+}
+.ve-tl-lane.video {
+  height: 64px;
+  border-top: 0;
+}
+.ve-tl2 .ve-clip {
+  top: 5px;
+  height: 54px;
+  touch-action: none;
+}
+.ve-tl2 .ve-clip.gap {
+  background: repeating-linear-gradient(135deg, transparent 0 6px, rgba(0, 0, 0, 0.06) 6px 12px);
+  border: 1px dashed #b8b8c0;
+}
+.ve-tl2 .ve-clip.gap.on {
+  border: 2px solid var(--ts-accent, #1129d3);
+}
+.ve-tl2 .ve-clip.locked {
+  cursor: default;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.ve-tl2 .ve-clip.dipBlack::before,
+.ve-tl2 .ve-clip.dipWhite::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  pointer-events: none;
+}
+.ve-tl2 .ve-clip.dipBlack::before {
+  background: linear-gradient(90deg, #000, transparent);
+}
+.ve-tl2 .ve-clip.dipWhite::before {
+  background: linear-gradient(90deg, #fff, transparent);
+  box-shadow: inset 1px 0 0 #999;
+}
+.ve-tl2 .ve-clip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ve-tl2 .ve-layer-block,
+.ve-tl2 .ve-music-block,
+.ve-voice-block {
+  position: absolute;
+  top: 3px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  box-sizing: border-box;
+  cursor: grab;
+  touch-action: none;
+}
+.ve-tl2 .ve-music-block {
+  cursor: grab;
+}
+.ve-tl2 .ve-music-block span,
+.ve-voice-block span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ve-voice-block {
+  background: #ffe2c6;
+  color: #6b3300;
+}
+.ve-voice-block.on {
+  box-shadow: 0 0 0 2px #1d1d1f;
+}
+.ve-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+.ve-fade.in {
+  left: 0;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.85), transparent);
+}
+.ve-fade.out {
+  right: 0;
+  background: linear-gradient(270deg, rgba(255, 255, 255, 0.85), transparent);
+}
+.ve-tl2 .ve-handle {
+  width: 9px;
+  z-index: 1;
+}
+.ve-tl2 .ve-layer-block .ve-handle::after,
+.ve-tl2 .ve-music-block .ve-handle::after,
+.ve-voice-block .ve-handle::after {
+  height: 12px;
+  margin-top: -6px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.ve-tl-lane.music .ve-beat {
+  bottom: 2px;
+  height: 22px;
+  opacity: 0.3;
+  pointer-events: none;
+}
+.ve-diamond {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #f5b400;
+  cursor: pointer;
+  z-index: 2;
+}
+.ve-diamond svg {
+  fill: #f5b400;
+  stroke: #5c4400;
+  stroke-width: 1.5;
+}
+.ve-tl2 .ve-clip .ve-diamond {
+  top: 12px;
+}
+.ve-drop {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--ts-accent, #1129d3);
+  pointer-events: none;
+  z-index: 3;
+}
+.ve-snapline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #00a37a;
+  pointer-events: none;
+  z-index: 3;
+}
+.ve-snapline.beat {
+  background: var(--ts-accent, #1129d3);
+}
+@media (max-width: 860px) {
+  .ve-tl-body {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+  .ve-tl-label {
+    padding-left: 10px;
+  }
+  .ve-tl-label > span {
+    display: none;
+  }
+  .ve-tl-label.video {
+    height: 56px;
+  }
+  .ve-tl-lane.video {
+    height: 56px;
+  }
+  .ve-tl2 .ve-clip {
+    height: 46px;
+  }
+  .ve-tl-bar {
+    gap: 4px;
+    padding: 4px 6px;
+  }
+  .ve-tl-bar .ts-icon {
+    min-width: 28px;
+    padding: 0 4px;
+  }
+  .ve-tc {
+    width: 76px;
+  }
+}

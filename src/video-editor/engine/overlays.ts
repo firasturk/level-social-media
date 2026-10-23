@@ -9,8 +9,12 @@
  * Fonts: the studio's own web fonts (Inter, Tajawal, Playfair Display, Amiri, Anton, Cairo) when
  * the page has them, then the system's; `prepare` waits for them so the first exported frame does
  * not use a fallback.
+ *
+ * Phase 2: each paragraph takes its own direction, so a bilingual layer (Arabic over English, or
+ * the reverse) draws one line right to left and the other left to right; a layer's position,
+ * scale and opacity follow its keyframes (`overlayState`, shared) at the frame's time.
  */
-import { overlaysAt, textDirection, type LogoOverlay, type Overlay, type TextOverlay } from "@shared/video-compose";
+import { overlaysAt, overlayState, textParagraphs, type LogoOverlay, type Overlay, type OverlayState, type TextOverlay } from "@shared/video-compose";
 
 const FAMILIES: Record<TextOverlay["font"], string> = {
   sans: `"Inter", "Tajawal", "Noto Sans Arabic", "Segoe UI", "DejaVu Sans", system-ui, sans-serif`,
@@ -87,7 +91,7 @@ export class OverlayLayer {
     const jobs: Promise<unknown>[] = [];
     for (const o of overlays) {
       if (o.kind === "logo") jobs.push(this.loadImage(o.src));
-      else if (typeof document !== "undefined" && document.fonts) jobs.push(document.fonts.load(fontOf(o, 48), o.text).catch(() => undefined));
+      else if (typeof document !== "undefined" && document.fonts) jobs.push(document.fonts.load(fontOf(o, 48), `${o.text} ${o.second ?? ""}`).catch(() => undefined));
     }
     await Promise.all(jobs);
     this.lastKey = "";
@@ -100,65 +104,72 @@ export class OverlayLayer {
   draw(overlays: readonly Overlay[] | null | undefined, t: number): HTMLCanvasElement | null {
     const on = overlaysAt(overlays, t);
     if (!on.length) return null;
-    const key = JSON.stringify(on) + `|${this.canvas.width}x${this.canvas.height}|${[...this.images.keys()].join(",")}`;
+    const states = on.map((o) => overlayState(o, t));
+    const key = JSON.stringify(on) + JSON.stringify(states) + `|${this.canvas.width}x${this.canvas.height}|${[...this.images.keys()].join(",")}`;
     if (key === this.lastKey) return this.canvas;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    for (const o of on) {
-      if (o.kind === "text") this.drawText(o);
-      else this.drawLogo(o);
-    }
+    on.forEach((o, i) => {
+      if (states[i].opacity <= 0) return;
+      if (o.kind === "text") this.drawText(o, states[i]);
+      else this.drawLogo(o, states[i]);
+    });
     this.lastKey = key;
     return this.canvas;
   }
 
-  private drawText(o: TextOverlay): void {
+  private drawText(o: TextOverlay, s: OverlayState): void {
     const ctx = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    const px = o.size * H;
-    const dir = textDirection(o.text);
+    const px = o.size * H * s.scale;
     ctx.save();
+    ctx.globalAlpha = s.opacity;
     ctx.font = fontOf(o, px);
-    ctx.direction = dir;
     ctx.textBaseline = "middle";
-    const max = o.width * W;
-    const lines = wrapLines(ctx, o.text, max);
+    const max = o.width * W * s.scale;
+    // Each paragraph wrapped in its own direction: the Arabic line runs right to left, the English one left to right.
+    const lines: { text: string; dir: "rtl" | "ltr" }[] = [];
+    for (const p of textParagraphs(o)) {
+      ctx.direction = p.dir;
+      for (const l of wrapLines(ctx, p.text, max)) lines.push({ text: l, dir: p.dir });
+    }
     const lineH = px * 1.22;
-    const widths = lines.map((l) => ctx.measureText(l).width);
+    const widths = lines.map((l) => {
+      ctx.direction = l.dir;
+      return ctx.measureText(l.text).width;
+    });
     const blockW = Math.min(max, Math.max(...widths));
-    const cx = o.x * W;
-    const top = o.y * H - (lines.length * lineH) / 2;
-    // "start" and "end" follow the words' direction: start is the right edge for Arabic.
-    const startIsLeft = dir === "ltr";
-    const anchor = (w: number) => (o.align === "center" ? cx - w / 2 : (o.align === "start") === startIsLeft ? cx - blockW / 2 : cx + blockW / 2 - w);
+    const cx = s.x * W;
+    const top = s.y * H - (lines.length * lineH) / 2;
+    // "start" and "end" follow each line's direction: start is the right edge for Arabic.
+    const anchor = (w: number, dir: "rtl" | "ltr") => (o.align === "center" ? cx - w / 2 : (o.align === "start") === (dir === "ltr") ? cx - blockW / 2 : cx + blockW / 2 - w);
     if (o.box) {
       const pad = px * 0.3;
       ctx.fillStyle = o.box;
-      lines.forEach((_, i) => {
+      lines.forEach((l, i) => {
         const w = widths[i];
-        ctx.fillRect(anchor(w) - pad, top + i * lineH - pad * 0.15, w + pad * 2, lineH + pad * 0.3);
+        ctx.fillRect(anchor(w, l.dir) - pad, top + i * lineH - pad * 0.15, w + pad * 2, lineH + pad * 0.3);
       });
     }
     ctx.fillStyle = o.color;
-    ctx.textAlign = "left";
     // A soft shadow keeps white words readable on bright footage; none behind a box.
     if (!o.box) {
       ctx.shadowColor = "rgba(0,0,0,0.35)";
       ctx.shadowBlur = px * 0.12;
       ctx.shadowOffsetY = px * 0.03;
     }
-    lines.forEach((line, i) => {
-      // Drawn from its left edge with the line's own direction, so the shaping is the browser's.
-      ctx.direction = dir;
-      ctx.textAlign = dir === "rtl" ? "right" : "left";
-      const x = anchor(widths[i]);
-      ctx.fillText(line, dir === "rtl" ? x + widths[i] : x, top + i * lineH + lineH / 2);
+    lines.forEach((l, i) => {
+      // Drawn from its own edge with the line's own direction, so the shaping and the order are the browser's.
+      ctx.direction = l.dir;
+      ctx.textAlign = l.dir === "rtl" ? "right" : "left";
+      const x = anchor(widths[i], l.dir);
+      ctx.fillText(l.text, l.dir === "rtl" ? x + widths[i] : x, top + i * lineH + lineH / 2);
     });
     ctx.restore();
   }
 
-  private drawLogo(o: LogoOverlay): void {
+  private drawLogo(o: LogoOverlay, s: OverlayState): void {
     const img = this.images.get(o.src);
     if (img === undefined) {
       void this.loadImage(o.src);
@@ -167,12 +178,12 @@ export class OverlayLayer {
     if (!img) return;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    const w = o.width * W;
+    const w = o.width * W * s.scale;
     const h = (w * (img.naturalHeight || 1)) / (img.naturalWidth || 1);
     const ctx = this.ctx;
     ctx.save();
-    ctx.globalAlpha = o.opacity;
-    ctx.drawImage(img, o.x * W - w / 2, o.y * H - h / 2, w, h);
+    ctx.globalAlpha = s.opacity;
+    ctx.drawImage(img, s.x * W - w / 2, s.y * H - h / 2, w, h);
     ctx.restore();
   }
 }
