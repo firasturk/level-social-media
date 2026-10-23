@@ -5,6 +5,7 @@
  * sound for the mix, and its motion energy for the auto edit, each read when first needed.
  */
 import type { ClipSource } from "@shared/video-project";
+import { isHdr, type Rotation, type SourceColour } from "@shared/video-compose";
 import { decodeAudio } from "./audio";
 import { motionEnergy } from "./energy";
 
@@ -22,8 +23,29 @@ export interface Media {
   /** The hidden element the preview draws from. */
   video: HTMLVideoElement;
   bytes?: Promise<ArrayBuffer>;
+  /** What the file itself says, read on import (`inspect`): rotation, colour, codec. */
+  meta?: SourceMeta;
+  inspecting?: Promise<SourceMeta | null>;
   audio?: Promise<AudioBuffer | null>;
   energy?: Promise<Float32Array>;
+}
+
+export interface SourceMeta {
+  codec: string;
+  rotation: Rotation;
+  coded: { width: number; height: number };
+  colour: SourceColour | null;
+  hdr: boolean;
+}
+
+/** One line for the Media panel: "rotated 90° · BT.709 · HDR, not tone-mapped". */
+export function metaLine(m: SourceMeta | undefined): string {
+  if (!m) return "";
+  const parts: string[] = [];
+  if (m.rotation) parts.push(`phone rotation ${m.rotation}° (turned upright)`);
+  parts.push(m.colour?.matrix ? `${m.colour.matrix === "bt709" ? "BT.709" : m.colour.matrix === "smpte170m" || m.colour.matrix === "bt470bg" ? "BT.601" : m.colour.matrix.toUpperCase()}${m.colour.fullRange ? " full range" : ""}` : "colour not labelled (assumed by size)");
+  if (m.hdr) parts.push("HDR, not tone-mapped: colours may look flat");
+  return parts.join(" · ");
 }
 
 export class MediaStore {
@@ -68,6 +90,18 @@ export class MediaStore {
   bytes(m: Media): Promise<ArrayBuffer> {
     m.bytes ??= m.file ? m.file.arrayBuffer() : fetch(m.url, { credentials: "same-origin" }).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${m.label}: the clip could not be fetched (${r.status}).`))));
     return m.bytes;
+  }
+
+  /** The file's own description (rotation, colour) read with the demuxer; null when it cannot be read here. */
+  inspect(m: Media): Promise<SourceMeta | null> {
+    m.inspecting ??= this.bytes(m)
+      .then((b) => import("./demux").then(({ demuxMp4 }) => demuxMp4(b)))
+      .then((d) => {
+        m.meta = { codec: d.codec, rotation: d.rotation, coded: { width: d.width, height: d.height }, colour: d.colour, hdr: isHdr(d.colour) };
+        return m.meta;
+      })
+      .catch(() => null);
+    return m.inspecting;
   }
 
   audio(m: Media): Promise<AudioBuffer | null> {

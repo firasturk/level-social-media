@@ -5,19 +5,23 @@
  * Reel 9:16") says when the client sees this clip on the review link, and switches the card back
  * to the picture. The lightweight preview file plays when one was kept, else the full clip (loaded
  * only near the screen). The state of the newest clip shows while it is being made or when it failed.
+ *
+ * The clip on the card is the card's version (the last "Render & update card", or the last explicit
+ * choice), else the client's version, else the newest finished clip. "Edit video" opens the Video
+ * studio's editor on that clip.
  */
 import { useState } from "react";
-import { Clapperboard, Image as ImageIcon } from "lucide-react";
+import { Clapperboard, Image as ImageIcon, Scissors } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { frameLabel } from "@shared/video-frame";
 import { inFlight, STATUS_TEXT, versionLabel, type VideoItem } from "./videoApi";
 
-export default function VideoOnCard({ summary }: { summary: { latest: VideoItem; client: VideoItem | null; done: VideoItem | null } }) {
+export default function VideoOnCard({ summary, onEdit }: { summary: { latest: VideoItem; client: VideoItem | null; done: VideoItem | null; card?: VideoItem | null }; onEdit?: (videoId: string) => void }) {
   // The card shows the clip; the badge brings the picture back (and the clip again).
   const [picture, setPicture] = useState(false);
-  // The client's version when one is selected, else the newest finished clip.
-  const clip = summary.client ?? summary.done;
+  // The card's version (a render, or the last explicit choice), else the client's, else the newest finished clip.
+  const clip = summary.card ?? summary.client ?? summary.done;
   const latest = summary.latest;
   const frame = clip ? frameLabel(clip.frame) : "";
   return (
@@ -47,7 +51,21 @@ export default function VideoOnCard({ summary }: { summary: { latest: VideoItem;
         >
           {picture ? <Clapperboard size={11} /> : <ImageIcon size={11} />} Video{clip.duration ? ` · ${clip.duration}s` : ""}
           {frame ? ` · ${frame}` : ""}
-          {clip.forClient ? <small className="pc-video-client">the client sees this</small> : null}
+          {clip.forClient ? <small className="pc-video-client">the client sees this</small> : <small className="pc-video-client off">not the client's version</small>}
+        </button>
+      )}
+      {clip && onEdit && (
+        <button
+          type="button"
+          className="pc-video-edit"
+          title="Edit this video in the Video studio: trim, frame, text, logo, music, colour, then Render & update card"
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(clip.id);
+          }}
+        >
+          <Scissors size={11} /> Edit video
         </button>
       )}
       {inFlight(latest) && (

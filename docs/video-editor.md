@@ -1,16 +1,154 @@
 # The video editor
 
 A post's finished clips (Higgsfield versions, uploaded samples, the person's own footage) cut,
-coloured and scored in the browser, exported as an H.264 + AAC mp4 and stored as a new version of
-the same post. Nothing new on the client page: an export is a version like any other, shown to the
-client only when the person picks it with "Select for client review".
+framed, titled, coloured and scored in the browser, rendered as an H.264 + AAC mp4 and stored as a
+new version of the same post. "Save draft" keeps the editable project; "Render & update card"
+renders a new version from the saved draft and, once it is uploaded, puts it on the Studio card
+(and the client's link, unless the client approved the version they see).
 
 Since the Video studio (docs/video-studio.md) the editor is that studio's **Edit** tool: the same
-component (`src/video-editor/ui/VideoEditor.tsx`) now carries the studio's rail (Presets, Generate,
-Edit, Enhance, Audio, Versions, Check) around it, with the preview, transport and timeline on the
-stage and the five tabs at the top of the Edit panel. Everything below about rendering, the data
-model, auto edit, music sync and the routes is unchanged; "Save project" reads "Save cut" in the
-top bar. Opened with no post (`/video-editor`) the editor shows the Edit tool alone, as before.
+component (`src/video-editor/ui/VideoEditor.tsx`) carries the studio's rail (Presets, Generate,
+Edit, Enhance, Audio, Versions, Check) around it. Opened with no post (`/video-editor`) the editor
+shows the Edit tool alone and renders to a file.
+
+## The video core (phase 1, 23 Oct 2026)
+
+The foundation the later phases (timeline power features, templates, colour looks, reference
+match, music library) build on. Layout after the studio's mock-up: a top bar "Level Studio / Video
+studio / <post>" with the draft/render chip ("Draft saved · Render needed", "Rendering 42%",
+"Rendered · on the card", "Render failed: …", "Render interrupted · Render again"), undo/redo,
+**Save draft** and the primary **Render & update card**; above the stage the frame toggles
+9:16 · 4:5 · 1:1 · 16:9 with Fill / Fit and the encoded size; under it the playback bar (play,
+timecode, scrubber, before-colour, mute, full screen); the timeline with labelled Video, Text,
+Logo and Music lanes; the panel tabs Media, Text, Logo, Music, Colour, Auto edit, Render. The
+studio card shows **Edit video** over a clip it plays (the clapperboard under the T stays).
+
+### 1. The reported bug: the size changed in the editor never reached the card
+
+Reproduced in `tests/video-renders.test.ts` ("the reported bug, reproduced") and traced through
+every step; the causes, in the order they bite:
+
+1. **The render never became the card's video.** The card plays `client ?? newest finished`
+   (`src/studio/VideoOnCard.tsx`), and an export only became the client's version when the post had
+   none (`autoSelectForClient` in `storeVideoFile`). A post whose clip was already the client's
+   (the usual case: the first finished clip goes there by itself) kept playing that clip after
+   every export, so the card showed the old, differently framed footage while the editor showed
+   the new frame. The new version existed, unselected, under Versions only.
+2. **Nothing said so.** "Save cut" and "Export" did not say whether the card had changed, so a
+   saved size looked like a done change. The editor's preview is the project; the card is a
+   stored version: until a render lands they differ by design, and now the chip says "Render
+   needed".
+3. **A new cut opened in 9:16 whatever the clip was.** `newProject` defaulted to 1080×1920, so
+   opening a 16:9 client clip showed a portrait preview next to a card playing landscape footage,
+   before anything was changed. A new cut now opens in the frame of the clip it starts from.
+4. **The card's label and poster described something else.** The badge's frame was the frame
+   *asked for* at generation (an engine that follows the picture ignores it), and an export's
+   poster was the post's picture. The frame now comes from the stored file's own width and height,
+   and a render's poster is its own frame (the compositor's still).
+
+What was checked and is not a cause: the saved project does carry the size (`output.width/height`,
+validated, saved with its `rev`); the encoded size followed the project's output (the encoder and
+the muxer were configured with it; now also asserted server-side: an upload whose `tkhd` size is
+not the frozen revision's output is refused); the card's media URL is per version id
+(`/file?id=`, `max-age` per immutable file), so no stale cache; the client link's URL is per post
+and was cache-busted by `updated` only, now by version id and `updated` (`?v=<id8>.<updated>`).
+The card's box keeps the post picture's frame and shows a clip with `object-fit: contain`, so a
+9:16 render on a 4:5 card shows side bands: nothing is cropped or stretched there.
+
+### 2. Save draft, and Render & update card
+
+- **Save draft** = `PUT /projects/:id` with the tab's `rev` (409 on a stale tab, as before). The
+  project keeps the sources, the timeline, the framing, the text and logo layers, the audio (the
+  music is uploaded once as one of the post's licensed tracks, `video_audio`, and referenced by id,
+  so a reopened draft sounds the same), the colour and the output settings. Reopening restores the
+  project exactly (checked: reload → reopen keeps 9:16 and the text layer, `video-core-smoke`;
+  validation round-trip, `video-compose.test.ts`). The LUT table is still not stored (its name is).
+- **Render & update card**: the draft is saved if needed; `POST /renders {projectId, rev}` opens a
+  **render job** (migration **0076**, table `video_renders`) for exactly that saved revision and
+  copies its document into the row (frozen: later saves do not change what this job renders); the
+  tab renders that document (the person can keep editing meanwhile), reports progress every two
+  seconds (`/renders/:id/progress`, the heartbeat), uploads the file with its still and preview
+  (`POST /render` with `renderId`), and the server closes the job and promotes the version.
+- **Promotion** (`decidePromotion` / `promoteRender` in `server/video-editor.ts`): the card shows
+  the done version with the highest `videos.card_rank` (new column, 0076). A render's rank is the
+  time it *started*; an explicit choice ("Select for client review", "Send for review") ranks at
+  the time of the choice. A finished render is promoted only when no version of the post has a
+  higher rank and the card does not show a newer revision of the same project; the update itself
+  is guarded in SQL, so two uploads landing together cannot both win. Outcomes: `card` (the card
+  and the client link), `review` (the card, but the client approved the version they see: the
+  client link keeps it until someone presses **Send for review**), `superseded` (kept as a version,
+  replaces nothing). Approval stays attached to the exact version id the reviewer saw
+  (`clientApproved`); an approval recorded before versions were sent is read as approval of the
+  current one (the safe reading).
+- **Failure and recovery**: a render that throws is recorded as failed with its reason; the card
+  keeps its video (nothing is promoted before the upload succeeds). A job whose tab stops reporting
+  for 90 s reads as **interrupted** (`RENDER_STALE_MS`): browser rendering cannot continue without
+  its tab, so the Render panel says so and offers **Render again** (a new job of the current saved
+  revision). The tab asks before closing while a render runs. Every earlier version stays.
+- **Permissions**: starting, reporting, failing and uploading a render are admin-only behind the
+  `editor` switch (`requireIntegrationAdmin`, `assertIntegrationEnabled`); members may list a
+  project's jobs. Nothing calls a provider and nothing is spent (ledger rows at estimate 0).
+
+### 3. One compositor for the preview and the render
+
+`src/video-editor/engine/compose.ts` draws one frame of the timeline; the preview (`preview.ts`)
+and the render (`export.ts`) both call it. Shared: the timing (`frameAt`: clip, source time,
+crossfade mix), the framing (`shared/video-compose.ts`: Fill covers, Fit contains over the
+background colour, zoom 1–4×, pan −1…1 across the overflow, one uniform scale so people and
+products are never stretched), the display rotation, the layer order (background → clip(s) →
+colour grade → text and logos, which are never graded), the colour (look + sliders + per-clip +
+LUT, one WebGL2 shader), the text (the browser's text engine draws into a 2D layer at the same
+fractions of the frame: Arabic is shaped and right-to-left, Latin left-to-right) and the logo. The
+audio is the same mix definition: the preview's music now applies the volume and the fades the
+render mixes. Only the picture source differs: hidden `<video>` elements for the preview,
+WebCodecs frames for the render.
+
+The frame toggles set the project's **encoded** size: 9:16 → 1080×1920, 4:5 → 1080×1350, 1:1 →
+1080×1080, 16:9 → 1920×1080 (`FRAME_OUTPUT`); measured on the rendered files with mp4box and
+ffprobe (below).
+
+### 4. Rotation and colour on import
+
+- **Rotation**: the track header matrix (`tkhd`) is read on import (`rotationOfMatrix`, signed or
+  unsigned 16.16), 0/90/180/270 clockwise; the decoder hands out coded frames and the shader turns
+  them (`codedUv`); the preview's `<video>` turns them itself. Measured: a phone-style clip (coded
+  640×360, 90° matrix) renders upright in both. The light preview rendition
+  (`src/lib/video-rendition.ts`) now turns it too. Mirrored or skewed matrices are drawn as coded
+  (not handled).
+- **Colour in**: the sample entry's `colr` (nclx) box is read; the decoder is told the file's
+  primaries, transfer, matrix and range, or, when the file says nothing, the convention for its
+  size (BT.601 below 720 lines, BT.709 above, limited range), which is what `<video>` players use.
+  Without this the WebCodecs decoder labels an unlabelled stream BT.709 at any size and an SD clip
+  rendered with other colours than the preview showed (measured before the fix: pure green 255
+  came out 214). A bitstream VUI that contradicts a missing `colr` box is not read (limitation).
+  HDR (PQ, HLG, BT.2020) is flagged in the Media panel and not tone-mapped.
+- **Colour out**: every frame is converted on the GPU to I420, BT.709, limited range, and handed
+  to the encoder as YUV (no second conversion in the encoder), and the file is tagged
+  bt709/bt709/bt709/tv. Measured: tags present on all four frames; pure red, green, blue and grey
+  come back within 4/255 when decoded with those tags.
+
+### 5. Rendering foundation: extend the browser renderer, or embed/cloud
+
+| | **This editor (extended)** | IMG.LY CE.SDK | Shotstack | Remotion (+ Lambda) |
+| - | - | - | - | - |
+| Preview = export | Same compositor and shader for both (measured, below) | Same engine in the browser; server export through their renderer | Browser preview (their Studio SDK) and a different cloud renderer: small differences possible | Same React components in the Player and the render |
+| Arabic (shaping, RTL) | The browser's text engine: shaped, bidi (measured in the render) | Vendor text engine: to verify on a trial | Their text assets; RTL to verify | The browser's (headless Chromium): good |
+| Timeline / templates | Our JSON project; lanes now; templates to build | Rich editor UI and templates out of the box | JSON edit spec with tracks; templates API | Code: templates are React components we write |
+| Colour | Our shader: looks, sliders, LUT | Filters, LUTs | Basic filters | Whatever we write (CSS/WebGL) |
+| Browser / mobile | WebCodecs: Chrome, Edge, Safari 16.4+ for video; WebCodecs **audio** encoding came to Safari much later (as we read WebKit's notes, Safari 26), so older iPhones stop at the capability message; long 1080p renders on a phone are slow and memory-bound | Also WebCodecs-bound in the browser; server renderer otherwise | No device limit (cloud) | No device limit (cloud) |
+| Infrastructure / running cost | None (the person's machine); R2 storage only | Licence + optional render servers we run | Pay per rendered minute | AWS account, Lambda, S3; per-render cost plus our ops |
+| Licence | Ours (mp4box BSD-3, mp4-muxer MIT) | Commercial licence required (pricing on request) | Commercial subscription | Free only for very small teams; a company licence is required for us |
+| Portability | Our JSON (shared/video-project.ts) | Their scene format | Their edit JSON | Our props JSON + our components |
+
+**Recommendation: keep and extend the browser renderer.** It already meets the requirements that
+matter most here (preview and export identical, Arabic correct, colour controlled, 9:16/4:5/1:1/
+16:9 at the right encoded size), costs nothing to run, needs no licence and keeps the project
+portable. Nothing renders on Workers (CPU and time limits); a Worker only stores the result. What
+it cannot do is render without the tab or on browsers without WebCodecs audio; if that becomes a
+need, the next step is a server render of the **same** compositor (this engine bundle in a
+branded headless Chrome in a container, with the same project JSON), not a second engine. A
+commercial SDK or cloud API would only be worth a trial (no purchase made, none assumed free) if
+the template phase needs an off-the-shelf template editor; its Arabic text must be tested first.
 
 ## Architecture
 
@@ -130,7 +268,7 @@ render and the upload are unchanged and stay admin-only on the server (`requireI
   player: hidden `<video>` elements kept at the source time, drawn through the grader),
   `export.ts` (the pipeline above).
 - `src/video-editor/ui/`: `VideoEditor.tsx` (the full-screen editor in the Text Studio's shell:
-  preview, transport, timeline, five panels, top bar with undo/redo, Save project, Export, Close;
+  preview, transport, timeline, the panels (seven since the video core), top bar with undo/redo, Save draft, Render, Close;
   one panel at a time with a bottom toolbar under 860 px), `Timeline.tsx` (clip blocks, trim
   handles as one undo step per drag, beat ticks, playhead), `Panels.tsx` (Clips, Auto edit, Music,
   Colour, Export), `history.ts` (undo/redo with mark/patch/commit). Keys: space, ⌘Z/⇧⌘Z, ⌘S, S
@@ -203,15 +341,69 @@ ends there (its out point; speed honoured), and stays on so the auto edit cuts o
   Screenshots at 390×844 and 1440×900 were looked at: the preview canvas fits the stage, the
   message sits over it, the transport, timeline and panels are where the layout says.
 
+### The video core, verified on real files (23 Oct 2026)
+
+`node scripts/video-render-check.mjs --out <dir>` runs the editor's engine (bundled on its own
+from `scripts/video-render-check/harness.ts`) in the Playwright Chromium on fixtures made with
+ffmpeg at test time (three colour bands 640×360 BT.709-tagged; one colour per second 640×360
+with no colour tags; a phone-style clip, coded 640×360 with a 90° matrix showing a portrait
+yellow-over-magenta picture; a cyan logo PNG; a 220 Hz music track), renders four projects and
+inspects the files with mp4box and ffprobe/ffmpeg. The main project: clip 1 trimmed to the green
+second of the colour clip, clip 2 the phone clip, clip 3 the bands in **Fit** over a grey
+background, clip 4 the bands in **Fill** panned to the left edge; an English text layer 0–1 s and
+an Arabic one 1–2 s (white on a black box), the logo 0–4 s, the music. Chromium here has no H.264
+or AAC, so these renders use the engine's test codecs (VP9 + Opus in MP4); everything else is the
+studio's path. Expected against observed, as printed by the run:
+
+| Check | Expected | Observed |
+| - | - | - |
+| 9:16 encoded size (mp4box / ffprobe) | 1080×1920 | 1080×1920 / 1080×1920 |
+| 4:5, 1:1, 16:9 encoded size | 1080×1350, 1080×1080, 1920×1080 | the same, on both tools |
+| Audio track (all four) | present | opus 48000 Hz 2 ch |
+| `moov` before `mdat` (all four) | yes | yes |
+| Colour tags (all four) | bt709 / bt709 / bt709 / tv | bt709 / bt709 / bt709 / tv |
+| 9:16 length, frames | 4.0 s, 120 at 30 fps | 4.02 s, 120 |
+| Trim and order at 0.5 s (clip 1 = green second) | green across the frame | 0,252,0 (export) · 0,255,1 (preview) |
+| Phone clip at 1.5 s, top / bottom | yellow / magenta (upright) | 253,238,0 / 254,38,254 (export) · 255,255,2 / 255,0,253 (preview) |
+| Fit at 2.5 s: band, left, centre, right | grey / red / green / blue | 128,128,128 / 251,0,0 / 0,252,0 / 0,0,252 (export and preview alike) |
+| Fill panned left at 3.5 s, centre and right | red, red | 251,0,0 and 251,0,0 (export and preview) |
+| Logo at (0.85, 0.93), every second | cyan | 0,253,254 (export) · 0,255,255 (preview) |
+| English text at 0.5 s (band y 0.10–0.14) | box > 20 %, white letters > 3 % | box 46.6 %, letters 34.0 % |
+| Arabic text at 1.5 s | box > 20 %, white letters > 3 % | box 49.6 %, letters 18.1 % (and looked at: joined, right to left) |
+| No text at 2.5 s (layer ended) | < 1 % | 0.0 % / 0.0 % |
+| Sound level (the music) | mean above −30 dB | −25.4 dB |
+| 4:5 / 1:1 crop of the bands at x 0.03, 0.5, 0.97 | red, green, blue (centred crop) | 251,0,0 · 0,252,0 · 0,0,252 |
+| 16:9 at x 0.05, 0.5, 0.95 | red, green, blue (whole picture) | the same |
+| Phone clip as read on import | rotation 90, 640×360 coded, 360×640 shown | the same |
+| Tagged clip as read on import | BT.709 limited | BT.709 limited |
+| Render time, 4 s at 1080×1920 (software VP9, headless) | | 15–19 s |
+
+`node scripts/video-core-smoke.mjs` drives the real studio UI (the built app with a stateful mock
+of the routes): the card's **Edit video** opens the editor in its clip's frame (16:9); the frame
+bar, scrubber, mute and full screen are there; the lanes read Video, Text, Logo, Music; 9:16 turns
+the stage to 540×960; a text layer is added; **Save draft** shows "Draft saved · Render needed";
+after a page reload and a reopen the frame (9:16) and the text layer are back; **Render & update
+card** shows "Rendering n%" then "Rendered · on the card"; the file the server received is
+1080×1920 with an audio track, its job id and a still, after ten heartbeats; the card then plays
+the new version's file and its badge reads "Video · 3s · Reel 9:16"; the 390 px layout does not
+scroll sideways. Server rules (`tests/video-renders.test.ts`, in-memory D1/R2): the reported bug;
+a frozen revision; the size guard; approval kept; out-of-order completion both ways; a choice made
+during a render wins; interrupted and failed renders keep the card; members cannot render; the
+card and the client link serve the same file. `tests/video-compose.test.ts`: the framing maths,
+rotation, layers, colour assumptions and the project round-trip.
+
+A 4-second sample render (VP9, 1080×1920), its still, an H.264 transcode for viewing and the
+JSON report are kept outside the repo, under the session's scratchpad `video-sample/`.
+
 ## What could not be verified here
 
-- **Any H.264 path in a browser**: the Playwright Chromium has no H.264 decoder or encoder and no
-  AAC, so the preview, the demux/decode cursor, the shader on real frames, the encoder, the muxer
-  output and the end-to-end export were typechecked and reasoned through but not run. The first
-  run on Chrome, Edge or Safari should: open a post with a finished clip, play it, trim, export,
-  and check the new version's warnings line (it must say nothing about AAC or moov) and that the
-  iPhone plays it. If `avc1.64002A` is refused on a machine, the check falls back to level 4.0
-  and the Main profile strings.
+- **The H.264 + AAC encoders themselves**: the Playwright Chromium has none, so the demuxer, the
+  decode cursor, the compositor, the I420 pass, the muxer and the upload were run end to end with
+  VP9 + Opus (above), but the `avc`/`aac` encoder configuration was not. The first run on Chrome,
+  Edge or Safari should render a post, check the new version's warnings line (nothing about AAC
+  or moov), its size on the badge, and that the iPhone plays it. If `avc1.64002A` is refused on a
+  machine, the check falls back to level 4.0 and the Main profile strings.
+- The server's promotion was run against the in-memory D1, not production D1 (not touched).
 - The 390 px one-panel layout was built on the Text Studio's conventions and checked by the smoke
   script only as far as the toolbar; a pass on a real phone is still due (as for the Text Studio).
 - Performance figures above are estimates from the codecs' usual behaviour, not measurements.
@@ -223,11 +415,16 @@ ends there (its out point; speed honoured), and stays on so the auto edit cuts o
   source (standalone mode) lives in the tab only.
 - With music set, the clips' own sound is left out of the export; without music, their sound is
   kept (trimmed, sped, crossfaded). No mixing of both yet.
-- Sources are drawn to cover the output frame (cropped, centred); no reframing or pan.
-- The preview uses the browser's `<video>` decoding at up to 540×960; the export uses WebCodecs at
-  full size. The colour shader is the same for both.
-- The LUT is applied after the sliders and to the whole cut; per-clip colour is sliders only.
-- Transitions: cut and crossfade. Text and logo stay out: that is the Text Studio's job.
+- Framing is Fill or Fit with zoom and pan per clip (no keyframed motion yet); Fit shows a plain
+  background colour (no blurred copy yet).
+- The preview uses the browser's `<video>` decoding at up to 540×960; the render uses WebCodecs at
+  full size. The compositor (framing, colour, text, logo) is the same for both.
+- The LUT is applied after the sliders and to the whole cut; per-clip colour is sliders only; the
+  LUT table is not stored with the draft (its name is).
+- Transitions: cut and crossfade. Text layers are words with a font family, weight, colour, box
+  and position; no animation yet. Logos are one picture each (a brand-kit address or a small file
+  of 200 KB at most).
+- A render runs in its tab; closing the tab interrupts it (the job says so; Render again).
 
 ## iPhone and Instagram
 

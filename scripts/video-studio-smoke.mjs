@@ -321,7 +321,7 @@ try {
   await rail.filter({ hasText: "Edit" }).click();
   await studio.locator(".ve-canvas").waitFor({ state: "visible", timeout: 10000 });
   result.editTabs = await studio.locator(".vs-tabs button").count();
-  if (result.editTabs !== 5) errors.push(`The Edit panel should show its 5 tabs, found ${result.editTabs}`);
+  if (result.editTabs !== 7) errors.push(`The Edit panel should show its 7 tabs (Media, Text, Logo, Music, Colour, Auto edit, Render), found ${result.editTabs}`);
   await page.screenshot({ path: join(outDir, "video-studio-1440-edit.png") });
 
   // 390 px: one panel at a time, the bottom toolbar with the seven tools, no sideways scroll.

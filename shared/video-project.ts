@@ -9,6 +9,8 @@
  * previous clip's tail by `transitionDuration`.
  */
 
+import { checkOverlays, DEFAULT_FRAMING, normaliseFraming, type Framing, type Overlay } from "./video-compose";
+
 export const PROJECT_VERSION = 1;
 
 /** Where a clip's footage comes from: a stored version of the post, or a file picked in the browser. */
@@ -70,6 +72,8 @@ export interface Clip {
   transitionDuration: number;
   /** Per-clip colour on top of the project's; absent = none. */
   colour?: ColourParams;
+  /** How this clip sits in the frame (Fill/Fit, zoom, pan); absent = the project's framing. */
+  framing?: Framing;
 }
 
 export type MusicSource = { kind: "audioKey"; key: string; name?: string } | { kind: "upload"; name: string; size: number };
@@ -112,6 +116,12 @@ export interface VideoProject {
   output: Output;
   /** Cuts snap to the music's beats when they are moved. */
   snapToBeats: boolean;
+  /** The project's framing for every clip without its own (Fill or Fit, zoom, pan). */
+  framing: Framing;
+  /** The colour around a Fit picture. */
+  background: string;
+  /** Text and logo layers over the video, bottom first (shared/video-compose.ts). */
+  overlays: Overlay[];
 }
 
 export interface OutputPreset {
@@ -125,6 +135,7 @@ export const OUTPUT_PRESETS: readonly OutputPreset[] = [
   { id: "reel", name: "Reel · 1080×1920", width: 1080, height: 1920 },
   { id: "square", name: "Square · 1080×1080", width: 1080, height: 1080 },
   { id: "portrait", name: "Portrait · 1080×1350", width: 1080, height: 1350 },
+  { id: "landscape", name: "Landscape · 1920×1080", width: 1920, height: 1080 },
 ];
 
 export const BITRATE_PRESETS: readonly { id: string; name: string; bps: number }[] = [
@@ -163,6 +174,9 @@ export function newProject(name: string, now = Date.now()): VideoProject {
     music: null,
     output: { width: 1080, height: 1920, fps: OUTPUT_FPS, bitrate: 8_000_000 },
     snapToBeats: false,
+    framing: { ...DEFAULT_FRAMING },
+    background: "#000000",
+    overlays: [],
   };
 }
 
@@ -231,7 +245,12 @@ export function validateProject(x: unknown): Check {
       if (typeof r === "string") return { ok: false, reason: r };
       colour = r;
     }
-    clips.push({ id: c.id, source, duration: c.duration, in: c.in, out: c.out, speed: c.speed, transition: c.transition, transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5, ...(colour ? { colour } : {}) });
+    let framing: Framing | undefined;
+    if (c.framing !== undefined && c.framing !== null) {
+      if (!isObj(c.framing)) return { ok: false, reason: `${where}: framing must be an object.` };
+      framing = normaliseFraming(c.framing as Partial<Framing>);
+    }
+    clips.push({ id: c.id, source, duration: c.duration, in: c.in, out: c.out, speed: c.speed, transition: c.transition, transitionDuration: (c.transitionDuration as number | undefined) ?? 0.5, ...(colour ? { colour } : {}), ...(framing ? { framing } : {}) });
   }
   if (!str(x.look ?? "none", 40)) return { ok: false, reason: "look must be a short name." };
   const colour = checkColour(x.colour ?? DEFAULT_COLOUR, "project");
@@ -257,6 +276,11 @@ export function validateProject(x: unknown): Check {
   const o = x.output;
   if (!isObj(o) || !num(o.width, 16, 4096) || !num(o.height, 16, 4096) || !num(o.fps, 1, 60) || !num(o.bitrate, 100_000, 50_000_000)) return { ok: false, reason: "output needs width, height (16–4096), fps (1–60) and bitrate." };
   if (o.width % 2 || o.height % 2) return { ok: false, reason: "output width and height must be even numbers (H.264)." };
+  if (x.framing !== undefined && x.framing !== null && !isObj(x.framing)) return { ok: false, reason: "framing must be an object." };
+  const background = x.background ?? "#000000";
+  if (typeof background !== "string" || !/^#[0-9a-f]{6}$/i.test(background)) return { ok: false, reason: "background must be a hex colour like #000000." };
+  const overlays = checkOverlays(x.overlays);
+  if (typeof overlays === "string") return { ok: false, reason: overlays };
   const project: VideoProject = {
     v: PROJECT_VERSION,
     rev: x.rev,
@@ -270,10 +294,18 @@ export function validateProject(x: unknown): Check {
     music,
     output: { width: o.width, height: o.height, fps: o.fps, bitrate: o.bitrate },
     snapToBeats: x.snapToBeats === true,
+    framing: normaliseFraming(x.framing as Partial<Framing> | undefined),
+    background,
+    overlays,
   };
   const total = totalLength(project);
   if (total > MAX_TIMELINE_SECONDS + 1e-6) return { ok: false, reason: `The timeline is ${total.toFixed(1)} s; the editor renders up to ${MAX_TIMELINE_SECONDS} s.` };
   return { ok: true, project };
+}
+
+/** The framing a clip is drawn with: its own, else the project's. */
+export function clipFraming(p: Pick<VideoProject, "framing">, c: Pick<Clip, "framing">): Framing {
+  return normaliseFraming(c.framing ?? p.framing ?? DEFAULT_FRAMING);
 }
 
 /* ───────────── Timeline arithmetic ───────────── */

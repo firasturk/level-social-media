@@ -288,7 +288,7 @@ export default function PlanView({
     const s = videos[String(index)];
     setVideoFor(null);
     // The clip the card's editing session last showed, else the client's version, else the newest finished clip.
-    setVideoEditing({ index, videoId: videoId ?? getSession(batchId, index)?.videoId ?? s?.client?.id ?? s?.done?.id ?? null, panel: panel ?? (videoId ? "edit" : undefined) });
+    setVideoEditing({ index, videoId: videoId ?? getSession(batchId, index)?.videoId ?? s?.card?.id ?? s?.client?.id ?? s?.done?.id ?? null, panel: panel ?? (videoId ? "edit" : undefined) });
   };
   /**
    * The editing sessions of the month's cards (what the studios carry between them): the cards
@@ -1069,7 +1069,7 @@ export default function PlanView({
                             </span>
                           )}
                           {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
-                          {img && !inFlight && videos[String(p.index)] && <VideoOnCard summary={videos[String(p.index)]} />}
+                          {img && !inFlight && videos[String(p.index)] && <VideoOnCard summary={videos[String(p.index)]} onEdit={(id) => openVideoEditor(p.index, id, "edit")} />}
                           {product && !img && <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />}
                         </>
                       }
@@ -1991,6 +1991,7 @@ export default function PlanView({
                   : undefined
               }
               approval={approvals[String(p.index)] ?? null}
+              logoUrl={logoSrc}
               fileBase={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
               onExported={() => void loadVideos()}
               onChanged={() => void loadVideos()}

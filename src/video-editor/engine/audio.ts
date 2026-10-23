@@ -98,16 +98,16 @@ export async function renderMix(project: VideoProject, clipAudio: Map<string, Au
 }
 
 /** The mix as AAC chunks for the muxer, in order. */
-export async function encodeAac(buffer: AudioBuffer, onChunk: (chunk: EncodedAudioChunk, meta: EncodedAudioChunkMetadata | undefined) => void): Promise<void> {
+export async function encodeAac(buffer: AudioBuffer, onChunk: (chunk: EncodedAudioChunk, meta: EncodedAudioChunkMetadata | undefined) => void, codec = "mp4a.40.2"): Promise<void> {
   const channels = 2;
   let error: Error | null = null;
   const encoder = new AudioEncoder({
     output: (chunk, meta) => onChunk(chunk, meta),
     error: (e) => {
-      error = new Error(`AAC encoding failed: ${e.message}`);
+      error = new Error(`${codec === "opus" ? "Opus" : "AAC"} encoding failed: ${e.message}`);
     },
   });
-  encoder.configure({ codec: "mp4a.40.2", sampleRate: buffer.sampleRate, numberOfChannels: channels, bitrate: AUDIO_BITRATE });
+  encoder.configure({ codec, sampleRate: buffer.sampleRate, numberOfChannels: channels, bitrate: AUDIO_BITRATE });
   const frames = 1024;
   const left = buffer.getChannelData(0);
   const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
@@ -127,26 +127,68 @@ export async function encodeAac(buffer: AudioBuffer, onChunk: (chunk: EncodedAud
   encoder.close();
 }
 
-/** Plays the music for the preview from a timeline time; a tiny player the editor starts and stops. */
+/**
+ * Plays the music for the preview from a timeline time, with the volume and fades the export mixes
+ * (renderMix above), so what is heard is what is written. A tiny player the editor starts and stops.
+ */
 export class MusicPreview {
   private ctx: AudioContext | null = null;
   private node: AudioBufferSourceNode | null = null;
+  private gain: GainNode | null = null;
+  private master: GainNode | null = null;
+  private muted = false;
   constructor(private buffer: AudioBuffer) {}
   start(project: VideoProject, timelineAt: number): void {
     this.stop();
     const m = project.music;
     if (!m) return;
     this.ctx ??= new AudioContext();
+    if (!this.master) {
+      this.master = this.ctx.createGain();
+      this.master.connect(this.ctx.destination);
+    }
+    this.master.gain.value = this.muted ? 0 : 1;
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
     const gain = this.ctx.createGain();
-    gain.gain.value = m.volume;
-    src.connect(gain).connect(this.ctx.destination);
+    src.connect(gain).connect(this.master);
     const offset = m.offset + timelineAt;
     if (offset >= this.buffer.duration) return;
+    this.envelope(gain, project, timelineAt);
     src.start(0, offset);
     this.node = src;
+    this.gain = gain;
     void this.ctx.resume();
+  }
+  /** The fades and volume from timeline time `from`, on the context's clock. */
+  private envelope(gain: GainNode, project: VideoProject, from: number): void {
+    const m = project.music;
+    if (!m || !this.ctx) return;
+    const length = Math.max(0.1, totalLength(project));
+    const now = this.ctx.currentTime;
+    const at = (t: number) => now + Math.max(0, t - from);
+    const level = (t: number) => {
+      let v = m.volume;
+      if (m.fadeIn > 0 && t < m.fadeIn) v *= Math.max(0, t / m.fadeIn);
+      if (m.fadeOut > 0 && t > length - m.fadeOut) v *= Math.max(0, (length - t) / m.fadeOut);
+      return v;
+    };
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setValueAtTime(level(from), now);
+    if (m.fadeIn > 0 && from < m.fadeIn) gain.gain.linearRampToValueAtTime(m.volume, at(m.fadeIn));
+    if (m.fadeOut > 0) {
+      const s = Math.max(from, length - m.fadeOut);
+      gain.gain.setValueAtTime(level(s), at(s));
+      gain.gain.linearRampToValueAtTime(0, at(length));
+    }
+  }
+  /** The project changed while playing (a volume or fade moved): the envelope follows. */
+  update(project: VideoProject, playingAt: number | null): void {
+    if (this.gain && playingAt !== null) this.envelope(this.gain, project, playingAt);
+  }
+  setMuted(m: boolean): void {
+    this.muted = m;
+    if (this.master) this.master.gain.value = m ? 0 : 1;
   }
   stop(): void {
     try {
@@ -155,10 +197,12 @@ export class MusicPreview {
       /* already stopped */
     }
     this.node = null;
+    this.gain = null;
   }
   dispose(): void {
     this.stop();
     void this.ctx?.close();
     this.ctx = null;
+    this.master = null;
   }
 }

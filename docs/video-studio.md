@@ -31,11 +31,14 @@ admins run (docs/integrations.md).
 
 ## The top bar
 
-The post number and title, the clips' state (*No clip yet*, *3 clips*, *Making…*, *Failed*),
-undo / redo (over the timeline; the scissors split at the playhead), **Versions · n**,
-**Photo studio**, **Text studio**, **Save cut** (on Edit, admins), **Close**. Closing with an
-unsaved cut asks *Save and close* or *Close without saving* (which also drops the cut from the
-card's session); closing during an export asks first. Switching to the Photo or Text studio keeps
+"Level Studio / Video studio / <post>", the clips' state (*No clip yet*, *3 clips*, *Making…*,
+*Failed*), undo / redo (over the timeline; the scissors split at the playhead), **Versions · n**,
+**Photo studio**, **Text studio**, **Close**. On the Edit tool (admins) the bar is the video
+core's (docs/video-editor.md): the draft/render chip (*Draft saved · Render needed*, *Rendering
+42%*, *Rendered · on the card*, *Render failed: …*), **Save draft** and **Render & update card**;
+Versions stays on the rail and the other studios show as icons. Closing with an unsaved cut asks
+*Save and close* or *Close without saving* (which also drops the cut from the card's session);
+closing during a render asks first (the card keeps its video). Switching to the Photo or Text studio keeps
 the unsaved cut in the session, and the Photo / Text studios' **Save & return** saves it with the
 rest of the post's edits (admins; the server decides).
 

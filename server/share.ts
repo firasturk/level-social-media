@@ -119,8 +119,8 @@ shareRoutes.get("/:token", async (c) => {
     const video = cv
       ? {
           id: cv.row.id,
-          url: `/api/share/${token}/video/${p.index}?v=${cv.row.updated}`,
-          poster: posterKeyOf(cv.row) ? `/api/share/${token}/video/${p.index}/poster?v=${cv.row.updated}` : null,
+          url: `/api/share/${token}/video/${p.index}?v=${cv.row.id.slice(0, 8)}.${cv.row.updated}`,
+          poster: posterKeyOf(cv.row) ? `/api/share/${token}/video/${p.index}/poster?v=${cv.row.id.slice(0, 8)}.${cv.row.updated}` : null,
           duration: parseSettings(cv.row).duration ?? null,
           version: { kind: "video", id: cv.row.id, label: `Video ${cv.version} (${shortDay(cv.row.created)})` } satisfies ReviewVersion,
         }

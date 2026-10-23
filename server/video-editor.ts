@@ -8,8 +8,21 @@
  *   GET  /projects/:id            one project with its document
  *   POST /projects                {batch, post, name, project, sourceVideo}: a new project (admins, switch, ledger editor.save)
  *   PUT  /projects/:id            {project, rev}: a save; 409 when the row moved on since the tab read it
- *   POST /render                  multipart {batch, post, projectId, file, note}: the export stored as a done
- *                                 version with provider = 'editor' (admins, switch, ledger editor.render)
+ *   POST /render                  multipart {batch, post, projectId, renderId?, file, preview?, still?, note}: the export
+ *                                 stored as a done version with provider = 'editor' (admins, switch, ledger
+ *                                 editor.render); with a renderId the job is closed and its version promoted
+ *   POST /renders                 {projectId, rev}: a render job of that saved revision (admins, switch)
+ *   POST /renders/:id/progress    {progress, phase}: the tab's heartbeat (admins)
+ *   POST /renders/:id/fail        {error}: the tab gave up (admins)
+ *   GET  /renders?project=        the project's last render jobs (every signed-in user of the month)
+ *
+ * Render jobs (migration 0076, `video_renders`): the browser renders, so a job is a record of what
+ * was asked (the project and the saved revision, its document frozen in the row), the progress the
+ * tab reports, and the outcome. A job whose tab stops reporting for RENDER_STALE_MS reads as
+ * interrupted: rendering cannot continue without the tab, the person starts it again. When the
+ * upload lands the version is promoted to the card unless a newer render or a later explicit choice
+ * is there already (`decidePromotion`), and it becomes the client's version unless the client
+ * approved the current one: approval stays with the exact version it was given to.
  *
  * Raw footage the person brings (their own clips) goes through the existing upload route and is
  * listed as a version; the editor reads a post's versions as its sources.
@@ -21,9 +34,11 @@ import { StudioError } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationAccess } from "./integrations";
-import { MAX_VIDEO_FILE, renditionFrom, storeVideoFile, type VideoItem } from "./video";
+import { MAX_VIDEO_FILE, renditionFrom, storeVideoFile, type VideoItem, type VideoRow } from "./video";
+import { readMp4 } from "./mp4";
 import { validateProject, type VideoProject } from "@shared/video-project";
 import type { User } from "@shared/types";
+import type { Approval, Config } from "@shared/config";
 
 type Variables = { user: User };
 export const videoEditorRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -167,9 +182,213 @@ videoEditorRoutes.put("/projects/:id", async (c) => {
   return c.json({ ok: true, project: projectItem(after), document: { ...doc, rev: after.rev } });
 });
 
+/* ───────────── Render jobs ───────────── */
+
+/** A render whose tab has not reported for this long reads as interrupted. */
+export const RENDER_STALE_MS = 90_000;
+
+export type RenderStatus = "rendering" | "uploading" | "done" | "failed" | "interrupted";
+export type RenderOutcome = "card" | "review" | "superseded";
+
+export interface VideoRenderRow {
+  id: string;
+  project: string;
+  batch: string;
+  post: number;
+  project_rev: number;
+  document: string;
+  status: RenderStatus;
+  progress: number;
+  phase: string | null;
+  video_id: string | null;
+  outcome: RenderOutcome | null;
+  error: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  created: number;
+  updated: number;
+  finished: number | null;
+  created_by: string;
+}
+
+export interface RenderItem {
+  id: string;
+  project: string;
+  projectRev: number;
+  status: RenderStatus;
+  progress: number;
+  phase: string | null;
+  videoId: string | null;
+  outcome: RenderOutcome | null;
+  error: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  created: number;
+  updated: number;
+  finished: number | null;
+  createdBy: string;
+}
+
+/** What the person reads for a job: a running one whose tab went quiet is interrupted. */
+export function renderStatus(row: Pick<VideoRenderRow, "status" | "updated">, t = now()): RenderStatus {
+  if ((row.status === "rendering" || row.status === "uploading") && t - row.updated > RENDER_STALE_MS) return "interrupted";
+  return row.status;
+}
+
+export function renderItem(row: VideoRenderRow, t = now()): RenderItem {
+  return {
+    id: row.id,
+    project: row.project,
+    projectRev: row.project_rev,
+    status: renderStatus(row, t),
+    progress: row.progress,
+    phase: row.phase,
+    videoId: row.video_id,
+    outcome: row.outcome,
+    error: row.error,
+    width: row.width,
+    height: row.height,
+    duration: row.duration,
+    created: row.created,
+    updated: row.updated,
+    finished: row.finished,
+    createdBy: row.created_by,
+  };
+}
+
+/** The version on the card now, with the render that made it (when an editor render did). */
+export interface CardTop {
+  id: string;
+  rank: number;
+  project: string | null;
+  rev: number | null;
+}
+
+/**
+ * Where a finished render goes, decided before anything is written:
+ *  - superseded: a version with a higher card rank is there (a render that started later, or an
+ *    explicit choice made after this render started), or the card shows a newer revision of the
+ *    same project. The version is kept; it replaces nothing.
+ *  - review: it goes on the card, but the client approved the version they see, so the client link
+ *    keeps that version until someone presses "Send for review".
+ *  - card: on the card and the client's version.
+ */
+export function decidePromotion(a: { renderStart: number; project: string; rev: number; top: CardTop | null; clientApproved: boolean }): RenderOutcome {
+  if (a.top && (a.top.rank > a.renderStart || (a.top.project === a.project && a.top.rev !== null && a.top.rev > a.rev))) return "superseded";
+  return a.clientApproved ? "review" : "card";
+}
+
+/**
+ * Whether the client approved the version they see now. Approval belongs to the exact version the
+ * reviewer saw (the review page sends its id); an approval recorded before versions were sent is
+ * taken as approval of the current version, the safe reading.
+ */
+export function clientApproved(approval: Approval | null | undefined, clientVideoId: string | null): boolean {
+  if (!approval || approval.status !== "approved" || !clientVideoId) return false;
+  const yes = (approval.answers ?? []).filter((a) => a.status === "approved");
+  const withVersion = yes.filter((a) => a.version);
+  if (!withVersion.length) return true;
+  return withVersion.some((a) => a.version!.kind === "video" && a.version!.id === clientVideoId);
+}
+
+async function cardTop(env: Env, batch: string, post: number): Promise<CardTop | null> {
+  const top = await first<{ id: string; card_rank: number }>(env.DB, "SELECT id, card_rank FROM videos WHERE batch = ? AND post = ? AND status = 'done' AND key IS NOT NULL AND card_rank IS NOT NULL ORDER BY card_rank DESC LIMIT 1", batch, post);
+  if (!top) return null;
+  const r = await first<{ project: string; project_rev: number }>(env.DB, "SELECT project, project_rev FROM video_renders WHERE video_id = ? LIMIT 1", top.id);
+  return { id: top.id, rank: top.card_rank, project: r?.project ?? null, rev: r?.project_rev ?? null };
+}
+
+/**
+ * The finished render's version put where it belongs (see `decidePromotion`). The card's rank is
+ * written with a guard, so two uploads landing together cannot both win: the one whose render
+ * started later keeps the card.
+ */
+export async function promoteRender(env: Env, b: { id: string; config: string }, render: Pick<VideoRenderRow, "project" | "project_rev" | "created" | "post">, videoId: string): Promise<RenderOutcome> {
+  const top = await cardTop(env, b.id, render.post);
+  const client = await first<{ id: string }>(env.DB, "SELECT id FROM videos WHERE batch = ? AND post = ? AND for_client = 1 AND status = 'done' LIMIT 1", b.id, render.post);
+  let approval: Approval | undefined;
+  try {
+    approval = (JSON.parse(b.config) as Config).approvals?.[String(render.post)];
+  } catch {
+    approval = undefined;
+  }
+  const outcome = decidePromotion({ renderStart: render.created, project: render.project, rev: render.project_rev, top, clientApproved: clientApproved(approval, client?.id ?? null) });
+  if (outcome === "superseded") return outcome;
+  const t = now();
+  const r = await env.DB.prepare("UPDATE videos SET card_rank = ?, updated = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM videos WHERE batch = ? AND post = ? AND id != ? AND card_rank > ?)")
+    .bind(render.created, t, videoId, b.id, render.post, videoId, render.created)
+    .run();
+  if ((r.meta?.changes ?? 0) === 0) return "superseded";
+  if (outcome === "card") {
+    await run(env.DB, "UPDATE videos SET for_client = 0, updated = ? WHERE batch = ? AND post = ? AND for_client = 1 AND id != ?", t, b.id, render.post, videoId);
+    await run(env.DB, "UPDATE videos SET for_client = 1, updated = ? WHERE id = ?", t, videoId);
+  }
+  return outcome;
+}
+
+async function renderRow(env: Env, user: User, id: string): Promise<VideoRenderRow> {
+  const row = await first<VideoRenderRow>(env.DB, "SELECT * FROM video_renders WHERE id = ?", id);
+  if (!row) throw new StudioError("Render not found.", 404);
+  await ownedPlan(env, user, row.batch);
+  return row;
+}
+
+const readRender = async (env: Env, id: string) => (await first<VideoRenderRow>(env.DB, "SELECT * FROM video_renders WHERE id = ?", id))!;
+
+/** A render job of a saved revision: the tab renders it next. The project must be saved at that revision. */
+videoEditorRoutes.post("/renders", async (c) => {
+  const user = requireIntegrationAdmin(c, PROVIDER);
+  await assertIntegrationEnabled(c.env, PROVIDER);
+  const d = await parseBody(c, z.object({ projectId: z.string().min(1), rev: z.number().int().min(1) }));
+  const { row, batch } = await projectRow(c.env, user, d.projectId);
+  if (row.rev !== d.rev) throw new StudioError(`Save the draft first: the project is at save ${row.rev}, this tab has ${d.rev}.`, 409, false, { rev: row.rev, stale: true });
+  const doc = parseDoc(row);
+  if (!doc) throw new StudioError("This project's document cannot be read.", 409);
+  if (!doc.clips.length) throw new StudioError("The timeline is empty: add a clip first.");
+  const id = uuid();
+  const t = now();
+  await run(c.env.DB, "INSERT INTO video_renders (id, project, batch, post, project_rev, document, status, progress, phase, created, updated, created_by) VALUES (?, ?, ?, ?, ?, ?, 'rendering', 0, 'starting', ?, ?, ?)", id, row.id, batch.id, row.post, row.rev, row.project, t, t, user.id);
+  return c.json({ ok: true, render: renderItem(await readRender(c.env, id)), document: { ...doc, rev: row.rev } });
+});
+
+/** The tab's heartbeat: how far the render is. A job read as interrupted comes back when its tab reports again. */
+videoEditorRoutes.post("/renders/:id/progress", async (c) => {
+  const user = requireIntegrationAdmin(c, PROVIDER);
+  const d = await parseBody(c, z.object({ progress: z.number().min(0).max(1), phase: z.string().max(40).optional() }));
+  const row = await renderRow(c.env, user, c.req.param("id"));
+  if (row.status === "done" || row.status === "failed") return c.json({ ok: true, render: renderItem(row) });
+  const status: RenderStatus = d.phase === "uploading" ? "uploading" : "rendering";
+  await run(c.env.DB, "UPDATE video_renders SET status = ?, progress = ?, phase = ?, updated = ? WHERE id = ? AND status NOT IN ('done', 'failed')", status, d.progress, d.phase ?? row.phase, now(), row.id);
+  return c.json({ ok: true, render: renderItem(await readRender(c.env, row.id)) });
+});
+
+/** The tab could not finish (an encoder error, a stop): the job keeps the reason; the card keeps its video. */
+videoEditorRoutes.post("/renders/:id/fail", async (c) => {
+  const user = requireIntegrationAdmin(c, PROVIDER);
+  const d = await parseBody(c, z.object({ error: z.string().max(400) }));
+  const row = await renderRow(c.env, user, c.req.param("id"));
+  if (row.status !== "done") await run(c.env.DB, "UPDATE video_renders SET status = 'failed', error = ?, updated = ?, finished = ? WHERE id = ?", d.error || "The render stopped.", now(), now(), row.id);
+  return c.json({ ok: true, render: renderItem(await readRender(c.env, row.id)) });
+});
+
+/** A project's last jobs, newest first; a job whose tab went quiet is written down as interrupted. */
+videoEditorRoutes.get("/renders", async (c) => {
+  const user = c.get("user");
+  const { row } = await projectRow(c.env, user, c.req.query("project") ?? "");
+  const t = now();
+  await run(c.env.DB, "UPDATE video_renders SET status = 'interrupted' WHERE project = ? AND status IN ('rendering', 'uploading') AND updated < ?", row.id, t - RENDER_STALE_MS);
+  const rows = await all<VideoRenderRow>(c.env.DB, "SELECT * FROM video_renders WHERE project = ? ORDER BY created DESC LIMIT 10", row.id);
+  return c.json({ ok: true, renders: rows.map((r) => renderItem(r, t)) });
+});
+
 /**
  * The export the browser rendered, stored as a finished version of the post with the same checks
  * as an upload (MP4, H.264; AAC and faststart noted). The project remembers the version it made.
+ * With a render job: the file must have the size its frozen revision asks for, the job is closed,
+ * and the version is promoted (`promoteRender`). Without one (an older tab): stored, and the
+ * client's version only when the post has none, as before.
  */
 videoEditorRoutes.post("/render", async (c) => {
   const user = requireIntegrationAdmin(c, PROVIDER);
@@ -179,6 +398,7 @@ videoEditorRoutes.post("/render", async (c) => {
   const batch = String(form.get("batch") ?? "");
   const post = Number(form.get("post") ?? 0);
   const projectId = String(form.get("projectId") ?? "");
+  const renderId = String(form.get("renderId") ?? "");
   const note = String(form.get("note") ?? "").slice(0, 200);
   const file = form.get("file");
   if (!(file instanceof File)) throw new StudioError("Attach the mp4 as 'file'.");
@@ -187,16 +407,64 @@ videoEditorRoutes.post("/render", async (c) => {
   const b = await ownedPlan(c.env, user, batch);
   const row = projectId ? await first<VideoProjectRow>(c.env.DB, "SELECT * FROM video_projects WHERE id = ? AND batch = ? AND post = ?", projectId, b.id, post) : null;
   if (projectId && !row) throw new StudioError("Project not found on this post.", 404);
-  const opId = await recordIntegrationOp(c.env, { provider: PROVIDER, kind: "editor.render", user: user.id, batch: b.id, post, estimate: 0, status: "running", note: `Export${row ? ` of "${row.name}" (save ${row.rev})` : ""} rendered in the browser · ${Math.round(file.size / 1024)} KB` });
-  let stored: { video: VideoItem; info: unknown };
+  const job = renderId ? await first<VideoRenderRow>(c.env.DB, "SELECT * FROM video_renders WHERE id = ? AND batch = ? AND post = ?", renderId, b.id, post) : null;
+  if (renderId && !job) throw new StudioError("Render not found on this post.", 404);
+  if (job && row && job.project !== row.id) throw new StudioError("This render belongs to another project.", 409);
+  if (job?.status === "done") throw new StudioError("This render was stored already.", 409);
+  const rev = job?.project_rev ?? row?.rev ?? 0;
+  const fail = async (message: string) => {
+    if (job) await run(c.env.DB, "UPDATE video_renders SET status = 'failed', error = ?, updated = ?, finished = ? WHERE id = ?", message.slice(0, 400), now(), now(), job.id);
+  };
+  // The file must be the size the frozen revision asks for: the frame chosen in the editor is the frame encoded.
+  if (job) {
+    const want = (JSON.parse(job.document) as VideoProject).output;
+    const info = readMp4(await file.arrayBuffer());
+    if (info.width && info.height && (info.width !== want.width || info.height !== want.height)) {
+      const message = `The rendered file is ${info.width}×${info.height} but the project asks for ${want.width}×${want.height}.`;
+      await fail(message);
+      throw new StudioError(message);
+    }
+  }
+  const opId = await recordIntegrationOp(c.env, { provider: PROVIDER, kind: "editor.render", user: user.id, batch: b.id, post, estimate: 0, status: "running", note: `Export${row ? ` of "${row.name}" (save ${rev})` : ""} rendered in the browser · ${Math.round(file.size / 1024)} KB` });
+  let stored: { video: VideoItem; info: ReturnType<typeof readMp4> };
   try {
-    stored = await storeVideoFile(c.env, user, b, { file, index: post, note: note || (row ? `Export of ${row.name}` : "Export"), provider: "editor", source: "editor", model: row ? `editor:${row.id}` : "editor", extra: row ? { project: row.id, rev: row.rev } : {}, opId, rendition: renditionFrom(form) });
+    stored = await storeVideoFile(c.env, user, b, {
+      file,
+      index: post,
+      note: note || (row ? `Export of ${row.name}` : "Export"),
+      provider: "editor",
+      source: "editor",
+      model: row ? `editor:${row.id}` : "editor",
+      extra: row ? { project: row.id, rev, ...(job ? { render: job.id } : {}) } : {},
+      opId,
+      // The still (the render's own frame, the poster) and the light preview, made by the tab.
+      rendition: renditionFrom(form),
+      autoSelect: !job,
+    });
   } catch (e) {
     await updateIntegrationOp(c.env, opId, { status: "failed", note: (e as Error).message.slice(0, 300) });
+    await fail((e as Error).message);
     throw e;
+  }
+  let outcome: RenderOutcome | null = null;
+  if (job) {
+    outcome = await promoteRender(c.env, b, job, stored.video.id);
+    await run(
+      c.env.DB,
+      "UPDATE video_renders SET status = 'done', progress = 1, phase = 'done', video_id = ?, outcome = ?, error = NULL, width = ?, height = ?, duration = ?, updated = ?, finished = ? WHERE id = ?",
+      stored.video.id,
+      outcome,
+      stored.info.width,
+      stored.info.height,
+      stored.info.duration,
+      now(),
+      now(),
+      job.id,
+    );
   }
   if (row) await run(c.env.DB, "UPDATE video_projects SET rendered_video = ?, updated = ?, updated_by = ? WHERE id = ?", stored.video.id, now(), user.id, row.id);
   await updateIntegrationOp(c.env, opId, { status: "done", taskId: stored.video.id });
   const after = row ? await first<VideoProjectRow>(c.env.DB, "SELECT * FROM video_projects WHERE id = ?", row.id) : null;
-  return c.json({ ok: true, video: stored.video, info: stored.info, project: after ? projectItem(after) : null });
+  const video = (await first<VideoRow>(c.env.DB, "SELECT * FROM videos WHERE id = ?", stored.video.id))!;
+  return c.json({ ok: true, video: { ...stored.video, forClient: video.for_client === 1 }, info: stored.info, project: after ? projectItem(after) : null, render: job ? renderItem(await readRender(c.env, job.id)) : null, outcome });
 });

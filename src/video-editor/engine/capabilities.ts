@@ -22,7 +22,41 @@ export const STOP_MESSAGE = "This browser cannot make an H.264 + AAC video. Use 
 /** Level 4.0 covers 1080×1920 at 30 fps; 4.2 is asked first for headroom, then 4.0. */
 const H264_CANDIDATES = ["avc1.64002A", "avc1.640028", "avc1.4D402A", "avc1.4D4028"];
 
-export async function checkCapabilities(output = { width: 1080, height: 1920, fps: 30 }): Promise<Capabilities> {
+/**
+ * The codecs an export is written with. The studio always uses H.264 + AAC (iPhone, Instagram,
+ * the upload checks). VP9 + Opus in MP4 exists only for the automated render test: open-source
+ * Chromium has no H.264, and the test must still run the whole compositor and inspect a real file.
+ */
+export interface ExportCodecs {
+  video: "avc" | "vp9";
+  audio: "aac" | "opus";
+}
+export const STUDIO_CODECS: ExportCodecs = { video: "avc", audio: "aac" };
+export const TEST_CODECS: ExportCodecs = { video: "vp9", audio: "opus" };
+
+/** The test profile: VP9 profile 0, level 4.1, 8-bit, BT.709 (vp09.00.41.08.01.01.01.01.00), and Opus. */
+async function checkTestCodecs(output: { width: number; height: number; fps: number }): Promise<Capabilities> {
+  const details: string[] = [];
+  let videoCodec: string | null = null;
+  if (typeof VideoEncoder === "undefined" || typeof AudioEncoder === "undefined") details.push("WebCodecs is not available here.");
+  else {
+    for (const codec of ["vp09.00.41.08.01.01.01.01.00", "vp09.00.41.08", "vp09.00.10.08"]) {
+      const r = await VideoEncoder.isConfigSupported({ codec, width: output.width, height: output.height, framerate: output.fps, bitrate: 4_000_000 }).catch(() => ({ supported: false }));
+      if (r.supported) {
+        videoCodec = codec;
+        break;
+      }
+    }
+    if (!videoCodec) details.push("No VP9 encoder.");
+    const a = await AudioEncoder.isConfigSupported({ codec: "opus", sampleRate: AUDIO_SAMPLE_RATE, numberOfChannels: 2, bitrate: 128_000 }).catch(() => ({ supported: false }));
+    if (!a.supported) details.push("No Opus encoder.");
+  }
+  const ok = !details.length;
+  return { canExport: ok, canDecode: ok, videoCodec, message: ok ? "" : "This browser cannot make the test render.", details };
+}
+
+export async function checkCapabilities(output = { width: 1080, height: 1920, fps: 30 }, codecs: ExportCodecs = STUDIO_CODECS): Promise<Capabilities> {
+  if (codecs.video === "vp9") return checkTestCodecs(output);
   const details: string[] = [];
   let videoCodec: string | null = null;
   let canDecode = false;
