@@ -352,6 +352,14 @@ describe("Campaign Autopilot: the admin looks at the shots before the videos", (
     expect(again.attempts).toBe(2);
     expect(q.steps.find((s) => s.step === "vid-1:s3:frame")!.attempts).toBe(1);
     expect(q.steps.find((s) => s.step === "vid-1:-:review")!.status).toBe("ready");
+    // A new key frame for Reel 3: its angles are made again from it, never before it.
+    const key3 = await call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent("vid-3:-:image")}/redo`, { confirm: true });
+    expect(key3.status).toBe(200);
+    const k = key3.body.campaign.steps;
+    expect(k.filter((s) => s.item === "vid-3" && s.kind === "frame").every((s) => s.status === "waiting" || s.status === "done")).toBe(true);
+    const k2 = await tickUntilQuiet(env, c.id, 6, false);
+    expect(k2.steps.find((s) => s.step === "vid-3:-:image")!.attempts).toBe(2);
+    expect(k2.steps.filter((s) => s.item === "vid-3" && s.kind === "frame").every((s) => s.attempts === 2 && s.status === "done")).toBe(true);
     // Approved: that Reel's clips are made; the other Reels still wait for their look.
     const ok = await call<{ campaign: Campaign }>(env, "POST", `/${c.id}/steps/${encodeURIComponent("vid-1:-:review")}/approve-shots`);
     expect(ok.status).toBe(200);
@@ -361,5 +369,31 @@ describe("Campaign Autopilot: the admin looks at the shots before the videos", (
     // An approved Reel's pictures are not made again here.
     const late = await call(env, "POST", `/${c.id}/steps/${encodeURIComponent("vid-1:s2:frame")}/redo`, { confirm: true });
     expect(late.status).toBe(409);
+  });
+});
+
+describe("Campaign Autopilot: approved again after an edit", () => {
+  it("updates the item's own card instead of adding a new one", async () => {
+    const env = await seed();
+    const c = await create(env);
+    await approve(env, c);
+    const done = await tickUntilQuiet(env, c.id);
+    const before = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as Config;
+    const card = done.steps.find((s) => s.step === "img-1:-:post")!.post!;
+    const plan = structuredClone(done.plan);
+    plan.images[0].idea = "A new idea for the first post: the cup on a snowy window sill.";
+    plan.images[0].headline = "Snow day";
+    const edited = await call<{ campaign: Campaign }>(env, "PUT", `/${c.id}/plan`, { plan, rev: done.plan.rev });
+    const a2 = await approve(env, edited.body.campaign);
+    expect(a2.status).toBe(200);
+    const after = await tickUntilQuiet(env, c.id);
+    const config = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as Config;
+    expect(config.plan!.length).toBe(before.plan!.length);
+    const p = config.plan!.find((x) => x.index === card)!;
+    expect(p.brief).toContain("snowy window sill");
+    expect(p.title).toBe("Snow day");
+    // The picture was made again for the new idea (a new version on the same card).
+    expect(after.steps.find((s) => s.step === "img-1:-:image")!.output).not.toBe(done.steps.find((s) => s.step === "img-1:-:image")!.output);
+    expect(after.steps.find((s) => s.step === "img-1:-:image")!.post).toBe(card);
   });
 });

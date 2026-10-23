@@ -167,13 +167,12 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   const fresh = await ownedPlan(env, user, row.batch);
   const config = JSON.parse(fresh.config) as Config;
   const planPosts = config.plan ?? [];
-  if (s.post) {
-    const mine = planPosts.find((p) => p.index === s.post && p.title === title);
-    if (mine) return mine.index;
-  }
-  if (planPosts.length >= MAX_POST_COUNT) throw new StudioError(`The month holds ${MAX_POST_COUNT} posts already.`, 409);
-  const index = planPosts.reduce((m, p) => Math.max(m, p.index), 0) + 1;
-  await patchStep(env, s, { post: index });
+  // The item's card already exists (an earlier attempt, or the approval before an edit): it is
+  // updated in place, never doubled; its pictures stay its versions.
+  const existing = s.post ? planPosts.find((p) => p.index === s.post) : undefined;
+  if (!existing && planPosts.length >= MAX_POST_COUNT) throw new StudioError(`The month holds ${MAX_POST_COUNT} posts already.`, 409);
+  const index = existing ? existing.index : planPosts.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+  if (!existing) await patchStep(env, s, { post: index });
   const t = now();
   const setup = JSON.parse(row.setup) as { imageFormat?: string };
   let post: Post;
@@ -190,8 +189,15 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   const cast = await castOf(env, config.client ?? null);
   const words = image ? `${image.idea} ${image.visual}` : `${video!.concept} ${video!.shots.map((x) => x.action).join(" ")}`;
   if (cast.length && showsPeople(words)) post.people = [cast[0].name];
-  config.plan = [...planPosts, post];
-  config.postCount = Math.min(MAX_POST_COUNT, Math.max(config.postCount ?? planPosts.length, planPosts.length) + 1);
+  if (existing) {
+    // Kept from the card: its date, group and anything the team set on it since.
+    const { index: _i, ...words2 } = post;
+    void _i;
+    config.plan = planPosts.map((p) => (p.index === index ? { ...p, ...words2, people: post.people ?? p.people } : p));
+  } else {
+    config.plan = [...planPosts, post];
+    config.postCount = Math.min(MAX_POST_COUNT, Math.max(config.postCount ?? planPosts.length, planPosts.length) + 1);
+  }
   await saveConfig(env, fresh, config);
   return index;
 }
@@ -444,6 +450,13 @@ async function settleStep(ctx: Ctx, s: StepRow): Promise<void> {
   if (s.ref_kind === "task" && s.post) {
     const t = await first<{ status: string; output: string | null; error: string | null; updated: number }>(env.DB, "SELECT status, output, error, updated FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, s.post);
     if (!t) return;
+    // A picture still being made (or in the engine's automatic review): the month's engine is moved
+    // on from here, as the Studio page does, so it never waits for someone to open the month.
+    if (["queued", "processing", "finalizing", "review"].includes(t.status)) {
+      const { advanceBatch } = await import("./engine");
+      ctx.waitUntil(advanceBatch(env, b.id, { background: ctx.waitUntil, deferSync: true }).catch((e) => console.error("[campaign] advance month", errorMessage(e))));
+      return;
+    }
     if ((t.status === "ready" || t.status === "approved") && t.output && t.updated >= (s.started ?? 0)) {
       const cost = await first<{ c: number | null }>(env.DB, "SELECT SUM(cost) AS c FROM post_takes WHERE batch = ? AND post = ? AND created >= ?", b.id, s.post, s.started ?? 0);
       await settleCost(env, row, s, cost?.c ?? null);

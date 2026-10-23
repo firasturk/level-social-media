@@ -866,7 +866,8 @@ campaignRoutes.post("/:id/steps/:step/redo", async (c) => {
     if (x.status === "running") continue;
     if (x.unit && x.estimate) await approveSpend(c.env, campaignScope(row.id, x.unit), x.estimate, `${row.id}:${x.step}:redo:${x.attempts}`);
     const mine = x.step === s.step;
-    await run(c.env.DB, "UPDATE campaign_steps SET status = ?, max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", mine ? "ready" : "waiting", mine && d.angle ? JSON.stringify({ angle: d.angle }) : x.data, mine ? (d.angle ? `Making again, angle: ${d.angle}` : "Making again") : "Made again from the new key frame", t, row.id, x.step);
+    // Waiting: it starts when what it is made from is done (a key frame being made again comes first).
+    await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", mine && d.angle ? JSON.stringify({ angle: d.angle }) : x.data, mine ? (d.angle ? `Making again, angle: ${d.angle}` : "Making again") : "Made again from the new key frame", t, row.id, x.step);
   }
   // The clips that start from this picture, and the Reel's review, wait for the new picture.
   await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', updated = ? WHERE campaign = ? AND step = ?", t, row.id, review.step);
