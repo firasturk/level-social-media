@@ -36,7 +36,7 @@ import {
 import type { PostReference } from "@shared/posts";
 import "./drive.css";
 
-const photoUrl = (id: string, size: number) =>
+export const photoUrl = (id: string, size: number) =>
   `/api/studio/drive/photo/${encodeURIComponent(id)}?size=${size}`;
 const driveApi = (client: string, path = "") =>
   `/api/studio/drive/${encodeURIComponent(client)}${path}`;
@@ -64,7 +64,7 @@ const ROLE_NOTES: Record<DriveRole, string> = {
   output: "Finished pictures the team exported to Drive.",
 };
 
-function useDriveListing(clientId: string, open = true) {
+export function useDriveListing(clientId: string, open = true) {
   const [state, setState] = useState<DriveListing | null>(null);
   const load = useCallback(
     (fresh = false) => {
@@ -82,7 +82,7 @@ function useDriveListing(clientId: string, open = true) {
 }
 
 /** "Not connected · demo listing": the fixture stands in for Drive on a preview with no credential. */
-function DemoLabel({ on }: { on: boolean }) {
+export function DemoLabel({ on }: { on: boolean }) {
   return on ? <span className="drive-demo">Not connected · demo listing</span> : null;
 }
 

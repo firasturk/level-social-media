@@ -16,7 +16,7 @@ import { z } from "zod";
 import { previewNoImages, type Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
-import { askText, ownedPlan, parseJson, profileOf, saveConfig } from "./posts";
+import { askText, ownedPlan, parseJson, plainBackground, profileOf, saveConfig } from "./posts";
 import { resolveVertex } from "./settings";
 import { vertexToken } from "./vertex";
 import { DEMO_FOLDERS, driveMock } from "./drive-mock";
@@ -551,6 +551,19 @@ async function listClient(env: Env, client: string, fresh = false): Promise<Clie
 }
 
 /** The client's Drive product photos, or none when it has no folder or the folder can't be read. */
+/** True when the file is in one of the client's approved Drive folders (its listing, any role). */
+export async function isClientDriveFile(env: Env, client: string, id: string): Promise<boolean> {
+  const known = await first<{ client: string }>(
+    env.DB,
+    "SELECT client FROM drive_photos WHERE id = ? AND client = ? AND status != 'missing'",
+    id,
+    client,
+  );
+  if (known) return true;
+  const listing = await listClient(env, client);
+  return listing.photos.some((p) => p.id === id);
+}
+
 export async function clientDrivePhotos(env: Env, client: string): Promise<DrivePhoto[]> {
   try {
     return (await listClient(env, client)).photos.filter(
@@ -654,6 +667,76 @@ async function liveFile(env: Env, photoId: string): Promise<DriveFile> {
     throw new StudioError(m.missing, 404);
   }
   return m.file;
+}
+
+/** What the studio knows of a Drive file before copying it: its name, type, size and version. */
+export interface DriveFileInfo {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  version: string;
+  md5?: string;
+}
+
+/** One Drive file as Drive gives it now (read only); a file Drive no longer gives is refused (404). */
+export async function driveFileInfo(env: Env, id: string): Promise<DriveFileInfo> {
+  const f = await liveFile(env, id);
+  const mime = f.shortcutDetails?.targetMimeType ?? f.mimeType;
+  return {
+    id: f.shortcutDetails?.targetId ?? f.id,
+    name: f.name,
+    mimeType: mime,
+    size: Number(f.size ?? 0),
+    version: versionOf(f),
+    ...(f.md5Checksum ? { md5: f.md5Checksum } : {}),
+  };
+}
+
+/**
+ * A copy of a Drive file's bytes for the studio's storage (Start → Edit images / Create or edit
+ * video). Drive is only read (the scope is drive.readonly and every call is a GET): the original
+ * stays as it is. A picture Drive can give as it is (JPEG, PNG or WebP within `max`) is copied
+ * byte for byte; any other picture (HEIC, TIFF, a huge file) comes as Drive's large rendition. A
+ * clip is copied as it is, up to `max`.
+ */
+export async function driveFileCopy(
+  env: Env,
+  info: DriveFileInfo,
+  max: number,
+): Promise<ImageBytes> {
+  const video = info.mimeType.startsWith("video/");
+  if (info.size > max && video)
+    throw new StudioError(
+      `${info.name} is too large to copy (${Math.round(max / 1024 / 1024)} MB at most).`,
+      413,
+    );
+  if (await isDemoDrive(env)) {
+    const f = driveMock.meta(info.id);
+    if (!f) throw new StudioError(REASON_GONE, 404);
+    if (f.media) return { bytes: f.media.slice().buffer as ArrayBuffer, mime: f.mimeType };
+    if (video) throw new StudioError("The demo Drive has no clip bytes for this file.", 404);
+    // The demo card is an SVG; the copy is a real picture (a PNG in the card's colour) so the
+    // card's thumbnails and the editors read it like any other.
+    return { bytes: await plainBackground(f.color, "4:5"), mime: "image/png" };
+  }
+  const asIs = video || (/^image\/(jpeg|png|webp)$/i.test(info.mimeType) && info.size <= max);
+  if (!asIs) return photoBytes(env, info.id, 2560);
+  const { token } = await auth(env);
+  const r = await fetch(`${API}/${encodeURIComponent(info.id)}?alt=media&${ALL_DRIVES}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (r.status === 404) {
+    await markMissing(env, info.id, REASON_GONE);
+    throw new StudioError(REASON_GONE, 404);
+  }
+  if (!r.ok) throw new StudioError(`Google Drive answered ${r.status} for ${info.name}.`, 502);
+  const bytes = await r.arrayBuffer();
+  if (bytes.byteLength > max)
+    throw new StudioError(`${info.name} is too large to copy.`, 413);
+  return { bytes, mime: info.mimeType };
 }
 
 const extOf = (mime: string) =>

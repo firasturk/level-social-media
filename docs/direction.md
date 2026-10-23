@@ -3,6 +3,10 @@
 What the Direction board of the four-stage workflow gained after Firas's review of the new journey
 against the classic one, and the fix to the Drive picker's tiles.
 
+Start now offers four options (Quick Campaign, Follow a grid, Edit images, Create or edit video);
+the theme references moved off Start and live here, under Supporting inputs. The two direct routes
+skip Direction and Plan: see [direct-to-studio.md](direct-to-studio.md).
+
 ## Models
 
 - A **Models** row sits among the supporting inputs (after the product images): the month's cast as

@@ -94,6 +94,7 @@ import { freepikRoutes } from "./freepik";
 import { freepikMcpRoutes } from "./freepik-mcp";
 import { higgsfieldMcpRoutes } from "./higgsfield-mcp";
 import { publishRoutes } from "./publish";
+import { mediaRoutes } from "./media-intake";
 
 type Variables = { user: User };
 export const studioRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -131,6 +132,8 @@ studioRoutes.route("/freepik/mcp", freepikMcpRoutes);
 studioRoutes.route("/higgsfield/mcp", higgsfieldMcpRoutes);
 studioRoutes.route("/freepik", freepikRoutes);
 studioRoutes.route("/publish", publishRoutes);
+// Start → Edit images / Create or edit video: the client's own files straight onto Studio cards.
+studioRoutes.route("/media", mediaRoutes);
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_UPLOAD = 25 * 1024 * 1024;

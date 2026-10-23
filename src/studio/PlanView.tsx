@@ -67,9 +67,14 @@ import {
 import { STATUS_LABEL } from "./constants";
 import type { SaveStatus as SaveState } from "@shared/save-status";
 import SaveStatus from "./SaveStatus";
-import { confirmScope, scopeNote } from "@shared/scope";
+import { confirmScope, scopeLabel, scopeNote } from "@shared/scope";
 import { formatUsd } from "@shared/pricing";
 import { askConfirm } from "@/lib/confirm";
+import { isMediaPost } from "@shared/posts";
+import type { StyleItem } from "@shared/styles";
+import { CombineDialog, restyleInstruction, SelectionBar } from "./MediaSelection";
+import { takeNewCards } from "./mediaApi";
+import "./media-intake.css";
 
 /** The month of a client: its products, the plan of posts and their images. */
 export default function PlanView({
@@ -139,7 +144,10 @@ export default function PlanView({
   outputThumb,
   wordsRequest,
   monthLanguage,
+  admin = false,
 }: {
+  /** The viewer is an admin (combining cards into one video is the Video editor's admins-only step). */
+  admin?: boolean;
   /** Another screen (the review dialog) asks for the Text studio on a post: a new token opens it. */
   wordsRequest?: { index: number; at: number } | null;
   /** The month's content language when it overrides the brand kit's (config.language); the Text studio follows it. */
@@ -286,6 +294,15 @@ export default function PlanView({
     void loadVideos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [batchId]);
+  // New cards (clips added from Start, a combined video) bring their versions: read them again.
+  const postsCount = plan.length;
+  const seenCount = useRef(postsCount);
+  useEffect(() => {
+    if (seenCount.current === postsCount) return;
+    seenCount.current = postsCount;
+    void loadVideos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postsCount]);
   const videosPending = Object.values(videos).some((v) => inFlight(v.latest));
   useEffect(() => {
     if (!videosPending) return;
@@ -323,6 +340,78 @@ export default function PlanView({
   dirtyRef.current = dirty;
   const planRef = useRef(plan);
   planRef.current = plan;
+
+  /* ── Choosing cards for one step: a style, the Text studio one by one, one video (docs/direct-to-studio.md) ── */
+  const [selecting, setSelecting] = useState(false);
+  const [chosen, setChosen] = useState<number[]>([]);
+  const [chosenRoute, setChosenRoute] = useState<"images" | "video" | null>(null);
+  const [styleFor, setStyleFor] = useState<number[] | null>(null);
+  const [combineOpen, setCombineOpen] = useState(false);
+  /** The chosen cards still waiting for the Text studio, after the one open now. */
+  const [textQueue, setTextQueue] = useState<number[]>([]);
+  // Cards just made from Start (Edit images, Create or edit video) arrive chosen, ready for the next step; nothing runs by itself.
+  useEffect(() => {
+    const fresh = takeNewCards(batchId);
+    if (!fresh) return;
+    setSelecting(true);
+    setChosen(fresh.indexes);
+    setChosenRoute(fresh.route);
+  }, [batchId, plan.length]);
+  const chosenNow = chosen.filter((i) => draft.some((x) => x.index === i));
+  const toggleChosen = (i: number) => setChosen((c) => (c.includes(i) ? c.filter((x) => x !== i) : [...c, i]));
+  const stopChoosing = () => {
+    setSelecting(false);
+    setChosen([]);
+    setChosenRoute(null);
+  };
+  /** A gallery style saved on exactly the chosen cards, after one confirm that names them; no picture is made. */
+  async function styleChosen(style: StyleItem, indexes: number[]) {
+    const targets = indexes.map((i) => draftRef.current.find((x) => x.index === i)).filter((x): x is Post => !!x);
+    if (!targets.length) return;
+    const media = targets.filter(isMediaPost);
+    const others = targets.filter((x) => !isMediaPost(x));
+    const n = targets.length;
+    const label = scopeLabel({ kind: "selection", indexes: targets.map((x) => x.index) });
+    const rest = plan.length - n;
+    const ok = await askConfirm(
+      `Save the style “${style.title}” on ${label}? It is saved on each card now: no picture is made and nothing is paid.${media.length ? ` Restyling each picture is then its own step on its card (Restyle${perPicture ? `, about ${formatUsd(perPicture)} each` : ""}), confirmed one picture at a time.` : ""}${others.length ? ` ${others.length === 1 ? "One planned post gets" : `${others.length} planned posts get`} its idea and shot written in the style; making ${others.length === 1 ? "its picture" : "their pictures"} stays a separate step with its cost.` : ""}${rest > 0 ? ` The month's other ${rest} post${rest === 1 ? " stays" : "s stay"} as ${rest === 1 ? "it is" : "they are"}.` : ""}`,
+      { ok: `Save on ${n} card${n === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
+    );
+    if (!ok) return;
+    try {
+      if (media.length) {
+        const ids = new Set(media.map((x) => x.index));
+        const next = draftRef.current.map((x) => (ids.has(x.index) ? { ...x, style: style.id } : x));
+        draftRef.current = next;
+        setDraft(next);
+        await onSavePlan(next);
+      }
+      if (others.length) await onStyles(others.map((x) => ({ index: x.index, style: style.id })));
+      toast.success(`Style “${style.title}” saved on ${label}. Nothing was made.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  /** One media card's picture restyled in its saved style: the Photo studio's AI edit, one paid picture, confirmed here. */
+  async function restyle(p: Post, t: Task) {
+    const st = p.style ? styleOf(p.style) : undefined;
+    if (!st || !batchId) return;
+    const target = { kind: "post" as const, index: p.index, title: p.title };
+    const scope = confirmScope({ target, effect: "edit-image", cost: perPicture || undefined, untouched: plan.length > 1 ? `the month's other ${plan.length - 1} post${plan.length === 2 ? "" : "s"}` : undefined });
+    const ok = await askConfirm(`${scope.message} The picture takes the light, colours and mood of “${st.title}”; its subject stays.`, { ok: scope.ok, danger: false, cancel: "Not now" });
+    if (!ok) return;
+    try {
+      await post("/api/studio/revise", { batch: batchId, id: t.id, edit: restyleInstruction(st) });
+      const next = draftRef.current.map((x) => (x.index === p.index && x.media ? { ...x, media: { ...x.media, styled: st.id } } : x));
+      draftRef.current = next;
+      setDraft(next);
+      await onSavePlan(next);
+      await onRefresh?.();
+      toast.success(`Post ${p.index} is being restyled. The picture before stays under Versions.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   /** Edits save themselves when the designer clicks out of a field; a text edit can be undone from the toast. */
   function autosave() {
     if (!dirtyRef.current) return;
@@ -478,6 +567,42 @@ export default function PlanView({
 
   return (
     <section className={`plan ${dragging ? "dragging" : ""}`} {...dropProps}>
+      {styleFor !== null && (
+        <StyleScreen
+          open
+          onClose={() => setStyleFor(null)}
+          forClient={{ id: client.id, name: client.name }}
+          pick={{
+            mode: "post",
+            label: `${styleFor.length} chosen card${styleFor.length === 1 ? "" : "s"} (posts ${styleFor.map((i) => String(i).padStart(2, "0")).join(", ")})`,
+            onPick: (_ids: string[], items: StyleItem[]) => {
+              const targets = styleFor;
+              setStyleFor(null);
+              if (items[0]) void styleChosen(items[0], targets);
+            },
+          }}
+        />
+      )}
+      {combineOpen && batchId && (
+        <CombineDialog
+          open
+          batchId={batchId}
+          cards={chosenNow.map((i) => {
+            const x = draft.find((d) => d.index === i)!;
+            const t = taskOf(i);
+            const s = videos[String(i)];
+            return { index: i, title: x.title, thumb: t?.output ? (outputThumb ?? outputUrl)(t) : null, picture: t?.output ? outputUrl(t) : null, hasClip: !!(s?.client || s?.done) };
+          })}
+          onClose={() => setCombineOpen(false)}
+          onCombined={async (a) => {
+            setCombineOpen(false);
+            stopChoosing();
+            await onRefresh?.();
+            await loadVideos();
+            setVideoEditing({ index: a.target, videoId: null, panel: "edit" });
+          }}
+        />
+      )}
       <StyleScreen
         open={picking !== null}
         onClose={() => setPicking(null)}
@@ -737,7 +862,30 @@ export default function PlanView({
                 </button>
               </span>
             )}
+            {compact && !selecting && (
+              <button type="button" className="cta secondary small posts-choose" onClick={() => setSelecting(true)} title="Tick cards to apply a style to them, open them in the Text studio one by one, or combine them into one video">
+                <Check size={14} /> Choose cards
+              </button>
+            )}
           </div>
+          {compact && selecting && (
+            <SelectionBar
+              count={chosenNow.length}
+              route={chosenRoute}
+              admin={admin}
+              textable={chosenNow.filter((i) => draft.find((x) => x.index === i)?.overlay !== false && !!taskOf(i)?.output).length}
+              onStyle={() => setStyleFor(chosenNow)}
+              onText={() => {
+                const list = chosenNow.filter((i) => draft.find((x) => x.index === i)?.overlay !== false && !!taskOf(i)?.output);
+                if (!list.length) return;
+                setTextQueue(list.slice(1));
+                setEditing(list[0]);
+              }}
+              onCombine={() => setCombineOpen(true)}
+              onClear={() => setChosen([])}
+              onDone={stopChoosing}
+            />
+          )}
           <div className={`post-grid f-${format.replace(":", "x")}`} onBlur={autosave}>
             {draft.map((p) => {
               const t = taskOf(p.index);
@@ -766,8 +914,20 @@ export default function PlanView({
                 const stale = !!t?.output && !inFlight && olderIdea(t, p, revision);
                 const target = p.group ? { kind: "slide" as const, index: p.index, slide: p.group.slide, of: p.group.of, title: p.title } : { kind: "post" as const, index: p.index, title: p.title };
                 const cannotMake = inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer));
+                /** A card made from the client's own file: never generated; its one paid step is restyling it in its saved style, confirmed. */
+                const mediaCard = isMediaPost(p);
+                const restyleDue = mediaCard && !!p.style && p.media?.styled !== p.style && !!t?.output && !inFlight;
                 /** The card's primary action when the picture is not there yet, failed, or belongs to an older idea: make it, with its scope and cost said first. */
-                const primary = !t?.output || t.status === "failed" || stale
+                const primary = mediaCard
+                  ? restyleDue
+                    ? {
+                        label: `Restyle${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
+                        title: `Edits this picture into the look of “${styleOf(p.style!)?.title ?? "its style"}”: one paid picture, asked first; the picture before stays under Versions. ${scopeNote(target, plan.length)}`,
+                        disabled: running || !styleOf(p.style!),
+                        onClick: () => void restyle(p, t!),
+                      }
+                    : undefined
+                  : !t?.output || t.status === "failed" || stale
                   ? {
                       label: `${stale ? "Make it again" : t?.status === "failed" ? "Try again" : "Make the picture"}${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
                       title: `${stale ? "The idea, product or direction changed after this picture was made: another version is made for the new idea; this one stays under Versions." : t?.status === "failed" ? "Makes this post's picture again after the failure." : "Makes this post's first picture."} ${scopeNote(target, plan.length)}`,
@@ -781,7 +941,25 @@ export default function PlanView({
                       },
                     }
                   : undefined;
-                const menu = [
+                const menu = mediaCard
+                  ? [
+                      p.style
+                        ? { label: "Take the style off", onClick: () => void onSavePlan(draftRef.current.map((x) => (x.index === p.index ? { ...x, style: undefined } : x))), disabled: !!busy, title: "The picture stays as it is; only the saved style is taken off" }
+                        : { label: "Pick a style", onClick: () => setStyleFor([p.index]), disabled: !!busy, title: "Saves a gallery style on this card; restyling the picture is a separate step you confirm, with its cost" },
+                      ...(t?.output && !inFlight
+                        ? [
+                            { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false, title: "The words and layers on this picture; no picture is made" },
+                            { label: "Video from this picture", onClick: () => openVideoEditor(p.index), title: "The Video studio: this card's clip or picture, edits and versions; generating a clip stays a separate step with its cost" },
+                            { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" },
+                          ]
+                        : []),
+                      ...(onRestorePicture && !inFlight && prevOf(t)
+                        ? [{ label: "Previous picture", onClick: () => { const was = t!.output!; setRestoring(p.index); void onRestorePicture(p.index, prevOf(t)!).then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } }).finally(() => setRestoring(null)); }, disabled: restoring !== null || running }]
+                        : []),
+                      { label: "Versions", onClick: () => onEdit(p.index, "versions") },
+                      { label: "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
+                    ]
+                  : [
                   ...(t?.output && !primary
                     ? [{
                         label: "Make another version",
@@ -818,8 +996,9 @@ export default function PlanView({
                   { label: "Reference picture and versions", onClick: () => onEdit(p.index, "versions") },
                   { label: "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                 ];
+                const chosenAt = chosenNow.indexOf(p.index);
                 return (
-                  <article key={p.index} id={`post-card-${p.index}`} className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""}`}>
+                  <article key={p.index} id={`post-card-${p.index}`} className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""} ${chosenAt >= 0 ? "selected" : ""}`}>
                     <PostCardCompact
                       post={p}
                       task={t}
@@ -840,6 +1019,7 @@ export default function PlanView({
                       disabled={running || !!busy}
                       menu={menu}
                       primary={primary}
+                      select={selecting ? { on: chosenAt >= 0, n: chosenAt + 1, onToggle: () => toggleChosen(p.index) } : undefined}
                       media={
                         <>
                           {img && showOverlay && p.overlay !== false ? (
@@ -868,6 +1048,13 @@ export default function PlanView({
                             </small>
                           )}
                           {p.product && !product && p.type !== "offer" && <small className="pc-meta warn">No photo of {p.product} this month: Generate brings it from the gallery, or pick another product in Edit.</small>}
+                          {mediaCard && p.media && (
+                            <small className="pc-meta pc-media-tag" title={p.media.name}>
+                              {p.media.kind === "video" ? <Clapperboard size={12} /> : <Images size={12} />}
+                              {p.media.from === "combine" ? "Combined video" : p.media.kind === "video" ? "Your clip" : "Your picture"} · {p.media.from === "drive" ? "from the client's Drive" : p.media.from === "upload" ? "uploaded" : "from chosen cards"}
+                              {p.style && p.media.styled === p.style ? " · restyled" : ""}
+                            </small>
+                          )}
                           {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
                           <PublishPill publication={publicationFor(publications, plan, p.index)} />
                           {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
@@ -1605,8 +1792,16 @@ export default function PlanView({
         const p = editing !== null ? draft.find((x) => x.index === editing) : null;
         const t = p ? taskOf(p.index) : null;
         if (!p || !t?.output) return null;
+        // Chosen cards open one by one: closing this one opens the next, until none is left.
+        const closeText = () => {
+          const [next, ...rest] = textQueue;
+          setTextQueue(rest);
+          setEditing(next ?? null);
+          if (next !== undefined) toast.message(`Next in the Text studio: post ${String(next).padStart(2, "0")}${rest.length ? ` (${rest.length} more after it)` : ""}.`);
+        };
         return (
           <TextStudio
+            key={p.index}
             open
             src={outputUrl(t)}
             spec={overlay}
@@ -1621,10 +1816,11 @@ export default function PlanView({
             index={p.index}
             fileName={`${fileBase}_post-${String(p.index).padStart(2, "0")}`}
             onClientsChanged={onClientsChanged}
-            onClose={() => setEditing(null)}
+            onClose={closeText}
             onPhotoStudio={
               onPhotoStudio
                 ? () => {
+                    setTextQueue([]);
                     setEditing(null);
                     onPhotoStudio(p.index, "edit");
                   }
@@ -1639,7 +1835,7 @@ export default function PlanView({
               draftRef.current = next;
               setDraft(next);
               onSavePlan(next);
-              if (!keepOpen) setEditing(null);
+              if (!keepOpen) closeText();
             }}
             assets={[
               ...products.map((s) => ({ name: displayName(s.name), src: sourceUrl(s.id), kind: "product" as const })),

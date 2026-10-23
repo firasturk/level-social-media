@@ -122,6 +122,18 @@ export const postSchema = z.object({
       details: z.string().max(1000),
     })
     .optional(),
+  source: z.literal("media").optional(),
+  media: z
+    .object({
+      kind: z.enum(["image", "video"]),
+      from: z.enum(["drive", "upload", "combine"]),
+      name: z.string().max(200),
+      fp: z.string().max(200),
+      drive: z.object({ id: z.string().max(200), version: z.string().max(80), md5: z.string().max(80).optional() }).optional(),
+      styled: z.string().max(80).optional(),
+      at: z.number(),
+    })
+    .optional(),
 });
 
 export const configSchema = z.object({
