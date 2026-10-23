@@ -30,11 +30,11 @@ import { footageAnalysis, timelineGrid } from "../engine/analyse";
 import { frameOfOutput, newLogoOverlay, newTextOverlay, outputForFrame, type FitMode, type Overlay } from "@shared/video-compose";
 import { isFrame, type FrameId } from "@shared/video-frame";
 import type { PresetCard } from "@shared/video-presets";
-import { inFlight, listAudio, listVideos, sendVideoForReview, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
+import { inFlight, instagramSound, listAudio, listVideos, sendVideoForReview, uploadAudio, versionLabel, type AudioTrack, type VideoItem } from "@/studio/videoApi";
 import { createProject, failRender, getProject, listProjects, listRenders, reportRender, saveProject, startRender, uploadFootage, uploadRender, versionFileUrl, type EditorAccess, type RenderItem } from "../api";
 import { checkCapabilities, type Capabilities } from "../engine/capabilities";
 import { addVersions, footageVersions, loadMusic, loadVoices, musicFileOf, renderCodecs } from "../load-media";
-import { beatsOf, decodeAudio } from "../engine/audio";
+import { beatsOf, decodeAudio, isSilent } from "../engine/audio";
 import { MediaStore, type Media } from "../engine/media";
 import { Player } from "../engine/preview";
 import { exportProject, overallProgress, type ExportProgress } from "../engine/export";
@@ -132,6 +132,13 @@ const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; 
 
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
 const MAX_FOOTAGE = 60 * 1024 * 1024;
+
+/** A video picked for its sound ("Sound from a video file"). */
+const isVideoFile = (file: File): boolean => file.type.startsWith("video/") || /\.(mp4|mov)$/i.test(file.name);
+
+/** Why a picked file gave no sound: a video without a sound track (or only silence) says so; an audio file could not be read. */
+const noSound = (file: File): string =>
+  isVideoFile(file) ? `${file.name} has no sound to use: the video carries no sound track, only silence, or a sound this browser cannot read.` : `${file.name} could not be decoded as audio.`;
 
 export default function VideoEditor({ open, post, initialVideoId, initialPanel, pictureUrl, composeArtwork, approval, fileBase, onClose, onExported, onChanged, onPhotoStudio, onTextStudio, logoUrl, client, references }: Props) {
   const history = useHistory();
@@ -626,12 +633,16 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
    * A track for the cut. With a post open (admins) it is kept with the post as a licensed track
    * (the Audio panel's list, with the licence line typed here), so the saved project points at it
    * and a reopened project sounds the same; otherwise it lives in this tab only.
+   *
+   * "Sound from a video file": an mp4 or mov is taken the same way. The browser's decoder reads
+   * the AAC sound out of the video (`decodeAudio`), and the server keeps the video file as the
+   * track (60 MB at most); a video with no sound is refused here with a plain sentence.
    */
   const pickMusic = async (file: File, license = "") => {
     try {
       setMusicBusy(`Reading ${file.name}…`);
       const buffer = await decodeAudio(await file.arrayBuffer());
-      if (!buffer) throw new Error(`${file.name} could not be decoded as audio.`);
+      if (!buffer || (isVideoFile(file) && isSilent(buffer))) throw new Error(noSound(file));
       setMusicBusy("Finding the beats…");
       const found = beatsOf(buffer);
       const name = file.name.replace(/\.[a-z0-9]+$/i, "");
@@ -654,9 +665,9 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       setMusicBusy("");
     }
   };
-  /** One of the post's tracks (already kept with the post) as the cut's music. */
-  const chooseTrack = async (track: AudioTrack) => {
-    if (!track.url) return;
+  /** One of the post's tracks (already kept with the post) as the cut's music; false when it could not be read. */
+  const chooseTrack = async (track: AudioTrack): Promise<boolean> => {
+    if (!track.url) return false;
     try {
       setMusicBusy(`Reading ${track.name}…`);
       const buffer = await decodeAudio(await (await fetch(track.url, { credentials: "same-origin" })).arrayBuffer());
@@ -664,8 +675,34 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
       const found = beatsOf(buffer);
       setMusicFile({ name: track.name, buffer, beats: found });
       history.commit((p) => ({ ...p, music: { source: { kind: "audioKey", key: track.id, name: track.name }, offset: p.music?.offset ?? 0, volume: p.music?.volume ?? 0.9, fadeIn: p.music?.fadeIn ?? 0.5, fadeOut: p.music?.fadeOut ?? 1, duration: buffer.duration, beats: found, start: p.music?.start ?? 0, ...(p.music?.end !== undefined ? { end: p.music.end } : {}), duck: p.music?.duck ?? { ...DEFAULT_DUCKING } } }));
+      return true;
     } catch (e) {
       toast.error((e as Error).message);
+      return false;
+    } finally {
+      setMusicBusy("");
+    }
+  };
+
+  /**
+   * "Sound from an Instagram link" (a post open, admins): the server reads the public reel through
+   * the agency's Meta connection and keeps its mp4 with the post's tracks; the reel's sound then
+   * becomes the music exactly as one of the post's tracks does (`chooseTrack`), and one line says
+   * that Instagram's sound is for Instagram only. The person trims it with "From this second of
+   * the track" and the fades.
+   */
+  const soundFromInstagram = async (link: string): Promise<boolean> => {
+    if (!post || readOnly) return false;
+    try {
+      setMusicBusy("Reading the reel's sound from Instagram…");
+      const r = await instagramSound(post.batch, post.index, link);
+      setTracks(r.tracks);
+      if (!(await chooseTrack(r.track))) return false;
+      toast.warning(r.warning);
+      return true;
+    } catch (e) {
+      toast.error((e as Error).message);
+      return false;
     } finally {
       setMusicBusy("");
     }
@@ -700,7 +737,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     try {
       setVoiceBusy(`Reading ${file.name}…`);
       const buffer = await decodeAudio(await file.arrayBuffer());
-      if (!buffer) throw new Error(`${file.name} could not be decoded as audio.`);
+      if (!buffer || (isVideoFile(file) && isSilent(buffer))) throw new Error(noSound(file));
       const name = file.name.replace(/\.[a-z0-9]+$/i, "");
       let source: NonNullable<VideoProject["music"]>["source"] = { kind: "upload", name: file.name, size: file.size };
       if (post && !readOnly) {
@@ -1099,7 +1136,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
         seek,
         auto: { busy: autoBusy, run: runAuto, notes: autoNotes, reference: { sources: planSources, batch: post?.batch ?? null, media: mediaRef.current, holdMain: (on) => (on ? playerRef.current?.suspend() : (playerRef.current?.resume(), playerRef.current?.seek(time))) } },
         voice: { busy: voiceBusy, add: addVoice, remove: removeVoice, selected: selectedVoice, select: setSelectedVoice, loaded: (id) => voiceBuffers.has(id) },
-        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, tracks, choose: chooseTrack, keeps: !!post && !readOnly, align: alignBeats },
+        music: { name: musicFile?.name ?? null, duration: musicFile?.buffer.duration ?? project.music?.duration ?? 0, beats: project.music?.beats?.length ?? 0, busy: musicBusy, pick: pickMusic, remove: removeMusic, tracks, choose: chooseTrack, fromInstagram: soundFromInstagram, keeps: !!post && !readOnly, align: alignBeats },
         colour: { lutName: lut?.name ?? null, pickLut, clearLut, bypass, setBypass },
         exporting: { progress, result: exportResult, error: exportError, run: runExport, stop: () => abortRef.current?.abort(), canExport: !!caps?.canExport, capsMessage: caps?.message ?? "", capsNotice: caps?.notice ?? "", standalone, running: !!running, renders, chip: chip?.text ?? "", sendForReview, videoLabel: (id) => { const v = videos.find((x) => x.id === id); return v ? versionLabel(v) : "the new version"; }, clientId: videos.find((v) => v.forClient)?.id ?? null },
         layers: { selected: selectedOverlay, select: setSelectedOverlay, addText, addLogo, patch: patchOverlay, remove: removeOverlay, logoUrl: logoUrl ?? null },

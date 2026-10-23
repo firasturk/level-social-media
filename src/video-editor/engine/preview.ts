@@ -7,8 +7,9 @@
  *
  * Sound, as the export mixes it (shared/video-mix.ts): each clip's own sound plays from its
  * <video> at the level `clipGainAt` gives for the current time (its volume, 0 when muted, the
- * crossfade and dip ramps, updated every frame); the music and the voice-overs play through
- * `MixPreview` with the render's own gain curve (fades and ducking under speech).
+ * crossfade and dip ramps and the clip's own fade in and fade out, updated every frame); the music
+ * and the voice-overs play through `MixPreview` with the render's own gain curve (fades and ducking
+ * under speech) and the render's own breakpoints for each voice-over's volume and fades.
  */
 import type { CubeLut } from "@shared/cube-lut";
 import { placeClips, totalLength, type VideoProject } from "@shared/video-project";

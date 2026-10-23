@@ -13,11 +13,13 @@
  * - Zoom: the buttons, ctrl/cmd + wheel or a trackpad pinch (around the pointer), a two-finger
  *   pinch on a touch screen; "Fit" shows the whole cut.
  * - Keyframes show as diamonds on their block; a click on one moves the playhead there.
+ * - Sound fades show as shaded ramps at the ends of the music block, a voice-over and a clip whose
+ *   own sound fades in or out.
  * Every drag is one undo step (mark, patch while dragging, commit at the end).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Diamond, Image as ImageIcon, Lock, Magnet, Maximize2, Mic, Music, Scissors, Trash2, Type, Unlock, Video, ZoomIn, ZoomOut } from "lucide-react";
-import { clipLength, isGap, musicSpan, placeClips, totalLength, trimClip, type Clip, type VideoProject } from "@shared/video-project";
+import { clipLength, clipVolume, isGap, musicSpan, placeClips, totalLength, trimClip, type Clip, type VideoProject } from "@shared/video-project";
 import type { Overlay } from "@shared/video-compose";
 import { diamondTimes, dropIndexAt, fitPps, formatTimecode, moveClips, parseTimecode, SNAP_PX, snapSpan, snapTargets, snapTime, stepFrames, tickSpacing, zoomAround, ZOOM_STEP, type SnapTarget } from "@shared/video-timeline";
 import "./timeline.css";
@@ -475,7 +477,7 @@ export default function Timeline(props: TimelineProps) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") props.onClipClick(c.id, { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey });
                     }}
-                    title={`${gap ? "Gap" : labelOf(c)} · ${formatTimecode(pl.start)}–${formatTimecode(pl.end)}${c.speed !== 1 ? ` · ×${c.speed}` : ""}${c.muted ? " · muted" : c.volume !== undefined && c.volume !== 1 ? ` · sound ${Math.round(c.volume * 100)}%` : ""}${c.speech ? " · has speech" : ""}${c.locked ? " · locked" : ""}`}
+                    title={`${gap ? "Gap" : labelOf(c)} · ${formatTimecode(pl.start)}–${formatTimecode(pl.end)}${c.speed !== 1 ? ` · ×${c.speed}` : ""}${c.muted ? " · muted" : c.volume !== undefined && c.volume !== 1 ? ` · sound ${Math.round(c.volume * 100)}%` : ""}${!c.muted && (c.fadeIn || c.fadeOut) ? ` · sound fades ${(c.fadeIn ?? 0).toFixed(1)} s in, ${(c.fadeOut ?? 0).toFixed(1)} s out` : ""}${c.speech ? " · has speech" : ""}${c.locked ? " · locked" : ""}`}
                     onPointerDown={(e) => {
                       const mods = { shift: e.shiftKey, toggle: e.metaKey || e.ctrlKey };
                       props.onSeek(Math.min(length, timeAt(e.clientX)));
@@ -490,6 +492,9 @@ export default function Timeline(props: TimelineProps) {
                     {...handlers}
                   >
                     {pl.overlap > 0 && <span className="ve-xfade" style={{ width: x(pl.overlap) }} aria-hidden />}
+                    {/* The clip's own sound fading in and out, drawn as the music's fades are (a muted clip or a gap has no sound to fade). */}
+                    {clipVolume(c) > 0 && (c.fadeIn ?? 0) > 0 && <span className="ve-fade in" style={{ width: x(Math.min(c.fadeIn ?? 0, pl.end - pl.start)) }} aria-hidden />}
+                    {clipVolume(c) > 0 && (c.fadeOut ?? 0) > 0 && <span className="ve-fade out" style={{ width: x(Math.min(c.fadeOut ?? 0, pl.end - pl.start)) }} aria-hidden />}
                     <span className="ve-clip-label">
                       {c.locked && <Lock size={10} />} {gap ? "Gap" : labelOf(c)}
                       {c.speed !== 1 ? ` ×${c.speed}` : ""}
@@ -550,6 +555,8 @@ export default function Timeline(props: TimelineProps) {
                   {...handlers}
                 >
                   <Mic size={11} /> <span>{v.name}</span>
+                  {(v.fadeIn ?? 0) > 0 && <span className="ve-fade in" style={{ width: x(Math.min(v.fadeIn ?? 0, v.out - v.in)) }} aria-hidden />}
+                  {(v.fadeOut ?? 0) > 0 && <span className="ve-fade out" style={{ width: x(Math.min(v.fadeOut ?? 0, v.out - v.in)) }} aria-hidden />}
                   {edges((e, edge) => {
                     props.onSelectVoice(v.id);
                     begin(e, { kind: "voice", id: v.id, edge, x0: e.clientX, start: v.start, in: v.in, out: v.out, duration: v.duration });

@@ -7,7 +7,7 @@
  */
 import { useRef, useState } from "react";
 import { get } from "@/api";
-import { ArrowDown, ArrowUp, Clapperboard, Download, Image as ImageIcon, Library, Lock, Music, Plus, RotateCcw, Scissors, Send, Trash2, Type, Unlock, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, Clapperboard, Download, Film, Image as ImageIcon, Library, Link2, Lock, Music, Plus, RotateCcw, Scissors, Send, Trash2, Type, Unlock, Upload } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { BITRATE_PRESETS, clipLength, estimateBytes, formatBytes, isGap, placeClips, totalLength, TRANSITIONS, type Clip, type VideoProject } from "@shared/video-project";
 import type { LooksCtx } from "./looks-ctx";
@@ -19,7 +19,7 @@ import type { AutoRunOptions } from "@shared/edit-plan";
 import type { ReferenceCtx } from "./ReferencePanel";
 import type { Keyframes } from "@shared/video-keyframes";
 import KeyframeControls, { isAnimated } from "./KeyframeControls";
-import { MusicMixControls, type VoiceCtx } from "./MusicMix";
+import { MusicMixControls, SOUND_FILE_ACCEPT, type VoiceCtx } from "./MusicMix";
 import { frameLabel, FRAMES, type FrameId } from "@shared/video-frame";
 import type { AudioTrack } from "@/studio/videoApi";
 import { metaLine, type Media } from "../engine/media";
@@ -67,7 +67,9 @@ export interface PanelCtx {
     remove: () => void;
     /** The post's licensed tracks. */
     tracks: AudioTrack[];
-    choose: (t: AudioTrack) => Promise<void>;
+    choose: (t: AudioTrack) => Promise<boolean>;
+    /** "Sound from an Instagram link": the reel's sound kept with the post and used as the music; false when it could not be. */
+    fromInstagram: (link: string) => Promise<boolean>;
     /** A picked track is kept with the post (a post is open and the person may). */
     keeps: boolean;
     /** "Align cuts to beats": every cut near a beat moved onto it (locked clips and speech untouched). */
@@ -222,7 +224,23 @@ export function ClipsPanel({ ctx }: { ctx: PanelCtx }) {
               <input type="range" min={0} max={1} step={0.05} value={c.volume ?? 1} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, volume: Number(e.target.value) } : x)) }))} onPointerUp={() => ctx.commit((p) => p)} />
             </label>
           )}
-          <p className="ts-hint">Mixed with the music and the voice-over; the music ducks under a clip marked “Has speech”.</p>
+          {!c.muted && (
+            <>
+              <label className="ts-slider">
+                <span>
+                  Sound fade in <em>{fmt(c.fadeIn ?? 0)}</em>
+                </span>
+                <input type="range" min={0} max={5} step={0.1} value={c.fadeIn ?? 0} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, fadeIn: Number(e.target.value) || undefined } : x)) }))} onPointerUp={() => ctx.commit((p) => p)} />
+              </label>
+              <label className="ts-slider">
+                <span>
+                  Sound fade out <em>{fmt(c.fadeOut ?? 0)}</em>
+                </span>
+                <input type="range" min={0} max={5} step={0.1} value={c.fadeOut ?? 0} onPointerDown={ctx.mark} onChange={(e) => ctx.patch((p) => ({ ...p, clips: p.clips.map((x) => (x.id === c.id ? { ...x, fadeOut: Number(e.target.value) || undefined } : x)) }))} onPointerUp={() => ctx.commit((p) => p)} />
+              </label>
+            </>
+          )}
+          <p className="ts-hint">Mixed with the music and the voice-over; the music ducks under a clip marked “Has speech”. The sound's fades count from the clip's start and to its end on the timeline.</p>
           <label className="ve-row">
             <span>Joins the clip before with</span>
             <select value={c.transition} onChange={(e) => set({ transition: e.target.value as Clip["transition"] })} disabled={ctx.project.clips[0]?.id === c.id}>
@@ -614,19 +632,72 @@ export function LogoPanel({ ctx }: { ctx: PanelCtx }) {
 
 /* ───────────── Music ───────────── */
 
+/**
+ * "Sound from an Instagram link" (a post open, admins): the link of a public reel; the server reads
+ * it through the agency's Meta connection and the reel's sound becomes the music. "Sound from a
+ * video file" takes the same sound from a downloaded reel when the link cannot be read.
+ */
+function InstagramSound({ ctx, onVideoFile }: { ctx: PanelCtx; onVideoFile: () => void }) {
+  const [link, setLink] = useState("");
+  const busy = !!ctx.music.busy;
+  const run = async () => {
+    if (!link.trim() || busy) return;
+    if (await ctx.music.fromInstagram(link.trim())) setLink("");
+  };
+  return (
+    <>
+      <span className="ts-group-title">Sound from Instagram or a video</span>
+      {ctx.music.keeps ? (
+        <>
+          <label className="ve-stack">
+            <span>Sound from an Instagram link</span>
+            <input
+              type="url"
+              inputMode="url"
+              maxLength={500}
+              value={link}
+              disabled={ctx.readOnly || busy}
+              onChange={(e) => setLink(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void run();
+                }
+              }}
+              placeholder="https://www.instagram.com/reel/…"
+            />
+          </label>
+          <button type="button" className="ts-btn" disabled={ctx.readOnly || busy || !link.trim()} onClick={() => void run()} title="Read the reel through the studio's Meta connection and use its sound as the music">
+            {busy ? <Orb size={14} status={null} /> : <Link2 size={14} />} {ctx.music.busy || "Use this reel's sound"}
+          </button>
+          <p className="ts-hint">A public business or creator account's reel, among its last 50 posts. Sound from Instagram is licensed for use on Instagram only: confirm the rights before publishing it elsewhere. Trim it with “From this second of the track” and the fades.</p>
+        </>
+      ) : (
+        <p className="ts-hint">Open the editor from a post to take a reel's sound from its Instagram link.</p>
+      )}
+      <button type="button" className="ts-btn" disabled={ctx.readOnly || busy} onClick={onVideoFile} title="An mp4 or mov from this computer (a downloaded reel, a clip): its sound becomes the music">
+        <Film size={14} /> Sound from a video file
+      </button>
+    </>
+  );
+}
+
 export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [license, setLicense] = useState("");
   const m = ctx.project.music;
   const setMusic = (patch: Partial<NonNullable<VideoProject["music"]>>, step: "patch" | "commit") => (step === "commit" ? ctx.commit : ctx.patch)((p) => (p.music ? { ...p, music: { ...p.music, ...patch } } : p));
+  // A track of the post that came from an Instagram reel: its licence line says what it may be used for.
+  const trackKey = m?.source.kind === "audioKey" ? m.source.key : null;
+  const fromInstagram = trackKey ? ctx.music.tracks.find((t) => t.id === trackKey && t.provider === "instagram") : undefined;
   return (
     <div className="ve-panel">
       <span className="ts-group-title">Music</span>
       <MusicSourcePanel ctx={ctx} />
-      <input ref={fileRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void ctx.music.pick(f, license); e.target.value = ""; }} />
+      <input ref={fileRef} type="file" accept={SOUND_FILE_ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void ctx.music.pick(f, license); e.target.value = ""; }} />
       {!m ? (
         <>
-          <p className="ts-hint">A track from this computer (mp3, m4a or wav), mixed with the clips' own sound (each clip's volume is under Media). Use music you have the rights to: this is not Instagram's music library. Instagram's own music can only be added in the Instagram app when posting.</p>
+          <p className="ts-hint">A track from this computer (mp3, m4a or wav, or the sound of an mp4 or mov video), mixed with the clips' own sound (each clip's volume is under Media). Use music you have the rights to: this is not Instagram's music library. Instagram's own music can only be added in the Instagram app when posting.</p>
           {ctx.music.keeps && (
             <label className="ve-stack">
               <span>Licence (who cleared it, under what)</span>
@@ -637,6 +708,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
             {ctx.music.busy ? <Orb size={14} status={null} /> : <Music size={14} />} {ctx.music.busy || "Pick a track"}
           </button>
           {ctx.music.keeps && <p className="ts-hint">The track is kept with the post (under Audio), so the saved draft reopens with it.</p>}
+          <InstagramSound ctx={ctx} onVideoFile={() => fileRef.current?.click()} />
           {ctx.music.tracks.length > 0 && (
             <>
               <span className="ts-group-title">The post's tracks</span>
@@ -662,6 +734,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
             <Music size={13} /> {ctx.music.name ?? (m.source.kind === "upload" ? m.source.name : "Track")}
             {ctx.music.duration ? ` · ${fmt(ctx.music.duration)}` : ""}
           </p>
+          {fromInstagram && <p className="ts-hint warn">{fromInstagram.license}</p>}
           {!ctx.music.name && <p className="ts-hint warn">{m.source.kind === "audioKey" ? "The track could not be read back from the post. Pick it again under Change track." : m.source.kind === "catalog" || m.source.kind === "library" ? "The track could not be read from the music library. Pick it again from the library." : "The track's file is not in this tab (it was not kept with the post). Pick it again to hear it and to render with it."}</p>}
           <MusicMixControls ctx={ctx} music={m} setMusic={setMusic} />
           <div className="ve-actions">
@@ -672,6 +745,7 @@ export function MusicPanel({ ctx }: { ctx: PanelCtx }) {
               <Trash2 size={12} /> Remove
             </button>
           </div>
+          <InstagramSound ctx={ctx} onVideoFile={() => fileRef.current?.click()} />
         </fieldset>
       )}
     </div>

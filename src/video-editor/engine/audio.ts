@@ -10,6 +10,11 @@
  * speech (one gain curve, `musicGainCurve`, handed to Web Audio as it is in both places), and each
  * voice-over at its place and volume. Music and the clips' sound are now mixed together.
  *
+ * The voice-overs' and the clips' own fades (`fadeIn`, `fadeOut`) are breakpoints of linear ramps
+ * (`voiceGainPoints`, `clipGainPoints`): the render schedules them from the start, the preview's
+ * voices schedule the same points from the playhead on (`pointsFrom`), and the clips' sound in the
+ * preview follows `clipGainAt`, the function those points are read from.
+ *
  * Beat detection is onset-based: the envelope is the RMS of 20 ms hops of a mono mixdown; a beat
  * is a hop that rises well above the second before it, and a steady grid is fitted to the most
  * common onset spacing. It finds the pulse of most produced music; it does not know bars or
@@ -17,7 +22,7 @@
  * snapping off).
  */
 import { AUDIO_BITRATE, AUDIO_SAMPLE_RATE, clipVolume, detectBeats, musicSpan, placeClips, totalLength, type VideoProject, type VoiceClip } from "@shared/video-project";
-import { clipGainPoints, CURVE_RATE, curveFrom, musicGainCurve } from "@shared/video-mix";
+import { clipGainPoints, CURVE_RATE, curveFrom, musicGainCurve, pointsFrom, voiceGainPoints } from "@shared/video-mix";
 
 export const BEAT_HOP = 0.02;
 
@@ -29,6 +34,15 @@ export async function decodeAudio(bytes: ArrayBuffer): Promise<AudioBuffer | nul
   } catch {
     return null;
   }
+}
+
+/** True when every sample is (all but) zero: a video whose sound track holds only silence. */
+export function isSilent(buffer: AudioBuffer, floor = 1e-4): boolean {
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const ch = buffer.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) if (Math.abs(ch[i]) > floor) return false;
+  }
+  return true;
 }
 
 /** RMS energy per hop of the mono mixdown. */
@@ -82,9 +96,18 @@ function voicePlan(v: VoiceClip, buffer: AudioBuffer, from: number): { delay: nu
 }
 
 /**
+ * Breakpoints (`[timeline seconds, gain]`) as Web Audio automation: the first point set, a straight
+ * ramp to each next one. `at` turns a timeline second into the context's clock (the render's
+ * offline context starts at timeline 0; the preview's at the playhead).
+ */
+function schedule(param: AudioParam, points: readonly (readonly [number, number])[], at: (t: number) => number): void {
+  points.forEach(([t, g], k) => (k === 0 ? param.setValueAtTime(g, at(t)) : param.linearRampToValueAtTime(g, at(t))));
+}
+
+/**
  * The render's sound, offline at 48 kHz stereo: the clips' own sound (trimmed and sped like the
- * pictures, at their volumes, faded under crossfades and dips), the music (its span, volume, fades
- * and ducking as one curve) and the voice-overs.
+ * pictures, at their volumes, faded under crossfades and dips and by their own fades), the music
+ * (its span, volume, fades and ducking as one curve) and the voice-overs (volume and fades).
  */
 export async function renderMix(project: VideoProject, clipAudio: Map<string, AudioBuffer | null>, music: AudioBuffer | null, voices: Map<string, AudioBuffer | null> = new Map()): Promise<AudioBuffer> {
   const length = Math.max(0.1, totalLength(project));
@@ -97,8 +120,7 @@ export async function renderMix(project: VideoProject, clipAudio: Map<string, Au
     src.buffer = buf;
     src.playbackRate.value = pl.clip.speed;
     const gain = ctx.createGain();
-    const points = clipGainPoints(project.clips, i, placed);
-    points.forEach(([t, g], k) => (k === 0 ? gain.gain.setValueAtTime(g, t) : gain.gain.linearRampToValueAtTime(g, t)));
+    schedule(gain.gain, clipGainPoints(project.clips, i, placed), (t) => t);
     src.connect(gain).connect(ctx.destination);
     const inPoint = Math.min(pl.clip.in, Math.max(0, buf.duration - 0.01));
     src.start(pl.start, inPoint, Math.max(0.01, Math.min(pl.clip.out, buf.duration) - inPoint));
@@ -124,7 +146,8 @@ export async function renderMix(project: VideoProject, clipAudio: Map<string, Au
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const gain = ctx.createGain();
-    gain.gain.value = v.volume;
+    // Its volume with its fade in and fade out, the points the preview plays from the playhead.
+    schedule(gain.gain, voiceGainPoints(v), (t) => t);
     src.connect(gain).connect(ctx.destination);
     src.start(plan.delay, plan.offset, plan.duration);
   }
@@ -240,7 +263,7 @@ export class MixPreview {
       const node = ctx.createBufferSource();
       node.buffer = buf;
       const gain = ctx.createGain();
-      gain.gain.value = v.volume;
+      this.voiceLevels(gain, v, from, now);
       node.connect(gain).connect(master);
       node.start(now + plan.delay, plan.offset, plan.duration);
       this.voiceNodes.push({ id: v.id, node, gain });
@@ -248,7 +271,13 @@ export class MixPreview {
     this.voiceKey = voiceKeyOf(project);
   }
 
-  /** The project changed while playing: the music's curve and the voices' volumes follow; a moved voice is rescheduled. */
+  /** A voice's volume and fades from timeline time `from` (context time `now`) on: the render's points, from the playhead. */
+  private voiceLevels(gain: GainNode, v: VoiceClip, from: number, now: number): void {
+    gain.gain.cancelScheduledValues(0);
+    schedule(gain.gain, pointsFrom(voiceGainPoints(v), from), (t) => now + Math.max(0, t - from));
+  }
+
+  /** The project changed while playing: the music's curve and the voices' volumes and fades follow; a moved voice is rescheduled. */
   update(project: VideoProject, playingAt: number | null): void {
     if (playingAt === null || !this.ctx) return;
     const now = this.ctx.currentTime;
@@ -264,7 +293,12 @@ export class MixPreview {
     if (voiceKeyOf(project) !== this.voiceKey) {
       this.stopVoices();
       this.startVoices(project, playingAt, now);
-    } else for (const v of this.voiceNodes) v.gain.gain.value = project.voices.find((x) => x.id === v.id)?.volume ?? 0;
+    } else
+      for (const n of this.voiceNodes) {
+        // Same voices in the same places (a removed one changes the key above): only the levels change.
+        const v = project.voices.find((x) => x.id === n.id);
+        if (v) this.voiceLevels(n.gain, v, playingAt, now);
+      }
   }
 
   setMuted(m: boolean): void {
