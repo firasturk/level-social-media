@@ -19516,6 +19516,46 @@ a.publish-pill.published:hover {
   flex: 1 1 auto;
   justify-content: center;
 }
+.ve-render-short {
+  display: none;
+}
+/* A phone: the file bar keeps one line without overlaps (QA at 390 px: the history buttons sat on the title,
+   the status chip ran under the tools and Save draft was squeezed to 14 px). */
+@media (max-width: 600px) {
+  .ts.ve .ts-top-left {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .ts.ve .ve-crumb:not(.now) {
+    display: none;
+  }
+  .ts.ve .ve-chip {
+    font-size: 0;
+    gap: 0;
+    padding: 0 4px;
+    flex-shrink: 0;
+  }
+  .ts.ve .ve-tools {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+  .ts.ve .ve-tools .ts-sep {
+    display: none;
+  }
+  .ts.ve .ts-top-right > * {
+    flex-shrink: 0;
+  }
+  .ts.ve .ve-render {
+    padding: 0 12px;
+  }
+  .ts.ve .ve-render-long {
+    display: none;
+  }
+  .ts.ve .ve-render-short {
+    display: inline;
+  }
+}
 .ve .ve-body {
   flex: 1;
   display: grid;

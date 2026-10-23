@@ -1243,7 +1243,14 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
               title={caps && !caps.canExport ? caps.message : "Save the draft, render a new version here in the browser, and put it on the card (keep this tab open while it renders)"}
             >
               {running ? <Orb size={14} status={null} /> : null}
-              <span>{running ? `Rendering ${Math.round(running.progress * 100)}%` : "Render & update card"}</span>
+              {running ? (
+                <span>{`Rendering ${Math.round(running.progress * 100)}%`}</span>
+              ) : (
+                <>
+                  <span className="ve-render-long">Render &amp; update card</span>
+                  <span className="ve-render-short">Render</span>
+                </>
+              )}
               {!running && <ArrowRight size={14} />}
             </button>
           )}
