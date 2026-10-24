@@ -20,6 +20,7 @@
     "@shared/pricing": "./shared/pricing.ts",
     "@shared/angle-library": "./shared/angle-library.ts",
     "@shared/creative-templates": "./shared/creative-templates.ts",
+    "@shared/influencers": "./shared/influencers.ts",
     "@shared/skills": "./shared/skills.ts",
     "@shared/zaid": "./shared/zaid.ts",
     "@shared/safety": "./shared/safety.ts",

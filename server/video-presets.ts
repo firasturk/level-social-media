@@ -606,7 +606,7 @@ export async function fetchDetail(mcp: HiggsfieldMcp, id: string, source: string
     const cards = parsePresets(r, source ?? "viral", { all: true });
     card = cards.find((c) => c.id === id) ?? cards[0] ?? null;
     exec = executionOf(r);
-    price = card?.price ?? findNumber(jsonOf(r), ["price", "credits", "cost", "price_credits", "credits_cost"]);
+    price = card?.price ?? findNumber(jsonOf(r), ["price", "credits", "cost", "price_credits", "credits_cost", "cost_credits"]);
   }
   let instructions = "";
   const command = card?.command ?? (source === "recipe" ? (id.startsWith("/") ? id : `/${id}`) : null);
