@@ -257,6 +257,18 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     const magnific = await env.DB.prepare("SELECT approved, reserved FROM spend WHERE scope = ?").bind(`campaign:${c.id}:magnific-credits`).first<{ approved: number; reserved: number }>();
     expect(magnific!.reserved).toBeCloseTo(12 * 11.5, 3);
     expect(magnific!.reserved).toBeLessThanOrEqual(magnific!.approved);
+    // Switched to the image engine after production: the frames start over in dollars, not 11.5 credits + dollars.
+    const now2 = (await env.DB.prepare("SELECT plan FROM campaign_plans WHERE id = ?").bind(c.id).first<{ plan: string }>())!;
+    const plan2 = JSON.parse(now2.plan) as { rev: number; videos: { frameEngine: { kind: string; model: string } }[] };
+    plan2.videos = plan2.videos.map((v) => ({ ...v, frameEngine: { kind: "engine", model: "gemini-3-pro-image" } }));
+    const edited = await call<{ campaign: C }>(env, "PUT", `/${c.id}/plan`, { plan: plan2, rev: plan2.rev });
+    expect(edited.status).toBe(200);
+    {
+      const p2 = edited.body.campaign as unknown as { proposal: { items: string[]; signature: string } };
+      await call(env, "POST", `/${c.id}/approve`, { items: p2.proposal.items, retries: 1, signature: p2.proposal.signature, acceptedUnknown: [] });
+      const frames = (await env.DB.prepare("SELECT unit, spent FROM campaign_steps WHERE campaign = ? AND kind = 'frame'").bind(c.id).all<{ unit: string; spent: number }>()).results;
+      expect(frames.every((f) => f.unit === "usd" && f.spent === 0)).toBe(true);
+    }
   });
 
   it("switching the Higgsfield billing after approval pauses the clips: no clip goes to the other account", async () => {

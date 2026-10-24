@@ -807,7 +807,9 @@ campaignRoutes.post("/:id/approve", async (c) => {
       // In flight at the provider: it finishes; the runner then sees whether it still matches.
       await run(c.env.DB, "UPDATE campaign_steps SET sig = ?, deps = ?, label = ?, unit = ?, price_key = ?, estimate = ?, max_attempts = attempts + ?, updated = ? WHERE campaign = ? AND step = ?", sig, JSON.stringify(s.deps), s.label, s.unit, s.priceKey, estimate, 1 + p.retries, t, row.id, s.id);
     } else {
-      await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', sig = ?, deps = ?, label = ?, unit = ?, price_key = ?, estimate = ?, attempts = 0, max_attempts = ?, error = NULL, note = NULL, updated = ? WHERE campaign = ? AND step = ?", sig, JSON.stringify(s.deps), s.label, s.unit, s.priceKey, estimate, 1 + p.retries, t, row.id, s.id);
+      // Made again for the change: what the step shows as spent starts over in its (possibly new) unit;
+      // the earlier spend stays in the ledger under the unit it was paid in.
+      await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', sig = ?, deps = ?, label = ?, unit = ?, price_key = ?, estimate = ?, attempts = 0, max_attempts = ?, error = NULL, note = NULL, spent = CASE WHEN unit IS ? THEN spent ELSE 0 END, updated = ? WHERE campaign = ? AND step = ?", sig, JSON.stringify(s.deps), s.label, s.unit, s.priceKey, estimate, 1 + p.retries, s.unit, t, row.id, s.id);
     }
   }
   const wanted = new Set(want.map((s) => s.id));
