@@ -326,6 +326,8 @@ export interface McpVideoModel {
   durations: number[];
   aspects: string[];
   supportsUnlim: boolean;
+  /** The roles a picture may have (`start_image`, `image`, `image_references`…), when the catalog says. */
+  roles?: string[];
 }
 
 const numbersOf = (v: unknown): number[] =>
@@ -333,6 +335,11 @@ const numbersOf = (v: unknown): number[] =>
     ? v.map((x) => (typeof x === "number" ? x : typeof x === "string" ? Number(x.replace(/s$/i, "")) : typeof x === "object" && x ? Number((x as Record<string, unknown>).value ?? (x as Record<string, unknown>).seconds) : NaN)).filter((n) => Number.isFinite(n) && n > 0)
     : [];
 const stringsOf = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : typeof x === "object" && x ? String((x as Record<string, unknown>).value ?? (x as Record<string, unknown>).id ?? "") : "")).filter(Boolean) : []);
+
+const rolesOf = (medias: unknown): { roles?: string[] } => {
+  const roles = Array.isArray(medias) ? [...new Set((medias as { roles?: unknown }[]).flatMap((m) => (Array.isArray(m?.roles) ? m.roles.filter((r): r is string => typeof r === "string") : [])))] : [];
+  return roles.length ? { roles } : {};
+};
 
 /** The image-to-video engines a `models_explore` answer lists; the shape is read defensively. */
 export function parseModels(r: McpCallResult): McpVideoModel[] {
@@ -359,6 +366,7 @@ export function parseModels(r: McpCallResult): McpVideoModel[] {
       durations,
       aspects,
       supportsUnlim: o.supports_unlim === true || o.unlim === true || o.supports_unlimited === true,
+      ...rolesOf(o.medias),
     });
   }
   return out;
@@ -484,12 +492,23 @@ async function engineFor(env: Env, mcp: HiggsfieldMcp, d: McpAsk): Promise<{ eng
 }
 
 function videoParams(engine: McpVideoModel, d: McpAsk, mediaId: string, duration: number | undefined, aspect: string | undefined): Record<string, unknown> {
-  const params: Record<string, unknown> = { model: engine.id, medias: [{ value: mediaId, role: "image" }], count: 1 };
+  const params: Record<string, unknown> = { model: engine.id, medias: [{ value: mediaId, role: pictureRole(engine) }], count: 1 };
   if (d.prompt.trim()) params.prompt = d.prompt.trim();
   if (duration !== undefined) params.duration = duration;
   if (aspect) params.aspect_ratio = aspect;
   if (d.useUnlim !== undefined) params.use_unlim = d.useUnlim;
   return params;
+}
+
+/**
+ * The role that makes the picture the clip's first frame. "image" is read as a mere reference by
+ * engines such as Seedance 2.5 (the clip then drifts from the approved picture), so `start_image`
+ * is sent wherever the engine takes it, and when the catalog does not say.
+ */
+export function pictureRole(engine: Pick<McpVideoModel, "roles">): string {
+  const roles = engine.roles ?? [];
+  if (roles.includes("start_image") || !roles.length) return "start_image";
+  return roles.includes("image") ? "image" : roles[0];
 }
 
 export interface McpEstimate {
@@ -620,8 +639,10 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
   }
   // Higgsfield may answer with a preset it recommends instead of starting the job ("Retry this index
   // with declined_preset_id=…"): nothing was started; the engine asked for is kept by declining it, once.
-  const declined = declinedPresetIn(r);
-  if (declined && !parseJobs(r).some((x) => x.jobId)) {
+  // It may recommend again after a decline (seen live, 24 Oct): declined up to three times.
+  for (let tries = 0; tries < 3; tries++) {
+    const declined = declinedPresetIn(r);
+    if (!declined || parseJobs(r).some((x) => x.jobId)) break;
     try {
       r = await mcp.call("generate_video_batch", { requests: [{ index: 0, params: { ...params, declined_preset_id: declined } }] });
     } catch (e) {

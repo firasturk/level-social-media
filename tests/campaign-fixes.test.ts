@@ -113,3 +113,14 @@ describe("the audience is Muslim: no toasting (24 Oct)", () => {
     expect(framePrompt({ concept: "x", frame: "9:16", product: null } as never, shot, { cast: [{ name: "omar", gender: "man", modest: true }] })).toMatch(/toasting or clinking/);
   });
 });
+
+describe("the approved picture is the clip's first frame (24 Oct: Higgsfield read role 'image' as a reference)", () => {
+  it("start_image wherever the engine takes it or the catalog does not say", async () => {
+    const { pictureRole, parseModels } = await import("../server/higgsfield-mcp");
+    expect(pictureRole({ roles: ["audio_references", "end_image", "image_references", "start_image"] })).toBe("start_image");
+    expect(pictureRole({})).toBe("start_image");
+    expect(pictureRole({ roles: ["image"] })).toBe("image");
+    const models = parseModels({ content: [{ type: "text", text: JSON.stringify({ items: [{ id: "seedance_2_5", name: "Seedance 2.5", output_type: "video", medias: [{ roles: ["start_image", "image_references"] }] }] }) }] } as never);
+    expect(models[0].roles).toEqual(["start_image", "image_references"]);
+  });
+});

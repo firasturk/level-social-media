@@ -450,7 +450,7 @@ describe("estimate and generate on the credits", () => {
     expect(r.status).toBe(200);
     expect(await json(r)).toMatchObject({ credits: 12, balance: 1500, plan: "Creator", unlimChoice: null, engine: { id: "seedance_2_5" }, mediaId: "med_1" });
     const cost = stub.rpc.find((x) => x.name === "generate_video")!.args as { params: Record<string, unknown> };
-    expect(cost.params).toEqual({ model: "seedance_2_5", prompt: ask.prompt, medias: [{ value: "med_1", role: "image" }], duration: 5, aspect_ratio: "9:16", count: 1, get_cost: true });
+    expect(cost.params).toEqual({ model: "seedance_2_5", prompt: ask.prompt, medias: [{ value: "med_1", role: "start_image" }], duration: 5, aspect_ratio: "9:16", count: 1, get_cost: true });
     await postJson(app(), env, "/api/studio/higgsfield/mcp/estimate", { ...ask, duration: 10 });
     expect(stub.rpc.filter((x) => x.name === "media_import_url")).toHaveLength(1);
     expect(stub.rpc.filter((x) => x.name === "generate_video")).toHaveLength(2);
@@ -478,7 +478,7 @@ describe("estimate and generate on the credits", () => {
     const d = (await json(r)) as { video: { id: string; status: string; requestId: string; provider: string; estimate: number; version: number; model: string; frame: string; frameFill: string | null; words: boolean } };
     expect(d.video).toMatchObject({ status: "queued", requestId: "job-1", provider: MCP_PROVIDER, estimate: 12, version: 1, model: "seedance_2_5", frame: "9:16", frameFill: null, words: false });
     const batch = stub.rpc.find((x) => x.name === "generate_video_batch")!.args as { requests: { index: number; params: Record<string, unknown> }[] };
-    expect(batch.requests).toEqual([{ index: 0, params: { model: "seedance_2_5", prompt: ask.prompt, medias: [{ value: "med_1", role: "image" }], duration: 5, count: 1 } }]);
+    expect(batch.requests).toEqual([{ index: 0, params: { model: "seedance_2_5", prompt: ask.prompt, medias: [{ value: "med_1", role: "start_image" }], duration: 5, count: 1 } }]);
     const row = await env.DB.prepare("SELECT provider, model, request_id, settings, op_id FROM videos WHERE id = ?").bind(d.video.id).first<{ provider: string; model: string; request_id: string; settings: string; op_id: string }>();
     expect(row).toMatchObject({ provider: MCP_PROVIDER, model: "seedance_2_5", request_id: "job-1" });
     expect(JSON.parse(row!.settings)).toMatchObject({ duration: 5, estimate: 12, credits: 12, unit: "credits", mcpModel: "seedance_2_5", estimateSource: "provider", balanceBefore: 1500, useUnlim: null, frame: "9:16", words: false });
