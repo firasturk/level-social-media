@@ -1,0 +1,37 @@
+/* AI influencers (admins): the client's own AI person and its trend videos. */
+.inf { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-900); }
+.inf-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.inf-head > span { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.inf-head small { flex-basis: 100%; color: var(--ink-500); font-size: 12.5px; }
+.inf-note { margin: 0; color: var(--ink-500); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.inf-note.warn, .inf .warn { color: #b3261e; }
+.inf-new { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 0; background: var(--surface); }
+.inf-new .wide { grid-column: 1 / -1; }
+.inf-field { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; }
+.inf-field span { color: var(--ink-500); }
+.inf-field input, .inf-field select, .inf-field textarea { width: 100%; box-sizing: border-box; }
+.inf-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.inf-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.inf-list { display: flex; flex-direction: column; gap: 10px; }
+.inf-card { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--surface); }
+.inf-sheet { aspect-ratio: 16 / 9; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; overflow: hidden; color: var(--ink-500); font-size: 12px; text-align: center; padding: 4px; }
+.inf-sheet img { width: 100%; height: 100%; object-fit: contain; }
+.inf-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.inf-status { color: var(--ink-500); font-size: 12.5px; }
+.inf-design { margin: 0; font-size: 12.5px; color: var(--ink-700, var(--ink-900)); max-height: 6.5em; overflow: auto; }
+.inf-trends { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.inf-trend { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.inf-trend video, .inf-trend-wait { width: 100%; aspect-ratio: 9 / 16; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; object-fit: cover; }
+.inf-picker { position: fixed; inset: 4vh 4vw; z-index: 70; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 20px 60px rgb(0 0 0 / 25%); display: flex; flex-direction: column; gap: 8px; padding: 14px; overflow: hidden; }
+.inf-picker header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inf-picker header nav { display: flex; gap: 4px; flex: 1; }
+.inf-picker header nav button { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; }
+.inf-picker header nav button.on { background: var(--ink-900); color: var(--surface); border-color: var(--ink-900); }
+.inf-grid { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-content: start; }
+.inf-tile { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.inf-tile video, .inf-tile img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
+@media (max-width: 640px) {
+  .inf-new { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .inf-card { grid-template-columns: minmax(0, 1fr); }
+  .inf-picker { inset: 0; border-radius: 0; }
+}

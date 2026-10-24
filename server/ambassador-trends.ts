@@ -1,8 +1,8 @@
 /**
  * Trend videos with a character (docs/ambassador-trends.md): a Genjutsu motion preset where the
  * character takes the place of the person in the video. The character is one of the client's
- * ambassadors (its portrait) or a Soul character made on the Higgsfield account; the studio never
- * makes a character (an AI influencer costs about 1,250 credits on Higgsfield). Admins only, on the
+ * ambassadors (its portrait), one of the client's AI influencers (its character sheet, the native
+ * Genjutsu reference) or a Soul character made on the Higgsfield account. Admins only, on the
  * subscription credits, with the usual rules: the switch, the price from the preset's detail with
  * this character and the confirm, one claim per ask, a ledger row, no retry. Browsing the characters
  * and the galleries spends nothing. The videos are collected into R2 when the list is read.
@@ -107,14 +107,22 @@ async function ambassadorsOf(env: Env, client: string): Promise<{ id: string; na
   return all<{ id: string; name: string; image_key: string }>(env.DB, "SELECT id, name, image_key FROM ambassadors WHERE client = ? AND image_key IS NOT NULL ORDER BY position, created", client);
 }
 
-/** A character by its id, with what Higgsfield takes as its reference (a confirmed media id). Imports the picture (free). */
-async function characterRef(env: Env, mcp: HiggsfieldMcp, client: string, id: string): Promise<{ name: string; mediaId: string }> {
+/** The character as Genjutsu takes it: a character sheet's job, or an uploaded picture. */
+type CharacterInput = { id: string; type: "image_job" | "media_input" }[];
+
+/** A character by its id, with what Higgsfield takes as its reference. Imports a picture when needed (free). */
+async function characterRef(env: Env, mcp: HiggsfieldMcp, client: string, id: string): Promise<{ name: string; input: CharacterInput }> {
   const c = parseCharacterId(id);
   if (!c) throw new StudioError("Unknown character.");
   if (c.kind === "ambassador") {
     const a = await first<{ name: string; image_key: string | null }>(env.DB, "SELECT name, image_key FROM ambassadors WHERE id = ? AND client = ?", c.ref, client);
     if (!a?.image_key) throw new StudioError("That ambassador has no portrait yet.", 409);
-    return { name: a.name, mediaId: await mediaFor(env, mcp, a.image_key, "image") };
+    return { name: a.name, input: [{ id: await mediaFor(env, mcp, a.image_key, "image"), type: "media_input" }] };
+  }
+  if (c.kind === "influencer") {
+    const i = await first<{ name: string; job_id: string | null; status: string }>(env.DB, "SELECT name, job_id, status FROM influencers WHERE id = ? AND client = ?", c.ref, client);
+    if (!i?.job_id || i.status !== "ready") throw new StudioError("That influencer is not made yet.", 409);
+    return { name: i.name, input: [{ id: i.job_id, type: "image_job" }] };
   }
   const soul = (await souls(mcp)).find((s) => s.id === c.ref);
   if (!soul?.image) throw new StudioError("That Higgsfield character is not on the account (or has no picture).", 404);
@@ -125,11 +133,8 @@ async function characterRef(env: Env, mcp: HiggsfieldMcp, client: string, id: st
     if (!mediaId) throw new StudioError(`Higgsfield could not take the character's picture: ${resultText(r).slice(0, 200)}`, 502);
     importMemo.set(soul.image, mediaId);
   }
-  return { name: soul.name, mediaId };
+  return { name: soul.name, input: [{ id: mediaId, type: "media_input" }] };
 }
-
-/** The character as Genjutsu takes it: an uploaded picture. */
-const characterInput = (mediaId: string) => [{ id: mediaId, type: "media_input" }];
 
 /** The input a Genjutsu preset takes the character in: its schema's character field, else `character_sheet`. */
 export function characterField(schema: Record<string, unknown> | null): string {
@@ -216,6 +221,8 @@ ambassadorTrendRoutes.get("/", async (c) => {
   const client = c.req.query("client") ?? "";
   if (!client) throw new StudioError("Which client?");
   const characters: TrendCharacter[] = (await ambassadorsOf(c.env, client)).map((a) => ({ id: `ambassador:${a.id}`, name: a.name, from: "ambassador", image: `/api/studio/ambassadors/${a.id}/image` }));
+  const influencers = await all<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM influencers WHERE client = ? AND status = 'ready' AND job_id IS NOT NULL ORDER BY created DESC", client);
+  characters.push(...influencers.map((i): TrendCharacter => ({ id: `influencer:${i.id}`, name: i.name, from: "influencer", image: `/api/studio/influencers/${i.id}/image` })));
   let reason = "";
   if (await higgsfieldSignIn.isSignedIn(c.env)) {
     try {
@@ -245,7 +252,7 @@ ambassadorTrendRoutes.get("/gallery", async (c) => {
   let cursor: unknown = null;
   // Two pages of fifty: the gallery is a community feed without end.
   for (let page = 0; page < 2; page++) {
-    const args: Record<string, unknown> = { source: "genjutsu", category, limit: 50, initial_inputs: { character_sheet: characterInput(ch.mediaId) } };
+    const args: Record<string, unknown> = { source: "genjutsu", category, limit: 50, initial_inputs: { character_sheet: ch.input } };
     if (cursor !== null) args.cursor = cursor;
     const r = await mcp.call("get_presets", args);
     if (r.isError) {
@@ -276,7 +283,7 @@ ambassadorTrendRoutes.post("/make", async (c) => {
   await mcp.connect();
   await mcp.requireTool("execute_preset");
   const ch = await characterRef(c.env, mcp, d.client, d.character);
-  const character = characterInput(ch.mediaId);
+  const character = ch.input;
   const detail = await fetchDetail(mcp, d.presetId, "genjutsu", { character_sheet: character });
   if (detail.available === false) throw new StudioError(`"${detail.title}" is not available to run (Higgsfield says so).`, 409, false, { notRunnable: true });
   const readiness = detail.readiness as { ready?: boolean; missing?: string[] } | null;

@@ -82,6 +82,7 @@ import { promptboxRoutes } from "./promptbox";
 import { helpRoutes } from "./help";
 import { styleRoutes } from "./styles";
 import { ambassadorTrendRoutes } from "./ambassador-trends";
+import { influencerRoutes } from "./influencers";
 import { ambassadorRoutes } from "./ambassadors";
 import { metaRoutes } from "./meta";
 import { pinterestRoutes } from "./pinterest";
@@ -122,6 +123,7 @@ studioRoutes.route("/video/higgsfield", videoHiggsfieldRoutes);
 // Before the ambassadors' own routes, so "/trends" is never read as an ambassador id.
 studioRoutes.route("/ambassadors/trends", ambassadorTrendRoutes);
 studioRoutes.route("/ambassadors", ambassadorRoutes);
+studioRoutes.route("/influencers", influencerRoutes);
 studioRoutes.route("/styles", styleRoutes);
 studioRoutes.route("/meta", metaRoutes);
 studioRoutes.route("/pinterest", pinterestRoutes);

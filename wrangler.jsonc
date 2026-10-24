@@ -21,6 +21,7 @@
     "@shared/angle-library": "./shared/angle-library.ts",
     "@shared/creative-templates": "./shared/creative-templates.ts",
     "@shared/ambassador-trends": "./shared/ambassador-trends.ts",
+    "@shared/influencers": "./shared/influencers.ts",
     "@shared/skills": "./shared/skills.ts",
     "@shared/zaid": "./shared/zaid.ts",
     "@shared/safety": "./shared/safety.ts",

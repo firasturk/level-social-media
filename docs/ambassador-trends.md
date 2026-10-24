@@ -1,9 +1,10 @@
 # Trends with a character (24 Oct 2026)
 
-Firas: making an AI influencer on Higgsfield costs about 1,250 credits each, far too much. The studio
-never makes a character. The team brings it: an ambassador with a portrait (uploaded in the brand
-kit), or one of the Soul characters already made on the Higgsfield account (Elegant Enigma, Chill
-Heart Cheer, Ethereal Lace Whisper on 24 Oct; read with `show_characters`, Soul 2 first, one per name).
+A character for a trend is one of three: an ambassador with a portrait (uploaded in the brand kit),
+an AI influencer made for the client (docs/influencers.md; its sheet job is the native Genjutsu
+reference), or one of the Soul characters already made on the Higgsfield account (Elegant Enigma,
+Chill Heart Cheer, Ethereal Lace Whisper on 24 Oct; read with `show_characters`, Soul 2 first, one per
+name). Pictures are imported as `media_input`; an influencer goes as `image_job`.
 
 Where: under the ambassadors (brand panel, and the workflow's Models dialog). Admins only.
 
@@ -15,6 +16,6 @@ Where: under the ambassadors (brand panel, and the workflow's Models dialog). Ad
    once. One claim, a ledger row `trend.video`, no retry.
 4. The video is collected into R2 (`trends/<client>/<id>.mp4`) when the list is read; Download.
 
-Table `ambassador_trends` (migration 0080, which also drops the unused AI influencer tables of 0079).
+Table `ambassador_trends` (migration 0080, which dropped the first influencer tables; 0081 brings `influencers` back).
 Server `server/ambassador-trends.ts`, studio `src/studio/AmbassadorTrends.tsx`. Tested against a mocked
 Higgsfield; no trend has been made live yet (paid).

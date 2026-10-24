@@ -53,7 +53,7 @@ export default function AmbassadorTrends({ client }: { client: Client }) {
     <section className="atr">
       <header className="atr-head">
         <b>Trends with a character</b>
-        <small>Pick one of this client's ambassadors or one of your Higgsfield characters, then a trending video: the character takes the place of the person in it. Each trend shows its price before anything is made.</small>
+        <small>Pick one of this client's ambassadors, its AI influencers or one of your Higgsfield characters, then a trending video: the character takes the place of the person in it. Each trend shows its price before anything is made.</small>
       </header>
       {reason && <p className="atr-note warn">{reason}</p>}
       {characters === null ? (
@@ -68,7 +68,7 @@ export default function AmbassadorTrends({ client }: { client: Client }) {
             <button key={ch.id} type="button" className="atr-char" onClick={() => setPicked(ch)} title={`Make a trend with ${ch.name}`}>
               {ch.image ? <img src={ch.image} alt="" loading="lazy" /> : <span className="atr-blank" />}
               <b>{ch.name}</b>
-              <small>{ch.from === "ambassador" ? "Ambassador" : "Higgsfield character"}</small>
+              <small>{ch.from === "ambassador" ? "Ambassador" : ch.from === "influencer" ? "AI influencer" : "Higgsfield character"}</small>
             </button>
           ))}
         </div>
