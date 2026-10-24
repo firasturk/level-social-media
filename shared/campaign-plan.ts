@@ -145,6 +145,36 @@ export interface ClipEngine {
   name: string;
 }
 
+/**
+ * What kind of picture an image post is. Not every post is lifestyle: a campaign mixes scenes with
+ * people, phone-shot moments, the product as a designed hero, still lifes, macro details and graphic
+ * ad layouts. The designed kinds may use a set built from the brand's palette (coloured surfaces,
+ * the product's real ingredients, a sculpted shadow); the scene kinds happen in a real place.
+ */
+export type PostKind = "lifestyle" | "ugc" | "product-hero" | "still-life" | "detail" | "graphic";
+
+export interface PostKindDef {
+  id: PostKind;
+  label: string;
+  /** What the picture is, for the planner and the picture prompt. */
+  words: string;
+  /** People may appear (the brand's cast); otherwise at most a hand. */
+  people: boolean;
+  /** A designed set is right (not a real place). */
+  designed: boolean;
+}
+
+export const POST_KINDS: readonly PostKindDef[] = [
+  { id: "lifestyle", label: "Lifestyle", words: "a real moment with a person of the brand's cast, in a real place of the city", people: true, designed: false },
+  { id: "ugc", label: "Phone moment", words: "shot on a phone by a customer: first-person or a friend's photo, available light or direct flash, a little imperfect, at most a hand", people: false, designed: false },
+  { id: "product-hero", label: "Product hero", words: "the product alone as the hero of a commercial product shot: a designed set from the brand's palette (coloured surfaces, its real ingredients, a sculpted shadow or a splash), no people", people: false, designed: true },
+  { id: "still-life", label: "Still life", words: "the product among a few real objects on a real surface in a real place (a table by a window, a car seat, a shop counter), no people or only a hand", people: false, designed: false },
+  { id: "detail", label: "Detail", words: "a macro of the product's texture or ingredient filling the frame, no people", people: false, designed: true },
+  { id: "graphic", label: "Graphic ad", words: "a designed ad layout: the product cut out on bold shapes and colours from the brand's palette, the headline as part of the design, like a poster", people: false, designed: true },
+] as const;
+
+export const postKindById = (id: string | undefined | null): PostKindDef | null => (id ? POST_KINDS.find((k) => k.id === id.trim()) ?? null : null);
+
 export interface ImagePlanItem {
   key: string;
   selected: boolean;
@@ -163,6 +193,8 @@ export interface ImagePlanItem {
   setting?: string;
   /** The camera position from the angle library (shared/angle-library.ts), by id. */
   angleId?: string;
+  /** What kind of picture it is (POST_KINDS); a plan from before kinds has none and is read as lifestyle. */
+  kind?: PostKind;
 }
 
 /**
@@ -532,7 +564,7 @@ export function itemProductionSignature(it: ImagePlanItem | VideoPlanItem): stri
       ]),
     );
   }
-  return stableHash(JSON.stringify([it.idea, it.visual, productSig(it.product), refSig(it.reference), it.engine, it.outputs, ...(it.setting || it.angleId ? [[it.setting ?? "", it.angleId ?? ""]] : [])]));
+  return stableHash(JSON.stringify([it.idea, it.visual, productSig(it.product), refSig(it.reference), it.engine, it.outputs, ...(it.setting || it.angleId ? [[it.setting ?? "", it.angleId ?? ""]] : []), ...(it.kind ? [it.kind] : [])]));
 }
 
 /**
@@ -659,6 +691,7 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
     outputs: clamp(i?.outputs, 1, 4, 1),
     ...(str(i?.setting, 300) ? { setting: str(i?.setting, 300) } : {}),
     ...(angleById(i?.angleId) ? { angleId: i!.angleId!.trim() } : {}),
+    ...(postKindById(i?.kind) ? { kind: i!.kind!.trim() as PostKind } : {}),
   }));
   const videos = (Array.isArray(x.videos) ? x.videos : []).slice(0, SETUP_LIMITS.videos).map((v, n): VideoPlanItem => {
     const shots = (Array.isArray(v?.shots) ? v.shots : []).slice(0, SETUP_LIMITS.shotsPerVideo).map((s, k): ShotPlan => {

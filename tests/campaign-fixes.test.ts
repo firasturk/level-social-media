@@ -220,7 +220,7 @@ describe("ideas first: a real place, a hook move, a format and a camera position
     const { campaignInstruction } = await import("../shared/campaign-planner");
     const t = campaignInstruction(input);
     expect(t).toMatch(/IDEAS FIRST/);
-    expect(t).toMatch(/never set a post or a shot in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio/);
+    expect(t).toMatch(/never set a scene \(lifestyle, phone moment, still life, a filmed Reel\) in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio/);
     expect(t).toMatch(/^handoff-lens: Hand-off to the lens: .* · mid$/m);
     expect(t).toMatch(/^worms-eye: /m);
     expect(t).toMatch(/at least one tight, one mid and one wide; at most one shot at plain eye level/);
@@ -231,13 +231,14 @@ describe("ideas first: a real place, a hook move, a format and a camera position
     const { planFromAnswer } = await import("../shared/campaign-planner");
     const plan = planFromAnswer(
       {
-        images: [{ idea: "x", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens" }, { idea: "y", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "a balcony over the city at blue hour", angleId: "made-up" }],
+        images: [{ idea: "x", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens", kind: "still-life" }, { idea: "y", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "cocoa powder and chilli flakes on a deep red surface", angleId: "made-up", kind: "product-hero" }],
         videos: [{ concept: "c", hook: "", product: "P1", shots: [shot("macro-rim"), shot("pov-hand"), shot("wide-place")], voiceover: "", music: "", transitions: "cuts", look: "", cta: "", caption: "", direction: { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "old stone stairs at dusk" }, format: "ugc", hookMove: "the cup is pushed toward the lens" }],
       },
       input,
       defaults,
     );
-    expect(plan.images[0]).toMatchObject({ setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens" });
+    expect(plan.images[0]).toMatchObject({ setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens", kind: "still-life" });
+    expect(plan.images[1].kind).toBe("product-hero");
     expect(plan.images[1].angleId).toBeUndefined();
     expect(plan.videos[0]).toMatchObject({ format: "ugc", hookMove: "the cup is pushed toward the lens" });
     expect(plan.videos[0].shots.map((s) => s.angleId)).toEqual(["macro-rim", "pov-hand", "wide-place"]);
@@ -332,7 +333,8 @@ describe("Higgsfield templates as a Reel format (24 Oct: not every Reel is lifes
     const t = campaignInstruction(input);
     expect(CREATIVE_TEMPLATES).toHaveLength(15);
     for (const x of CREATIVE_TEMPLATES) expect(t).toContain(`${x.id}: ${x.name}: `);
-    expect(t).toMatch(/Not every Reel is lifestyle/);
+    expect(t).toMatch(/A campaign is not all lifestyle/);
+    expect(t).toMatch(/at least one of them is a template unless no template fits the product/);
     const shot = { seconds: 3, action: "cocoa bursts", framing: "", camera: "", reference: "", source: "start-image", asset: "", text: "", angle: "", lens: "", placement: "", speed: "normal", angleId: "" };
     const plan = planFromAnswer(
       {
@@ -392,5 +394,55 @@ describe("Higgsfield templates as a Reel format (24 Oct: not every Reel is lifes
     expect(p).toMatch(/omar/);
     expect(p).toMatch(/toasting or clinking/);
     expect(p).toMatch(/in Jordan/);
+  });
+});
+
+describe("the mix: not every piece is lifestyle, and one ambassador is not in every piece (24 Oct: Habibah's campaign was Ahmad at home in every post)", () => {
+  const cast = [{ name: "Ahmad", gender: "man", modest: true }, { name: "Lina", gender: "woman", modest: true }];
+  const img = (key: string, idea: string, kind?: string) => ({ key, selected: true, idea, objective: "", product: null, visual: "", reference: null, headline: "", caption: "", cta: "", engine: { kind: "engine" as const, model: "m" }, outputs: 1, setting: `${key} somewhere different ${key}`, ...(kind ? { kind: kind as never } : {}) });
+
+  it("the planner gets the kinds, the mix rules, people as optional and the direction as a mood", async () => {
+    const { campaignInstruction } = await import("../shared/campaign-planner");
+    const t = campaignInstruction({ setup: { ...defaultSetup(), imagePosts: 4, videos: 1 }, brand: { name: "Habibah", tone: "", audience: "", language: "ar", dos: "", donts: "", style: "" }, products: [], media: [], references: [], looks: [], month: "2026-10", cast });
+    for (const k of ["lifestyle", "ugc", "product-hero", "still-life", "detail", "graphic"]) expect(t).toMatch(new RegExp(`^- ${k}: `, "m"));
+    expect(t).toMatch(/At most half of the image posts show a person/);
+    expect(t).toMatch(/The same cast member never carries two image posts/);
+    expect(t).toMatch(/A person, a place or a scene it names is one of the campaign's ideas, not the idea of every piece/);
+    expect(t).toMatch(/for food, sweets, drinks and packaged products a template whose mechanic fits the product usually sells it better/);
+  });
+
+  it("notes a plan where every post is lifestyle, none sells the product alone, people fill most pieces and one ambassador carries several posts", async () => {
+    const { varietyNotes } = await import("../shared/campaign-planner");
+    const habibah = { images: [img("img-1", "Ahmad arriving at a friend's apartment with the tin"), img("img-2", "Lina preparing a hospitality tray"), img("img-3", "A close-up of the tin on a coffee table at night"), img("img-4", "Ahmad holding the sugar-free plate")], videos: [] };
+    const notes = varietyNotes(habibah, false, cast).join(" | ");
+    expect(notes).toMatch(/The image posts are all lifestyle: mix 3 kinds/);
+    expect(notes).toMatch(/No image post sells the product on its own/);
+    expect(notes).toMatch(/Ahmad carries img-1, img-4/);
+    // A mixed plan passes.
+    const mixed = { images: [img("img-1", "Ahmad arriving with the tin", "lifestyle"), img("img-2", "the tin among pistachios and syrup", "product-hero"), img("img-3", "the layers of baklava up close", "detail"), img("img-4", "the tin cut out on navy shapes with the headline", "graphic")], videos: [] };
+    expect(varietyNotes(mixed, false, cast)).toEqual([]);
+    // A designed post may use a built set: no studio note for it, one for a scene.
+    const studio = { images: [{ ...img("img-1", "the tin", "product-hero"), setting: "a navy seamless backdrop with pistachios" }, { ...img("img-2", "a tray", "still-life"), setting: "a plain studio backdrop" }, img("img-3", "x", "detail")], videos: [] };
+    const s = varietyNotes(studio, false, cast);
+    expect(s.some((n) => n.startsWith("img-1 is set in a studio"))).toBe(false);
+    expect(s.some((n) => n.startsWith("img-2 is set in a studio"))).toBe(true);
+  });
+
+  it("a card shows the cast member its words name, nobody on a picture kind without people, and the first only when nobody is named", async () => {
+    const { castFor } = await import("../server/campaign-runner");
+    expect(castFor(cast, "Lina's hands arrange the baklava", { people: true })).toBe("Lina");
+    expect(castFor(cast, "a hand lifts the lid of the tin", { people: false })).toBeNull();
+    expect(castFor(cast, "the tin on navy shapes", { people: false })).toBeNull();
+    expect(castFor(cast, "a man walks to the door with the tin", { people: true })).toBe("Ahmad");
+    expect(castFor([], "a man walks to the door", null)).toBeNull();
+  });
+
+  it("keeps a post's kind in the plan, counts it in the production signature and tells the picture engine", async () => {
+    const { normalizePlan, itemProductionSignature } = await import("../shared/campaign-plan");
+    const defaults = { imageEngine: { kind: "engine" as const, model: "m" }, frameEngine: { kind: "engine" as const, model: "m" }, clipEngine: { provider: "higgsfield-mcp" as const, model: "seedance", name: "Seedance" }, frame: "9:16" as const, videoSeconds: 12 };
+    const plan = normalizePlan({ rev: 1, images: [img("img-1", "x", "graphic"), img("img-2", "y", "nonsense")], videos: [] } as never, defaults);
+    expect(plan.images[0].kind).toBe("graphic");
+    expect(plan.images[1].kind).toBeUndefined();
+    expect(itemProductionSignature({ ...plan.images[0], kind: "detail" })).not.toBe(itemProductionSignature(plan.images[0]));
   });
 });

@@ -6,7 +6,7 @@
  * and anything it names outside those lists is dropped. Engines are not the model's to choose.
  * Pure; the preview's fixture answer (`demoCampaignAnswer`) lives here too.
  */
-import { cinematography, normalDirection, normalizePlan, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ReelFormat, type ShotSource } from "./campaign-plan";
+import { cinematography, normalDirection, normalizePlan, postKindById, POST_KINDS, type PostKind, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ReelFormat, type ShotSource } from "./campaign-plan";
 import type { FrameId } from "./video-frame";
 import { CAMERA_ANGLES, angleById } from "./angle-library";
 import { CREATIVE_TEMPLATES, templateById } from "./creative-templates";
@@ -81,22 +81,27 @@ export const CONDUCT_RULE = "CONDUCT: never show people toasting or clinking cup
  * style lends palette, attitude and finish; places come from the idea.
  */
 export const STYLE_SCOPE_RULE =
-  "THE BRAND'S STYLE gives its palette, energy, attitude and finish. Its studio elements (seamless or solid-colour backgrounds, pedestals, plain matte planes) describe past posts, not places: never set a post or a shot in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio by name.";
+  "THE BRAND'S STYLE gives its palette, energy, attitude and finish. Its studio elements (seamless or solid-colour backgrounds, pedestals, plain matte planes) describe past posts, not places: never set a scene (lifestyle, phone moment, still life, a filmed Reel) in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio by name. A product hero, a detail or a graphic ad is a designed picture: its set is built from the brand's palette and the product's real ingredients, never a bare white pedestal.";
 
 /** Words that put a picture in a studio. */
 export const STUDIO_WORDS = /\b(studio|seamless|backdrop|solid[- ]colou?r(ed)? background|plain background|monochrom\w* background|matte background|pedestal|infinity cove|sweep)\b/i;
 
-/** Ideas before looks: a real moment and place per piece, a hook mechanic per Reel, the camera from the angle library, and variety everywhere. */
+/** Ideas before looks: the mix of kinds, a real moment and place for each scene, a hook mechanic per Reel, the camera from the angle library, and variety everywhere. */
 export function ideasFirstLines(): string[] {
   return [
-    "IDEAS FIRST. Before any look, decide each piece's idea like a creative agency would:",
-    "- Each image post and each Reel is a different idea: a real moment from the audience's own life (on the way to work, in the car, after the gym, at a family table, late at night with friends), in a real place they know in their own city (Amman, Jordan, unless the brand says otherwise: name the place as it is there, e.g. a limestone stairway in Jabal Amman, a car on Mecca Street, a campus courtyard at the University of Jordan, a balcony over Abdoun), at a definite time of day and weather. No two pieces share the same idea, the same place or the same camera position.",
-    "- setting (image posts): that place and moment in one sentence. For a Reel, direction.place holds it.",
-    '- format (Reels): "tv-spot" (a polished commercial: motivated light, lens choices, composed frames), "ugc" (phone-shot creator content: handheld, deep focus, available light or direct flash, a little imperfect) or "template" (one of the HIGGSFIELD TEMPLATES below, made in one generation). Not every Reel is lifestyle: with two or more Reels, use at least two different formats, and consider a template whenever its mechanic carries the idea better than a filmed scene.',
+    "IDEAS FIRST. Before any look, decide each piece's idea like a creative agency would.",
+    "THE MIX. A campaign is not all lifestyle. Each image post has a kind:",
+    ...POST_KINDS.map((k) => `- ${k.id}: ${k.words}.`),
+    "- With 3 or more image posts use at least 3 different kinds; with 2, two kinds. At most half of the image posts show a person (lifestyle), and at least one image post is a product hero, a detail or a graphic ad that sells the product on its own.",
+    "- People are optional, never the point of every piece: a person of the brand's cast appears only where the idea is a human moment. The same cast member never carries two image posts, and across the whole campaign (image posts and Reels) at most half of the pieces show a person.",
+    "- The CREATIVE DIRECTION sets the look and the mood. A person, a place or a scene it names is one of the campaign's ideas, not the idea of every piece: keep the mix.",
+    "- Each piece is a different idea. A scene (lifestyle, ugc, still-life, a filmed Reel) is a real moment from the audience's own life (on the way to work, in the car, after the gym, at a family table, late at night with friends) in a real place they know in their own city (Amman, Jordan, unless the brand says otherwise: name the place as it is there, e.g. a limestone stairway in Jabal Amman, a car on Mecca Street, a campus courtyard at the University of Jordan, a balcony over Abdoun), at a definite time of day and weather. No two pieces share the same idea, the same place or the same camera position.",
+    "- setting (image posts): for a scene, that place and moment in one sentence; for a designed kind, the set (surfaces, colours from the brand's palette, ingredients, light). For a Reel, direction.place holds it.",
+    '- format (Reels): "template" (one of the HIGGSFIELD TEMPLATES below, made in one generation from the product photo: a product-led, scroll-stopping piece), "tv-spot" (a polished filmed commercial: motivated light, lens choices, composed frames) or "ugc" (phone-shot creator content: handheld, deep focus, available light or direct flash, a little imperfect). Choose by the product and the idea, not by habit: for food, sweets, drinks and packaged products a template whose mechanic fits the product usually sells it better than a filmed scene; a filmed Reel is for a human moment. With two or more Reels use at least two different formats, and at least one of them is a template unless no template fits the product.',
     '- A "template" Reel: templateId is the template\'s id; templateBrief tells the template what to make for this brand, in English, 2 to 5 sentences: the product exactly as its note describes it (and nothing added to it), the place in the brand\'s city, the people (only the brand\'s cast, modestly dressed, or none), the ingredients or colours to use, and what to change from the template as its "adapt" says. It has exactly ONE shot (its action repeats the brief in one sentence, seconds = the template\'s length, source "start-image"). Its direction may be left short. For other formats templateId and templateBrief are "".',
     "- hookMove (Reels): what happens on screen in the first second to stop the scroll, as an action (the cup is pushed through the car window toward the lens; a hand wipes the fogged windscreen and the product appears; a flash burst on the table and a hand grabs the cup). The hook words are separate.",
     "- angleId: the camera position, by id from CAMERA ANGLES below, for every image post and every shot. Across the campaign use many different ones. In a Reel every shot has a different angleId and a different distance: at least one tight, one mid and one wide; at most one shot at plain eye level; the last shot never repeats the first one's framing.",
-    "- Products are always shown true to their note, at real size, in a real hand or on a real surface; never on a pedestal or a plain backdrop.",
+    "- Products are always shown true to their note, at real size. In a scene the product is in a real hand or on a real surface, never on a pedestal or a plain backdrop; in a designed kind its set comes from the brand's palette and its real ingredients.",
     "HIGGSFIELD TEMPLATES (id: name: what happens · best for · people · length · what to adapt):",
     ...CREATIVE_TEMPLATES.map((t) => `${t.id}: ${t.name}: ${t.mechanic} · best for ${t.bestFor} · people: ${t.person} · ${t.seconds} s · adapt: ${t.adapt}`),
     "CAMERA ANGLES (id: what the camera does · distance):",
@@ -114,15 +119,19 @@ export function samePlace(a: string, b: string): boolean {
   return shared / Math.min(x.size, y.size) >= 0.6;
 }
 
+/** Is a post a designed picture (product hero, detail, graphic ad), whose set may be built rather than found? */
+export const designedKind = (kind: string | undefined) => !!postKindById(kind)?.designed;
+
 /** What a plan breaks of the ideas-first rules, as notes for the admin (the plan is kept). */
-export function varietyNotes(plan: Pick<CampaignPlan, "images" | "videos">, studioAsked: boolean): string[] {
+export function varietyNotes(plan: Pick<CampaignPlan, "images" | "videos">, studioAsked: boolean, cast: CastMember[] = []): string[] {
   const notes: string[] = [];
-  const places = [...plan.images.map((i) => ({ key: i.key, place: i.setting ?? "" })), ...plan.videos.map((v) => ({ key: v.key, place: v.direction?.place ?? "" }))].filter((p) => p.place);
+  const scene = (i: CampaignPlan["images"][number]) => !designedKind(i.kind);
+  const places = [...plan.images.filter(scene).map((i) => ({ key: i.key, place: i.setting ?? "" })), ...plan.videos.filter((v) => v.format !== "template").map((v) => ({ key: v.key, place: v.direction?.place ?? "" }))].filter((p) => p.place);
   for (let i = 0; i < places.length; i++)
     for (let j = i + 1; j < places.length; j++) if (samePlace(places[i].place, places[j].place)) notes.push(`${places[i].key} and ${places[j].key} happen in the same place; give one of them a different setting.`);
   if (!studioAsked) {
-    for (const i of plan.images) if (STUDIO_WORDS.test(`${i.setting ?? ""} ${i.visual}`)) notes.push(`${i.key} is set in a studio or on a plain backdrop; give it a real place.`);
-    for (const v of plan.videos) if (STUDIO_WORDS.test(`${v.direction?.place ?? ""} ${v.shots.map((s) => s.placement ?? "").join(" ")}`)) notes.push(`${v.key} is set in a studio or on a plain backdrop; give it a real place.`);
+    for (const i of plan.images) if (scene(i) && STUDIO_WORDS.test(`${i.setting ?? ""} ${i.visual}`)) notes.push(`${i.key} is set in a studio or on a plain backdrop; give it a real place, or make it a product hero.`);
+    for (const v of plan.videos) if (v.format !== "template" && STUDIO_WORDS.test(`${v.direction?.place ?? ""} ${v.shots.map((s) => s.placement ?? "").join(" ")}`)) notes.push(`${v.key} is set in a studio or on a plain backdrop; give it a real place.`);
   }
   const imageAngles = plan.images.map((i) => i.angleId).filter(Boolean);
   if (imageAngles.length > 2 && new Set(imageAngles).size < imageAngles.length) notes.push("Some image posts share the same camera position; vary them.");
@@ -137,6 +146,21 @@ export function varietyNotes(plan: Pick<CampaignPlan, "images" | "videos">, stud
   }
   const formats = plan.videos.map((v) => v.format).filter(Boolean);
   if (formats.length >= 2 && new Set(formats).size === 1) notes.push(`All Reels use the ${formats[0]} format; make one of them the other.`);
+  // The mix: kinds, people, the same cast member everywhere.
+  const kinds = plan.images.map((i) => i.kind ?? "lifestyle");
+  const wanted = Math.min(3, plan.images.length);
+  if (plan.images.length >= 2 && new Set(kinds).size < wanted) notes.push(`The image posts are all ${[...new Set(kinds)].join(" and ")}: mix ${wanted} kinds (a product hero, a detail or a graphic ad next to the scenes).`);
+  if (plan.images.length >= 2 && !kinds.some((k) => designedKind(k))) notes.push("No image post sells the product on its own: make one a product hero, a detail or a graphic ad.");
+  const pieces = [...plan.images.map((i) => ({ key: i.key, words: `${i.idea} ${i.visual}` })), ...plan.videos.map((v) => ({ key: v.key, words: `${v.concept} ${v.template?.brief ?? ""} ${v.shots.map((s) => s.action).join(" ")}` }))];
+  const nameRe = (name: string) => new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const withPeople = pieces.filter((p) => cast.some((m) => m.name && nameRe(m.name).test(p.words)) || /\b(man|woman|guy|girl|person|people|friends?)\b/i.test(p.words));
+  if (pieces.length >= 3 && withPeople.length > Math.ceil(pieces.length / 2)) notes.push(`${withPeople.length} of ${pieces.length} pieces show a person: keep people to the human moments (at most half).`);
+  for (const m of cast) {
+    if (!m.name) continue;
+    const re = nameRe(m.name);
+    const inImages = plan.images.filter((i) => re.test(`${i.idea} ${i.visual}`)).map((i) => i.key);
+    if (inImages.length > 1) notes.push(`${m.name} carries ${inImages.join(", ")}: one image post per cast member at most.`);
+  }
   return notes;
 }
 
@@ -177,8 +201,9 @@ export const CAMPAIGN_PLAN_SCHEMA = {
           cta: { type: "string" },
           setting: { type: "string" },
           angleId: { type: "string" },
+          kind: { type: "string", enum: ["lifestyle", "ugc", "product-hero", "still-life", "detail", "graphic"] },
         },
-        required: ["idea", "objective", "product", "visual", "reference", "headline", "caption", "cta", "setting", "angleId"],
+        required: ["idea", "objective", "product", "visual", "reference", "headline", "caption", "cta", "setting", "angleId", "kind"],
       },
     },
     videos: {
@@ -306,7 +331,7 @@ interface RawShot {
 }
 interface RawAnswer {
   summary?: { concept?: string; mix?: string; together?: string };
-  images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string; setting?: string; angleId?: string }[];
+  images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string; setting?: string; angleId?: string; kind?: string }[];
   videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection>; format?: string; hookMove?: string; templateId?: string; templateBrief?: string }[];
 }
 
@@ -362,6 +387,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     outputs: 1,
     ...(i.setting?.trim() ? { setting: i.setting.trim() } : {}),
     ...(angleById(i.angleId) ? { angleId: i.angleId!.trim() } : {}),
+    ...(postKindById(i.kind) ? { kind: i.kind!.trim() as PostKind } : {}),
   }));
   const videos = (a.videos ?? []).slice(0, x.setup.videos).map((v, n) => ({
     key: `vid-${n + 1}`,
@@ -422,7 +448,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
   };
   for (const i of images) if (reused(i.headline)) notes.push(`${i.key}: its headline repeats an example line from the brand's tone; write a new one.`);
   for (const v of videos) if (reused(v.hook) || v.shots.some((sh) => reused(sh.text))) notes.push(`${v.key}: its words repeat an example line from the brand's tone; write new ones.`);
-  notes.push(...varietyNotes({ images, videos }, /\bstudio\b/i.test(x.setup.direction.prompt)));
+  notes.push(...varietyNotes({ images, videos }, /\bstudio\b/i.test(x.setup.direction.prompt), x.cast ?? []));
   if (images.length < x.setup.imagePosts) notes.push(`The planner wrote ${images.length} of the ${x.setup.imagePosts} image posts asked for; add or regenerate the missing ones.`);
   if (videos.length < x.setup.videos) notes.push(`The planner wrote ${videos.length} of the ${x.setup.videos} videos asked for; add or regenerate the missing ones.`);
   const plan = normalizePlan({ rev, summary: { concept: a.summary?.concept ?? "", mix: a.summary?.mix ?? "", together: a.summary?.together ?? "" }, images, videos, planningNotes: [...new Set(notes)] }, defaults, rev);
@@ -570,6 +596,7 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
       cta: "Order today",
       setting: `${DEMO}: ${places[n % places.length]}.`,
       angleId: pick(angleIds, n * 3, ""),
+      kind: (["lifestyle", "product-hero", "still-life", "graphic", "detail", "ugc"] as const)[n % 6],
     })),
     videos: Array.from({ length: videosN }, (_, v) => ({
       concept: `${DEMO}: Reel ${v + 1}, a short lifestyle story around ${products.length ? nameOf(pick(products, v, "")) : "the product"}.`,

@@ -492,3 +492,14 @@ understands.
   the mocks only; no paid call was made); the reference videos playing (the Playwright Chromium has
   no H.264 decoder, so the hover shows the poster); dictation; the Photo studio ↔ Video studio
   switch on a saved month (typed and built, not clicked).
+
+## Every preset, refreshed daily (24 Oct)
+
+Each category reads its catalog whole (every page, up to 20 pages of 50; the Genjutsu community feeds
+their first 500). New categories: UGC (the Marketing Studio widget's UGC tab: it lists twelve and
+takes no page), Genjutsu new, Genjutsu by Higgsfield and Genjutsu styles (they need a video clip).
+A UGC card whose type the Marketing Studio video model recreates (`video_mode` and the motion types)
+runs through `submitMcpVideo` with the preset id, from the post's clean product photo, after the
+`get_cost` confirm; a talking head is made on Higgsfield. The cron (`server/preset-refresh.ts`) reads
+the stalest category again every few minutes until each is less than 20 hours old, so new presets
+appear by themselves; browsing only, a `preset.browse` row with the note "daily refresh".

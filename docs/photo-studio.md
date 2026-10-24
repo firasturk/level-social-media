@@ -416,3 +416,11 @@ the task's picture, the snapshot, the note, 415 / 413 / 400 / 409, and asserts z
   client with Drive photos, the Text studio ↔ Photo studio switch on a saved month (typed and
   built, not clicked), and anything the Presets and AI tools do against the live MCP servers (see
   "What the first live run must check": the shapes are stubs, no provider token was available).
+
+## Every preset, refreshed daily (24 Oct)
+
+Product shots and Soul styles read every page (418 product shots on 24 Oct). New tabs from the
+Marketing Studio widget: Ads, Posters, Marketplace (its first twelve each). They run with
+`generate_image` model `marketing_studio_2_image`, the preset's type and id, the post's clean product
+photo as `product_image` and, for ads and marketplace, the words as `notes`; the price is asked with
+`get_cost` before the confirm. The daily refresh is the Video studio's (`server/preset-refresh.ts`).

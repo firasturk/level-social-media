@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
-import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ReelFormat, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
+import { defaultSetup, needsKeyFrame, planCounts, POST_KINDS, postKindById, UNIT_LABEL, type CampaignPlan, type PostKind, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ReelFormat, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
 import { approveShots, redoStep, suggestCampaigns, type CampaignSuggestion, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import { CAMERA_ANGLES, angleById } from "@shared/angle-library";
 import { CREATIVE_TEMPLATES, templateById } from "@shared/creative-templates";
@@ -463,9 +463,18 @@ function ImageItem({ it, sources, engines, onChange, onRegen, onProduct, cost, b
           <Field label="Visual direction">
             <textarea rows={2} dir="auto" value={it.visual} onChange={(e) => onChange({ ...it, visual: e.target.value })} />
           </Field>
-          <Field label="Place and moment">
-            <input dir="auto" value={it.setting ?? ""} placeholder="a real place and time: a car at a takeaway window on a cold night" onChange={(e) => onChange({ ...it, setting: e.target.value })} />
-          </Field>
+          <div className="ca-grid2">
+            <Field label="Kind of picture">
+              <select value={it.kind ?? "lifestyle"} onChange={(e) => onChange({ ...it, kind: e.target.value as PostKind })} title={postKindById(it.kind ?? "lifestyle")?.words}>
+                {POST_KINDS.map((k) => (
+                  <option key={k.id} value={k.id}>{k.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label={postKindById(it.kind)?.designed ? "The set" : "Place and moment"}>
+              <input dir="auto" value={it.setting ?? ""} placeholder={postKindById(it.kind)?.designed ? "the set: surfaces and colours from the brand's palette, the real ingredients, the light" : "a real place and time: a car at a takeaway window on a cold night"} onChange={(e) => onChange({ ...it, setting: e.target.value })} />
+            </Field>
+          </div>
           <div className="ca-grid3">
             <Field label="Headline">
               <input dir="auto" value={it.headline} onChange={(e) => onChange({ ...it, headline: e.target.value })} />

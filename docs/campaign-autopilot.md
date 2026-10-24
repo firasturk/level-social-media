@@ -148,3 +148,25 @@ Not every Reel is lifestyle. Next to `tv-spot` and `ugc`, a Reel's format can be
 - **Plan screen.** Format → "Higgsfield template" shows the template's preview video, a picker and the brief.
 
 Also fixed: a clip's price key ends with its frame (`9:16`), and the price book read the frame's first number as the clip's length (a 5-second clip was priced as 9 seconds). The key is now read from the end.
+
+## The mix: not every piece is lifestyle (24 Oct)
+
+Habibah's first campaign under the ideas-first rules came back as Ahmad at home in every post and a
+filmed TV spot. Three causes, all fixed:
+
+- The rules made every image post "a real moment from the audience's life" and forbade a product
+  shown on its own. Each image post now has a **kind** (`shared/campaign-plan.ts` `POST_KINDS`):
+  lifestyle, phone moment (ugc), product hero, still life, detail, graphic ad. The planner mixes them
+  (3 kinds from 3 posts, at most half with a person, at least one product hero, detail or graphic ad),
+  and the designed kinds (product hero, detail, graphic) may build a set from the brand's palette and
+  the product's real ingredients; scenes stay on location. The admin changes the kind on the card.
+- People are optional: one cast member never carries two image posts, at most half of all pieces show
+  a person, and the creative direction is a mood, not the scene of every piece. "Suggest" no longer
+  writes one person as the hero of the direction and names the mix instead.
+- A card that showed a person or a hand always got the first cast member. It now gets the member its
+  words name, nobody on a kind without people, and the first only when nobody is named (`castFor`).
+- Reels: for food, sweets, drinks and packs the planner is told a fitting template usually sells
+  better than a filmed scene; with two or more Reels one is a template unless none fits.
+
+`varietyNotes` warns on the plan page when a plan breaks the mix (all one kind, nothing selling the
+product alone, people in most pieces, one ambassador in several posts).

@@ -30,7 +30,7 @@ import { validateProject } from "@shared/video-project";
 import type { MusicTrack } from "@shared/music";
 import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
-import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
+import { clipSeconds, postKindById, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
 import { onScreenWords, peopleRule, showsPeople, STUDIO_WORDS, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
 import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
@@ -225,9 +225,12 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   let post: Post;
   if (image) {
     const pos = angleById(image.angleId);
-    const located = !!image.setting && !studioAsked;
+    // A product hero, a detail or a graphic ad is a designed picture: its set is built, not found.
+    const kind = postKindById(image.kind);
+    const located = !!image.setting && !studioAsked && !kind?.designed;
     const reference = pos ? await anglePlateRef(env, b, row.id, pos.id) : null;
-    post = { index, type: product ? "product" : "lifestyle", title, brief: [image.idea, image.visual, image.setting && `PLACE: ${image.setting.replace(/[.\s]+$/, "")}.`, pos && `CAMERA POSITION "${pos.name}": ${pos.words}.`, located ? ON_LOCATION : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    const where = image.setting && `${kind?.designed ? "SET" : "PLACE"}: ${image.setting.replace(/[.\s]+$/, "")}.`;
+    post = { index, type: kind ? (kind.people ? "lifestyle" : "product") : product ? "product" : "lifestyle", title, brief: [kind && `KIND OF PICTURE: ${kind.label}: ${kind.words}.`, image.idea, image.visual, where, pos && `CAMERA POSITION "${pos.name}": ${pos.words}.`, located ? ON_LOCATION : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   } else {
     const v = video!;
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
@@ -240,7 +243,8 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   const { castOf } = await import("./campaign");
   const cast = await castOf(env, config.client ?? null);
   const words = image ? `${image.idea} ${image.visual}` : `${video!.concept} ${video!.shots.map((x) => x.action).join(" ")}`;
-  if (cast.length && showsPeople(words)) post.people = [cast[0].name];
+  const person = castFor(cast, words, image ? postKindById(image.kind) : null);
+  if (person) post.people = [person];
   if (existing) {
     // Kept from the card: its date, group and anything the team set on it since.
     const { index: _i, ...words2 } = post;
@@ -252,6 +256,20 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   }
   await saveConfig(env, fresh, config);
   return index;
+}
+
+/**
+ * The cast member a card shows: the one its words name; none for a picture kind without people (a
+ * product hero, a detail, a graphic ad), or when the words show no one; otherwise the first of the
+ * cast only when nobody is named. (Before, every card with a person or a hand got the first cast
+ * member, so one ambassador ended up in every piece.)
+ */
+export function castFor(cast: { name: string }[], words: string, kind: { people: boolean } | null): string | null {
+  if (!cast.length || !showsPeople(words)) return null;
+  const named = cast.find((m) => m.name && new RegExp(`\\b${m.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(words));
+  if (named) return named.name;
+  if (kind && !kind.people) return null;
+  return cast[0].name;
 }
 
 /** A picture stored as the card's picture (a new take: the earlier one stays a version). */
