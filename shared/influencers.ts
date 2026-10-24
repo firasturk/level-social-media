@@ -88,7 +88,7 @@ export function influencerBrief(o: { name: string; gender: string; hijab: boolea
   return [
     `${o.name}: a real-looking ${woman ? "woman" : o.gender === "male" ? "man" : "person"} from ${o.city || "Amman, Jordan"}, the face of ${o.brand} on social media.`,
     `Modestly dressed: loose clothing that covers the shoulders, arms and knees${woman && o.hijab ? ", and a hijab covering the hair" : ""}. No revealing clothes, no tattoos, no piercings.`,
-    "Natural skin texture, a friendly, confident expression; a believable person, not a model or a cartoon.",
+    "Natural skin texture, natural hair colour, a friendly, confident expression; a believable person, not a model or a cartoon.",
     o.notes.trim(),
   ]
     .filter(Boolean)

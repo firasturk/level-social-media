@@ -23,5 +23,5 @@ put into trend videos. Admins only, on the Higgsfield subscription credits. Wher
 Tables: `influencers`, `influencer_trends` (migration 0079). Server: `server/influencers.ts`; studio:
 `src/studio/Influencers.tsx`; traits and brief: `shared/influencers.ts`.
 
-Verified against a mocked Higgsfield (tests/influencers.test.ts). Live: the prepare, the trait list
+Verified against a mocked Higgsfield (tests/influencers.test.ts). Live: the prepare (randomize false keeps only the chosen traits; about 1.1 credits a sheet, priced only), the trait list
 and the trend gallery's shape were read on 24 Oct; no sheet or trend has been made yet (paid).

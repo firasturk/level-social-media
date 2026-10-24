@@ -93,7 +93,7 @@ describe("AI influencers", () => {
     expect(prep.influencer).toMatchObject({ status: "draft", credits: 12 });
     expect(prep.influencer.design).toMatch(/Middle Eastern man/);
     const asked = s.rpc.find((x) => x.name === "ai_influencer_prepare")!.args!;
-    expect(asked).toMatchObject({ tier: "normal", selection: { gender: ["male"], ethnicity_origin_base: ["middle_eastern"] }, batch_size: 1, randomize: true });
+    expect(asked).toMatchObject({ tier: "normal", selection: { gender: ["male"], ethnicity_origin_base: ["middle_eastern"] }, batch_size: 1, randomize: false });
     expect(String(asked.brief)).toMatch(/Yazan: a real-looking man from Amman, Jordan, the face of Sample/);
     expect(s.rpc.some((x) => x.name === "ai_influencer_generate")).toBe(false);
     const id = prep.influencer.id;

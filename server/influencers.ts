@@ -252,7 +252,8 @@ influencerRoutes.post("/prepare", async (c) => {
   const mcp = new HiggsfieldMcp(c.env, fetcher());
   await mcp.connect();
   await mcp.requireTool("ai_influencer_prepare");
-  const r = await mcp.call("ai_influencer_prepare", { tier: "normal", selection, brief, batch_size: 1, randomize: true });
+  // randomize: false keeps only the traits chosen here; left on "Any", the brief decides (random traits came back with green hair and braces, 24 Oct).
+  const r = await mcp.call("ai_influencer_prepare", { tier: "normal", selection, brief, batch_size: 1, randomize: false });
   if (r.isError) throw new StudioError(`Higgsfield could not prepare the influencer: ${resultText(r).slice(0, 300)}`, 502);
   const prepared = parsePrepared(r);
   if (!prepared.params) throw new StudioError("Higgsfield prepared the influencer but returned no settings to make it with.", 502);
