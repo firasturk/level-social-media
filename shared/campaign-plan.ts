@@ -13,6 +13,7 @@
 import type { Format } from "./posts";
 import type { FrameId } from "./video-frame";
 import { angleById } from "./angle-library";
+import { templateById, templateModel } from "./creative-templates";
 
 /* ───────────── Setup ───────────── */
 
@@ -242,9 +243,15 @@ export interface VideoPlanItem {
   format?: ReelFormat;
   /** What happens on screen in the first second to stop the scroll (the mechanic, not the words). */
   hookMove?: string;
+  /**
+   * A Higgsfield Marketing Studio template (shared/creative-templates.ts) that makes the whole Reel
+   * in one generation from the product's photo and this brief: no key frame, no shot pictures.
+   */
+  template?: { id: string; brief: string };
 }
 
-export type ReelFormat = "tv-spot" | "ugc";
+/** A filmed commercial, phone-shot creator content, or a Higgsfield template. */
+export type ReelFormat = "tv-spot" | "ugc" | "template";
 
 export interface CampaignPlan {
   rev: number;
@@ -299,6 +306,7 @@ export function clipSeconds(shotSeconds: number, offered: number[] = [5, 10]): n
 
 /** Does the video need its key frame made (a start-image shot, or animate shots without their own picture)? */
 export function needsKeyFrame(v: VideoPlanItem): boolean {
+  if (v.template) return false;
   return v.shots.some((s) => s.source === "start-image" || (s.source === "animate" && !s.asset));
 }
 
@@ -317,6 +325,18 @@ export function planSteps(plan: CampaignPlan, selected?: Set<string>, clipLength
     if (!on(v.key, v.selected)) continue;
     const post = stepId(v.key, null, "post");
     out.push({ id: post, item: v.key, shot: null, kind: "post", deps: [], priceKey: null, unit: null, label: "The Reel's card" });
+    const tpl = v.template ? templateById(v.template.id) : null;
+    if (tpl) {
+      // A template makes the whole Reel in one generation from the product's photo: one clip, then the
+      // editable project (words, logo, music) and its render.
+      const shot = v.shots[0]?.key ?? "s1";
+      const clip = stepId(v.key, shot, "clip");
+      out.push({ id: clip, item: v.key, shot, kind: "clip", deps: [post], priceKey: clipPriceKey({ provider: "higgsfield-mcp", model: templateModel(tpl.id), name: tpl.name }, tpl.seconds, v.frame), unit: "higgsfield-credits", label: `The Reel from the Higgsfield template "${tpl.name}" (${tpl.seconds} s)` });
+      const assemble = stepId(v.key, null, "assemble");
+      out.push({ id: assemble, item: v.key, shot: null, kind: "assemble", deps: [post, clip], priceKey: null, unit: null, label: "Assemble the Reel (editable project)" });
+      out.push({ id: stepId(v.key, null, "render"), item: v.key, shot: null, kind: "render", deps: [assemble], priceKey: null, unit: null, label: "Render the Reel onto its card (in the browser)" });
+      continue;
+    }
     const key = needsKeyFrame(v) ? stepId(v.key, null, "image") : null;
     if (key) out.push({ id: key, item: v.key, shot: null, kind: "image", deps: [post], priceKey: imagePriceKey(v.keyFrameEngine), unit: imageUnit(v.keyFrameEngine), label: "The key frame (the card's picture, image engine)" });
     const firstStart = v.shots.find((s) => s.source === "start-image")?.key ?? null;
@@ -507,6 +527,7 @@ export function itemProductionSignature(it: ImagePlanItem | VideoPlanItem): stri
         // The direction, the cinematography and the idea fields count only where they are written
         // (older plans keep their signatures); a new place or camera makes the pictures again.
         ...(it.direction ? [it.direction] : []),
+        ...(it.template ? [["template", it.template.id, it.template.brief]] : []),
         ...(it.format || it.hookMove ? [[it.format ?? "", it.hookMove ?? ""]] : []),
       ]),
     );
@@ -537,6 +558,7 @@ export function stepSignature(plan: CampaignPlan, spec: Pick<StepSpec, "item" | 
     // The pictures it approves: a change to the key frame or any angle asks for the look again.
     return stableHash(JSON.stringify([keyFrame, v.frameEngine, v.shots.filter((x) => x.source === "start-image").map(shotSig)]));
   }
+  if (spec.kind === "clip" && v.template) return stableHash(JSON.stringify(["template", v.template.id, v.template.brief, productSig(v.product), v.frame, v.hookMove ?? ""]));
   if (spec.kind === "clip") {
     const start = !shot ? "" : shot.source === "start-image" ? (shot.key === first?.key ? keyFrame : stableHash(JSON.stringify([keyFrame, v.frameEngine, shotSig(shot)]))) : shot.asset ? refSig(shot.asset) : keyFrame;
     return stableHash(JSON.stringify([start, v.clipEngine, shot ? shotSig(shot) : null]));
@@ -662,6 +684,9 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
       if (seen.has(s.key)) s.key = `s${k + 1}`;
       seen.add(s.key);
     });
+    // A template makes the whole Reel: one shot of its length, made from the product's photo.
+    const tpl = templateById(v?.template?.id);
+    if (tpl) shots.splice(0, shots.length, { ...(shots[0] ?? { reference: null, text: "", framing: "", camera: "", action: "" }), key: "s1", seconds: tpl.seconds, source: "start-image", asset: null, action: shots[0]?.action || str(v?.template?.brief, 600) });
     const seconds = shots.reduce((t, s) => t + s.seconds, 0);
     return {
       key: typeof v?.key === "string" && /^vid-\d+$/.test(v.key) ? v.key : `vid-${n + 1}`,
@@ -682,8 +707,9 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
       frameEngine: v?.frameEngine?.kind === "mg-camera" ? { kind: "mg-camera", model: "images_change_camera" } : v?.frameEngine?.kind === "engine" && isFrameModel(v.frameEngine.model) ? { kind: "engine", model: v.frameEngine.model } : defaults.frameEngine,
       clipEngine: v?.clipEngine && (v.clipEngine.provider === "higgsfield-mcp" || v.clipEngine.provider === "higgsfield") && v.clipEngine.model ? { provider: v.clipEngine.provider, model: v.clipEngine.model, name: str(v.clipEngine.name, 80) || v.clipEngine.model } : defaults.clipEngine,
       ...(normalDirection(v?.direction) ? { direction: normalDirection(v?.direction)! } : {}),
-      ...(v?.format === "tv-spot" || v?.format === "ugc" ? { format: v.format } : {}),
+      ...(v?.format === "tv-spot" || v?.format === "ugc" || (v?.format === "template" && templateById(v?.template?.id)) ? { format: v.format } : {}),
       ...(str(v?.hookMove, 300) ? { hookMove: str(v?.hookMove, 300) } : {}),
+      ...(templateById(v?.template?.id) ? { template: { id: v!.template!.id.trim(), brief: str(v!.template!.brief, 2000) } } : {}),
     };
   });
   // Item keys unique.

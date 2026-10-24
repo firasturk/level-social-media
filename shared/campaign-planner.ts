@@ -9,6 +9,7 @@
 import { cinematography, normalDirection, normalizePlan, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ReelFormat, type ShotSource } from "./campaign-plan";
 import type { FrameId } from "./video-frame";
 import { CAMERA_ANGLES, angleById } from "./angle-library";
+import { CREATIVE_TEMPLATES, templateById } from "./creative-templates";
 
 /** A product the planner may pick, with its list id (P1…). */
 export interface PlannerProduct extends ProductPick {
@@ -91,10 +92,13 @@ export function ideasFirstLines(): string[] {
     "IDEAS FIRST. Before any look, decide each piece's idea like a creative agency would:",
     "- Each image post and each Reel is a different idea: a real moment from the audience's own life (on the way to work, in the car, after the gym, at a family table, late at night with friends), in a real place they know in their own city (Amman, Jordan, unless the brand says otherwise: name the place as it is there, e.g. a limestone stairway in Jabal Amman, a car on Mecca Street, a campus courtyard at the University of Jordan, a balcony over Abdoun), at a definite time of day and weather. No two pieces share the same idea, the same place or the same camera position.",
     "- setting (image posts): that place and moment in one sentence. For a Reel, direction.place holds it.",
-    '- format (Reels): "tv-spot" (a polished commercial: motivated light, lens choices, composed frames) or "ugc" (phone-shot creator content: handheld, deep focus, available light or direct flash, a little imperfect). With two or more Reels, use both formats.',
+    '- format (Reels): "tv-spot" (a polished commercial: motivated light, lens choices, composed frames), "ugc" (phone-shot creator content: handheld, deep focus, available light or direct flash, a little imperfect) or "template" (one of the HIGGSFIELD TEMPLATES below, made in one generation). Not every Reel is lifestyle: with two or more Reels, use at least two different formats, and consider a template whenever its mechanic carries the idea better than a filmed scene.',
+    '- A "template" Reel: templateId is the template\'s id; templateBrief tells the template what to make for this brand, in English, 2 to 5 sentences: the product exactly as its note describes it (and nothing added to it), the place in the brand\'s city, the people (only the brand\'s cast, modestly dressed, or none), the ingredients or colours to use, and what to change from the template as its "adapt" says. It has exactly ONE shot (its action repeats the brief in one sentence, seconds = the template\'s length, source "start-image"). Its direction may be left short. For other formats templateId and templateBrief are "".',
     "- hookMove (Reels): what happens on screen in the first second to stop the scroll, as an action (the cup is pushed through the car window toward the lens; a hand wipes the fogged windscreen and the product appears; a flash burst on the table and a hand grabs the cup). The hook words are separate.",
     "- angleId: the camera position, by id from CAMERA ANGLES below, for every image post and every shot. Across the campaign use many different ones. In a Reel every shot has a different angleId and a different distance: at least one tight, one mid and one wide; at most one shot at plain eye level; the last shot never repeats the first one's framing.",
     "- Products are always shown true to their note, at real size, in a real hand or on a real surface; never on a pedestal or a plain backdrop.",
+    "HIGGSFIELD TEMPLATES (id: name: what happens · best for · people · length · what to adapt):",
+    ...CREATIVE_TEMPLATES.map((t) => `${t.id}: ${t.name}: ${t.mechanic} · best for ${t.bestFor} · people: ${t.person} · ${t.seconds} s · adapt: ${t.adapt}`),
     "CAMERA ANGLES (id: what the camera does · distance):",
     ...CAMERA_ANGLES.map((a) => `${a.id}: ${a.name}: ${a.words} · ${a.band}${a.register !== "any" ? ` · best for ${a.register}` : ""}`),
   ];
@@ -218,10 +222,12 @@ export const CAMPAIGN_PLAN_SCHEMA = {
             properties: { look: { type: "string" }, lighting: { type: "string" }, colour: { type: "string" }, lens: { type: "string" }, wardrobe: { type: "string" }, place: { type: "string" } },
             required: ["look", "lighting", "colour", "lens", "wardrobe", "place"],
           },
-          format: { type: "string", enum: ["tv-spot", "ugc"] },
+          format: { type: "string", enum: ["tv-spot", "ugc", "template"] },
           hookMove: { type: "string" },
+          templateId: { type: "string" },
+          templateBrief: { type: "string" },
         },
-        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption", "direction", "format", "hookMove"],
+        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption", "direction", "format", "hookMove", "templateId", "templateBrief"],
       },
     },
   },
@@ -301,7 +307,7 @@ interface RawShot {
 interface RawAnswer {
   summary?: { concept?: string; mix?: string; together?: string };
   images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string; setting?: string; angleId?: string }[];
-  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection>; format?: string; hookMove?: string }[];
+  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection>; format?: string; hookMove?: string; templateId?: string; templateBrief?: string }[];
 }
 
 export interface PlanDefaults {
@@ -382,9 +388,18 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     frameEngine: defaults.frameEngine,
     clipEngine: defaults.clipEngine,
     ...(normalDirection(v.direction) ? { direction: normalDirection(v.direction)! } : {}),
-    ...(v.format === "tv-spot" || v.format === "ugc" ? { format: v.format as ReelFormat } : {}),
+    ...(v.format === "tv-spot" || v.format === "ugc" || (v.format === "template" && templateById(v.templateId)) ? { format: v.format as ReelFormat } : {}),
     ...(v.hookMove?.trim() ? { hookMove: v.hookMove.trim() } : {}),
+    ...(v.format === "template" && templateById(v.templateId) ? { template: { id: v.templateId!.trim(), brief: (v.templateBrief ?? "").trim() || v.concept || "" } } : {}),
   }));
+  // A template makes the whole Reel: one shot of its length, nothing to animate from the client's files.
+  for (const v of videos) {
+    const t = v.template ? templateById(v.template.id) : null;
+    if (!t) continue;
+    const first = v.shots[0];
+    v.shots = [{ key: "s1", seconds: t.seconds, action: first?.action || v.template!.brief, framing: "", camera: "", reference: null, source: "start-image" as ShotSource, asset: null, text: first?.text ?? "" }];
+  }
+  for (const v of a.videos ?? []) if (v.format === "template" && !templateById(v.templateId)) notes.push(`A Reel asked for a template that is not in the list (${String(v.templateId ?? "").slice(0, 40)}); it is planned as a filmed Reel.`);
   // A client's photo or clip of another product does not go into a Reel about this one (seen live: a
   // Sahlab clip in a Hot Chocolate Reel). Those shots are made instead, and the plan says so.
   for (const v of videos) {
@@ -581,7 +596,10 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
         };
       }),
       direction: { look: `${DEMO}: digital cinema camera, fine grain, gentle highlight roll-off.`, lighting: `${DEMO}: late-afternoon sun from camera left, soft fill, 4800 K.`, colour: `${DEMO}: warm neutral grade, natural skin, product colours exact.`, lens: `${DEMO}: normal primes, 35 to 85 mm looks.`, wardrobe: `${DEMO}: the cast in the same clothes in every shot.`, place: `${DEMO}: ${places[(v + imagesN) % places.length]}.` },
+      // Filmed Reels in the fixture (the counts its tests pin); a template Reel is planned by the live model.
       format: v % 2 ? "ugc" : "tv-spot",
+      templateId: "",
+      templateBrief: "",
       hookMove: `${DEMO}: the product is pushed toward the lens in the first second.`,
       voiceover: "",
       music: "upbeat, 110 bpm",

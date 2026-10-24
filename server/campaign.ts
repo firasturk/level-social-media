@@ -41,6 +41,7 @@ import { LOOKS } from "@shared/video-project";
 import { suggestInstruction, suggestionsFrom, SUGGEST_SCHEMA, type SuggestInput } from "../shared/campaign-suggest";
 import { estimateCost } from "@shared/pricing";
 import { angleById, anglePlateKey } from "@shared/angle-library";
+import { templateById } from "@shared/creative-templates";
 import { VIDEO_MODELS, videoModel, videoPriceSetting, durationChoices } from "@shared/video-models";
 import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
@@ -291,10 +292,11 @@ export async function priceBook(env: Env, config: Config, batchId: string, plan:
       continue;
     }
     if (key.startsWith("clip:")) {
-      const [, provider, ...rest] = key.split(":");
-      const frame = rest.pop()!;
-      const seconds = Number(rest.pop());
-      const model = rest.join(":");
+      // The frame holds a colon itself ("9:16"): read from the end, frame first.
+      const m = /^clip:([^:]+):(.+):(\d+(?:\.\d+)?):(\d+:\d+)$/.exec(key);
+      if (!m) continue;
+      const [, provider, model, secondsText, frame] = m;
+      const seconds = Number(secondsText);
       if (provider === "higgsfield") {
         const m = videoModel(model);
         const setting = Number((await getSetting(env, videoPriceSetting(model))) ?? "");
@@ -304,6 +306,14 @@ export async function priceBook(env: Env, config: Config, batchId: string, plan:
         else {
           prices[key] = { amount: null, unit: "usd", source: null, note: `${m?.name ?? model}: Higgsfield publishes no price per clip; set one under Connection → Higgsfield or accept this step at a stated amount` };
           notes.push(`${m?.name ?? model} clips (${seconds} s): no price known before submission.`);
+        }
+      } else if (model.startsWith("template:")) {
+        // A template is priced from the library (Higgsfield's own figure for it, asked once): no call here.
+        const t = templateById(model.slice(9));
+        if (t && t.credits !== null) prices[key] = { amount: t.credits, unit: "higgsfield-credits", source: "catalog", note: `Higgsfield's price for the "${t.name}" template (shared/creative-templates.ts)` };
+        else {
+          prices[key] = { amount: null, unit: "higgsfield-credits", source: null, note: `${t?.name ?? "This template"}: no price recorded yet; accept it at a stated amount (Higgsfield charges 70 to 84 credits for the others)` };
+          notes.push(`The "${t?.name ?? model}" template: no price recorded yet.`);
         }
       } else {
         if (simulate) prices[key] = { amount: DEMO_PRICES["higgsfield-credits"], unit: "higgsfield-credits", source: "demo", note: "preview fixture, not a Higgsfield price" };

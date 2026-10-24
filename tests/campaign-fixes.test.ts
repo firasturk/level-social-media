@@ -320,3 +320,77 @@ describe("ideas first: a real place, a hook move, a format and a camera position
     expect(STUDIO_WORDS.test("a balcony over the city")).toBe(false);
   });
 });
+
+describe("Higgsfield templates as a Reel format (24 Oct: not every Reel is lifestyle)", () => {
+  const CHILI = "fd5645a1-1cfc-4db1-bc9c-2b5a043e3079";
+  const defaults = { imageEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, frameEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, clipEngine: { provider: "higgsfield-mcp" as const, model: "seedance_2_5", name: "Seedance 2.5" }, frame: "9:16" as const, videoSeconds: 12 };
+
+  it("the planner gets all nine templates and plans one as a single-shot Reel; an unknown one stays filmed", async () => {
+    const { campaignInstruction, planFromAnswer } = await import("../shared/campaign-planner");
+    const { CREATIVE_TEMPLATES } = await import("../shared/creative-templates");
+    const input = { setup: { ...defaultSetup(), imagePosts: 0, videos: 2, shotsPerVideo: 4 }, brand: { name: "Abu Saleh", tone: "", audience: "", language: "ar", dos: "", donts: "", style: "" }, products: [{ id: "a", name: "Spicy hot chocolate", from: "library" as const, thumb: null, listId: "P1" }], media: [], references: [], looks: [], month: "2026-10" };
+    const t = campaignInstruction(input);
+    expect(CREATIVE_TEMPLATES).toHaveLength(9);
+    for (const x of CREATIVE_TEMPLATES) expect(t).toContain(`${x.id}: ${x.name}: `);
+    expect(t).toMatch(/Not every Reel is lifestyle/);
+    const shot = { seconds: 3, action: "cocoa bursts", framing: "", camera: "", reference: "", source: "start-image", asset: "", text: "", angle: "", lens: "", placement: "", speed: "normal", angleId: "" };
+    const plan = planFromAnswer(
+      {
+        images: [],
+        videos: [
+          { concept: "Heat you can see", hook: "", product: "P1", shots: [shot, shot, shot, shot], voiceover: "", music: "", transitions: "cuts", look: "", cta: "", caption: "", format: "template", templateId: CHILI, templateBrief: "Cocoa and red chili burst in macro." },
+          { concept: "x", hook: "", product: "P1", shots: [shot], voiceover: "", music: "", transitions: "cuts", look: "", cta: "", caption: "", format: "template", templateId: "not-a-template", templateBrief: "" },
+        ],
+      },
+      input,
+      defaults,
+    );
+    expect(plan.videos[0]).toMatchObject({ format: "template", template: { id: CHILI, brief: "Cocoa and red chili burst in macro." } });
+    expect(plan.videos[0].shots).toHaveLength(1);
+    expect(plan.videos[0].shots[0]).toMatchObject({ key: "s1", seconds: 15, source: "start-image" });
+    expect(plan.videos[1].template).toBeUndefined();
+    expect(plan.planningNotes.join(" ")).toMatch(/template that is not in the list/);
+  });
+
+  it("a template Reel is one clip on the subscription credits: no key frame, no shot pictures, no picture review", async () => {
+    const { normalizePlan, planSteps, needsKeyFrame } = await import("../shared/campaign-plan");
+    const plan = normalizePlan({ videos: [{ key: "vid-1", concept: "c", frame: "9:16", format: "template", template: { id: CHILI, brief: "b" }, shots: [{ key: "s1", seconds: 4, action: "a", source: "start-image" }, { key: "s2", seconds: 4, action: "b", source: "start-image" }] }] as never }, defaults);
+    expect(needsKeyFrame(plan.videos[0])).toBe(false);
+    const steps = planSteps(plan);
+    expect(steps.map((s) => s.id)).toEqual(["vid-1:-:post", "vid-1:s1:clip", "vid-1:-:assemble", "vid-1:-:render"]);
+    expect(steps[1]).toMatchObject({ priceKey: `clip:higgsfield-mcp:template:${CHILI}:15:9:16`, unit: "higgsfield-credits", deps: ["vid-1:-:post"] });
+  });
+
+  it("prices a template from the library without asking Higgsfield, and reads a clip's length apart from its 9:16 frame", async () => {
+    const { normalizePlan } = await import("../shared/campaign-plan");
+    const { priceBook } = await import("../server/campaign");
+    const plan = normalizePlan(
+      {
+        videos: [
+          { key: "vid-1", concept: "c", frame: "9:16", shots: [{ key: "s1", seconds: 4, action: "a", source: "existing", asset: { kind: "asset", id: "m", label: "m", thumb: null, from: "Drive", media: "photo" } }, { key: "s2", seconds: 4, action: "a", source: "animate", asset: { kind: "asset", id: "m", label: "m", thumb: null, from: "Drive", media: "photo" } }] },
+          { key: "vid-2", concept: "c", frame: "9:16", format: "template", template: { id: CHILI, brief: "b" }, shots: [] },
+        ] as never,
+      },
+      defaults,
+    );
+    const asked: unknown[] = [];
+    const r = await priceBook({} as never, {} as never, "b", plan, false, { magnificCamera: async () => ({ credits: null, note: "" }), higgsfieldCredits: async (_e: unknown, _b: string, model: string, seconds: number, frame: string) => (asked.push([model, seconds, frame]), { credits: 35, note: "" }) } as never);
+    expect(asked).toEqual([["seedance_2_5", 5, "9:16"]]);
+    expect(r.prices[`clip:higgsfield-mcp:template:${CHILI}:15:9:16`]).toMatchObject({ amount: 78, unit: "higgsfield-credits", source: "catalog" });
+  });
+
+  it("the template request: its type and preset, the product's photo as its input, the brief with the brand's rules", async () => {
+    const { templateParams, TEMPLATE_MODEL } = await import("../server/higgsfield-mcp");
+    const { templatePrompt } = await import("../server/campaign-runner");
+    const { templateById } = await import("../shared/creative-templates");
+    expect(templateParams({ presetId: CHILI, type: "hypermotion", name: "Chili Burst" }, { prompt: " brief " }, "media-1", "9:16")).toEqual({ model: TEMPLATE_MODEL, type: "hypermotion", preset_id: CHILI, medias: [{ value: "media-1", role: "input_images" }], count: 1, prompt: "brief", aspect_ratio: "9:16" });
+    const giant = templateById("6017577c-d9f9-4d1a-87d6-26e96e8e4f25")!;
+    const p = templatePrompt({ concept: "c", template: { id: giant.id, brief: "A giant Sakina cup on a limestone street." }, product: { name: "Sakina", note: "green smoothie with nuts", id: "s", from: "library" } } as never, giant, [{ name: "omar", gender: "man", modest: true }]);
+    expect(p).toMatch(/A giant Sakina cup on a limestone street/);
+    expect(p).toMatch(/Adapt the template for this brand: the creator is one of the brand's cast/);
+    expect(p).toMatch(/keep it exactly as in the photo/);
+    expect(p).toMatch(/omar/);
+    expect(p).toMatch(/toasting or clinking/);
+    expect(p).toMatch(/in Jordan/);
+  });
+});

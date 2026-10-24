@@ -36,6 +36,7 @@ import { onScreenWords, peopleRule, showsPeople, STUDIO_WORDS, stripListIdRefs, 
 import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
 import { directionLines, LOOK_AVOID, MOTION_AVOID, movementLine, ON_LOCATION, referenceLine, registerLine, setupLine } from "../shared/cinematography";
 import { angleById, anglePlateKey } from "../shared/angle-library";
+import { templateById, type CreativeTemplate } from "../shared/creative-templates";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -334,6 +335,11 @@ export function clipPrompt(v: VideoPlanItem, s: ShotPlan, cast: CastMember[] = [
 
 /** The picture a shot's clip starts from. */
 async function startKey(ctx: Ctx, v: VideoPlanItem, s: ShotPlan, b: BatchRow): Promise<string> {
+  if (v.template) {
+    const key = await productKeyFor(ctx, b, v);
+    if (!key) throw new StudioError("A template Reel is made from the product's photo: give the Reel a product with a photo.", 409);
+    return key;
+  }
   const firstStart = v.shots.find((x) => x.source === "start-image");
   if (s.source === "start-image" && s.key !== firstStart?.key) {
     const f = ctx.steps.get(`${v.key}:${s.key}:frame`);
@@ -531,6 +537,40 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
   return (out.problems ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 4);
 }
 
+/** The brief a template Reel is made with: the planner's brief, what to adapt, the product's truth and the brand's rules. */
+export function templatePrompt(v: VideoPlanItem, t: CreativeTemplate, cast: CastMember[] = []): string {
+  const people = peopleRule(cast).replace(/^PEOPLE: /, "");
+  return [
+    v.template?.brief || v.concept,
+    v.hookMove ? `The first second: ${v.hookMove}` : "",
+    `Adapt the template for this brand: ${t.adapt}.`,
+    v.product ? `The product is ${v.product.name}${v.product.note ? ` (${v.product.note})` : ""}: keep it exactly as in the photo (shape, label, colours, contents, size); add nothing to it.` : "",
+    t.person === "none" ? "No people, at most hands." : `People: ${people}`,
+    "Any place is in Jordan (Amman unless the brief says otherwise). No other brands' logos or legible signs; words on screen only as the template uses them, short and true to the product.",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 4000);
+}
+
+/** The product's photo as a file of this month (a Drive photo is copied once): a template's input. */
+async function productKeyFor(ctx: Ctx, b: BatchRow, v: VideoPlanItem): Promise<string | null> {
+  const p = v.product;
+  if (p?.from === "library") {
+    const src = await first<{ key: string; reference_key: string | null }>(ctx.env.DB, "SELECT key, reference_key FROM sources WHERE id = ?", p.id);
+    return src ? (src.reference_key ?? src.key) : null;
+  }
+  if (p?.from === "drive") {
+    const key = `${b.owner}/${b.id}/campaign/${ctx.row.id}/product-${p.id}.jpg`;
+    if (!(await ctx.env.BUCKET.head(key))) {
+      const img = await photoBytes(ctx.env, p.id, 1600).catch(() => null);
+      if (img) await ctx.env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: img.mime } });
+    }
+    return (await ctx.env.BUCKET.head(key)) ? key : null;
+  }
+  return null;
+}
+
 /** Stored keys of the product's photo and the portraits of the people a shot shows (identity references for the clip). */
 async function identityKeys(ctx: Ctx, b: BatchRow, v: VideoPlanItem, shot: ShotPlan, cast: CastMember[]): Promise<string[]> {
   const { env, row } = ctx;
@@ -678,6 +718,33 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
           if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
           await settleCost(env, row, s, null);
           await patchStep(env, s, { status: "done", post: index, output_key: posterKey, ref_kind: "still", finished: now(), note: `${SIMULATED}: the starting picture is held as a still for ${shot.seconds} s.` });
+          return;
+        }
+        const tpl = v.template ? templateById(v.template.id) : null;
+        if (tpl) {
+          // The template is run on the subscription credits; the card shows the product's photo until the Reel is rendered.
+          if ((await higgsfieldBilling(env)) !== "credits") {
+            await patchStep(env, s, { status: "paused", attempts: s.attempts - 1, note: "Higgsfield templates run on the subscription credits; the billing is on the Cloud API. Switch it back to run this Reel." });
+            await pauseCampaign(env, row.id, "A template Reel needs the Higgsfield subscription credits; nothing was switched silently.");
+            return;
+          }
+          if (!(await first<{ id: string }>(env.DB, "SELECT id FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index))) {
+            const obj = await env.BUCKET.get(posterKey);
+            if (!obj) throw new StudioError("The product's photo could not be read.", 409);
+            await setCardPicture(env, b, index!, await obj.arrayBuffer(), obj.httpMetadata?.contentType || "image/jpeg", "The product's photo, the card's picture until the Reel is rendered");
+          }
+          const { castOf } = await import("./campaign");
+          const cast = await castOf(env, (JSON.parse(b.config) as Config).client ?? null);
+          const { estimateMcpVideo, submitMcpVideo, TEMPLATE_MODEL } = await import("./higgsfield-mcp");
+          const template = { presetId: tpl.id, type: tpl.family, name: tpl.name };
+          const ask = { batch: b.id, index: index!, model: TEMPLATE_MODEL, prompt: templatePrompt(v, tpl, cast), aspect: v.frame, source: "picture" as const };
+          const est = await estimateMcpVideo(env, user, ask, false, { posterKey, template });
+          if (est.unlimChoice) throw new StudioError("Higgsfield asks whether to use the unlimited allowance: answer it from the Video dialog once, then retry this step.", 409);
+          const amount = est.credits ?? s.estimate;
+          if (amount === null) throw new StudioError("Higgsfield gave no cost for this template and none was accepted: nothing was sent.", 409);
+          if (!(await reserveFor(env, row, s, amount))) return;
+          const item = await submitMcpVideo(env, user, { ...ask, confirm: true, note: `Campaign Autopilot ${v.key} · template ${tpl.name}` }, { posterKey, template });
+          await patchStep(env, s, { post: index, ref_kind: "video", ref_id: item.id, note: `Higgsfield template "${tpl.name}"` });
           return;
         }
         const engine = v.clipEngine;

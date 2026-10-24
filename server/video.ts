@@ -618,6 +618,11 @@ export interface StartFrame {
    * cast's portraits), on engines that take references; never the start frame itself.
    */
   references?: string[];
+  /**
+   * A Higgsfield Marketing Studio template instead of an engine: the picture is the product's photo
+   * (the template's input), the template decides the length.
+   */
+  template?: { presetId: string; type: string; name: string };
 }
 
 export function startFrameKey(b: { id: string; owner: string }, opts: StartFrame): string | null {

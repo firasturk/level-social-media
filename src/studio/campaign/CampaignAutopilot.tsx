@@ -11,6 +11,7 @@ import { ApiError } from "@/api";
 import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ReelFormat, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
 import { approveShots, redoStep, suggestCampaigns, type CampaignSuggestion, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import { CAMERA_ANGLES, angleById } from "@shared/angle-library";
+import { CREATIVE_TEMPLATES, templateById } from "@shared/creative-templates";
 import "./campaign.css";
 
 interface Props {
@@ -387,6 +388,39 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** A Reel made from a Higgsfield template: which one (with its preview), and the brief it is made with. */
+function TemplatePick({ v, onChange }: { v: VideoPlanItem; onChange: (x: VideoPlanItem) => void }) {
+  const t = templateById(v.template?.id);
+  const pick = (id: string) => {
+    const next = templateById(id)!;
+    onChange({ ...v, template: { id: next.id, brief: v.template?.brief ?? v.concept }, shots: [{ ...(v.shots[0] ?? { key: "s1", action: "", framing: "", camera: "", reference: null, asset: null, text: "" }), key: "s1", seconds: next.seconds, source: "start-image", asset: null }] });
+  };
+  return (
+    <section className="ca-template">
+      {t && <video src={t.preview} muted autoPlay loop playsInline preload="metadata" aria-label={`${t.name} preview`} />}
+      <div className="ca-col">
+        <Field label="Higgsfield template">
+          <select value={t?.id ?? ""} onChange={(e) => pick(e.target.value)}>
+            {!t && <option value="">Choose…</option>}
+            {CREATIVE_TEMPLATES.map((x) => (
+              <option key={x.id} value={x.id}>{x.name} · {x.seconds} s{x.credits !== null ? ` · ${x.credits} credits` : ""}</option>
+            ))}
+          </select>
+        </Field>
+        {t && (
+          <small className="ca-muted">
+            {t.mechanic}. Best for {t.bestFor}. People: {t.person}. Adapted: {t.adapt}.
+          </small>
+        )}
+        <Field label="What the template makes for this brand">
+          <textarea rows={4} dir="auto" value={v.template?.brief ?? ""} placeholder="the product exactly as photographed, the place, the people, the ingredients and colours" onChange={(e) => onChange({ ...v, template: { id: t?.id ?? CREATIVE_TEMPLATES[0].id, brief: e.target.value } })} />
+        </Field>
+        <small className="ca-muted">One generation on the Higgsfield subscription makes the whole Reel from the product's photo; no key frame or shot pictures. The editor then adds the words, logo and music.</small>
+      </div>
+    </section>
+  );
+}
+
 /** The camera position from the angle library: its plate and a picker. */
 function AnglePick({ value, onChange }: { value: string | undefined; onChange: (id: string | undefined) => void }) {
   const pos = angleById(value);
@@ -529,7 +563,7 @@ function EngineNote({ v, engines, costOf }: { v: VideoPlanItem; engines: Engines
 
 function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, busy }: { v: VideoPlanItem; s: ShotPlan; i: number; sources: Sources | null; onChange: (x: ShotPlan) => void; onMove: (d: -1 | 1) => void; onDelete: () => void; onRegen: () => void; cost: string; busy: boolean }) {
   const firstStart = v.shots.find((x) => x.source === "start-image")?.key;
-  const startNote = s.source === "start-image" ? (s.key === firstStart ? "Key frame (the card's picture)" : v.frameEngine.kind === "engine" ? "Its own camera setup, same scene" : "Another angle of the key frame") : s.source === "animate" ? (s.asset ? "From the client's photo" : "From the key frame") : "";
+  const startNote = v.template ? "Made by the template from the product's photo" : s.source === "start-image" ? (s.key === firstStart ? "Key frame (the card's picture)" : v.frameEngine.kind === "engine" ? "Its own camera setup, same scene" : "Another angle of the key frame") : s.source === "animate" ? (s.asset ? "From the client's photo" : "From the key frame") : "";
   return (
     <li className="ca-shot">
       <div className="ca-shot-head">
@@ -638,10 +672,25 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
           </Field>
           <div className="ca-grid2">
             <Field label="Format">
-              <select value={v.format ?? ""} onChange={(e) => onChange({ ...v, format: (e.target.value || undefined) as ReelFormat | undefined })} title="TV spot: a polished commercial on location. UGC: phone-shot creator content.">
+              <select
+                value={v.format ?? ""}
+                onChange={(e) => {
+                  const format = (e.target.value || undefined) as ReelFormat | undefined;
+                  if (format === "template") {
+                    const t = templateById(v.template?.id) ?? CREATIVE_TEMPLATES[0];
+                    onChange({ ...v, format, template: { id: t.id, brief: v.template?.brief ?? v.concept }, shots: [{ ...(v.shots[0] ?? { key: "s1", action: "", framing: "", camera: "", reference: null, asset: null, text: "" }), key: "s1", seconds: t.seconds, source: "start-image", asset: null }] });
+                  } else {
+                    const { template: _t, ...rest } = v;
+                    void _t;
+                    onChange({ ...rest, format });
+                  }
+                }}
+                title="TV spot: a polished commercial on location. UGC: phone-shot creator content. Higgsfield template: one generation makes the whole Reel."
+              >
                 <option value="">Not set</option>
                 <option value="tv-spot">TV spot</option>
                 <option value="ugc">UGC (phone-shot)</option>
+                <option value="template">Higgsfield template</option>
               </select>
             </Field>
             <Field label="Hook move (first second)">
@@ -670,15 +719,21 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
           <small className="ca-muted">{needsKeyFrame(v) ? `Key frame: ${costOf(`${v.key}:-:image`)}` : "No key frame needed"}</small>
         </div>
       </div>
-      <Direction v={v} onChange={onChange} />
-      <EngineNote v={v} engines={engines} costOf={costOf} />
-      <h4>Storyboard</h4>
+      {v.template ? (
+        <TemplatePick v={v} onChange={onChange} />
+      ) : (
+        <>
+          <Direction v={v} onChange={onChange} />
+          <EngineNote v={v} engines={engines} costOf={costOf} />
+        </>
+      )}
+      <h4>{v.template ? "The Reel" : "Storyboard"}</h4>
       <ol className="ca-shots">
         {v.shots.map((s, k) => (
           <Shot key={s.key} v={v} s={s} i={k} sources={sources} busy={busy} onChange={(x) => setShot(k, x)} onMove={(d) => move(k, d)} onDelete={() => onChange({ ...v, shots: v.shots.filter((_, j) => j !== k) })} onRegen={() => onRegen(s.key)} cost={s.source === "existing" ? "free" : [costOf(`${v.key}:${s.key}:frame`), costOf(`${v.key}:${s.key}:clip`)].filter((x) => x !== "—").join(" + ")} />
         ))}
       </ol>
-      <button type="button" className="text-button" disabled={v.shots.length >= 8} onClick={() => onChange({ ...v, shots: [...v.shots, { key: `s${Math.max(0, ...v.shots.map((s) => Number(s.key.slice(1)) || 0)) + 1}`, seconds: 3, action: "", framing: "medium", camera: "static", reference: null, source: "start-image", asset: null, text: "" }] })}>
+      <button type="button" className="text-button" hidden={!!v.template} disabled={v.shots.length >= 8} onClick={() => onChange({ ...v, shots: [...v.shots, { key: `s${Math.max(0, ...v.shots.map((s) => Number(s.key.slice(1)) || 0)) + 1}`, seconds: 3, action: "", framing: "medium", camera: "static", reference: null, source: "start-image", asset: null, text: "" }] })}>
         <Plus size={14} /> Add a shot
       </button>
       <div className="ca-grid3">

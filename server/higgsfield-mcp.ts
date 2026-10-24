@@ -506,6 +506,23 @@ function videoParams(engine: McpVideoModel, d: McpAsk, mediaId: string, duration
   return params;
 }
 
+/** Marketing Studio's video model, which runs a template from a product photo. */
+export const TEMPLATE_MODEL = "marketing_studio_v2_video";
+
+/** A template stands in for an engine: Higgsfield decides its length; the frame is asked for. */
+function templateEngine(tpl: NonNullable<StartFrame["template"]>, d: McpAsk): { engine: McpVideoModel; duration: undefined; aspect: string | undefined } {
+  return { engine: { id: TEMPLATE_MODEL, name: `Marketing Studio · ${tpl.name}`, description: "", durations: [], aspects: [], supportsUnlim: false, roles: ["input_images"] }, duration: undefined, aspect: d.aspect || undefined };
+}
+
+/** The request a template runs with: its type and preset, the product's photo as its input, the brief. */
+export function templateParams(tpl: NonNullable<StartFrame["template"]>, d: Pick<McpAsk, "prompt" | "useUnlim">, mediaId: string, aspect: string | undefined): Record<string, unknown> {
+  const params: Record<string, unknown> = { model: TEMPLATE_MODEL, type: tpl.type, preset_id: tpl.presetId, medias: [{ value: mediaId, role: "input_images" }], count: 1 };
+  if (d.prompt.trim()) params.prompt = d.prompt.trim();
+  if (aspect) params.aspect_ratio = aspect;
+  if (d.useUnlim !== undefined) params.use_unlim = d.useUnlim;
+  return params;
+}
+
 /**
  * The role that makes the picture the clip's first frame. "image" is read as a mere reference by
  * engines such as Seedance 2.5 (the clip then drifts from the approved picture), so `start_image`
@@ -535,14 +552,15 @@ export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record =
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
   const mcp = new HiggsfieldMcp(env, fetcher());
   await mcp.connect();
-  const { engine, duration, aspect } = await engineFor(env, mcp, d);
+  const tpl = opts.template;
+  const { engine, duration, aspect } = tpl ? templateEngine(tpl, d) : await engineFor(env, mcp, d);
   const posterKey = startFrameKey(b, opts) ?? (await posterFor(env, b, { id: t.id, output: t.output }, d));
   const mediaId = await mediaFor(env, mcp, posterKey);
   // Identity references (product photo, portraits) only where the catalog says the engine takes them;
   // a catalog stored before it listed the roles is read again once.
   if (opts.references?.length && !engine.roles) engine.roles = (await mcpModels(env, mcp, true)).models.find((m) => m.id === engine.id)?.roles ?? [];
-  const refIds = takesReferences(engine) ? await Promise.all((opts.references ?? []).slice(0, 4).map((k) => mediaFor(env, mcp, k))) : [];
-  const params = videoParams(engine, d, mediaId, duration, aspect, refIds);
+  const refIds = !tpl && takesReferences(engine) ? await Promise.all((opts.references ?? []).slice(0, 4).map((k) => mediaFor(env, mcp, k))) : [];
+  const params = tpl ? templateParams(tpl, d, mediaId, aspect) : videoParams(engine, d, mediaId, duration, aspect, refIds);
   const r = await mcp.call("generate_video", { params: { ...params, get_cost: true } });
   const unlimChoice = unlimChoiceIn(r);
   const credits = r.isError ? null : parseCost(r);
@@ -588,7 +606,7 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
   const mcp = new HiggsfieldMcp(env, fetcher());
   // The submission tool must exist before anything is claimed or recorded: a missing name is a clear refusal, not a failed version.
   await mcp.requireTool("generate_video_batch");
-  const fingerprint = await sha256([MCP_PROVIDER, engine.id, d.prompt.trim(), duration ?? "", aspect ?? "", d.source, posterKey, String(d.useUnlim ?? ""), ...(opts.references ?? [])].join("\n"));
+  const fingerprint = await sha256([MCP_PROVIDER, engine.id, d.prompt.trim(), duration ?? "", aspect ?? "", d.source, posterKey, String(d.useUnlim ?? ""), opts.template?.presetId ?? "", ...(opts.references ?? [])].join("\n"));
   const claimKey = `video:${b.id}:${d.index}:${fingerprint}`;
   if (!(await claimSubmission(env, claimKey, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
   const before = est.balance;

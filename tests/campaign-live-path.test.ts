@@ -23,7 +23,7 @@ const calls = vi.hoisted(() => ({
   generate: [] as { indexes?: number[]; approve?: boolean; run?: string; regenerate?: boolean; reserved: number }[],
   tool: [] as { index: number; camera: string; reserved: number }[],
   frame: [] as { model: string; prompt: string; images: number; aspectRatio: string; reserved: number }[],
-  clip: [] as { index: number; model: string; duration?: number; aspect?: string; prompt: string; posterKey?: string; reserved: number }[],
+  clip: [] as { index: number; model: string; duration?: number; aspect?: string; prompt: string; posterKey?: string; template?: string; reserved: number }[],
   billing: "credits" as "credits" | "cloud",
   env: null as unknown as { DB: D1Database; BUCKET: R2Bucket },
   campaign: "",
@@ -98,8 +98,8 @@ vi.mock("../server/higgsfield-mcp", async (orig) => {
       }
     },
     estimateMcpVideo: async () => ({ credits: 30, balance: 1000, plan: null, unlimChoice: null }),
-    submitMcpVideo: async (env: { DB: D1Database }, _u: unknown, d: { batch: string; index: number; model: string; prompt: string; duration?: number; aspect?: string }, opts: { posterKey?: string }) => {
-      calls.clip.push({ index: d.index, model: d.model, duration: d.duration, aspect: d.aspect, prompt: d.prompt, posterKey: opts.posterKey, reserved: await reservedNow("higgsfield-credits") });
+    submitMcpVideo: async (env: { DB: D1Database }, _u: unknown, d: { batch: string; index: number; model: string; prompt: string; duration?: number; aspect?: string }, opts: { posterKey?: string; template?: { presetId: string } }) => {
+      calls.clip.push({ index: d.index, model: d.model, duration: d.duration, aspect: d.aspect, prompt: d.prompt, posterKey: opts.posterKey, template: opts.template?.presetId, reserved: await reservedNow("higgsfield-credits") });
       const id = `clip-${calls.clip.length}`;
       await env.DB.prepare("INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, key, created, updated, provider, settings, poster_key, source, for_client) VALUES (?, ?, ?, 't', 'u1', ?, ?, 'done', ?, ?, ?, 'higgsfield-mcp', ?, ?, 'picture', 0)").bind(id, d.batch, d.index, d.model, d.prompt, `u1/${d.batch}/video/${id}.mp4`, Date.now(), Date.now(), JSON.stringify({ duration: d.duration ?? 5 }), opts.posterKey ?? null).run();
       return { id };
@@ -248,6 +248,40 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     const cards = (JSON.parse(batch!.config) as Config).plan!.map((p) => p.index);
     expect(new Set(cards).size).toBe(cards.length);
     expect(cards).not.toContain(2);
+  });
+
+  it("a Reel made from a Higgsfield template: one generation from the product's photo, no key frame or shot pictures, priced from the library", async () => {
+    const env = await seed();
+    const c = await plannedAndPriced(env);
+    // The product: a photo of this month.
+    await env.DB.prepare("INSERT INTO sources (id, batch, name, stem, key, mime, size, role, kind, created) VALUES ('p1', 'b1', 'Spicy hot chocolate', 'spicy', 'u1/b1/source/p1', 'image/png', 8, 'product', 'product', 0)").run();
+    await env.BUCKET.put("u1/b1/source/p1", new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), { httpMetadata: { contentType: "image/png" } });
+    const plan = JSON.parse(JSON.stringify(c.plan)) as { rev: number; videos: Record<string, unknown>[] };
+    plan.videos[0] = { ...plan.videos[0], format: "template", template: { id: "fd5645a1-1cfc-4db1-bc9c-2b5a043e3079", brief: "Spicy hot chocolate: cocoa and red chili burst in macro, bold words HOT and COCOA." }, product: { id: "p1", name: "Spicy hot chocolate", from: "library", thumb: null } };
+    const saved = await call<{ campaign: C }>(env, "PUT", `/${c.id}/plan`, { plan, rev: plan.rev });
+    expect(saved.status).toBe(200);
+    const p0 = saved.body.campaign;
+    expect(p0.proposal.unaccepted).toEqual([]);
+    const prices = await env.DB.prepare("SELECT prices FROM campaign_plans WHERE id = ?").bind(c.id).first<{ prices: string }>();
+    expect(JSON.parse(prices!.prices)["clip:higgsfield-mcp:template:fd5645a1-1cfc-4db1-bc9c-2b5a043e3079:15:9:16"]).toMatchObject({ amount: 78, unit: "higgsfield-credits", source: "catalog" });
+    const a = await call<{ campaign: C }>(env, "POST", `/${c.id}/approve`, { items: p0.proposal.items, retries: 1, signature: p0.proposal.signature, acceptedUnknown: [] });
+    expect(a.status).toBe(200);
+    const done = await tick(env, c.id, 14);
+    const steps = done.steps.filter((s) => s.item === "vid-1");
+    expect(steps.map((s) => s.kind).sort()).toEqual(["assemble", "clip", "post", "render"]);
+    const post = steps.find((s) => s.kind === "post")!.post!;
+    const clips = calls.clip.filter((x) => x.index === post);
+    expect(clips).toHaveLength(1);
+    expect(clips[0]).toMatchObject({ model: "marketing_studio_v2_video", template: "fd5645a1-1cfc-4db1-bc9c-2b5a043e3079", posterKey: "u1/b1/source/p1", aspect: "9:16" });
+    expect(clips[0].prompt).toMatch(/cocoa and red chili burst/);
+    expect(clips[0].prompt).toMatch(/Adapt the template for this brand/);
+    expect(clips[0].prompt).toMatch(/keep it exactly as in the photo/);
+    expect(clips[0].reserved).toBeGreaterThan(0);
+    // No picture was made for it: the card shows the product's photo until the Reel is rendered.
+    expect(calls.generate.filter((g) => g.indexes?.includes(post))).toEqual([]);
+    const card = await env.DB.prepare("SELECT output FROM tasks WHERE batch = 'b1' AND post = ? AND output IS NOT NULL").bind(post).first<{ output: string }>();
+    expect(card).not.toBeNull();
+    expect(steps.find((s) => s.kind === "assemble")!.status).toBe("done");
   });
 
   it("Magnific Change camera stays a choice for the shot pictures: other angles of the key frame, never the same twice", async () => {
