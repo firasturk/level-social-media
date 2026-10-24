@@ -49,7 +49,7 @@ import ProductChoice, { PostProductCell, productOf } from "./ProductChoice";
 import ProductSwap from "./ProductSwap";
 import { askInput } from "@/lib/confirm";
 import type { OverlaySpec } from "@shared/overlay";
-import Influencers from "./Influencers";
+import AmbassadorTrends from "./AmbassadorTrends";
 import Ambassadors, { MAX_CAST } from "./Ambassadors";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { defaultPaletteSource, gridColours, PALETTE_SOURCE_LABELS, PALETTE_SOURCES, paletteSourceLine, resolvePalette, savedPaletteSource, type PaletteSource } from "@shared/palette-source";
@@ -1702,7 +1702,7 @@ export default function Flow(p: FlowProps) {
                           </DialogDescription>
                         </DialogHeader>
                         <Ambassadors client={client} ambassadors={p.ambassadors} onChanged={p.onAmbassadorsChanged} cast={castIds} onCast={p.onCast} locked={false} />
-                        <Influencers client={client} />
+                        <AmbassadorTrends client={client} />
                         <div className="flow-pick-row">
                           <button type="button" className="primary btn-pill" onClick={() => setModelsOpen(false)}>
                             <Check size={14} /> Done

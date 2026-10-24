@@ -23,7 +23,7 @@ import {
 import ReferenceLibrary from "./ReferenceLibrary";
 import FontPicker from "./FontPicker";
 import Ambassadors from "./Ambassadors";
-import Influencers from "./Influencers";
+import AmbassadorTrends from "./AmbassadorTrends";
 import MemoryPanel from "./MemoryPanel";
 import { Group, KitIcon, type KitKey } from "./kit";
 import type { Ambassador, Client, EngineModel, Theme } from "@shared/types";
@@ -107,7 +107,7 @@ export default function BrandPanel({
           onCast={onCast}
           locked={locked}
         />
-        <Influencers client={client} />
+        <AmbassadorTrends client={client} />
       </Section>
       <ThemeSection
         client={client}

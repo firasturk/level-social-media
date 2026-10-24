@@ -1,0 +1,27 @@
+/* Trends with a character (admins): an ambassador or a Higgsfield character in a trending video. */
+.atr { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--ink-900); }
+.atr-head { display: flex; flex-direction: column; gap: 2px; }
+.atr-head small { color: var(--ink-500); font-size: 12.5px; }
+.atr-note { margin: 0; color: var(--ink-500); font-size: 12.5px; display: flex; align-items: center; gap: 6px; }
+.atr-note.warn, .atr .warn { color: #b3261e; }
+.atr-chars { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.atr-char { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; text-align: start; font: inherit; color: inherit; }
+.atr-char:hover { border-color: var(--ink-500); }
+.atr-char img, .atr-blank { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 7px; background: var(--surface-2); }
+.atr-char b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atr-char small { color: var(--ink-500); font-size: 11px; }
+.atr-trends { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+.atr-trend { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.atr-trend video, .atr-wait { width: 100%; aspect-ratio: 9 / 16; border-radius: 8px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; object-fit: cover; }
+.atr-picker { position: fixed; inset: 4vh 4vw; z-index: 70; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 20px 60px rgb(0 0 0 / 25%); display: flex; flex-direction: column; gap: 8px; padding: 14px; overflow: hidden; }
+.atr-picker header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.atr-picker header b { display: inline-flex; align-items: center; gap: 6px; }
+.atr-picker header nav { display: flex; gap: 4px; flex: 1; }
+.atr-picker header nav button { border: 1px solid var(--line); background: var(--surface-2); border-radius: 999px; padding: 3px 10px; font-size: 12.5px; cursor: pointer; color: inherit; }
+.atr-picker header nav button.on { background: var(--ink-900); color: var(--surface); border-color: var(--ink-900); }
+.atr-grid { flex: 1; overflow: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-content: start; }
+.atr-tile { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.atr-tile video, .atr-tile img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px; background: var(--surface-2); }
+@media (max-width: 640px) {
+  .atr-picker { inset: 0; border-radius: 0; }
+}
