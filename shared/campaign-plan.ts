@@ -503,8 +503,10 @@ export function itemProductionSignature(it: ImagePlanItem | VideoPlanItem): stri
         it.keyFrameEngine,
         it.frameEngine,
         it.clipEngine,
-        it.shots.map((s) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset), ...(s.angleId ? [s.angleId] : [])]),
-        // The idea fields count only where they are written (older plans keep their signatures).
+        it.shots.map((s) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset), ...(s.angle || s.lens || s.placement || s.speed ? [[s.angle ?? "", s.lens ?? "", s.placement ?? "", s.speed ?? ""]] : []), ...(s.angleId ? [s.angleId] : [])]),
+        // The direction, the cinematography and the idea fields count only where they are written
+        // (older plans keep their signatures); a new place or camera makes the pictures again.
+        ...(it.direction ? [it.direction] : []),
         ...(it.format || it.hookMove ? [[it.format ?? "", it.hookMove ?? ""]] : []),
       ]),
     );

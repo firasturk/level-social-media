@@ -303,6 +303,11 @@ describe("ideas first: a real place, a hook move, a format and a camera position
     expect(stepSignature(withIdeas, { item: "vid-1", shot: null, kind: "image" })).not.toBe(key);
     expect(normalizePlan({ ...base, images: [{ ...base.images[0], angleId: "not-an-angle" }] }, defaults).images[0].angleId).toBeUndefined();
     expect(itemProductionSignature(normalizePlan(base, defaults).images[0])).toBe(img);
+    // A new place for a Reel is a material change: its pictures are made again after approval.
+    const placed = normalizePlan({ ...base, videos: [{ ...base.videos[0], direction: { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "a campus in Amman" } }] }, defaults);
+    const moved = normalizePlan({ ...base, videos: [{ ...base.videos[0], direction: { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "a balcony over Abdoun" } }] }, defaults);
+    expect(itemProductionSignature(placed.videos[0])).not.toBe(itemProductionSignature(moved.videos[0]));
+    expect(itemProductionSignature(normalizePlan(base, defaults).videos[0])).toBe(itemProductionSignature(base.videos[0]));
   });
 
   it("a post set on location takes the client style for palette and finish only", async () => {
