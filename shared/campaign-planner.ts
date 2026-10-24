@@ -58,7 +58,14 @@ export interface CastMember {
  * woman or girl, not even her hand. Without a cast, people appear at most as hands, and only when
  * the brand's own rules show people.
  */
+/** The audience is Muslim: no toasting ("cheers"), no clinking cups or glasses, nothing of a bar. Said wherever people are planned or pictured. */
+export const CONDUCT_RULE = "CONDUCT: never show people toasting or clinking cups, glasses or drinks together (no 'cheers'); no alcohol, bars or pubs.";
+
 export function peopleRule(cast: CastMember[] | undefined): string {
+  return `${castRule(cast)} ${CONDUCT_RULE}`;
+}
+
+function castRule(cast: CastMember[] | undefined): string {
   const c = cast ?? [];
   if (!c.length) return "PEOPLE: the brand has no cast. Show no faces; at most a hand holding the product, and only if the brand's style shows hands.";
   const genders = new Set(c.map((m) => (m.gender ?? "").toLowerCase()).filter(Boolean));

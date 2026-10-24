@@ -415,7 +415,7 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
     "List only problems you can clearly see and are certain of, that a creative director would reject, each in one short sentence; when unsure, leave it out (a false alarm costs a new picture). Count fingers before calling a hand malformed.",
     portraits.length ? "- a person whose face does not match their portrait; two people with the same face (twins);" : "",
     "- people who look AI-generated rather than photographed (waxy or plastic skin, airbrushed face, doll eyes, CGI smoothness, a stiff pose or frozen smile, a person lit separately from the set);",
-    "- extra, missing or malformed hands or fingers; a woman or a girl, or a woman's hand, when the people should be men only;",
+    "- extra, missing or malformed hands or fingers; a woman or a girl, or a woman's hand, when the people should be men only; people toasting or clinking cups or glasses together;",
     "- the picture showing something else than the shot asks (a different action or place); close-up versus macro or a slightly different pose is not a problem.",
     'Answer {"problems": []} when it is fine.',
   ]

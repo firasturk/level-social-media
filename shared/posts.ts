@@ -568,7 +568,7 @@ export const NO_DESIGN_RULE =
   "PHOTO ONLY: the image is a plain photograph, not a designed post. No logo, brand mark, emblem, header or footer band, ornamental strip, pattern border, frame or graphic panel is drawn anywhere: the designer adds the logo and graphics afterwards. Brand patterns appear only where they are printed on the product's own packaging in its photo.";
 
 const AVOID =
-  "AVOID: text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
+  "AVOID: people toasting or clinking cups or glasses together ('cheers'), text, letters, numbers, logos, watermarks, price tags, UI elements, speech bubbles, extra limbs, duplicated products, a cup or drink inside a plate or bowl, changed product colour or shape, toppings or garnish the product photo does not show, other food or drinks, people who are not in the post, borders or bars, collage, split frames, cartoon, CGI or illustration style unless the brief asks for it, oversaturated HDR, plastic skin.";
 
 /** What the picture must be for the post's type: a greeting, a text-led tip or quote, an offer. */
 function postTypeRule(b: PostBrief): string {
@@ -1043,6 +1043,10 @@ function briefBlock(r: IdeasRequest): string {
 
 /** Who may appear in the briefs: the month's ambassadors only, or nobody. */
 function peopleRule(r: IdeasRequest): string {
+  return `${castLine(r)} Never write people toasting or clinking cups or glasses together ('cheers'): the audience is Muslim.`;
+}
+
+function castLine(r: IdeasRequest): string {
   return r.ambassadors?.length
     ? "PEOPLE: the cast ambassadors above are the only people any brief may show, and only in posts whose \"people\" lists them; never add friends, groups, staff, models or passers-by, even when the references show them. Every other post shows no person at all (a hand holding the product is the most it may show)."
     : "PEOPLE: no brief shows a person, model, face, group or crowd, even when the references show them; the posts are product photography. A hand holding or placing the product is the most a brief may show, and \"people\" is always [].";

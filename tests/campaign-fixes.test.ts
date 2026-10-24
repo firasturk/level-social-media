@@ -103,3 +103,13 @@ describe("the people in a shot are the cast, photographed (24 Oct: shot 4 gave O
     expect(p).toMatch(/Image 5 is a real photograph of a real person/);
   });
 });
+
+describe("the audience is Muslim: no toasting (24 Oct)", () => {
+  it("every people rule, the shot prompts and the month's pictures say no clinking cups", async () => {
+    expect(peopleRule([])).toMatch(/never show people toasting or clinking cups/);
+    expect(peopleRule([{ name: "omar", gender: "man", modest: true }])).toMatch(/no 'cheers'/);
+    const shot = { key: "s4", seconds: 4, action: "Omar and Khaled laughing, holding their cups", framing: "medium", camera: "static", reference: null, source: "start-image" as const, asset: null, text: "" };
+    expect(clipPrompt({ product: null } as never, shot, [{ name: "omar", gender: "man", modest: true }])).toMatch(/toasting or clinking/);
+    expect(framePrompt({ concept: "x", frame: "9:16", product: null } as never, shot, { cast: [{ name: "omar", gender: "man", modest: true }] })).toMatch(/toasting or clinking/);
+  });
+});
