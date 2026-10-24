@@ -37,7 +37,8 @@ export function setupLine(s: Pick<ShotPlan, "framing" | "angle" | "lens" | "plac
 }
 
 /** A picture set in a real place: never a studio. */
-export const ON_LOCATION = "Photographed on location in a real place: no studio, no seamless or solid-colour backdrop, no pedestal, no plain matte plane behind the product.";
+export const ON_LOCATION =
+  "Photographed on location in a real place in Jordan (Amman unless the brief names another city): limestone and concrete buildings, local streets, cars and people, shop fronts with no legible words; never American or European architecture (no red-brick campuses, no European old towns). No studio, no seamless or solid-colour backdrop, no pedestal, no plain matte plane behind the product.";
 
 /** The register a Reel is made in: phone-shot creator content or a polished commercial. */
 export function registerLine(format: ReelFormat | undefined): string {

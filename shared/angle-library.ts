@@ -18,7 +18,7 @@ export interface CameraAngle {
 
 export const CAMERA_ANGLES: CameraAngle[] = [
   { id: "handoff-lens", name: "Hand-off to the lens", words: "a hand pushes the product toward the lens; product very close, large and slightly foreshortened in the lower third, the arm receding, the place deep behind; 24 mm look, chest height", band: "mid", register: "any" },
-  { id: "worms-eye", name: "Worm's-eye", words: "camera on the ground looking straight up; the product held up toward the lens against open sky and rooftops; 20 mm look", band: "mid", register: "any" },
+  { id: "worms-eye", name: "Worm's-eye", words: "camera low near the ground looking up; the product held up toward the lens against open sky and rooftops; 24 mm look, straight lines, no fisheye", band: "mid", register: "any" },
   { id: "ground-level", name: "Ground level", words: "camera on the pavement or curb; the product sharp in the foreground on a third, the street and passers-by receding behind, soft; 28 mm look", band: "wide", register: "tv-spot" },
   { id: "pov-hand", name: "First-person POV", words: "first-person view: the viewer's own hand holds the product in the lower half, the place ahead in deep focus; phone-wide lens, slight tilt", band: "mid", register: "ugc" },
   { id: "over-shoulder", name: "Over the shoulder", words: "camera just behind a person's shoulder, the shoulder soft and dark in the foreground; the product in their hand sharp; the place ahead; 35 mm look", band: "mid", register: "tv-spot" },

@@ -386,6 +386,7 @@ export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMe
     ...(opts.refs ?? []).map((r) => referenceLine(r.role, r.image)),
     opts.plate ? `Image ${opts.plate} is a black-and-white camera-position reference: copy its camera height, angle, distance and framing exactly; take nothing else from it (not its white cup, place, people, light or colours).` : "",
     registerLine(v.format),
+    v.direction?.place && !STUDIO_WORDS.test(v.direction.place) ? ON_LOCATION : "",
     v.format === "ugc"
       ? `A vertical ${v.frame} frame of creator phone footage: real textures, nothing extra in the frame, no text, no captions, no logos added, no legible signs of other businesses, no car badges, no watermark, no split screen.`
       : `A vertical ${v.frame} frame from a professionally filmed lifestyle commercial: natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no legible signs of other businesses, no car badges, no watermark, no split screen.`,

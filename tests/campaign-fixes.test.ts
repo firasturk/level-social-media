@@ -277,6 +277,8 @@ describe("ideas first: a real place, a hook move, a format and a camera position
     expect(p).toMatch(/Image 4 is a black-and-white camera-position reference: copy its camera height, angle, distance and framing/);
     expect(p).toMatch(/REGISTER: authentic creator phone footage/);
     expect(p).toMatch(/no legible signs of other businesses, no car badges/);
+    expect(p).toMatch(/a real place in Jordan \(Amman unless the brief names another city\)/);
+    expect(p).toMatch(/no red-brick campuses/);
     const c1 = clipPrompt(v, { ...s, key: "s1" });
     const c2 = clipPrompt(v, s);
     expect(c1).toMatch(/The first second, to stop the scroll: the cup is pushed through the window/);
