@@ -136,3 +136,13 @@ describe("a recommended preset is not a started clip (24 Oct: all four clips fai
     expect(parseJobs(ok).map((j) => j.jobId)).toEqual(["53fc284d-dd1f-46af-b0c0-1ea9895ee1cd"]);
   });
 });
+
+describe("a Reel's hook is on-screen words (24 Oct: the hook was a description of the shot)", () => {
+  it("drops a description written where the hook goes; keeps real hooks", async () => {
+    const { onScreenWords, campaignInstruction } = await import("../shared/campaign-planner");
+    expect(onScreenWords("Close-up of Khaled's hand passing a Sakina to Omar through a car window.")).toBe("");
+    expect(onScreenWords("كل طلعة لازمها أبو صالح")).toBe("كل طلعة لازمها أبو صالح");
+    expect(onScreenWords("Your road trip drink")).toBe("Your road trip drink");
+    expect(campaignInstruction({ setup: defaultSetup(), brand: { name: "B", tone: "", audience: "", language: "ar", dos: "", donts: "", style: "" }, products: [], media: [], references: [], looks: [], month: "2026-11" })).toMatch(/A video's hook: the 2 to 6 words shown on screen/);
+  });
+});

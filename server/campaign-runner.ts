@@ -32,7 +32,7 @@ import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
-import { peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
+import { onScreenWords, peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
 import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
@@ -185,7 +185,7 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   } else {
     const v = video!;
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
-    post = { index, type: product ? "product" : "lifestyle", title, brief: `${v.concept}\nKey frame: ${keyShot?.action ?? ""} ${keyShot?.framing ?? ""}`.trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: v.hook || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    post = { index, type: product ? "product" : "lifestyle", title, brief: `${v.concept}\nKey frame: ${keyShot?.action ?? ""} ${keyShot?.framing ?? ""}`.trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: onScreenWords(v.hook) || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   }
   // A card that shows a person or a hand names the client's cast, so the engine draws one of them
   // (from his or her reference photo) instead of inventing someone.
@@ -715,11 +715,11 @@ async function assembleStep(ctx: Ctx, s: StepRow, b: BatchRow): Promise<void> {
   const client = config.client ? await first<{ logo_key: string | null; name: string }>(env.DB, "SELECT logo_key, name FROM clients WHERE id = ?", config.client) : null;
   const music = await musicFor(env, config.client ?? null, v);
   const input = {
-    name: `${v.hook || v.concept.slice(0, 40)} · Autopilot`,
+    name: `${onScreenWords(v.hook) || v.concept.slice(0, 40)} · Autopilot`,
     batch: b.id,
     shots,
     frame: v.frame,
-    hook: v.hook,
+    hook: onScreenWords(v.hook),
     cta: v.cta,
     language: setup.language,
     transitions: v.transitions,
@@ -766,7 +766,7 @@ export async function applyWords(env: Env, user: User, row: CampaignRow, b: Batc
     config.plan = (config.plan ?? []).map((p) => {
       if (p.index !== post.post) return p;
       if (image) return { ...p, headline: image.headline || undefined, caption: [image.caption, image.cta].filter(Boolean).join("\n"), captionHand: true };
-      if (video) return { ...p, headline: video.hook || undefined, caption: [video.caption, video.cta].filter(Boolean).join("\n"), captionHand: true };
+      if (video) return { ...p, headline: onScreenWords(video.hook) || undefined, caption: [video.caption, video.cta].filter(Boolean).join("\n"), captionHand: true };
       return p;
     });
     await saveConfig(env, fresh, config);

@@ -58,6 +58,18 @@ export interface CastMember {
  * woman or girl, not even her hand. Without a cast, people appear at most as hands, and only when
  * the brand's own rules show people.
  */
+/**
+ * Words meant for the screen (a hook, a headline): a description of the picture that the model
+ * wrote there instead ("Close-up of Khaled's hand passing a Sakina…", seen live) is dropped.
+ */
+export function onScreenWords(w: string): string {
+  const t = (w ?? "").trim();
+  if (!t) return "";
+  const words = t.split(/\s+/).length;
+  const described = /^(close-?up|wide|medium|macro|shot|a |an |the |we see|camera|overhead|top view)\b/i.test(t) && !/[؀-ۿ]/.test(t);
+  return words > 9 || described ? "" : t;
+}
+
 /** The audience is Muslim: no toasting ("cheers"), no clinking cups or glasses, nothing of a bar. Said wherever people are planned or pictured. */
 export const CONDUCT_RULE = "CONDUCT: never show people toasting or clinking cups, glasses or drinks together (no 'cheers'); no alcohol, bars or pubs.";
 
@@ -178,6 +190,7 @@ export function campaignInstruction(x: PlannerInput): string {
     "- action: what happens in the shot, concretely (subject, product, movement). framing: wide, medium, close-up or macro. camera: the camera move (static, slow push in, orbit left, pan right, tilt up, handheld follow) or the angle (low, top, left, right).",
     "- In every shot of a video the product, the place and the people stay the same, so the shots cut together.",
     "- text: the few words on screen during the shot (\"\" for none). headline: 2 to 5 words. caption: one or two short sentences. cta: a short call to action.",
+    "- A video's hook: the 2 to 6 words shown on screen over its first shot, in the campaign's language, never a description of the picture (\"Close-up of a hand…\" is wrong).",
     `- look: one of ${x.looks.length ? x.looks.join(", ") : "(none)"} or "". music: the mood and tempo in a few words. transitions: cuts, crossfades or mixed.`,
     '- product and reference fields hold a list id (P1, R2) or "". Never write a list id inside any text (idea, concept, action, caption…): name the product by its name.',
     '- campaign: "plan". summary.concept: the campaign idea in two sentences. summary.mix: why this mix of posts and videos. summary.together: how the pieces work together over the period.',
@@ -256,7 +269,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     key: `vid-${n + 1}`,
     selected: true,
     concept: v.concept ?? "",
-    hook: v.hook ?? "",
+    hook: onScreenWords(v.hook ?? ""),
     product: product(v.product),
     seconds: 0,
     frame: x.setup.videoFrame,
