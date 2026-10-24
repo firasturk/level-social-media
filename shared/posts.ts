@@ -165,6 +165,8 @@ export interface Post {
   ingredients?: string;
   /** A picture the designer attached to this post as a reference for its next take or revision. */
   reference?: PostReference;
+  /** The idea sets this post in a real place: the client style lends its palette and finish, never its studio backgrounds. */
+  onLocation?: boolean;
   /** The client's last change request on this post, and what the studio did about it. */
   clientNote?: { note: string; at: number; summary?: string };
   /** Campaign memory: the earlier post this idea reads like ("October 2026 · post 4"). */
@@ -318,6 +320,8 @@ export interface PostBrief {
   campaign?: { ingredients?: string; /** The colours the brief named ("navy #0b1f6b"): they lead the picture over the reference's colours. */ colours?: string[] };
   /** The designer's own reference picture for this take, attached after the style reference. */
   editRef?: { key: string; note?: string };
+  /** The post is set in a real place (its idea says where): the client style's studio backgrounds do not apply. */
+  onLocation?: boolean;
   /** The client's change request this take answers. */
   clientChange?: string;
   /** The brand's photography direction: lens, light and angle for every picture. */
@@ -773,6 +777,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     // The designer's reference is the look: the client's usual finish would pull the picture away from it.
   } else if (style && b.styleKey)
     parts.push(`CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):\n${style}`);
+  else if (style && b.onLocation)
+    parts.push(`CLIENT STYLE (its palette, energy and finish only: this picture is on location, so the studio backgrounds, seamless colours, pedestals and plain planes it describes do not apply):\n${style}`);
   else if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.
   // The client's ALWAYS scenes (a blue sky, pool water) are a theme of their own: a picked style replaces them.

@@ -8,8 +8,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
-import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
+import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ReelFormat, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
 import { approveShots, redoStep, suggestCampaigns, type CampaignSuggestion, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
+import { CAMERA_ANGLES, angleById } from "@shared/angle-library";
 import "./campaign.css";
 
 interface Props {
@@ -386,6 +387,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** The camera position from the angle library: its plate and a picker. */
+function AnglePick({ value, onChange }: { value: string | undefined; onChange: (id: string | undefined) => void }) {
+  const pos = angleById(value);
+  return (
+    <div className="ca-angle">
+      {pos ? <img src={`/api/studio/campaigns/angles/${pos.id}`} alt={pos.name} title={pos.words} loading="lazy" /> : <span className="ca-angle-none" />}
+      <Field label="Camera position">
+        <select value={pos?.id ?? ""} onChange={(e) => onChange(e.target.value || undefined)} title={pos?.words}>
+          <option value="">Not set</option>
+          {CAMERA_ANGLES.map((a) => (
+            <option key={a.id} value={a.id}>{a.name} · {a.band}</option>
+          ))}
+        </select>
+      </Field>
+    </div>
+  );
+}
+
 function ImageItem({ it, sources, engines, onChange, onRegen, onProduct, cost, busy }: { it: ImagePlanItem; sources: Sources | null; engines: Engines | null; onChange: (x: ImagePlanItem) => void; onRegen: () => void; onProduct: (p: ProductPick | null) => void; cost: string; busy: boolean }) {
   return (
     <article className={`ca-item ${it.selected ? "" : "off"}`}>
@@ -410,6 +429,9 @@ function ImageItem({ it, sources, engines, onChange, onRegen, onProduct, cost, b
           <Field label="Visual direction">
             <textarea rows={2} dir="auto" value={it.visual} onChange={(e) => onChange({ ...it, visual: e.target.value })} />
           </Field>
+          <Field label="Place and moment">
+            <input dir="auto" value={it.setting ?? ""} placeholder="a real place and time: a car at a takeaway window on a cold night" onChange={(e) => onChange({ ...it, setting: e.target.value })} />
+          </Field>
           <div className="ca-grid3">
             <Field label="Headline">
               <input dir="auto" value={it.headline} onChange={(e) => onChange({ ...it, headline: e.target.value })} />
@@ -433,6 +455,7 @@ function ImageItem({ it, sources, engines, onChange, onRegen, onProduct, cost, b
           <ProductBadge p={it.product} />
           <ProductSelect value={it.product} sources={sources} disabled={busy} onChange={onProduct} />
           <RefBadge r={it.reference} />
+          <AnglePick value={it.angleId} onChange={(angleId) => onChange({ ...it, angleId })} />
           <small className="ca-muted">Outputs: {it.outputs} picture</small>
         </div>
       </div>
@@ -544,6 +567,7 @@ function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, bus
       <Field label="Action">
         <textarea rows={2} dir="auto" value={s.action} onChange={(e) => onChange({ ...s, action: e.target.value })} />
       </Field>
+      {s.source === "start-image" && <AnglePick value={s.angleId} onChange={(angleId) => onChange({ ...s, angleId })} />}
       <div className="ca-grid4 ca-cine">
         <Field label="Angle">
           <input value={s.angle ?? ""} onChange={(e) => onChange({ ...s, angle: e.target.value })} placeholder="eye level, over the shoulder…" />
@@ -612,6 +636,18 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
           <Field label="Concept">
             <textarea rows={2} dir="auto" value={v.concept} onChange={(e) => onChange({ ...v, concept: e.target.value })} />
           </Field>
+          <div className="ca-grid2">
+            <Field label="Format">
+              <select value={v.format ?? ""} onChange={(e) => onChange({ ...v, format: (e.target.value || undefined) as ReelFormat | undefined })} title="TV spot: a polished commercial on location. UGC: phone-shot creator content.">
+                <option value="">Not set</option>
+                <option value="tv-spot">TV spot</option>
+                <option value="ugc">UGC (phone-shot)</option>
+              </select>
+            </Field>
+            <Field label="Hook move (first second)">
+              <input dir="auto" value={v.hookMove ?? ""} placeholder="the cup is pushed toward the lens through the car window" onChange={(e) => onChange({ ...v, hookMove: e.target.value })} />
+            </Field>
+          </div>
           <div className="ca-grid3">
             <Field label="Hook">
               <input dir="auto" value={v.hook} onChange={(e) => onChange({ ...v, hook: e.target.value })} />

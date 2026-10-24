@@ -2532,6 +2532,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       campaign,
       // The designer's own reference for this post: attached to every take until it is taken off.
       editRef: post.reference?.key ? { key: post.reference.key, note: post.reference.note?.trim() || undefined } : undefined,
+      onLocation: post.onLocation || undefined,
       keepRef: post.keepRef || undefined,
       occasionId: post.occasion || undefined,
       ambassadors: (() => {

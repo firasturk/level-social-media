@@ -25,16 +25,17 @@ import { parseSettings, postRows, settlePending, type VideoRow } from "./video";
 import { catalogTrack, libraryTrack, type MusicTrackRow } from "./music";
 import { catalogEntry, CATALOG } from "@shared/music-catalog";
 import { rateFor } from "@shared/pricing";
-import { FORMATS, MAX_POST_COUNT, postRevision, type Format, type Post } from "@shared/posts";
+import { FORMATS, MAX_POST_COUNT, postRevision, type Format, type Post, type PostReference } from "@shared/posts";
 import { validateProject } from "@shared/video-project";
 import type { MusicTrack } from "@shared/music";
 import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
-import { onScreenWords, peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
+import { onScreenWords, peopleRule, showsPeople, STUDIO_WORDS, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
 import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
-import { directionLines, LOOK_AVOID, MOTION_AVOID, movementLine, referenceLine, setupLine } from "../shared/cinematography";
+import { directionLines, LOOK_AVOID, MOTION_AVOID, movementLine, ON_LOCATION, referenceLine, registerLine, setupLine } from "../shared/cinematography";
+import { angleById, anglePlateKey } from "../shared/angle-library";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -160,6 +161,24 @@ async function productStem(env: Env, user: User, b: BatchRow, p: ImagePlanItem["
 const asFormat = (f: string): Format => (FORMATS as readonly string[]).includes(f) ? (f as Format) : "9:16";
 
 /**
+ * A camera position from the angle library as the card's reference picture: the plate is copied
+ * into the month (the card may delete its reference) and labelled as composition only.
+ */
+async function anglePlateRef(env: Env, b: BatchRow, campaignId: string, angleId: string): Promise<PostReference | null> {
+  const pos = angleById(angleId);
+  if (!pos) return null;
+  const key = `${b.owner}/${b.id}/campaign/${campaignId}/angle-${pos.id}.jpg`;
+  const thumb = `${b.owner}/${b.id}/campaign/${campaignId}/angle-${pos.id}-thumb.jpg`;
+  if (!(await env.BUCKET.head(key))) {
+    const [bw, colour] = await Promise.all([env.BUCKET.get(anglePlateKey(pos.id, true)), env.BUCKET.get(anglePlateKey(pos.id, false))]);
+    if (!bw) return null;
+    await env.BUCKET.put(key, await bw.arrayBuffer(), { httpMetadata: { contentType: "image/jpeg" } });
+    if (colour) await env.BUCKET.put(thumb, await colour.arrayBuffer(), { httpMetadata: { contentType: "image/jpeg" } });
+  }
+  return { key, thumb, name: `Camera: ${pos.name}`, note: `Composition only: take this photo's camera position, height, distance and framing (${pos.words}). Take nothing else from it: not its white cup, its place, its people, its light or its colours.`, at: now() };
+}
+
+/**
  * The item's card in the month, appended after its posts. The card's number is written on the
  * step before the month is saved, so a step that runs again finds its card instead of adding one.
  */
@@ -179,14 +198,21 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   const index = existing ? existing.index : planPosts.reduce((m, p) => Math.max(m, p.index), 0) + 1;
   if (!existing) await patchStep(env, s, { post: index });
   const t = now();
-  const setup = JSON.parse(row.setup) as { imageFormat?: string };
+  const setup = JSON.parse(row.setup) as { imageFormat?: string; direction?: { prompt?: string } };
+  // A studio only when the admin's direction asks for one by name; every other idea is on location.
+  const studioAsked = /\bstudio\b/i.test(setup.direction?.prompt ?? "");
   let post: Post;
   if (image) {
-    post = { index, type: product ? "product" : "lifestyle", title, brief: `${image.idea}\n${image.visual}`.trim(), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    const pos = angleById(image.angleId);
+    const located = !!image.setting && !studioAsked;
+    const reference = pos ? await anglePlateRef(env, b, row.id, pos.id) : null;
+    post = { index, type: product ? "product" : "lifestyle", title, brief: [image.idea, image.visual, image.setting && `PLACE: ${image.setting}.`, pos && `CAMERA POSITION "${pos.name}": ${pos.words}.`, located ? ON_LOCATION : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   } else {
     const v = video!;
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
-    post = { index, type: product ? "product" : "lifestyle", title, brief: [v.concept, `Key frame: ${keyShot?.action ?? ""}`, keyShot ? setupLine(keyShot) : "", ...directionLines(v.direction), v.direction ? LOOK_AVOID : ""].filter(Boolean).join("\n").trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: onScreenWords(v.hook) || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    const located = !!v.direction?.place && !STUDIO_WORDS.test(v.direction.place) && !studioAsked;
+    const reference = keyShot?.angleId ? await anglePlateRef(env, b, row.id, keyShot.angleId) : null;
+    post = { index, type: product ? "product" : "lifestyle", title, brief: [v.concept, `Key frame: ${keyShot?.action ?? ""}`, keyShot ? setupLine(keyShot) : "", ...directionLines(v.direction), registerLine(v.format), located ? ON_LOCATION : "", v.direction ? LOOK_AVOID : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: onScreenWords(v.hook) || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   }
   // A card that shows a person or a hand names the client's cast, so the engine draws one of them
   // (from his or her reference photo) instead of inventing someone.
@@ -268,9 +294,11 @@ export function clipPrompt(v: VideoPlanItem, s: ShotPlan, cast: CastMember[] = [
   const people = peopleRule(cast).replace(/^PEOPLE: /, "").replace(" in a post or shot", "");
   const d = v.direction;
   return [
+    v.hookMove && s.key === v.shots?.[0]?.key ? `The first second, to stop the scroll: ${v.hookMove}` : "",
     s.action,
     setupLine(s),
-    movementLine(s),
+    movementLine(s, v.format),
+    registerLine(v.format),
     d?.lighting && `Light, as in the start frame: ${d.lighting}`,
     d?.colour && `Colour: ${d.colour}; keep the start frame's grade, skin tones natural.`,
     v.product ? `Keep ${v.product.name} exactly as in the picture: shape, label, colours and contents unchanged.` : "",
@@ -318,14 +346,16 @@ export function redoNote(s: Pick<StepRow, "data" | "note">): string {
 }
 
 /** The prompt a shot's own starting picture is made with: the shot's moment, the key frame's world. */
-export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean; faces?: { name: string; image: number }[]; realRef?: number | null; refs?: { role: "colour" | "composition"; image: number }[] } = {}): string {
+export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean; faces?: { name: string; image: number }[]; realRef?: number | null; refs?: { role: "colour" | "composition"; image: number }[]; plate?: number | null } = {}): string {
   const cast = opts.cast ?? [];
   const people = peopleRule(cast).replace(/^PEOPLE: /, "");
   const faces = opts.faces ?? [];
   const withPeople = showsPeople(s.action) || faces.length > 0;
   return [
     "Make one photograph: the starting frame of one shot in a short vertical video ad. It must look like a real photo from the same shoot as the first image.",
-    "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
+    v.direction?.place && !STUDIO_WORDS.test(v.direction.place)
+      ? "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same light, time of day, weather and colour palette. The place is this shot's own spot in the same world (it may be another part of the same street, car, room or terrace); never a studio or a plain backdrop."
+      : "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
     v.product ? `${opts.productPhoto ? "The second image is the product itself, and it wins over the key frame: " : ""}keep ${v.product.name} exactly as ${opts.productPhoto ? "that photo shows it" : "it is"}: the same cup, shape, label, colours, size and toppings. Add nothing the product photo does not show (no mint or other garnish, no straw, no lid, no extra toppings), even if the key frame shows them.` : "",
     `The campaign idea: ${v.concept}`,
     ...directionLines(v.direction),
@@ -334,7 +364,11 @@ export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMe
     s.camera && `The clip will move like this: ${s.camera}; frame the start of that move.`,
     "This is a different camera setup in the same scene as the key frame: build the composition this shot describes; do not copy the key frame's composition, crop or pose.",
     ...(opts.refs ?? []).map((r) => referenceLine(r.role, r.image)),
-    `A vertical ${v.frame} frame from a professionally filmed lifestyle commercial: natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no watermark, no split screen.`,
+    opts.plate ? `Image ${opts.plate} is a black-and-white camera-position reference: copy its camera height, angle, distance and framing exactly; take nothing else from it (not its white cup, place, people, light or colours).` : "",
+    registerLine(v.format),
+    v.format === "ugc"
+      ? `A vertical ${v.frame} frame of creator phone footage: real textures, nothing extra in the frame, no text, no captions, no logos added, no legible signs of other businesses, no car badges, no watermark, no split screen.`
+      : `A vertical ${v.frame} frame from a professionally filmed lifestyle commercial: natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no legible signs of other businesses, no car badges, no watermark, no split screen.`,
     LOOK_AVOID,
     showsPeople(s.action) || cast.length ? `People: ${people}` : "",
     ...faces.map((f) => `Image ${f.image} is ${f.name}'s portrait: wherever ${f.name} appears, it is exactly this man's face (face shape, eyes, nose, beard, hairline, skin tone), photographed again in this scene.`),
@@ -419,14 +453,17 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   const inspiration = await inspirationFor(env, row, shot);
   const refStart = first2 + portraits.length + (real ? 1 : 0);
   const refs = inspiration.map((r, n) => ({ role: r.role, image: refStart + n }));
-  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product, faces, realRef: real ? first2 + portraits.length : null, refs });
+  // The shot's camera position from the angle library, in black and white (it lends the framing only).
+  const plateObj = shot.angleId && angleById(shot.angleId) ? await env.BUCKET.get(anglePlateKey(shot.angleId, true)) : null;
+  const plate = plateObj ? { bytes: await plateObj.arrayBuffer(), mime: "image/jpeg" } : null;
+  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product, faces, realRef: real ? first2 + portraits.length : null, refs, plate: plate ? refStart + inspiration.length : null });
   if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
   await patchStep(env, s, { post: index, ref_kind: "engine", ref_id: model, note: `Making this shot's picture with ${model}` });
   const { makeGoogleClient } = await import("./engine");
   const engine = await makeGoogleClient(env);
   let img: { bytes: ArrayBuffer; mime: string };
   try {
-    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : []), ...portraits.map((p) => p.img), ...(real ? [real] : []), ...inspiration.map((r) => r.img)], aspectRatio: v.frame, size: config.size ?? "2K" });
+    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : []), ...portraits.map((p) => p.img), ...(real ? [real] : []), ...inspiration.map((r) => r.img), ...(plate ? [plate] : [])], aspectRatio: v.frame, size: config.size ?? "2K" });
   } catch (e) {
     // Google bills a picture it returns: a refusal or an error answer returns none; a lost connection may have made one.
     const message = errorMessage(e);
@@ -455,7 +492,8 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
     product ? "Image 2 is the real product photo." : "",
     keyFrame ? `Image ${product ? 3 : 2} is the Reel's key frame, another shot of the same scene.` : "",
     ...portraits.map((p, n) => `Image ${n + at} is ${p.name}'s portrait.`),
-    keyFrame ? "- broken continuity with the key frame: different light direction or time of day, a different grade or colour cast, different clothes, a different place or product;" : "",
+    keyFrame ? "- broken continuity with the key frame: different light direction or time of day, a different grade or colour cast, different clothes, a different product, or a place from another world (another spot of the same street, car or room is fine);" : "",
+    "- a studio look when the shot is set in a real place: a seamless or solid-colour backdrop, a pedestal, a plain matte plane behind the product; legible signs of other businesses or car badges;",
     "- a generated look: plastic or waxy skin, HDR, oversaturation, orange-and-teal grade, glow, heavy background blur, a distorted face or product;",
     product ? "- the product differing from its photo: added garnish (mint, fruit), a straw or a lid the photo does not show, other toppings, another cup, a changed label or colour;" : "",
     `The shot should show: ${shot.action}`,

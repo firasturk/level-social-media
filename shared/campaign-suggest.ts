@@ -7,7 +7,7 @@
 import type { CampaignLanguage, CampaignSetup, ProductPick } from "./campaign-plan";
 import { SETUP_LIMITS } from "./campaign-plan";
 import type { CastMember } from "./campaign-planner";
-import { peopleRule } from "./campaign-planner";
+import { peopleRule, STYLE_SCOPE_RULE } from "./campaign-planner";
 
 export interface SuggestInput {
   brand: { name: string; tone: string; audience: string; language: string; dos: string; donts: string; style: string };
@@ -76,7 +76,7 @@ export function suggestInstruction(x: SuggestInput): string {
     "- Timely: tie it to the season, the weather, an occasion from the list below or a real moment in people's routine when it fits. Use only occasions from that list (they are the ones still ahead): never one that has already passed, never one you remember from elsewhere, and never force one that does not fit the brand.",
     "- Products: feature the brand's real products from the list below, by their ids; the hero product first. Never invent products, flavours, prices or offers.",
     "- Offer: only an offer the brand already runs (from the brand kit or the Analysis). If none is known, leave it empty: never invent a discount.",
-    "- Direction: describe the visual world in concrete terms a photographer can shoot (place, light, palette from the brand, props, styling, camera feel), consistent with the brand's photography.",
+    "- Direction: describe the visual world in concrete terms a photographer can shoot: the real places where the moments happen (a street, a car, a balcony, a campus, a kitchen, a café terrace, never a studio), the time of day and light, the brand's palette, props, styling and camera feel. The three campaigns live in three different worlds.",
     "- Sizing: image posts 2 to 6, Reels 1 to 4, 3 to 6 shots per Reel, 10 to 30 seconds; size it to the idea, not the maximum.",
     "",
     `LANGUAGE: ${lang}. Write title, insight, why, objective, audience, offer, message and direction in that language. Never write list ids (P1, P2…) inside the text: put them only in "products".`,
@@ -86,6 +86,7 @@ export function suggestInstruction(x: SuggestInput): string {
     x.brand.tone && `Tone: ${x.brand.tone}`,
     x.brand.audience && `Audience: ${x.brand.audience}`,
     x.brand.style && `Style: ${x.brand.style}`,
+    x.brand.style && STYLE_SCOPE_RULE,
     x.brand.dos && `Do: ${x.brand.dos}`,
     x.brand.donts && `Don't: ${x.brand.donts}`,
     x.profile && `\nWHAT THE ANALYSIS FOUND (Instagram, website, competitors)\n${x.profile}`,

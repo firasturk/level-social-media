@@ -4,7 +4,8 @@
  * movement) for the picture engine and the clip engine. Words such as "cinematic" alone decide
  * nothing; these lines do.
  */
-import type { ReelDirection, ShotPlan } from "./campaign-plan";
+import type { ReelDirection, ReelFormat, ShotPlan } from "./campaign-plan";
+import { angleById } from "./angle-library";
 
 /** The look every picture and clip must avoid (the generic generated look). */
 export const LOOK_AVOID =
@@ -18,7 +19,7 @@ export const MOTION_AVOID =
 export function directionLines(d: ReelDirection | undefined): string[] {
   if (!d) return [];
   return [
-    "PHOTOGRAPHIC DIRECTION (one commercial: every shot is the same scene, the same day, the same light and grade):",
+    "PHOTOGRAPHIC DIRECTION (one commercial: the same people, wardrobe, day, light and grade in every shot; each shot its own camera position):",
     d.look && `Look: ${d.look}`,
     d.lighting && `Light: ${d.lighting}`,
     d.colour && `Colour: ${d.colour}; skin tones natural, the product's colours exact.`,
@@ -28,16 +29,28 @@ export function directionLines(d: ReelDirection | undefined): string[] {
   ].filter((l): l is string => !!l);
 }
 
-/** A shot's camera setup in words: size, angle, lens, placement (what the picture is framed as). */
-export function setupLine(s: ShotPlan): string {
-  const parts = [s.framing && `shot size ${s.framing}`, s.angle && `camera ${s.angle}`, s.lens && `lens ${s.lens}`, s.placement && `composition: ${s.placement}`].filter(Boolean);
+/** A shot's camera setup in words: the library position, size, angle, lens, placement (what the picture is framed as). */
+export function setupLine(s: Pick<ShotPlan, "framing" | "angle" | "lens" | "placement" | "angleId">): string {
+  const pos = angleById(s.angleId);
+  const parts = [pos && `camera position "${pos.name}": ${pos.words}`, s.framing && `shot size ${s.framing}`, s.angle && `camera ${s.angle}`, s.lens && `lens ${s.lens}`, s.placement && `composition: ${s.placement}`].filter(Boolean);
   return parts.length ? `CAMERA SETUP: ${parts.join("; ")}.` : "";
 }
 
-/** A shot's movement and speed for the clip engine. */
-export function movementLine(s: ShotPlan): string {
+/** A picture set in a real place: never a studio. */
+export const ON_LOCATION = "Photographed on location in a real place: no studio, no seamless or solid-colour backdrop, no pedestal, no plain matte plane behind the product.";
+
+/** The register a Reel is made in: phone-shot creator content or a polished commercial. */
+export function registerLine(format: ReelFormat | undefined): string {
+  if (format === "ugc")
+    return "REGISTER: authentic creator phone footage: shot on a phone, casual handheld framing, deep focus with the background readable, natural available light or a direct phone flash, phone-sensor grain and real textures, no retouch, no professional gloss; never a studio shoot or a polished commercial.";
+  if (format === "tv-spot") return "REGISTER: a polished commercial filmed on location: motivated practical light, deliberate lens choices, composed frames, real places.";
+  return "";
+}
+
+/** A shot's movement and speed for the clip engine; phone footage moves like a hand holds it. */
+export function movementLine(s: ShotPlan, format?: ReelFormat): string {
   const move = s.camera?.trim();
-  return [move && `Camera movement: ${move}.`, s.speed === "slow" ? "Slow motion for this shot." : "Real-time speed."].filter(Boolean).join(" ");
+  return [move && `Camera movement: ${move}${format === "ugc" ? ", handheld with a slight natural micro-shake" : ""}.`, s.speed === "slow" ? "Slow motion for this shot." : "Real-time speed."].filter(Boolean).join(" ");
 }
 
 /** What a labelled inspiration reference may lend, and what it never may. */

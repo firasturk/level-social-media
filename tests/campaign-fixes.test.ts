@@ -208,3 +208,108 @@ describe("the planner writes new lines and keeps a Reel to its own product (24 O
     expect(plan.planningNotes.join(" ")).toMatch(/vid-1 shot 2: the client's clip shows sahlab/);
   });
 });
+
+describe("ideas first: a real place, a hook move, a format and a camera position from the library (24 Oct: every Abu Saleh picture sat on a teal studio backdrop)", () => {
+  const products = [{ id: "a", name: "Spicy hot chocolate", from: "library" as const, thumb: null, listId: "P1" }];
+  const studioStyle = "High-energy studio product shots, bold monochromatic backgrounds, centred composition.";
+  const input = { setup: { ...defaultSetup(), imagePosts: 2, videos: 1, shotsPerVideo: 3 }, brand: { name: "Abu Saleh", tone: "", audience: "", language: "ar", dos: "", donts: "", style: studioStyle }, products, media: [], references: [], looks: [], month: "2026-10" };
+  const defaults = { imageEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, frameEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, clipEngine: { provider: "higgsfield-mcp" as const, model: "seedance_2_5", name: "Seedance 2.5" }, frame: "9:16" as const, videoSeconds: 12 };
+  const shot = (angleId: string, angle = "") => ({ seconds: 4, action: "a hand lifts the cup", framing: "medium", camera: "static", reference: "", source: "start-image", asset: "", text: "", angle, lens: "", placement: "", speed: "normal", angleId });
+
+  it("the planner is told ideas come first, the style lends palette only, and gets the angle library by id", async () => {
+    const { campaignInstruction } = await import("../shared/campaign-planner");
+    const t = campaignInstruction(input);
+    expect(t).toMatch(/IDEAS FIRST/);
+    expect(t).toMatch(/never set a post or a shot in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio/);
+    expect(t).toMatch(/^handoff-lens: Hand-off to the lens: .* · mid$/m);
+    expect(t).toMatch(/^worms-eye: /m);
+    expect(t).toMatch(/at least one tight, one mid and one wide; at most one shot at plain eye level/);
+    expect(t).not.toMatch(/eye level by default/);
+  });
+
+  it("keeps the idea fields, drops an angle id that is not in the library", async () => {
+    const { planFromAnswer } = await import("../shared/campaign-planner");
+    const plan = planFromAnswer(
+      {
+        images: [{ idea: "x", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens" }, { idea: "y", objective: "", product: "P1", visual: "", reference: "", headline: "", caption: "", cta: "", setting: "a balcony over the city at blue hour", angleId: "made-up" }],
+        videos: [{ concept: "c", hook: "", product: "P1", shots: [shot("macro-rim"), shot("pov-hand"), shot("wide-place")], voiceover: "", music: "", transitions: "cuts", look: "", cta: "", caption: "", direction: { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "old stone stairs at dusk" }, format: "ugc", hookMove: "the cup is pushed toward the lens" }],
+      },
+      input,
+      defaults,
+    );
+    expect(plan.images[0]).toMatchObject({ setting: "a car at a takeaway window on a cold night", angleId: "handoff-lens" });
+    expect(plan.images[1].angleId).toBeUndefined();
+    expect(plan.videos[0]).toMatchObject({ format: "ugc", hookMove: "the cup is pushed toward the lens" });
+    expect(plan.videos[0].shots.map((s) => s.angleId)).toEqual(["macro-rim", "pov-hand", "wide-place"]);
+    expect(plan.planningNotes).toEqual([]);
+  });
+
+  it("says so when pieces share a place, sit in a studio, repeat a camera position, stay at one distance or at eye level", async () => {
+    const { varietyNotes, samePlace } = await import("../shared/campaign-planner");
+    expect(samePlace("a car at a takeaway window on a cold night", "the car at the takeaway window, cold night")).toBe(true);
+    expect(samePlace("a car at a takeaway window", "a balcony over the city")).toBe(false);
+    const v = (shots: object[], place: string) => ({ key: "vid-1", direction: { place }, shots, format: "tv-spot" }) as never;
+    const s = (angleId: string, angle = "") => ({ source: "start-image", angleId, angle }) as never;
+    const notes = varietyNotes(
+      {
+        images: [{ key: "img-1", setting: "a car at a takeaway window on a cold night", visual: "" }, { key: "img-2", setting: "the car at the takeaway window on a cold night", visual: "teal seamless backdrop" }] as never,
+        videos: [v([s("pov-hand", "eye level"), s("pov-hand", "eye level"), s("handoff-lens")], "studio set with deep teal backgrounds")],
+      },
+      false,
+    ).join(" ");
+    expect(notes).toMatch(/img-1 and img-2 happen in the same place/);
+    expect(notes).toMatch(/img-2 is set in a studio/);
+    expect(notes).toMatch(/vid-1 is set in a studio/);
+    expect(notes).toMatch(/vid-1: two shots use the same camera position/);
+    expect(notes).toMatch(/vid-1: all its shots are at the same distance/);
+    expect(notes).toMatch(/vid-1: 2 shots at plain eye level/);
+    // A studio the admin asked for is not a problem.
+    expect(varietyNotes({ images: [{ key: "img-1", setting: "", visual: "studio, seamless yellow backdrop" }] as never, videos: [] }, true)).toEqual([]);
+  });
+
+  it("the shot picture keeps light and wardrobe, gets its own place, its camera plate and its register", () => {
+    const v = { concept: "Warmth on a cold night", frame: "9:16", product: { name: "Spicy hot chocolate", id: "a", from: "library" }, direction: { look: "", lighting: "sodium street light, 2700 K", colour: "", lens: "", wardrobe: "", place: "a parked car on a rainy street in Amman" }, format: "ugc", hookMove: "the cup is pushed through the window toward the lens", shots: [{ key: "s1" }] } as never;
+    const s = { key: "s2", seconds: 4, action: "a hand lifts the cup off the dashboard", framing: "medium", camera: "static", reference: null, source: "start-image" as const, asset: null, text: "", angleId: "pov-hand" };
+    const p = framePrompt(v, s, { plate: 4 });
+    expect(p).toMatch(/The place is this shot's own spot in the same world/);
+    expect(p).not.toMatch(/the same place, light/);
+    expect(p).toMatch(/CAMERA SETUP: camera position "First-person POV": first-person view/);
+    expect(p).toMatch(/Image 4 is a black-and-white camera-position reference: copy its camera height, angle, distance and framing/);
+    expect(p).toMatch(/REGISTER: authentic creator phone footage/);
+    expect(p).toMatch(/no legible signs of other businesses, no car badges/);
+    const c1 = clipPrompt(v, { ...s, key: "s1" });
+    const c2 = clipPrompt(v, s);
+    expect(c1).toMatch(/The first second, to stop the scroll: the cup is pushed through the window/);
+    expect(c2).not.toMatch(/The first second/);
+    expect(c2).toMatch(/Camera movement: static, handheld with a slight natural micro-shake\./);
+  });
+
+  it("a studio place keeps the old continuity wording", () => {
+    const v = { concept: "x", frame: "9:16", product: null, direction: { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "studio set with deep teal backgrounds" } } as never;
+    expect(framePrompt(v, { key: "s2", seconds: 3, action: "a cup", framing: "", camera: "", reference: null, source: "start-image", asset: null, text: "" })).toMatch(/the same place, light, time of day/);
+  });
+
+  it("plans without the idea fields keep their signatures; the fields count once written", async () => {
+    const { stepSignature, itemProductionSignature, normalizePlan } = await import("../shared/campaign-plan");
+    const base = normalizePlan({ images: [{ key: "img-1", idea: "x", visual: "", headline: "", caption: "", cta: "", objective: "" }] as never, videos: [{ key: "vid-1", concept: "c", shots: [{ key: "s1", seconds: 4, action: "a", framing: "", camera: "", source: "start-image" }] }] as never }, defaults);
+    const img = itemProductionSignature(base.images[0]);
+    const key = stepSignature(base, { item: "vid-1", shot: null, kind: "image" });
+    const withIdeas = normalizePlan({ ...base, images: [{ ...base.images[0], setting: "a balcony", angleId: "high-45" }], videos: [{ ...base.videos[0], format: "tv-spot", hookMove: "x", shots: [{ ...base.videos[0].shots[0], angleId: "macro-rim" }] }] }, defaults);
+    expect(withIdeas.images[0]).toMatchObject({ setting: "a balcony", angleId: "high-45" });
+    expect(withIdeas.videos[0]).toMatchObject({ format: "tv-spot", hookMove: "x" });
+    expect(itemProductionSignature(withIdeas.images[0])).not.toBe(img);
+    expect(stepSignature(withIdeas, { item: "vid-1", shot: null, kind: "image" })).not.toBe(key);
+    expect(normalizePlan({ ...base, images: [{ ...base.images[0], angleId: "not-an-angle" }] }, defaults).images[0].angleId).toBeUndefined();
+    expect(itemProductionSignature(normalizePlan(base, defaults).images[0])).toBe(img);
+  });
+
+  it("a post set on location takes the client style for palette and finish only", async () => {
+    const { buildPostPrompt } = await import("../shared/posts");
+    const brief = { post: true, index: 1, type: "product", title: "t", brief: "A cup in a car.", palette: [], style: studioStyle, theme: "" } as never;
+    expect(buildPostPrompt({ ...(brief as object), onLocation: true } as never)).toMatch(/CLIENT STYLE \(its palette, energy and finish only: this picture is on location/);
+    expect(buildPostPrompt(brief)).toMatch(/CLIENT STYLE:\nHigh-energy studio/);
+    const { STUDIO_WORDS } = await import("../shared/campaign-planner");
+    expect(STUDIO_WORDS.test("teal seamless backdrop")).toBe(true);
+    expect(STUDIO_WORDS.test("a balcony over the city")).toBe(false);
+  });
+});

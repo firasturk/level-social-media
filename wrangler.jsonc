@@ -18,6 +18,7 @@
     "@shared/types": "./shared/types.ts",
     "@shared/editorial-skill": "./shared/editorial-skill.ts",
     "@shared/pricing": "./shared/pricing.ts",
+    "@shared/angle-library": "./shared/angle-library.ts",
     "@shared/skills": "./shared/skills.ts",
     "@shared/zaid": "./shared/zaid.ts",
     "@shared/safety": "./shared/safety.ts",

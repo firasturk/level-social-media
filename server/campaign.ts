@@ -40,6 +40,7 @@ import { advanceCampaign, campaignScope, redoNote } from "./campaign-runner";
 import { LOOKS } from "@shared/video-project";
 import { suggestInstruction, suggestionsFrom, SUGGEST_SCHEMA, type SuggestInput } from "../shared/campaign-suggest";
 import { estimateCost } from "@shared/pricing";
+import { angleById, anglePlateKey } from "@shared/angle-library";
 import { VIDEO_MODELS, videoModel, videoPriceSetting, durationChoices } from "@shared/video-models";
 import type { Config } from "@shared/config";
 import type { User } from "@shared/types";
@@ -491,6 +492,14 @@ campaignRoutes.get("/sources", async (c) => {
   const lib = config.client ? await all<import("./music").MusicTrackRow>(c.env.DB, "SELECT * FROM music_tracks WHERE client = ? AND archived IS NULL ORDER BY created DESC LIMIT 60", config.client).catch(() => []) : [];
   const tracks = [...lib.map(libraryTrack), ...CATALOG.filter((e) => !e.test).map((e) => catalogTrack(e))];
   return c.json({ ok: true, products, media, looks: LOOKS.filter((l) => l.id !== "none").map((l) => ({ id: l.id, name: l.name })), tracks: tracks.map((t) => ({ id: t.id, title: t.title, artist: t.artist, moods: t.moods, bpm: t.bpm, licence: t.licence.name })) });
+});
+
+/** A camera-angle plate from the library (colour, for people choosing an angle). */
+campaignRoutes.get("/angles/:id", async (c) => {
+  const pos = angleById(c.req.param("id"));
+  const obj = pos ? await c.env.BUCKET.get(anglePlateKey(pos.id, false)) : null;
+  if (!obj) throw new StudioError("No such camera angle.", 404);
+  return new Response(obj.body, { headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" } });
 });
 
 campaignRoutes.get("/engines", async (c) => {

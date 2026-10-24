@@ -12,6 +12,7 @@
  */
 import type { Format } from "./posts";
 import type { FrameId } from "./video-frame";
+import { angleById } from "./angle-library";
 
 /* ───────────── Setup ───────────── */
 
@@ -157,6 +158,10 @@ export interface ImagePlanItem {
   engine: ImageEngine;
   /** Finished pictures this post needs (a single post: 1). */
   outputs: number;
+  /** The real place and moment the picture happens in ("a car at a takeaway window on a cold night"). */
+  setting?: string;
+  /** The camera position from the angle library (shared/angle-library.ts), by id. */
+  angleId?: string;
 }
 
 /**
@@ -189,6 +194,8 @@ export interface ShotPlan {
   placement?: string;
   /** Normal speed unless slow motion serves the idea. */
   speed?: "normal" | "slow";
+  /** The camera position from the angle library (shared/angle-library.ts), by id. */
+  angleId?: string;
 }
 
 /**
@@ -231,7 +238,13 @@ export interface VideoPlanItem {
   clipEngine: ClipEngine;
   /** The Reel's shared photographic direction (plans written before it have none). */
   direction?: ReelDirection;
+  /** The register: a polished commercial ("tv-spot") or phone-shot creator content ("ugc"). */
+  format?: ReelFormat;
+  /** What happens on screen in the first second to stop the scroll (the mechanic, not the words). */
+  hookMove?: string;
 }
+
+export type ReelFormat = "tv-spot" | "ugc";
 
 export interface CampaignPlan {
   rev: number;
@@ -490,11 +503,13 @@ export function itemProductionSignature(it: ImagePlanItem | VideoPlanItem): stri
         it.keyFrameEngine,
         it.frameEngine,
         it.clipEngine,
-        it.shots.map((s) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset)]),
+        it.shots.map((s) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset), ...(s.angleId ? [s.angleId] : [])]),
+        // The idea fields count only where they are written (older plans keep their signatures).
+        ...(it.format || it.hookMove ? [[it.format ?? "", it.hookMove ?? ""]] : []),
       ]),
     );
   }
-  return stableHash(JSON.stringify([it.idea, it.visual, productSig(it.product), refSig(it.reference), it.engine, it.outputs]));
+  return stableHash(JSON.stringify([it.idea, it.visual, productSig(it.product), refSig(it.reference), it.engine, it.outputs, ...(it.setting || it.angleId ? [[it.setting ?? "", it.angleId ?? ""]] : [])]));
 }
 
 /**
@@ -508,10 +523,10 @@ export function stepSignature(plan: CampaignPlan, spec: Pick<StepSpec, "item" | 
   const v = plan.videos.find((x) => x.key === spec.item);
   if (!v) return "missing";
   // The cinematography counts only where it is written (plans from before it keep their signatures).
-  const cine = (s: ShotPlan) => (s.angle || s.lens || s.placement || s.speed ? [[s.angle ?? "", s.lens ?? "", s.placement ?? "", s.speed ?? ""]] : []);
+  const cine = (s: ShotPlan) => [...(s.angle || s.lens || s.placement || s.speed ? [[s.angle ?? "", s.lens ?? "", s.placement ?? "", s.speed ?? ""]] : []), ...(s.angleId ? [s.angleId] : [])];
   const shotSig = (s: ShotPlan) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset), ...cine(s)];
   const first = v.shots.find((s) => s.source === "start-image") ?? null;
-  const keyFrame = stableHash(JSON.stringify([v.concept, productSig(v.product), v.frame, v.keyFrameEngine, first ? shotSig(first) : null, ...(v.direction ? [v.direction] : [])]));
+  const keyFrame = stableHash(JSON.stringify([v.concept, productSig(v.product), v.frame, v.keyFrameEngine, first ? shotSig(first) : null, ...(v.direction ? [v.direction] : []), ...(v.format || v.hookMove ? [[v.format ?? "", v.hookMove ?? ""]] : [])]));
   if (spec.kind === "post") return stableHash(JSON.stringify([v.concept, v.hook, v.caption, v.cta, productSig(v.product), v.frame]));
   if (spec.kind === "image") return keyFrame;
   const shot = v.shots.find((s) => s.key === spec.shot);
@@ -575,8 +590,8 @@ const SOURCES: ShotSource[] = ["existing", "animate", "start-image"];
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 /** A shot's cinematography, the fields written only (an empty one is left out). */
-export function cinematography(s: Partial<ShotPlan> | null | undefined): Pick<ShotPlan, "angle" | "lens" | "placement" | "speed"> {
-  const out: Pick<ShotPlan, "angle" | "lens" | "placement" | "speed"> = {};
+export function cinematography(s: Partial<ShotPlan> | null | undefined): Pick<ShotPlan, "angle" | "lens" | "placement" | "speed" | "angleId"> {
+  const out: Pick<ShotPlan, "angle" | "lens" | "placement" | "speed" | "angleId"> = {};
   const angle = text(s?.angle, 160);
   const lens = text(s?.lens, 160);
   const placement = text(s?.placement, 240);
@@ -584,6 +599,7 @@ export function cinematography(s: Partial<ShotPlan> | null | undefined): Pick<Sh
   if (lens) out.lens = lens;
   if (placement) out.placement = placement;
   if (s?.speed === "slow" || s?.speed === "normal") out.speed = s.speed;
+  if (angleById(s?.angleId)) out.angleId = s!.angleId!.trim();
   return out;
 }
 
@@ -617,6 +633,8 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
     cta: str(i?.cta, 120),
     engine: i?.engine?.kind === "engine" && typeof i.engine.model === "string" && i.engine.model ? { kind: "engine", model: i.engine.model } : defaults.imageEngine,
     outputs: clamp(i?.outputs, 1, 4, 1),
+    ...(str(i?.setting, 300) ? { setting: str(i?.setting, 300) } : {}),
+    ...(angleById(i?.angleId) ? { angleId: i!.angleId!.trim() } : {}),
   }));
   const videos = (Array.isArray(x.videos) ? x.videos : []).slice(0, SETUP_LIMITS.videos).map((v, n): VideoPlanItem => {
     const shots = (Array.isArray(v?.shots) ? v.shots : []).slice(0, SETUP_LIMITS.shotsPerVideo).map((s, k): ShotPlan => {
@@ -662,6 +680,8 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
       frameEngine: v?.frameEngine?.kind === "mg-camera" ? { kind: "mg-camera", model: "images_change_camera" } : v?.frameEngine?.kind === "engine" && isFrameModel(v.frameEngine.model) ? { kind: "engine", model: v.frameEngine.model } : defaults.frameEngine,
       clipEngine: v?.clipEngine && (v.clipEngine.provider === "higgsfield-mcp" || v.clipEngine.provider === "higgsfield") && v.clipEngine.model ? { provider: v.clipEngine.provider, model: v.clipEngine.model, name: str(v.clipEngine.name, 80) || v.clipEngine.model } : defaults.clipEngine,
       ...(normalDirection(v?.direction) ? { direction: normalDirection(v?.direction)! } : {}),
+      ...(v?.format === "tv-spot" || v?.format === "ugc" ? { format: v.format } : {}),
+      ...(str(v?.hookMove, 300) ? { hookMove: str(v?.hookMove, 300) } : {}),
     };
   });
   // Item keys unique.

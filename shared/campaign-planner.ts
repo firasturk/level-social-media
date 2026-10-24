@@ -6,8 +6,9 @@
  * and anything it names outside those lists is dropped. Engines are not the model's to choose.
  * Pure; the preview's fixture answer (`demoCampaignAnswer`) lives here too.
  */
-import { cinematography, normalDirection, normalizePlan, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ShotSource } from "./campaign-plan";
+import { cinematography, normalDirection, normalizePlan, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ReelFormat, type ShotSource } from "./campaign-plan";
 import type { FrameId } from "./video-frame";
+import { CAMERA_ANGLES, angleById } from "./angle-library";
 
 /** A product the planner may pick, with its list id (P1…). */
 export interface PlannerProduct extends ProductPick {
@@ -73,6 +74,68 @@ export function onScreenWords(w: string): string {
 /** The audience is Muslim: no toasting ("cheers"), no clinking cups or glasses, nothing of a bar. Said wherever people are planned or pictured. */
 export const CONDUCT_RULE = "CONDUCT: never show people toasting or clinking cups, glasses or drinks together (no 'cheers'); no alcohol, bars or pubs.";
 
+/**
+ * A brand's stored style was written from its past feed and often describes a studio (seamless
+ * colour backgrounds, pedestals): seen live, that put every winter picture on a teal backdrop. The
+ * style lends palette, attitude and finish; places come from the idea.
+ */
+export const STYLE_SCOPE_RULE =
+  "THE BRAND'S STYLE gives its palette, energy, attitude and finish. Its studio elements (seamless or solid-colour backgrounds, pedestals, plain matte planes) describe past posts, not places: never set a post or a shot in a studio or against a plain backdrop unless the CREATIVE DIRECTION asks for a studio by name.";
+
+/** Words that put a picture in a studio. */
+export const STUDIO_WORDS = /\b(studio|seamless|backdrop|solid[- ]colou?r(ed)? background|plain background|monochrom\w* background|matte background|pedestal|infinity cove|sweep)\b/i;
+
+/** Ideas before looks: a real moment and place per piece, a hook mechanic per Reel, the camera from the angle library, and variety everywhere. */
+export function ideasFirstLines(): string[] {
+  return [
+    "IDEAS FIRST. Before any look, decide each piece's idea like a creative agency would:",
+    "- Each image post and each Reel is a different idea: a real moment from the audience's own life (on the way to work, in the car, after the gym, at a family table, late at night with friends), in a real place they know (a street, a car, a balcony, a café terrace, stairs, a kitchen, a campus), at a definite time of day and weather. No two pieces share the same idea, the same place or the same camera position.",
+    "- setting (image posts): that place and moment in one sentence. For a Reel, direction.place holds it.",
+    '- format (Reels): "tv-spot" (a polished commercial: motivated light, lens choices, composed frames) or "ugc" (phone-shot creator content: handheld, deep focus, available light or direct flash, a little imperfect). With two or more Reels, use both formats.',
+    "- hookMove (Reels): what happens on screen in the first second to stop the scroll, as an action (the cup is pushed through the car window toward the lens; a hand wipes the fogged windscreen and the product appears; a flash burst on the table and a hand grabs the cup). The hook words are separate.",
+    "- angleId: the camera position, by id from CAMERA ANGLES below, for every image post and every shot. Across the campaign use many different ones. In a Reel every shot has a different angleId and a different distance: at least one tight, one mid and one wide; at most one shot at plain eye level; the last shot never repeats the first one's framing.",
+    "- Products are always shown true to their note, at real size, in a real hand or on a real surface; never on a pedestal or a plain backdrop.",
+    "CAMERA ANGLES (id: what the camera does · distance):",
+    ...CAMERA_ANGLES.map((a) => `${a.id}: ${a.name}: ${a.words} · ${a.band}${a.register !== "any" ? ` · best for ${a.register}` : ""}`),
+  ];
+}
+
+const wordsOf = (t: string) => new Set((t ?? "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter((w) => w.length > 3));
+/** Two settings that share most of their words are the same place. */
+export function samePlace(a: string, b: string): boolean {
+  const x = wordsOf(a);
+  const y = wordsOf(b);
+  if (x.size < 2 || y.size < 2) return false;
+  const shared = [...x].filter((w) => y.has(w)).length;
+  return shared / Math.min(x.size, y.size) >= 0.6;
+}
+
+/** What a plan breaks of the ideas-first rules, as notes for the admin (the plan is kept). */
+export function varietyNotes(plan: Pick<CampaignPlan, "images" | "videos">, studioAsked: boolean): string[] {
+  const notes: string[] = [];
+  const places = [...plan.images.map((i) => ({ key: i.key, place: i.setting ?? "" })), ...plan.videos.map((v) => ({ key: v.key, place: v.direction?.place ?? "" }))].filter((p) => p.place);
+  for (let i = 0; i < places.length; i++)
+    for (let j = i + 1; j < places.length; j++) if (samePlace(places[i].place, places[j].place)) notes.push(`${places[i].key} and ${places[j].key} happen in the same place; give one of them a different setting.`);
+  if (!studioAsked) {
+    for (const i of plan.images) if (STUDIO_WORDS.test(`${i.setting ?? ""} ${i.visual}`)) notes.push(`${i.key} is set in a studio or on a plain backdrop; give it a real place.`);
+    for (const v of plan.videos) if (STUDIO_WORDS.test(`${v.direction?.place ?? ""} ${v.shots.map((s) => s.placement ?? "").join(" ")}`)) notes.push(`${v.key} is set in a studio or on a plain backdrop; give it a real place.`);
+  }
+  const imageAngles = plan.images.map((i) => i.angleId).filter(Boolean);
+  if (imageAngles.length > 2 && new Set(imageAngles).size < imageAngles.length) notes.push("Some image posts share the same camera position; vary them.");
+  for (const v of plan.videos) {
+    const shots = v.shots.filter((s) => s.source === "start-image");
+    const ids = shots.map((s) => s.angleId).filter((a): a is string => !!a);
+    if (new Set(ids).size < ids.length) notes.push(`${v.key}: two shots use the same camera position; every shot needs its own.`);
+    const bands = new Set(ids.map((id) => angleById(id)?.band));
+    if (shots.length >= 3 && bands.size < 2) notes.push(`${v.key}: all its shots are at the same distance; mix tight, mid and wide.`);
+    const eye = shots.filter((s) => /\beye[- ]level\b/i.test(s.angle ?? "")).length;
+    if (eye > 1) notes.push(`${v.key}: ${eye} shots at plain eye level; keep at most one.`);
+  }
+  const formats = plan.videos.map((v) => v.format).filter(Boolean);
+  if (formats.length >= 2 && new Set(formats).size === 1) notes.push(`All Reels use the ${formats[0]} format; make one of them the other.`);
+  return notes;
+}
+
 export function peopleRule(cast: CastMember[] | undefined): string {
   return `${castRule(cast)} ${CONDUCT_RULE}`;
 }
@@ -108,8 +171,10 @@ export const CAMPAIGN_PLAN_SCHEMA = {
           headline: { type: "string" },
           caption: { type: "string" },
           cta: { type: "string" },
+          setting: { type: "string" },
+          angleId: { type: "string" },
         },
-        required: ["idea", "objective", "product", "visual", "reference", "headline", "caption", "cta"],
+        required: ["idea", "objective", "product", "visual", "reference", "headline", "caption", "cta", "setting", "angleId"],
       },
     },
     videos: {
@@ -137,8 +202,9 @@ export const CAMPAIGN_PLAN_SCHEMA = {
                 lens: { type: "string" },
                 placement: { type: "string" },
                 speed: { type: "string", enum: ["normal", "slow"] },
+                angleId: { type: "string" },
               },
-              required: ["seconds", "action", "framing", "camera", "reference", "source", "asset", "text", "angle", "lens", "placement", "speed"],
+              required: ["seconds", "action", "framing", "camera", "reference", "source", "asset", "text", "angle", "lens", "placement", "speed", "angleId"],
             },
           },
           voiceover: { type: "string" },
@@ -152,8 +218,10 @@ export const CAMPAIGN_PLAN_SCHEMA = {
             properties: { look: { type: "string" }, lighting: { type: "string" }, colour: { type: "string" }, lens: { type: "string" }, wardrobe: { type: "string" }, place: { type: "string" } },
             required: ["look", "lighting", "colour", "lens", "wardrobe", "place"],
           },
+          format: { type: "string", enum: ["tv-spot", "ugc"] },
+          hookMove: { type: "string" },
         },
-        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption", "direction"],
+        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption", "direction", "format", "hookMove"],
       },
     },
   },
@@ -180,6 +248,7 @@ export function campaignInstruction(x: PlannerInput): string {
     `LANGUAGE: ${LANGUAGE_WORDS[s.language]}.`,
     `THE BRAND: ${x.brand.name}. Tone: ${x.brand.tone || "-"}. Style: ${x.brand.style || "-"}. Always: ${x.brand.dos || "-"}. Never: ${x.brand.donts || "-"}.`,
     "The lines quoted in the brand's tone are examples of its style, already used: never reuse them, not even changed a little. Write new lines, in that style, about this campaign's own products and moments.",
+    STYLE_SCOPE_RULE,
     peopleRule(x.cast),
     ...(x.rules?.length ? ["THE BRAND'S APPROVED RULES AND LESSONS (always follow them):", ...x.rules.slice(0, 30).map((r) => `- ${r}`)] : []),
     "",
@@ -193,6 +262,8 @@ export function campaignInstruction(x: PlannerInput): string {
     `CLIENT MEDIA (the client's own photos and clips; a shot can use one as it is with source "existing", or animate a photo with source "animate"):${x.media.length ? "" : " none."}`,
     ...x.media.map((m) => `${m.listId}: ${m.media === "clip" ? "clip" : "photo"} — ${m.label}`),
     "",
+    ...ideasFirstLines(),
+    "",
     "RULES:",
     `- Exactly ${s.imagePosts} image posts and exactly ${s.videos} videos.`,
     `- Each video has ${s.shotsPerVideo} shots whose seconds add up to about ${s.videoSeconds}; shots are 1 to 15 seconds. The first shot is the hook.`,
@@ -200,8 +271,8 @@ export function campaignInstruction(x: PlannerInput): string {
     "- action: what happens in the shot, concretely (subject, product, a small candid action with natural timing). framing: the shot size (wide, medium, medium close-up, close-up, insert of the product).",
     "- DIRECT EACH REEL AS ONE FILMED COMMERCIAL. First write its direction, decided like a commercial cinematographer, in concrete photographic terms (never just \"cinematic\" or \"photorealistic\"):",
     "  direction.look: the camera feel and finish (e.g. \"shot on a digital cinema camera with a fine film grain, gentle highlight roll-off, no glow\"); direction.lighting: the motivated source, its direction, softness, contrast and colour temperature (e.g. \"late-afternoon sun from camera left through the windscreen, soft fill from the white car interior, 4800 K, medium contrast\"); direction.colour: a film-inspired grade: palette, highlight and shadow treatment, saturation and contrast, skin tones natural and the product's colours exact (no orange-and-teal, no oversaturation, no HDR); direction.lens: the lens family and perspective for the Reel (e.g. \"normal primes, 35 to 85 mm looks, f/2.8 to f/5.6, faces and products never distorted, background still readable\"); direction.wardrobe: what the people wear and carry in every shot; direction.place: the location, time of day and screen direction kept across the cuts.",
-    "  Each shot is then a different camera setup in that same scene: same people, wardrobe, product, place, light and grade, with an intentional change of angle and size. angle: camera height and angle (eye level by default; over-the-shoulder; a purposeful low or top angle for the product only when it serves the idea; never random dramatic angles). lens: lens look, distance and depth of field (e.g. \"50 mm look, 1.5 m away, f/4, the street still readable behind\"; avoid excessive blur). placement: where the subject sits in frame and what is in the foreground and background. camera: the movement, restrained and physically plausible: static, handheld, slow push-in, tracking alongside, tilt; no orbiting unless the idea needs it, never a floating camera. speed: \"normal\" unless slow motion serves the idea.",
-    "- In every shot of a video the product, the place and the people stay the same, so the shots cut together.",
+    "  Each shot is then a different camera setup in that same scene: same people, wardrobe, product, place, light and grade, with an intentional change of angle and size. angleId: the camera position from CAMERA ANGLES for this shot. angle: that camera height and angle in your own words for this shot. lens: lens look, distance and depth of field (e.g. \"50 mm look, 1.5 m away, f/4, the street still readable behind\"; avoid excessive blur). placement: where the subject sits in frame and what is in the foreground and background. camera: the movement, restrained and physically plausible: static, handheld, slow push-in, tracking alongside, tilt; no orbiting unless the idea needs it, never a floating camera. speed: \"normal\" unless slow motion serves the idea.",
+    "- In every shot of a video the product, the people, the wardrobe, the light and the time of day stay the same, so the shots cut together; the camera position changes every shot, and the place may move within the same world (from the car to the street outside it).",
     "- Client media goes into a video only when it shows that video's own product in a scene that cuts with the other shots; a photo or clip of another product is never used in it (use \"start-image\" instead).",
     "- text: the few words on screen during the shot (\"\" for none). headline: 2 to 5 words. caption: one or two short sentences. cta: a short call to action.",
     "- A video's hook: the 2 to 6 words shown on screen over its first shot, in the campaign's language, never a description of the picture (\"Close-up of a hand…\" is wrong).",
@@ -213,6 +284,7 @@ export function campaignInstruction(x: PlannerInput): string {
 }
 
 interface RawShot {
+  angleId?: string;
   angle?: string;
   lens?: string;
   placement?: string;
@@ -228,8 +300,8 @@ interface RawShot {
 }
 interface RawAnswer {
   summary?: { concept?: string; mix?: string; together?: string };
-  images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string }[];
-  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection> }[];
+  images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string; setting?: string; angleId?: string }[];
+  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection>; format?: string; hookMove?: string }[];
 }
 
 export interface PlanDefaults {
@@ -282,6 +354,8 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     cta: i.cta ?? "",
     engine: defaults.imageEngine,
     outputs: 1,
+    ...(i.setting?.trim() ? { setting: i.setting.trim() } : {}),
+    ...(angleById(i.angleId) ? { angleId: i.angleId!.trim() } : {}),
   }));
   const videos = (a.videos ?? []).slice(0, x.setup.videos).map((v, n) => ({
     key: `vid-${n + 1}`,
@@ -296,7 +370,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
       let source = (["start-image", "animate", "existing"].includes(s.source ?? "") ? s.source : "start-image") as ShotSource;
       // Animating needs a photo; a clip asked to be animated is used as it is.
       if (source === "animate" && media?.media === "clip") source = "existing";
-      return { key: `s${k + 1}`, seconds: Number(s.seconds) || 3, action: s.action ?? "", framing: s.framing ?? "", camera: s.camera ?? "", reference: reference(s.reference), source, asset: source === "start-image" ? null : media, text: s.text ?? "", ...cinematography({ angle: s.angle, lens: s.lens, placement: s.placement, speed: s.speed === "slow" ? "slow" : s.speed === "normal" ? "normal" : undefined }) };
+      return { key: `s${k + 1}`, seconds: Number(s.seconds) || 3, action: s.action ?? "", framing: s.framing ?? "", camera: s.camera ?? "", reference: reference(s.reference), source, asset: source === "start-image" ? null : media, text: s.text ?? "", ...cinematography({ angle: s.angle, lens: s.lens, placement: s.placement, speed: s.speed === "slow" ? "slow" : s.speed === "normal" ? "normal" : undefined, angleId: s.angleId }) };
     }),
     voiceover: v.voiceover ?? "",
     music: { direction: v.music ?? "", trackId: null, trackTitle: null },
@@ -308,6 +382,8 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     frameEngine: defaults.frameEngine,
     clipEngine: defaults.clipEngine,
     ...(normalDirection(v.direction) ? { direction: normalDirection(v.direction)! } : {}),
+    ...(v.format === "tv-spot" || v.format === "ugc" ? { format: v.format as ReelFormat } : {}),
+    ...(v.hookMove?.trim() ? { hookMove: v.hookMove.trim() } : {}),
   }));
   // A client's photo or clip of another product does not go into a Reel about this one (seen live: a
   // Sahlab clip in a Hot Chocolate Reel). Those shots are made instead, and the plan says so.
@@ -331,6 +407,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
   };
   for (const i of images) if (reused(i.headline)) notes.push(`${i.key}: its headline repeats an example line from the brand's tone; write a new one.`);
   for (const v of videos) if (reused(v.hook) || v.shots.some((sh) => reused(sh.text))) notes.push(`${v.key}: its words repeat an example line from the brand's tone; write new ones.`);
+  notes.push(...varietyNotes({ images, videos }, /\bstudio\b/i.test(x.setup.direction.prompt)));
   if (images.length < x.setup.imagePosts) notes.push(`The planner wrote ${images.length} of the ${x.setup.imagePosts} image posts asked for; add or regenerate the missing ones.`);
   if (videos.length < x.setup.videos) notes.push(`The planner wrote ${videos.length} of the ${x.setup.videos} videos asked for; add or regenerate the missing ones.`);
   const plan = normalizePlan({ rev, summary: { concept: a.summary?.concept ?? "", mix: a.summary?.mix ?? "", together: a.summary?.together ?? "" }, images, videos, planningNotes: [...new Set(notes)] }, defaults, rev);
@@ -462,6 +539,8 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
   const pick = <T>(list: T[], n: number, d: T) => (list.length ? list[n % list.length] : d);
   const each = Math.max(1, Math.round((seconds / shotsN) * 10) / 10);
   const cameras = ["slow push in", "orbit left", "static, low angle", "tilt up", "pan right", "top view"];
+  const angleIds = [...instruction.matchAll(/^([a-z0-9-]+): [^:\n]+: .* · (tight|mid|wide)/gm)].map((m) => m[1]);
+  const places = ["a car at a takeaway window on a cold evening", "a café terrace in the afternoon sun", "an apartment balcony over the city at blue hour", "old stone stairs between houses at dusk", "a kitchen counter on a weekday morning", "a campus bench between classes"];
   return {
     campaign: "plan",
     summary: { concept: `${DEMO}: one idea told in pictures and short Reels across the period.`, mix: `${DEMO}: ${imagesN} image posts carry the offer; ${videosN} Reels show the product in use.`, together: `${DEMO}: the posts open and close the period; the Reels run between them.` },
@@ -474,6 +553,8 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
       headline: `Demo headline ${n + 1}`,
       caption: `${DEMO}: a short caption for post ${n + 1}.`,
       cta: "Order today",
+      setting: `${DEMO}: ${places[n % places.length]}.`,
+      angleId: pick(angleIds, n * 3, ""),
     })),
     videos: Array.from({ length: videosN }, (_, v) => ({
       concept: `${DEMO}: Reel ${v + 1}, a short lifestyle story around ${products.length ? nameOf(pick(products, v, "")) : "the product"}.`,
@@ -496,9 +577,12 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
           lens: ["35 mm look, 2 m away, f/4", "50 mm look, 1.5 m away, f/2.8", "85 mm look, 2 m away, f/2.8", "macro insert, 30 cm away, f/5.6"][k % 4],
           placement: `${DEMO}: the product on the right third, the person on the left, the street soft behind.`,
           speed: "normal",
+          angleId: pick(angleIds, v * shotsN + k + 1, ""),
         };
       }),
-      direction: { look: `${DEMO}: digital cinema camera, fine grain, gentle highlight roll-off.`, lighting: `${DEMO}: late-afternoon sun from camera left, soft fill, 4800 K.`, colour: `${DEMO}: warm neutral grade, natural skin, product colours exact.`, lens: `${DEMO}: normal primes, 35 to 85 mm looks.`, wardrobe: `${DEMO}: the cast in the same clothes in every shot.`, place: `${DEMO}: one street, the same afternoon.` },
+      direction: { look: `${DEMO}: digital cinema camera, fine grain, gentle highlight roll-off.`, lighting: `${DEMO}: late-afternoon sun from camera left, soft fill, 4800 K.`, colour: `${DEMO}: warm neutral grade, natural skin, product colours exact.`, lens: `${DEMO}: normal primes, 35 to 85 mm looks.`, wardrobe: `${DEMO}: the cast in the same clothes in every shot.`, place: `${DEMO}: ${places[(v + imagesN) % places.length]}.` },
+      format: v % 2 ? "ugc" : "tv-spot",
+      hookMove: `${DEMO}: the product is pushed toward the lens in the first second.`,
       voiceover: "",
       music: "upbeat, 110 bpm",
       transitions: "cuts",
