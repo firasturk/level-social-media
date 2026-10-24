@@ -810,6 +810,8 @@ export interface BatchRow {
   state: string;
   client: string | null;
   month: string | null;
+  /** When the row was read's copy was last written (milliseconds). */
+  updated?: number;
 }
 
 /** A member's own months; an admin opens every month of the team (the maker stays its owner). */
@@ -925,6 +927,16 @@ export async function saveConfig(env: Env, b: BatchRow, config: Config): Promise
     if (!g.notes.length) continue;
     post.brief = g.brief;
     if (g.scene !== undefined) post.scene = g.scene;
+  }
+  // The month is written as one block: a writer holding an older copy (a long engine pass) would drop
+  // the cards added since it read (Campaign Autopilot's cards, 24 Oct). Those are kept: a card made
+  // after this copy was read is never removed by it. A card removed on purpose was read first.
+  if (typeof b.updated === "number") {
+    const current = await first<{ config: string }>(env.DB, "SELECT config FROM batches WHERE id = ?", b.id);
+    const now_ = current ? ((JSON.parse(current.config) as Config).plan ?? []) : [];
+    const mine = new Set((config.plan ?? []).map((p) => p.index));
+    const added = now_.filter((p) => !mine.has(p.index) && typeof p.ideaAt === "number" && p.ideaAt > b.updated!);
+    if (added.length) config.plan = [...(config.plan ?? []), ...added].sort((x, y) => x.index - y.index);
   }
   await run(
     env.DB,

@@ -528,8 +528,14 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
         return;
       }
       case "image": {
-        const index = postOfItem(ctx, s.item);
+        let index = postOfItem(ctx, s.item);
         if (!index) throw new StudioError("The card is not made yet.", 409);
+        // A card lost from the month (an older copy of the month written over it) is made again first.
+        if (!((JSON.parse(b.config) as Config).plan ?? []).some((p) => p.index === index)) {
+          const postStep = ctx.steps.get(`${s.item}:-:post`)!;
+          index = await makePost(env, user, row, postStep, plan);
+          await patchStep(env, postStep, { post: index, note: `Card ${index} in the month (made again: it had been lost from the month)` });
+        }
         const engine = image ? image.engine : video!.keyFrameEngine;
         if (row.simulate) {
           // The preview reserves and spends its fixture estimate too, so the budget stops can be walked.
