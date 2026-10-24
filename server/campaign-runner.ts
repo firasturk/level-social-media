@@ -696,7 +696,10 @@ async function settleStep(ctx: Ctx, s: StepRow): Promise<void> {
       if (t.status === "review") {
         try {
           const qa = JSON.parse(t.qa ?? "{}") as { flags?: { text: string }[]; notes?: string };
-          checked = `The automatic check asks you to look: ${(qa.flags ?? []).map((f) => f.text).join("; ") || qa.notes || "see the card"}`.slice(0, 400);
+          const flags = (qa.flags ?? []).map((f) => f.text).join("; ");
+          // "Still running" is the check not finished yet, not a finding: no warning for it.
+          const pending = !flags && /still running/i.test(qa.notes ?? "");
+          checked = pending ? "" : `The automatic check asks you to look: ${flags || qa.notes || "see the card"}`.slice(0, 400);
         } catch {
           checked = "The automatic check asks you to look at this picture.";
         }
