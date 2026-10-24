@@ -12,10 +12,10 @@
  *   GET  /peaks?id=                              the cached waveform; computed here for WAV test audio,
  *                                                otherwise null until a browser sends it
  *   PUT  /peaks {id, peaks, bpm?}                the waveform a browser computed: stored once, never overwritten (everyone)
- *   POST /library/upload   multipart {client, file, …licence form}   admins, switch "audio", ledger music.import
- *   POST /library/drive    {client, file: link or id, …licence form}  admins, switch "audio", ledger music.import
- *   PATCH /library/:id     {…licence form}       admins: the licence fields corrected (all required again)
- *   DELETE /library/:id                          admins: archived (kept for the videos that used it)
+ *   POST /library/upload   multipart {client, file, …licence form}   team, switch "audio", ledger music.import
+ *   POST /library/drive    {client, file: link or id, …licence form}  team, switch "audio", ledger music.import
+ *   PATCH /library/:id     {…licence form}       team: the licence fields corrected (all required again)
+ *   DELETE /library/:id                          team: archived (kept for the videos that used it)
  */
 import { Hono } from "hono";
 import type { Env } from "./env";
@@ -25,7 +25,7 @@ import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
 import { driveAudioFile } from "./drive";
 import { audioFormat, wavDurationMs } from "./video-audio";
-import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
+import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationUser } from "./integrations";
 import { AUDIO_MAX_BYTES } from "@shared/video-audio";
 import { CATALOG, catalogEntry, type CatalogEntry } from "@shared/music-catalog";
 import { synthTestWav, readWav } from "@shared/music-test-audio";
@@ -356,7 +356,7 @@ musicRoutes.put("/peaks", async (c) => {
   return c.json({ ok: true, id: t.id, peaks: cached?.peaks ?? peaks, cached: !!cached });
 });
 
-/* ───────────── Imports (admins) ───────────── */
+/* ───────────── Imports (the team) ───────────── */
 
 function formFrom(entries: Record<string, unknown>): LicenceForm {
   const v = validateLicenceForm(entries);
@@ -439,9 +439,9 @@ async function storeLibraryTrack(
   return libraryTrack(row);
 }
 
-/** A track uploaded from the computer, with its licence (admins). */
+/** A track uploaded from the computer, with its licence. */
 musicRoutes.post("/library/upload", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new StudioError("Send the track as a form upload.");
@@ -456,9 +456,9 @@ musicRoutes.post("/library/upload", async (c) => {
   return c.json({ ok: true, track });
 });
 
-/** A track read from the client's Drive (shared with the service account), with its licence (admins). */
+/** A track read from the client's Drive (shared with the service account), with its licence. */
 musicRoutes.post("/library/drive", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const licence = formFrom(body);
@@ -470,9 +470,9 @@ musicRoutes.post("/library/drive", async (c) => {
   return c.json({ ok: true, track });
 });
 
-/** The licence fields corrected (admins): the whole form is checked again and confirmed again. */
+/** The licence fields corrected: the whole form is checked again and confirmed again. */
 musicRoutes.patch("/library/:id", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const row = await first<MusicTrackRow>(c.env.DB, "SELECT * FROM music_tracks WHERE id = ? AND archived IS NULL", c.req.param("id"));
   if (!row) throw new StudioError("Track not found.", 404);
@@ -527,9 +527,9 @@ musicRoutes.patch("/library/:id", async (c) => {
   return c.json({ ok: true, track: libraryTrack(after) });
 });
 
-/** Archived, not deleted (admins): a video that used the track keeps its licence record. */
+/** Archived, not deleted: a video that used the track keeps its licence record. */
 musicRoutes.delete("/library/:id", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const row = await first<MusicTrackRow>(c.env.DB, "SELECT * FROM music_tracks WHERE id = ? AND archived IS NULL", c.req.param("id"));
   if (!row) throw new StudioError("Track not found.", 404);

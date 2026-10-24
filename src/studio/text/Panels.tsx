@@ -37,7 +37,7 @@ function LayerIcon({ layer }: { layer: Layer }) {
 }
 
 /** The Add menu: a text layer, the client's logo, a picture (product photo, brand asset, upload, a Freepik asset), a shape. */
-export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, onAddFreepik, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string, source?: Asset["kind"]) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; /** Opens the Freepik assets picker (admins only for now; the picker says so to a member). */ onAddFreepik?: () => void; assets: Asset[] }) {
+export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploadGraphic, onAddFreepik, assets }: { onAdd: () => void; onAddLogo?: () => void; onAddImage: (src: string, name?: string, source?: Asset["kind"]) => void; onAddShape: (kind: ShapeKind) => void; onUploadGraphic?: (file: File) => void; /** Opens the Freepik assets picker. */ onAddFreepik?: () => void; assets: Asset[] }) {
   const [open, setOpen] = useState(false);
   const [pictures, setPictures] = useState(false);
   const products = assets.filter((a) => a.kind === "product");
@@ -95,7 +95,7 @@ export function AddLayerMenu({ onAdd, onAddLogo, onAddImage, onAddShape, onUploa
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden disabled={!onUploadGraphic} onChange={(e) => { const f = e.target.files?.[0]; if (f && onUploadGraphic) pick(() => onUploadGraphic(f))(); e.target.value = ""; }} />
               </label>
               {onAddFreepik && (
-                <button type="button" className="ts-link" onClick={pick(onAddFreepik)} title="Freepik icons, photos, backgrounds and lettering, in the Assets panel. Admins only for now.">
+                <button type="button" className="ts-link" onClick={pick(onAddFreepik)} title="Freepik icons, photos, backgrounds and lettering, in the Assets panel.">
                   <Search size={12} /> Freepik assets…
                 </button>
               )}

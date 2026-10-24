@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
+import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { promptboxTools } from "./promptbox-tools";
 import { COST_UNKNOWN, intentSummary, validateIntent, videoCatalog, type PromptContext, type ToolIntent } from "@shared/promptbox";
 import type { Config } from "@shared/config";
@@ -33,7 +33,7 @@ export function promptContext(batchId: string, config: Config, ctx?: { post?: nu
 
 /**
  * Runs one confirmed card. Refused without `confirm: true`, with an open question, with no known
- * cost (an admin may set one in `estimate`), and for members on every provider tool. Searching is
+ * cost (an admin may set one in `estimate`). The whole team runs the cards (24 Oct). Searching is
  * free and makes nothing; it is still recorded.
  */
 promptboxRoutes.post("/execute", async (c) => {
@@ -66,7 +66,7 @@ promptboxRoutes.post("/execute", async (c) => {
     } else throw new StudioError(`${COST_UNKNOWN} · blocked until clarified. An admin can set the estimate on the card.`, 409);
   }
   const provider = intent.provider as IntegrationProvider;
-  requireIntegrationAdmin(c, provider);
+  requireIntegrationUser(c, provider);
   await assertIntegrationEnabled(c.env, provider);
   const summary = intentSummary(intent, ctx.posts);
   const opId = await recordIntegrationOp(c.env, { provider, kind: intent.tool, user: user.id, batch: b.id, post: intent.target.post, estimate: intent.estimate, status: "confirmed", note: summary });

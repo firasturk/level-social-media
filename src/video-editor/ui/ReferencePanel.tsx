@@ -9,7 +9,7 @@
  *
  * The reference is never rendered into the output, and only its analysis is stored with the draft
  * (`project.reference`); its file is kept 7 days by the studio (Pinterest, Drive) or stays in this
- * tab (Upload). Fetching is admins only; members see the stored analysis and the comparison.
+ * tab (Upload). The whole team fetches references (24 Oct).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Columns2, Download, Film, Link2, Upload, Wand2 } from "lucide-react";

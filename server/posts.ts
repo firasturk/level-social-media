@@ -16,7 +16,7 @@ import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
 import { approveSpend, reserveOrAsk, reserveSpend, spendFits, spendStatus } from "./spend";
 import { exactCallsCost } from "./exact";
-import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
 import { PALETTE_SOURCES, type PaletteSource } from "@shared/palette-source";
@@ -5657,7 +5657,7 @@ postRoutes.post("/chat", async (c) => {
     }
   }
   if (intent.tool !== "none") {
-    const canRun = user.role === "admin";
+    const canRun = intent.provider === "none" || teamMayRun(user, intent.provider);
     const summary = intentSummary(intent, pctx.posts);
     const reply = canRun ? `${summary} Confirm it on the card.` : `${summary} Admins only for now: ${intent.provider} is restricted until wider access is approved.`;
     const t0 = now();

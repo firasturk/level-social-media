@@ -396,11 +396,11 @@ describe("Edit like this video with Pinterest", () => {
     expect(env.BUCKET.objects.size).toBe(0);
   });
 
-  it("refuses a member with 403 before anything is asked", async () => {
+  it("reads a pin for a member too (24 Oct: the team), through the official API", async () => {
     await connect(env, {});
     mockFetch(pinterestApi());
-    expect((await reference(MEMBER)).status).toBe(403);
-    expect(calls).toEqual([]);
+    expect((await reference(MEMBER)).status).toBe(200);
+    expect(calls.length).toBeGreaterThan(0);
   });
 
   it("keeps the old page reading when Pinterest is not connected, with the hint to connect it", async () => {

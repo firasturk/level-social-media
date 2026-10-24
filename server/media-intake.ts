@@ -32,7 +32,7 @@ import { resolveEngineModel } from "./settings";
 import { driveFileCopy, driveFileInfo, isClientDriveFile, isDemoDrive, photoBytes, type DriveFileInfo } from "./drive";
 import { readMp4 } from "./mp4";
 import { autoSelectForClient, MAX_VIDEO_FILE } from "./video";
-import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
+import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser } from "./integrations";
 import { postConfig, type Config } from "@shared/config";
 import { isMediaPost, MAX_POST_COUNT, postRevision, type Post, type PostMedia } from "@shared/posts";
 import { newClip, newProject, validateProject } from "@shared/video-project";
@@ -383,7 +383,7 @@ interface ClipRow {
  * Video editor then opens on the target card with that project. Nothing is generated or paid.
  */
 mediaRoutes.post("/combine", async (c) => {
-  const user = requireIntegrationAdmin(c, "editor");
+  const user = requireIntegrationUser(c, "editor");
   await assertIntegrationEnabled(c.env, "editor");
   const form = await c.req.formData().catch(() => {
     throw new StudioError("Send the cards as a form: the month, the target and the items.");

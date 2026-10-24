@@ -82,11 +82,12 @@ export const ADMINS_ONLY = "Admins only for now";
 
 /**
  * The providers whose runs are open to the whole team (24 Oct, Firas): Higgsfield (presets, clips,
- * influencers, trends) and Freepik / Magnific (picture and video tools, stock pictures). Their
- * account settings (sign-in, keys, the billing choice) stay with admins, and so do the editor,
- * the audio tools, Pinterest and Campaign Autopilot.
+ * influencers, trends), Freepik / Magnific (picture and video tools, stock pictures), the video
+ * editor (projects, renders, reference edits), the audio tools and the music library, and Pinterest
+ * links as references. Their account settings (sign-ins, keys, the billing choice, the Pinterest
+ * connection) stay with admins (`requireIntegrationAdmin`), and so does Campaign Autopilot.
  */
-export const TEAM_PROVIDERS: readonly IntegrationProvider[] = ["higgsfield", "freepik"];
+export const TEAM_PROVIDERS: readonly IntegrationProvider[] = ["higgsfield", "freepik", "editor", "audio", "pinterest"];
 
 /** May this user run the provider's tools? Admins always; members for the team providers. */
 export const teamMayRun = (user: User | undefined, provider: IntegrationProvider): boolean => !!user && (user.role === "admin" || TEAM_PROVIDERS.includes(provider));

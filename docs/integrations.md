@@ -114,8 +114,15 @@ Firas opened the paid tools to the whole team, except Campaign Autopilot:
 - Freepik / Magnific: the picture tools, the Photo lab runs, the video tools, stock pictures.
 - Clips: any member may upload MP4 clips and add them on the video route.
 
-`requireIntegrationUser` (TEAM_PROVIDERS: higgsfield, freepik) guards the runs; `integrationAccess`
-says `admin: true` ("may run") to members on those providers. Everything else stays with admins:
-the account settings (`requireIntegrationAdmin`: Higgsfield and Magnific sign-in, the Freepik key,
-the billing choice), the editor, the audio tools, Pinterest, Prompt Box runs, Campaign Autopilot and
-the admin pages. Every paid run still shows its price and waits for the confirm.
+- The video editor: saving and updating projects, renders, Combine into one video, the colour looks,
+  and "Edit like this video" references (Pinterest pins, Drive, Instagram sound).
+- The audio tools (tracks for a post's videos and each version's choice) and the music library
+  (upload, Drive import, licence edits, removal).
+- Prompt Box: a member gets the same card and runs it after the confirm.
+
+`requireIntegrationUser` (TEAM_PROVIDERS: every provider) guards the runs; `integrationAccess` says
+`admin: true` ("may run") to members. What stays with admins: the account settings
+(`requireIntegrationAdmin`: Higgsfield and Magnific sign-in, the Freepik key, the billing choice,
+connecting or disconnecting Pinterest), setting an estimate on a Prompt Box card whose cost is
+unknown, Campaign Autopilot and the admin pages. Every paid run still shows its price and waits for
+the confirm.

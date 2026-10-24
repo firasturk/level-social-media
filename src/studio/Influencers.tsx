@@ -1,5 +1,5 @@
 /**
- * AI influencers (admins): the client's own AI person, designed here and made once as a Higgsfield
+ * AI influencers: the client's own AI person, designed here and made once as a Higgsfield
  * character sheet (about 1.1 credits, or one of the account's free generations). Designing spends
  * nothing; making shows the price and waits for the confirm. A finished influencer is one of the
  * characters under "Trends with a character", and can join the client's ambassadors so campaigns can

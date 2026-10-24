@@ -2,7 +2,7 @@
  * The music library panel (docs/music-library.md): the studio's catalog and the client's own
  * tracks, with mood, genre, duration and BPM filters and a search; a preview with its waveform
  * (click to seek); the licence block of the chosen track (licence and link, author, source, the
- * credit line with a copy button, Content ID); and, for admins, importing a track from Drive or an
+ * credit line with a copy button, Content ID); and importing a track from Drive or an
  * upload with the licence form. Self-contained: it talks to /api/studio/music and gives the
  * chosen track to its parent through `onPick`.
  *

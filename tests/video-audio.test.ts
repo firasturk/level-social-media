@@ -105,18 +105,13 @@ beforeEach(() => {
 });
 
 describe("who may write", () => {
-  it("refuses a member's upload and choice with 403 and writes nothing", async () => {
+  it("lets a member upload a track too (24 Oct: the team), recorded under their name", async () => {
     const env = await seed();
-    const member = app("member");
-    const up = await uploadTrack(member, env, wavFile());
-    expect(up.status).toBe(403);
-    expect((await json(up)).error).toMatch(/Admins only for now/);
-    const ch = await postJson(member, env, "/api/studio/posts/video/audio/choose", { batch: "b1", index: 1, videoId: "x", choice: "none" });
-    expect(ch.status).toBe(403);
-    const gen = await postJson(member, env, "/api/studio/posts/video/audio/generate", { batch: "b1", index: 1 });
-    expect(gen.status).toBe(403);
-    expect(env.BUCKET.objects.size).toBe(1);
-    expect(await listIntegrationOps(env, { provider: "audio" })).toEqual([]);
+    const up = await uploadTrack(app("member"), env, wavFile());
+    expect(up.status).toBe(200);
+    const ops = await listIntegrationOps(env, { provider: "audio" });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].user_id).toBe("u2");
     expect(guard.stub).not.toHaveBeenCalled();
   });
 
@@ -128,7 +123,7 @@ describe("who may write", () => {
     expect((await json(up)).error).toMatch(/switched off/);
     const list = await app("member").request("/api/studio/posts/video/audio/list?batch=b1&post=1", {}, env);
     expect(list.status).toBe(200);
-    expect((await json(list)).access).toMatchObject({ admin: false, enabled: false });
+    expect((await json(list)).access).toMatchObject({ admin: true, enabled: false });
     expect(guard.stub).not.toHaveBeenCalled();
   });
 });
@@ -150,7 +145,7 @@ describe("an uploaded track", () => {
     expect(list.status).toBe(200);
     const l = (await json(list)) as { tracks: { id: string }[]; access: { admin: boolean }; generated: { connected: boolean; reason: string } };
     expect(l.tracks.map((t) => t.id)).toEqual([d.track.id]);
-    expect(l.access.admin).toBe(false);
+    expect(l.access.admin).toBe(true);
     expect(l.generated).toEqual({ connected: false, reason: GENERATED_NOT_CONNECTED });
     const ops = await listIntegrationOps(env, { provider: "audio" });
     expect(ops).toHaveLength(1);

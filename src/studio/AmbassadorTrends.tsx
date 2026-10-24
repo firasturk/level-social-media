@@ -1,5 +1,5 @@
 /**
- * Trends with a character (admins): pick one of the client's ambassadors (its portrait) or one of the
+ * Trends with a character: pick one of the client's ambassadors (its portrait) or one of the
  * Soul characters made on the Higgsfield account, pick a Genjutsu trend (trending, new, Higgsfield's
  * own), and the character takes the place of the person in that video. The studio never makes a
  * character. Browsing spends nothing; each trend shows Higgsfield's price and waits for the confirm.

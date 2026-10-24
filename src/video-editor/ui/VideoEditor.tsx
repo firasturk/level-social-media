@@ -121,13 +121,13 @@ const RATIOS: { id: FrameId; icon: ReactNode; title: string }[] = [
 ];
 
 const PANELS: { id: StudioPanel; label: string; icon: ReactNode; title: string; paid?: boolean }[] = [
-  { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; running one is admins only)" },
+  { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: Higgsfield's preset gallery, each with its reference video (browse freely; each run shows its price first)" },
   { id: "generate", label: "Generate", icon: <Sparkles size={18} />, title: "Generate: a clip from this post's picture (Higgsfield or Magnific; the cost is said first)", paid: true },
   { id: "edit", label: "Edit", icon: <Scissors size={18} />, title: "Edit: cut, auto edit, music, colour and export, drawn here in the browser" },
-  { id: "enhance", label: "Enhance", icon: <Wand2 size={18} />, title: "Enhance: upscale, colour grade, music, reframe and more on a clip (admins only for now)", paid: true },
+  { id: "enhance", label: "Enhance", icon: <Wand2 size={18} />, title: "Enhance: upscale, colour grade, music, reframe and more on a clip (each run shows its price first)", paid: true },
   { id: "audio", label: "Audio", icon: <Music size={18} />, title: "Audio: the sound each version carries" },
   { id: "versions", label: "Versions", icon: <History size={18} />, title: "Versions: every clip of this post, compared and selected for the client" },
-  { id: "check", label: "Check", icon: <ScanSearch size={18} />, title: "Check: Higgsfield's reading of a clip (admins only for now)", paid: true },
+  { id: "check", label: "Check", icon: <ScanSearch size={18} />, title: "Check: Higgsfield's reading of a clip", paid: true },
 ];
 
 const isEditable = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
@@ -630,7 +630,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
   };
 
   /**
-   * A track for the cut. With a post open (admins) it is kept with the post as a licensed track
+   * A track for the cut. With a post open it is kept with the post as a licensed track
    * (the Audio panel's list, with the licence line typed here), so the saved project points at it
    * and a reopened project sounds the same; otherwise it lives in this tab only.
    *
@@ -730,7 +730,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
     }
   };
   /**
-   * A voice-over at the playhead on the Voice lane. With a post open (admins) the recording is kept
+   * A voice-over at the playhead on the Voice lane. With a post open the recording is kept
    * with the post's audio (so the saved draft reopens with it), otherwise it lives in this tab.
    */
   const addVoice = async (file: File) => {

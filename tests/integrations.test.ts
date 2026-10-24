@@ -89,15 +89,12 @@ describe("who may run what (24 Oct: the team runs Higgsfield and Freepik / Magni
     expect(reached).toEqual([]);
   });
 
-  it("lets the team run the Higgsfield and Freepik tools and keeps the editor, the audio and Pinterest with admins", () => {
-    for (const p of ["higgsfield", "freepik"] as const) {
+  it("lets the team run every provider (Higgsfield, Freepik, the editor, the audio, Pinterest) and refuses no one signed in", () => {
+    for (const p of ["higgsfield", "freepik", "editor", "audio", "pinterest"] as const) {
       expect(teamMayRun(MEMBER, p)).toBe(true);
-      expect(requireIntegrationUser({ get: () => MEMBER }, p)).toBe(MEMBER);
-    }
-    for (const p of ["editor", "audio", "pinterest"] as const) {
-      expect(teamMayRun(MEMBER, p)).toBe(false);
       expect(teamMayRun(ADMIN, p)).toBe(true);
-      expect(() => requireIntegrationUser({ get: () => MEMBER }, p)).toThrow(/Admins only for now/);
+      expect(teamMayRun(undefined, p)).toBe(false);
+      expect(requireIntegrationUser({ get: () => MEMBER }, p)).toBe(MEMBER);
     }
   });
 

@@ -236,7 +236,7 @@ describe("browsing (everyone)", () => {
     expect(tracks.length).toBeGreaterThan(2);
     expect(tracks.every((t) => t.moods.includes("calm") && !t.test)).toBe(true);
     expect(tracks[0].url).toMatch(/^\/api\/studio\/music\/file\?id=cat%3A/);
-    expect((body.access as { admin: boolean }).admin).toBe(false);
+    expect((body.access as { admin: boolean }).admin).toBe(true);
     expect(guard.stub).not.toHaveBeenCalled();
   });
 
@@ -357,20 +357,21 @@ describe("the waveform", () => {
   });
 });
 
-describe("importing (admins)", () => {
-  it("refuses a member's upload, Drive import, edit and removal with 403 and writes nothing", async () => {
+describe("importing (the team)", () => {
+  it("lets a member upload, edit and remove a track, recorded under their name (24 Oct: the team)", async () => {
     const env = await seed();
     const member = app("member");
     const up = await upload(member, env);
-    expect(up.status).toBe(403);
-    expect((await json(up)).error).toMatch(/Admins only for now/);
-    expect((await send(member, env, "POST", "/api/studio/music/library/drive", { client: "c1", file: "1AbCdEfGhIjKlMnOpQrStUvWx", ...LICENCE })).status).toBe(403);
-    expect((await send(member, env, "PATCH", "/api/studio/music/library/x", { title: "y" })).status).toBe(403);
-    expect((await send(member, env, "DELETE", "/api/studio/music/library/x")).status).toBe(403);
-    expect(env.BUCKET.objects.size).toBe(0);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM music_tracks").first<{ n: number }>())!.n).toBe(0);
-    expect(await listIntegrationOps(env, { provider: "audio" })).toEqual([]);
-    expect(drive.driveAudioFile).not.toHaveBeenCalled();
+    expect(up.status).toBe(200);
+    const track = (await json(up)).track as MusicTrack;
+    const row = await env.DB.prepare("SELECT confirmed_by FROM music_tracks").first<{ confirmed_by: string }>();
+    expect(row!.confirmed_by).toBe("u2");
+    const id = track.id.slice(4);
+    expect((await send(member, env, "PATCH", `/api/studio/music/library/${id}`, { title: "Souq evening", confirmed: true })).status).toBe(200);
+    expect((await send(member, env, "DELETE", `/api/studio/music/library/${id}`)).status).toBe(200);
+    const ops = await listIntegrationOps(env, { provider: "audio" });
+    expect(ops.map((o) => o.kind).sort()).toEqual(["music.archive", "music.edit", "music.import"]);
+    expect(ops.every((o) => o.user_id === "u2")).toBe(true);
   });
 
   it("refuses an upload whose licence fields are missing, before storing anything", async () => {

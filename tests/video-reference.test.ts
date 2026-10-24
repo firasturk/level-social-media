@@ -147,12 +147,12 @@ describe("the routes", () => {
     env = await seed();
   });
 
-  it("refuses a member and writes nothing", async () => {
+  it("copies the pin's video for a member too (24 Oct: the team), under their name", async () => {
     mockFetch(pinterest);
     const r = await post(MEMBER, env, { from: "pinterest", url: PIN, batch: "b1" });
-    expect(r.status).toBe(403);
-    expect(reached).toEqual([]);
-    expect(env.BUCKET.objects.size).toBe(0);
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { id: string };
+    expect(env.BUCKET.objects.get(`${REFERENCE_PREFIX}${d.id}.mp4`)!.customMetadata).toMatchObject({ owner: "u2" });
   });
 
   it("copies the pin's video for an admin, with an expiry and a ledger row at no cost, and serves it with Range", async () => {

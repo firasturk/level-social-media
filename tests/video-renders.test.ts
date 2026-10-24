@@ -303,11 +303,11 @@ describe("Render & update card", () => {
     expect(cardOf(await summary(env))).toBe("v1");
     const again = (await startRender(env, p.id, 1)).body.render as { id: string };
     expect((await json(await upload(env, p.id, again.id))).outcome).toBe("card");
-    // A member reads the jobs but cannot start, report or fail one.
+    // A member reads the jobs and may start, report and fail one too (24 Oct: the team).
     expect((await call(MEMBER, env, "GET", `${E}/renders?project=${p.id}`)).status).toBe(200);
-    expect((await call(MEMBER, env, "POST", `${E}/renders`, { projectId: p.id, rev: 1 })).status).toBe(403);
-    expect((await call(MEMBER, env, "POST", `${E}/renders/${again.id}/progress`, { progress: 0.5 })).status).toBe(403);
-    expect((await call(MEMBER, env, "POST", `${E}/renders/${again.id}/fail`, { error: "x" })).status).toBe(403);
+    const mine = (await json(await call(MEMBER, env, "POST", `${E}/renders`, { projectId: p.id, rev: 1 }))).render as { id: string };
+    expect((await call(MEMBER, env, "POST", `${E}/renders/${mine.id}/progress`, { progress: 0.5 })).status).toBe(200);
+    expect((await call(MEMBER, env, "POST", `${E}/renders/${mine.id}/fail`, { error: "x" })).status).toBe(200);
   });
 
   it("records a failure from the tab and leaves the card alone", async () => {

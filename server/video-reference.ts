@@ -27,7 +27,7 @@ import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { now, uuid } from "./db";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
+import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser } from "./integrations";
 import { NOT_CONNECTED_HINT, pinIdOfLink, pinterestConnected, pinVideoViaApi } from "./pinterest";
 import { driveFileCopy, driveFileInfo, isClientDriveFile } from "./drive";
 import { serveObject } from "./range";
@@ -222,7 +222,7 @@ const body = z.discriminatedUnion("from", [
 ]);
 
 referenceRoutes.post("/", async (c) => {
-  const user = requireIntegrationAdmin(c, "editor");
+  const user = requireIntegrationUser(c, "editor");
   await assertIntegrationEnabled(c.env, "editor");
   const parsed = body.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Send a Pinterest pin link, or a Drive video of the client.", 400);

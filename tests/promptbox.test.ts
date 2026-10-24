@@ -177,13 +177,13 @@ describe("the chat proposes a card and never runs it", () => {
     expect(cfg.chat.map((t) => t.role)).toEqual(["user", "studio"]);
     expect(cfg.chat[1].text).toContain("Confirm it on the card");
   });
-  it("a member reads the card but is told it is admins only, with no execute", async () => {
+  it("a member gets the same card and may run it (24 Oct: the team)", async () => {
     const env = await seed();
     const a = await app("member");
     const r = await json(await chat(a, env, "Animate this post using Kling through Higgsfield", { post: 1 }));
     expect(r.kind).toBe("intent");
-    expect(r.canRun).toBe(false);
-    expect(String(r.reply)).toContain("Admins only for now");
+    expect(r.canRun).toBe(true);
+    expect(String(r.reply)).not.toContain("Admins only");
     expect((r.intent as ToolIntent).settings.model).toBe(KLING);
   });
   it("a sentence about the ideas still goes to the planner (the demo fixture here)", async () => {
@@ -204,14 +204,17 @@ describe("execute", () => {
     expect(r.status).toBe(428);
     expect((await json(r)).error as string).toMatch(/Confirm the card first/);
   });
-  it("refuses a member every provider tool (403), even the free search", async () => {
+  it("lets a member run a card under the same rules: confirm first, and no estimate of their own", async () => {
     const env = await seed();
     const admin = await app();
     const member = await app("member");
     const { intent } = (await json(await chat(admin, env, "Find a minimal background from Freepik for post 3"))) as { intent: ToolIntent };
-    const r = await execute(member, env, { intent, confirm: true });
-    expect(r.status).toBe(403);
-    expect((await json(r)).error as string).toMatch(/^Admins only for now/);
+    expect((await execute(member, env, { intent })).status).toBe(428);
+    const kling = ((await json(await chat(member, env, "Animate this post using Kling through Higgsfield", { post: 1 }))) as { intent: ToolIntent }).intent;
+    const r = await execute(member, env, { intent: kling, confirm: true, estimate: 10 });
+    expect(r.status).toBe(409);
+    expect((await json(r)).error as string).toMatch(/^Cost not known yet/);
+    expect(await videos(env)).toBe(0);
   });
   it("blocks an unknown cost until an admin sets the estimate", async () => {
     const env = await seed();

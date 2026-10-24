@@ -3,9 +3,9 @@
  * studio's catalog and the client's own tracks, docs/music-library.md) as the place to pick a
  * track, and for a library or catalog track the rights kept with the project: the licence and its
  * link, the author, the credit line the post's caption must carry for CC BY tracks (with a copy
- * button), and what is known about Content ID. Picking a track is an edit of the cut (admins);
+ * button), and what is known about Content ID. Picking a track is an edit of the cut;
  * browsing and previewing are open to everyone. Importing a client's track stays in the library
- * (admins only, with the licence form).
+ * (with the licence form). The whole team does all of this (24 Oct).
  */
 import { useState } from "react";
 import { Check, Copy, ExternalLink, Library } from "lucide-react";

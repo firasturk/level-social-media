@@ -78,24 +78,24 @@ afterEach(() => {
 });
 
 describe("who may write", () => {
-  it("refuses a member on save, update and render with 'Admins only for now', and writes nothing", async () => {
+  it("lets a member save and update a project too (24 Oct: the team), under their name", async () => {
     const env = await seed();
     const r = await create(MEMBER, env);
-    expect(r.status).toBe(403);
-    expect((await json(r)).error).toMatch(/^Admins only for now: Video editor/);
-    expect((await putJson(MEMBER, env, "/api/studio/posts/video/editor/projects/x", { project: doc(), rev: 1 })).status).toBe(403);
-    expect((await render(MEMBER, env, "x")).status).toBe(403);
-    expect((await ops(env)).results).toEqual([]);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM video_projects").first<{ n: number }>())?.n).toBe(0);
+    expect(r.status).toBe(200);
+    const d = await json(r);
+    expect(d.project).toMatchObject({ name: "First cut", rev: 1, createdBy: "u2" });
+    const id = (d.project as { id: string }).id;
+    expect((await putJson(MEMBER, env, `/api/studio/posts/video/editor/projects/${id}`, { project: doc(), rev: 1 })).status).toBe(200);
+    expect((await ops(env)).results.length).toBeGreaterThan(0);
   });
 
-  it("lets a member list and open a project read-only, with access saying why", async () => {
+  it("tells a member they may edit: access says admin (may run) with no reason", async () => {
     const env = await seed();
     const made = await json(await create(ADMIN, env));
     const id = (made.project as { id: string }).id;
     const list = await json(await app(MEMBER).request("/api/studio/posts/video/editor/projects?batch=b1&post=1", {}, env));
     expect((list.projects as { id: string; name: string; clips: number; rev: number }[]).map((p) => [p.id, p.name, p.clips, p.rev])).toEqual([[id, "First cut", 1, 1]]);
-    expect(list.access).toMatchObject({ admin: false, enabled: true, reason: expect.stringContaining("Admins only for now") });
+    expect(list.access).toMatchObject({ admin: true, enabled: true, reason: "" });
     const one = await json(await app(MEMBER).request(`/api/studio/posts/video/editor/projects/${id}`, {}, env));
     expect((one.document as { name: string; rev: number }).name).toBe("First cut");
     expect((one.document as { rev: number }).rev).toBe(1);

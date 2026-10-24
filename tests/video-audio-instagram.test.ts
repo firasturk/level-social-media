@@ -207,14 +207,14 @@ describe("sound from an Instagram link", () => {
     expect(audioKeys(env)).toEqual([]);
   });
 
-  it("refuses a link that is not a reel or a post, and a member", async () => {
+  it("refuses a link that is not a reel or a post, whoever asks (members included since 24 Oct)", async () => {
     const env = await seed();
     const ig = fakeInstagram();
-    const bad = await askReel(app("admin"), env, "https://www.instagram.com/brand.reels/");
-    expect(bad.status).toBe(400);
-    expect((await json(bad)).error).toMatch(/not a link to an Instagram reel or post/);
-    const member = await askReel(app("member"), env);
-    expect(member.status).toBe(403);
+    for (const role of ["admin", "member"] as const) {
+      const bad = await askReel(app(role), env, "https://www.instagram.com/brand.reels/");
+      expect(bad.status).toBe(400);
+      expect((await json(bad)).error).toMatch(/not a link to an Instagram reel or post/);
+    }
     expect(ig.reached).toEqual([]);
   });
 

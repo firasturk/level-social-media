@@ -359,13 +359,13 @@ describe("Combine into one video", () => {
     expect((await combine(env, ADMIN, [{ post: 2 }, { post: 4 }])).status).toBe(409);
   });
 
-  it("is for admins only (the video editor's rule) and writes nothing for a member", async () => {
+  it("lets a member combine clips too (24 Oct: the editor is the team's)", async () => {
     const env = await seed();
     await twoClips(env);
     const r = await combine(env, MEMBER, [{ post: 2 }, { post: 3 }]);
-    expect(r.status).toBe(403);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM video_projects").first<{ n: number }>())?.n).toBe(0);
-    expect((await monthOf(env)).plan!.length).toBe(3);
+    expect(r.status).toBe(200);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM video_projects").first<{ n: number }>())?.n).toBe(1);
+    expect((await monthOf(env)).plan!.length).toBe(4);
   });
 });
 

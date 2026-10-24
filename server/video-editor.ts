@@ -34,7 +34,7 @@ import type { Env } from "./env";
 import { StudioError } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationAccess } from "./integrations";
+import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationAccess } from "./integrations";
 import { MAX_VIDEO_FILE, renditionFrom, storeVideoFile, type VideoItem, type VideoRow } from "./video";
 import { readMp4 } from "./mp4";
 import { referenceRoutes } from "./video-reference";
@@ -153,7 +153,7 @@ const createSchema = z.object({
 
 /** A new project for a post: the document is checked, the row written, the ledger told (no spend). */
 videoEditorRoutes.post("/projects", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const d = await parseBody(c, createSchema);
   const b = await ownedPlan(c.env, user, d.batch);
@@ -173,7 +173,7 @@ videoEditorRoutes.post("/projects", async (c) => {
 
 /** A save: the row must still be at the rev the tab read, else 409 with the current one. */
 videoEditorRoutes.put("/projects/:id", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const d = await parseBody(c, z.object({ project: z.unknown(), rev: z.number().int().min(0), name: z.string().trim().max(120).optional() }));
   const { row, batch } = await projectRow(c.env, user, c.req.param("id"));
@@ -343,7 +343,7 @@ const readRender = async (env: Env, id: string) => (await first<VideoRenderRow>(
 
 /** A render job of a saved revision: the tab renders it next. The project must be saved at that revision. */
 videoEditorRoutes.post("/renders", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const d = await parseBody(c, z.object({ projectId: z.string().min(1), rev: z.number().int().min(1) }));
   const { row, batch } = await projectRow(c.env, user, d.projectId);
@@ -359,7 +359,7 @@ videoEditorRoutes.post("/renders", async (c) => {
 
 /** The tab's heartbeat: how far the render is. A job read as interrupted comes back when its tab reports again. */
 videoEditorRoutes.post("/renders/:id/progress", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   const d = await parseBody(c, z.object({ progress: z.number().min(0).max(1), phase: z.string().max(40).optional() }));
   const row = await renderRow(c.env, user, c.req.param("id"));
   if (row.status === "done" || row.status === "failed") return c.json({ ok: true, render: renderItem(row) });
@@ -370,7 +370,7 @@ videoEditorRoutes.post("/renders/:id/progress", async (c) => {
 
 /** The tab could not finish (an encoder error, a stop): the job keeps the reason; the card keeps its video. */
 videoEditorRoutes.post("/renders/:id/fail", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   const d = await parseBody(c, z.object({ error: z.string().max(400) }));
   const row = await renderRow(c.env, user, c.req.param("id"));
   if (row.status !== "done") await run(c.env.DB, "UPDATE video_renders SET status = 'failed', error = ?, updated = ?, finished = ? WHERE id = ?", d.error || "The render stopped.", now(), now(), row.id);
@@ -395,7 +395,7 @@ videoEditorRoutes.get("/renders", async (c) => {
  * client's version only when the post has none, as before.
  */
 videoEditorRoutes.post("/render", async (c) => {
-  const user = requireIntegrationAdmin(c, PROVIDER);
+  const user = requireIntegrationUser(c, PROVIDER);
   await assertIntegrationEnabled(c.env, PROVIDER);
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new StudioError("Send the export as a form upload.");

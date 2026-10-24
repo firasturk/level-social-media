@@ -3,7 +3,7 @@
  * (a LUT with an intensity, or sliders), music, sound effects, relight, HDR. Higgsfield: upscale,
  * reframe (9:16, 1:1, 4:5), remove the background. Each says its cost first (simulated, asked, or
  * "cost not known"), is confirmed, runs once, and its result becomes a new version of the same post
- * with the provider's label. Admins only for now; members see the cards and the note.
+ * with the provider's label. The whole team runs it (24 Oct).
  */
 import { useEffect, useState } from "react";
 import { Lock, Wand2, TriangleAlert } from "lucide-react";

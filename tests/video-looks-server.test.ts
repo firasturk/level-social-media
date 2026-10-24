@@ -125,11 +125,11 @@ describe("phase 3 documents through the editor's routes", () => {
     expect(String((await json(bad)).error)).toContain("lut.data");
   });
 
-  it("keeps saving admin-only: a member cannot save a colour change", async () => {
+  it("lets a member save a colour change too (24 Oct: the team)", async () => {
     const env = await seed();
     const r = await call(MEMBER, env, "POST", `${E}/projects`, { batch: "b1", post: 1, name: "x", project: { ...newProject("x", 1000), look: "bold-sport", lookAmount: 0.6 } });
-    expect(r.status).toBe(403);
+    expect(r.status).toBe(200);
     const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM video_projects").first<{ n: number }>();
-    expect(n!.n).toBe(0);
+    expect(n!.n).toBe(1);
   });
 });

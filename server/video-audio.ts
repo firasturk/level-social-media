@@ -23,7 +23,7 @@ import { all, first, now, run, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
-import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationAdmin } from "./integrations";
+import { assertIntegrationEnabled, integrationAccess, recordIntegrationOp, requireIntegrationUser } from "./integrations";
 import { audioNamesFor, parseSettings, versionNumbers, videoItem, type VideoRow } from "./video";
 import { instagramVideo } from "./meta";
 import {
@@ -160,7 +160,7 @@ function postIndex(v: unknown): number {
  * or mixed here. The licence line is free text: who cleared the track, under what.
  */
 videoAudioRoutes.post("/upload", async (c) => {
-  const user = requireIntegrationAdmin(c, "audio");
+  const user = requireIntegrationUser(c, "audio");
   await assertIntegrationEnabled(c.env, "audio");
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new StudioError("Send the track as a form upload.");
@@ -233,7 +233,7 @@ const instagramSchema = z.object({
  * that Instagram's sound is for Instagram only. A ledger row at estimate 0: reading costs nothing.
  */
 videoAudioRoutes.post("/instagram", async (c) => {
-  const user = requireIntegrationAdmin(c, "audio");
+  const user = requireIntegrationUser(c, "audio");
   await assertIntegrationEnabled(c.env, "audio");
   const parsed = instagramSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Paste the reel's Instagram link, and say which post (batch and index).");
@@ -306,7 +306,7 @@ const chooseSchema = z.object({
  * estimate 0: nothing is sent anywhere and the mp4 does not change.
  */
 videoAudioRoutes.post("/choose", async (c) => {
-  const user = requireIntegrationAdmin(c, "audio");
+  const user = requireIntegrationUser(c, "audio");
   await assertIntegrationEnabled(c.env, "audio");
   const parsed = chooseSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Say which version, and which audio choice (provider, none, upload, generated or instagram).");
@@ -348,7 +348,7 @@ videoAudioRoutes.post("/choose", async (c) => {
  * as refused, so the panel shows who asked and when. Nothing is sent or charged.
  */
 videoAudioRoutes.post("/generate", async (c) => {
-  const user = requireIntegrationAdmin(c, "audio");
+  const user = requireIntegrationUser(c, "audio");
   await assertIntegrationEnabled(c.env, "audio");
   const body = (await c.req.json().catch(() => ({}))) as { batch?: string; index?: number; prompt?: string };
   const batch = typeof body.batch === "string" ? body.batch : null;
