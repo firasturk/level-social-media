@@ -1,7 +1,7 @@
 /**
  * Higgsfield Marketing Studio templates a Reel can be made from instead of a filmed lifestyle
  * storyboard: one generation from the product's photo and a written brief makes the whole video
- * (no key frame, no shot pictures). The nine Firas chose (24 Oct), each described from its preview
+ * (no key frame, no shot pictures). The fifteen Firas chose (24 Oct), each described from its preview
  * so the planner can match a template's mechanic to an idea. Credits as Higgsfield priced each one
  * for a product photo on 24 Oct (`get_cost`); null where it was not asked.
  */
@@ -137,6 +137,78 @@ export const CREATIVE_TEMPLATES: CreativeTemplate[] = [
     person: "none",
     adapt: "the pixel letters use the brand's palette; no other brands' words",
     preview: `${MOTION}/353daae1-e520-486b-b7d5-83f026169305.mp4`,
+  },
+  {
+    id: "be48cd11-9821-4be2-9d31-b33ba7a68ce1",
+    name: "Crunch Heat Umami",
+    family: "hypermotion",
+    seconds: 14,
+    credits: null,
+    mechanic: "appetite close-ups: the product as hero, a spoon lifting its texture with one bold word on screen, a drizzle or pour, a hand bringing a spoonful to camera, a flat lay of several packs among the ingredients, a final hero shot",
+    bestFor: "food with texture you can see (sauces, toppings, desserts, crispy or creamy things); craving ideas",
+    person: "optional",
+    adapt: "hands only, the brand's cast if any; the words are one or two true ones about taste or texture",
+    preview: `${MOTION}/e2a96084-9c1a-4d05-840e-d9b9bab41a7a.mp4`,
+  },
+  {
+    id: "e1fadf0c-2aef-43a7-b9e8-81bcb78982e4",
+    name: "Illustration",
+    family: "mixed_media",
+    seconds: 15,
+    credits: null,
+    mechanic: "mixed media: the real product photographed in a real street with 2D cartoon characters and doodles (stars, bubbles, splashes) drawn around it, leaning on it, throwing it and lounging beside it",
+    bestFor: "youthful brands and drinks; playful, street-culture ideas; making a product feel like a character",
+    person: "none",
+    adapt: "a street of the brand's city; the drawn characters are young men and boys only, modestly dressed, unless the brand says otherwise; doodles in the brand's palette",
+    preview: `${MOTION}/ceed4b26-b7f5-4557-9221-510263d4b976.mp4`,
+  },
+  {
+    id: "4f191523-f0fc-453d-b82f-cfbabf6a166d",
+    name: "Chili Flake Drift",
+    family: "hypermotion",
+    seconds: 15,
+    credits: null,
+    mechanic: "the pack floats in slatted window light while its ingredients drift and rain around it and pile up below, then on a clean pastel background the lid lifts off for the hero shot",
+    bestFor: "ingredient-led products in a jar, tub or cup with a lid; calm, premium ideas",
+    person: "none",
+    adapt: "the drifting ingredients are the product's own; the background in the brand's palette",
+    preview: `${MOTION}/7a457f4a-0925-4c6b-a0a5-dc036b68f776.mp4`,
+  },
+  {
+    id: "29d153c2-cc42-451a-a91c-6127c165985e",
+    name: "Plum Studio Hero",
+    family: "hypermotion",
+    seconds: 8,
+    credits: null,
+    mechanic: "a short premium bakery spot: the box with a few ingredients around it, a macro of the baked surface, the product breaking open in slow motion behind one short line of text, ending on the brand's name on a deep coloured background",
+    bestFor: "pastries, cakes, desserts and anything with an inside worth showing; freshness and quality ideas",
+    person: "none",
+    adapt: "the inside is the product's real one; the line is short and true (no invented claims); the background colour from the brand's palette",
+    preview: `${MOTION}/444d3ce1-130a-466d-aba5-240e67eef14a.mp4`,
+  },
+  {
+    id: "00f3a579-54dd-4d1c-aa5b-8672f5af0ede",
+    name: "Pastel Beat Pop",
+    family: "hypermotion",
+    seconds: 15,
+    credits: null,
+    mechanic: "beat-synced macro details of the pack (lid, logo, label, back) on pastel backgrounds that swap colour on every beat, ending on a black title card",
+    bestFor: "packs and cups with a strong design; music-led, playful launches",
+    person: "none",
+    adapt: "backgrounds from the brand's palette; only the product's real details and words",
+    preview: `${MOTION}/0cbd94d9-0457-4a89-ab65-b200659bb14d.mp4`,
+  },
+  {
+    id: "9fdcd3a3-63a6-40a5-9436-eef4c261fa26",
+    name: "Whip-Pan Quartet",
+    family: "hypermotion",
+    seconds: 12,
+    credits: null,
+    mechanic: "fast whip-pans between four flavours or colours of the product, each on a background of its own colour, ending on the four side by side",
+    bestFor: "a range: several flavours, sizes or colours of one product line",
+    person: "none",
+    adapt: "the four are the brand's real variants (from its product list); backgrounds matched to each",
+    preview: `${MOTION}/7b41197b-0b4a-4d4b-af84-77cf99840846.mp4`,
   },
 ];
 

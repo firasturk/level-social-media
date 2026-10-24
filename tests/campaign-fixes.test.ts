@@ -325,12 +325,12 @@ describe("Higgsfield templates as a Reel format (24 Oct: not every Reel is lifes
   const CHILI = "fd5645a1-1cfc-4db1-bc9c-2b5a043e3079";
   const defaults = { imageEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, frameEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, clipEngine: { provider: "higgsfield-mcp" as const, model: "seedance_2_5", name: "Seedance 2.5" }, frame: "9:16" as const, videoSeconds: 12 };
 
-  it("the planner gets all nine templates and plans one as a single-shot Reel; an unknown one stays filmed", async () => {
+  it("the planner gets every template and plans one as a single-shot Reel; an unknown one stays filmed", async () => {
     const { campaignInstruction, planFromAnswer } = await import("../shared/campaign-planner");
     const { CREATIVE_TEMPLATES } = await import("../shared/creative-templates");
     const input = { setup: { ...defaultSetup(), imagePosts: 0, videos: 2, shotsPerVideo: 4 }, brand: { name: "Abu Saleh", tone: "", audience: "", language: "ar", dos: "", donts: "", style: "" }, products: [{ id: "a", name: "Spicy hot chocolate", from: "library" as const, thumb: null, listId: "P1" }], media: [], references: [], looks: [], month: "2026-10" };
     const t = campaignInstruction(input);
-    expect(CREATIVE_TEMPLATES).toHaveLength(9);
+    expect(CREATIVE_TEMPLATES).toHaveLength(15);
     for (const x of CREATIVE_TEMPLATES) expect(t).toContain(`${x.id}: ${x.name}: `);
     expect(t).toMatch(/Not every Reel is lifestyle/);
     const shot = { seconds: 3, action: "cocoa bursts", framing: "", camera: "", reference: "", source: "start-image", asset: "", text: "", angle: "", lens: "", placement: "", speed: "normal", angleId: "" };
