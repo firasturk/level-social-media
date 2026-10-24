@@ -185,3 +185,26 @@ describe("Higgsfield clips get the product and the faces as references only wher
     expect(takesReferences({})).toBe(false);
   });
 });
+
+describe("the planner writes new lines and keeps a Reel to its own product (24 Oct)", () => {
+  const products = [
+    { id: "a", name: "Hot chocolate", from: "drive" as const, thumb: null, listId: "P1" },
+    { id: "b", name: "Sahlab", from: "drive" as const, thumb: null, listId: "P2" },
+  ];
+  const media = [{ kind: "asset" as const, id: "m1", label: "A cup topped with pistachios", thumb: null, from: "Drive", media: "clip" as const, listId: "M1" }];
+  const input = { setup: { ...defaultSetup(), imagePosts: 1, videos: 1, shotsPerVideo: 2 }, brand: { name: "Abu Saleh", tone: "Stretch words for sound (وصفوووولي الصبـــرررررر, ختـــام الصيـــف).", audience: "", language: "ar", dos: "", donts: "", style: "" }, products, media, references: [], looks: [], month: "2026-10" };
+  const defaults = { imageEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, frameEngine: { kind: "engine" as const, model: "gemini-3-pro-image" }, clipEngine: { provider: "higgsfield-mcp" as const, model: "seedance_2_5", name: "Seedance 2.5" }, frame: "9:16" as const, videoSeconds: 8 };
+  it("tells the model the tone's quoted lines are not to be reused, and says so when one is", async () => {
+    const { campaignInstruction, planFromAnswer } = await import("../shared/campaign-planner");
+    expect(campaignInstruction(input)).toMatch(/lines quoted in the brand's tone are examples of its style, already used: never reuse them/);
+    const plan = planFromAnswer({ images: [{ idea: "x", objective: "", product: "P2", visual: "", reference: "", headline: "وصفوولي الصبر", caption: "", cta: "" }], videos: [] }, input, defaults);
+    expect(plan.planningNotes.join(" ")).toMatch(/img-1: its headline repeats an example line from the brand's tone/);
+  });
+  it("a client clip of another product becomes a made shot in a Reel about this one", async () => {
+    const { planFromAnswer } = await import("../shared/campaign-planner");
+    const plan = planFromAnswer({ images: [], videos: [{ concept: "c", hook: "", product: "P1", shots: [{ seconds: 4, action: "Omar sips the hot chocolate", framing: "", camera: "", reference: "", source: "start-image", asset: "", text: "" }, { seconds: 4, action: "A hand picks a roll next to the Sahlab cup", framing: "", camera: "", reference: "", source: "existing", asset: "M1", text: "" }], voiceover: "", music: "", transitions: "cuts", look: "", cta: "", caption: "" }] }, input, defaults);
+    expect(plan.videos[0].shots[1].source).toBe("start-image");
+    expect(plan.videos[0].shots[1].asset).toBeNull();
+    expect(plan.planningNotes.join(" ")).toMatch(/vid-1 shot 2: the client's clip shows sahlab/);
+  });
+});

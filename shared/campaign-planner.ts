@@ -179,6 +179,7 @@ export function campaignInstruction(x: PlannerInput): string {
     `CREATIVE DIRECTION: ${s.direction.prompt || "(none: follow the brand)"}`,
     `LANGUAGE: ${LANGUAGE_WORDS[s.language]}.`,
     `THE BRAND: ${x.brand.name}. Tone: ${x.brand.tone || "-"}. Style: ${x.brand.style || "-"}. Always: ${x.brand.dos || "-"}. Never: ${x.brand.donts || "-"}.`,
+    "The lines quoted in the brand's tone are examples of its style, already used: never reuse them, not even changed a little. Write new lines, in that style, about this campaign's own products and moments.",
     peopleRule(x.cast),
     ...(x.rules?.length ? ["THE BRAND'S APPROVED RULES AND LESSONS (always follow them):", ...x.rules.slice(0, 30).map((r) => `- ${r}`)] : []),
     "",
@@ -201,6 +202,7 @@ export function campaignInstruction(x: PlannerInput): string {
     "  direction.look: the camera feel and finish (e.g. \"shot on a digital cinema camera with a fine film grain, gentle highlight roll-off, no glow\"); direction.lighting: the motivated source, its direction, softness, contrast and colour temperature (e.g. \"late-afternoon sun from camera left through the windscreen, soft fill from the white car interior, 4800 K, medium contrast\"); direction.colour: a film-inspired grade: palette, highlight and shadow treatment, saturation and contrast, skin tones natural and the product's colours exact (no orange-and-teal, no oversaturation, no HDR); direction.lens: the lens family and perspective for the Reel (e.g. \"normal primes, 35 to 85 mm looks, f/2.8 to f/5.6, faces and products never distorted, background still readable\"); direction.wardrobe: what the people wear and carry in every shot; direction.place: the location, time of day and screen direction kept across the cuts.",
     "  Each shot is then a different camera setup in that same scene: same people, wardrobe, product, place, light and grade, with an intentional change of angle and size. angle: camera height and angle (eye level by default; over-the-shoulder; a purposeful low or top angle for the product only when it serves the idea; never random dramatic angles). lens: lens look, distance and depth of field (e.g. \"50 mm look, 1.5 m away, f/4, the street still readable behind\"; avoid excessive blur). placement: where the subject sits in frame and what is in the foreground and background. camera: the movement, restrained and physically plausible: static, handheld, slow push-in, tracking alongside, tilt; no orbiting unless the idea needs it, never a floating camera. speed: \"normal\" unless slow motion serves the idea.",
     "- In every shot of a video the product, the place and the people stay the same, so the shots cut together.",
+    "- Client media goes into a video only when it shows that video's own product in a scene that cuts with the other shots; a photo or clip of another product is never used in it (use \"start-image\" instead).",
     "- text: the few words on screen during the shot (\"\" for none). headline: 2 to 5 words. caption: one or two short sentences. cta: a short call to action.",
     "- A video's hook: the 2 to 6 words shown on screen over its first shot, in the campaign's language, never a description of the picture (\"Close-up of a hand…\" is wrong).",
     `- look: one of ${x.looks.length ? x.looks.join(", ") : "(none)"} or "". music: the mood and tempo in a few words. transitions: cuts, crossfades or mixed.`,
@@ -307,6 +309,28 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     clipEngine: defaults.clipEngine,
     ...(normalDirection(v.direction) ? { direction: normalDirection(v.direction)! } : {}),
   }));
+  // A client's photo or clip of another product does not go into a Reel about this one (seen live: a
+  // Sahlab clip in a Hot Chocolate Reel). Those shots are made instead, and the plan says so.
+  for (const v of videos) {
+    const own = v.product?.name.toLowerCase() ?? "";
+    const others = x.products.map((p) => p.name.toLowerCase()).filter((n) => n && n !== own && !own.includes(n) && !n.includes(own));
+    v.shots = v.shots.map((sh, k) => {
+      if (sh.source === "start-image" || !sh.asset) return sh;
+      const words = `${sh.action} ${sh.asset.label}`.toLowerCase();
+      const other = others.find((n) => n.length > 2 && words.includes(n));
+      if (!other) return sh;
+      notes.push(`${v.key} shot ${k + 1}: the client's ${sh.asset.media ?? "photo"} shows ${other}, not this Reel's product, so a new starting picture is made instead.`);
+      return { ...sh, source: "start-image" as ShotSource, asset: null };
+    });
+  }
+  // The brand's tone quotes example lines: one reused as a headline, hook or on-screen line is said.
+  const quoted = [...(x.brand.tone ?? "").matchAll(/[\u0600-\u06FF][\u0600-\u06FF\s\u0640]{3,}/g)].map((m) => m[0].replace(/\u0640/g, "").replace(/(.)\1+/g, "$1").trim()).filter((q) => q.length > 3);
+  const reused = (w: string) => {
+    const t = (w ?? "").replace(/\u0640/g, "").replace(/(.)\1+/g, "$1").trim();
+    return !!t && quoted.some((q) => t.includes(q) || q.includes(t));
+  };
+  for (const i of images) if (reused(i.headline)) notes.push(`${i.key}: its headline repeats an example line from the brand's tone; write a new one.`);
+  for (const v of videos) if (reused(v.hook) || v.shots.some((sh) => reused(sh.text))) notes.push(`${v.key}: its words repeat an example line from the brand's tone; write new ones.`);
   if (images.length < x.setup.imagePosts) notes.push(`The planner wrote ${images.length} of the ${x.setup.imagePosts} image posts asked for; add or regenerate the missing ones.`);
   if (videos.length < x.setup.videos) notes.push(`The planner wrote ${videos.length} of the ${x.setup.videos} videos asked for; add or regenerate the missing ones.`);
   const plan = normalizePlan({ rev, summary: { concept: a.summary?.concept ?? "", mix: a.summary?.mix ?? "", together: a.summary?.together ?? "" }, images, videos, planningNotes: [...new Set(notes)] }, defaults, rev);
