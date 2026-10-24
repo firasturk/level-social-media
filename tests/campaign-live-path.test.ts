@@ -231,6 +231,25 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     expect(projects!.n).toBe(4);
   });
 
+  it("a card number another pass has claimed is never taken again (24 Oct: img-1 and img-2 both took card 23)", async () => {
+    const env = await seed();
+    const c = await plannedAndPriced(env);
+    // Another pass (here another campaign of the same month) has claimed card 2 and not written it yet.
+    await env.DB.prepare("INSERT INTO campaign_plans (id, batch, client, owner, status, setup, plan, rev, created, updated) VALUES ('other', 'b1', 'c1', 'u1', 'paused', '{}', '{}', 1, 1, 1)").run();
+    await env.DB.prepare("INSERT INTO campaign_steps (campaign, step, item, shot, kind, deps, label, status, max_attempts, post, updated) VALUES ('other', 'img-1:-:post', 'img-1', NULL, 'post', '[]', 'x', 'running', 1, 2, 1)").run();
+    const a = await call<{ campaign: C }>(env, "POST", `/${c.id}/approve`, { items: c.proposal.items, retries: 1, signature: c.proposal.signature, acceptedUnknown: [] });
+    expect(a.status).toBe(200);
+    await call(env, "POST", `/${c.id}/tick`);
+    const rows = (await env.DB.prepare("SELECT step, post FROM campaign_steps WHERE campaign = ? AND kind = 'post'").bind(c.id).all<{ step: string; post: number | null }>()).results;
+    const others = rows.map((r) => r.post);
+    expect(others.every((n) => typeof n === "number" && n !== 2)).toBe(true);
+    expect(new Set(others).size).toBe(others.length);
+    const batch = await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>();
+    const cards = (JSON.parse(batch!.config) as Config).plan!.map((p) => p.index);
+    expect(new Set(cards).size).toBe(cards.length);
+    expect(cards).not.toContain(2);
+  });
+
   it("Magnific Change camera stays a choice for the shot pictures: other angles of the key frame, never the same twice", async () => {
     const env = await seed();
     let c = await plannedAndPriced(env);

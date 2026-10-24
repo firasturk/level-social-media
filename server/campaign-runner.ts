@@ -179,6 +179,24 @@ async function anglePlateRef(env: Env, b: BatchRow, campaignId: string, angleId:
 }
 
 /**
+ * A new card number for the step, claimed in one conditional update: above every card in the month
+ * and every number another campaign step of this month holds. A step another pass already gave a
+ * number keeps that one.
+ */
+async function claimPostIndex(env: Env, row: CampaignRow, s: StepRow, posts: { index: number }[]): Promise<number> {
+  const stale = s.post ?? -1;
+  for (let n = 0; n < 6; n++) {
+    const held = await first<{ m: number | null }>(env.DB, "SELECT MAX(x.post) m FROM campaign_steps x JOIN campaign_plans p ON x.campaign = p.id WHERE p.batch = ?", row.batch);
+    const want = Math.max(posts.reduce((m, p) => Math.max(m, p.index), 0), held?.m ?? 0) + 1 + n;
+    const claimed = await run(env.DB, "UPDATE campaign_steps SET post = ?, updated = ? WHERE campaign = ? AND step = ? AND (post IS NULL OR post = ?) AND NOT EXISTS (SELECT 1 FROM campaign_steps x JOIN campaign_plans p ON x.campaign = p.id WHERE p.batch = ? AND x.post = ?)", want, now(), row.id, s.step, stale, row.batch, want);
+    if (claimed) return want;
+    const mine = await first<{ post: number | null }>(env.DB, "SELECT post FROM campaign_steps WHERE campaign = ? AND step = ?", row.id, s.step);
+    if (mine?.post && mine.post !== stale) return mine.post;
+  }
+  throw new StudioError("Could not reserve a card number in the month; the step will try again.", 409);
+}
+
+/**
  * The item's card in the month, appended after its posts. The card's number is written on the
  * step before the month is saved, so a step that runs again finds its card instead of adding one.
  */
@@ -188,15 +206,17 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   const title = image ? image.headline || image.idea.slice(0, 60) : video!.hook || video!.concept.slice(0, 60);
   const b = await ownedPlan(env, user, row.batch);
   const product = await productStem(env, user, b, (image ?? video)!.product);
+  const before = (JSON.parse((await ownedPlan(env, user, row.batch)).config) as Config).plan ?? [];
+  // The item's card already exists (an earlier attempt, or the approval before an edit): it is
+  // updated in place, never doubled; its pictures stay its versions. A new card's number is claimed
+  // in one statement, so two passes at once never give two items the same card (seen live, 24 Oct).
+  const had = s.post && before.some((p) => p.index === s.post) ? s.post : null;
+  if (!had && before.length >= MAX_POST_COUNT) throw new StudioError(`The month holds ${MAX_POST_COUNT} posts already.`, 409);
+  const index = had ?? (await claimPostIndex(env, row, s, before));
   const fresh = await ownedPlan(env, user, row.batch);
   const config = JSON.parse(fresh.config) as Config;
   const planPosts = config.plan ?? [];
-  // The item's card already exists (an earlier attempt, or the approval before an edit): it is
-  // updated in place, never doubled; its pictures stay its versions.
-  const existing = s.post ? planPosts.find((p) => p.index === s.post) : undefined;
-  if (!existing && planPosts.length >= MAX_POST_COUNT) throw new StudioError(`The month holds ${MAX_POST_COUNT} posts already.`, 409);
-  const index = existing ? existing.index : planPosts.reduce((m, p) => Math.max(m, p.index), 0) + 1;
-  if (!existing) await patchStep(env, s, { post: index });
+  const existing = planPosts.find((p) => p.index === index);
   const t = now();
   const setup = JSON.parse(row.setup) as { imageFormat?: string; direction?: { prompt?: string } };
   // A studio only when the admin's direction asks for one by name; every other idea is on location.
@@ -206,7 +226,7 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
     const pos = angleById(image.angleId);
     const located = !!image.setting && !studioAsked;
     const reference = pos ? await anglePlateRef(env, b, row.id, pos.id) : null;
-    post = { index, type: product ? "product" : "lifestyle", title, brief: [image.idea, image.visual, image.setting && `PLACE: ${image.setting}.`, pos && `CAMERA POSITION "${pos.name}": ${pos.words}.`, located ? ON_LOCATION : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    post = { index, type: product ? "product" : "lifestyle", title, brief: [image.idea, image.visual, image.setting && `PLACE: ${image.setting.replace(/[.\s]+$/, "")}.`, pos && `CAMERA POSITION "${pos.name}": ${pos.words}.`, located ? ON_LOCATION : ""].filter(Boolean).join("\n").trim(), ...(located ? { onLocation: true } : {}), ...(reference ? { reference } : {}), caption: [image.caption, image.cta].filter(Boolean).join("\n"), hashtags: "", headline: image.headline || undefined, format: asFormat(setup.imageFormat ?? config.format ?? "4:5"), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   } else {
     const v = video!;
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
