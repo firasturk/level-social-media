@@ -116,3 +116,13 @@ at the studio's own tool function in a test; "simulated" means the preview's no-
 - The client's Drive folders (products, photos and clips used as they are), already read through the
   service account.
 - A music library track (catalog or the client's own, rights confirmed) for the Reels' music.
+
+## Photographic direction (24 Oct)
+
+Each Reel is directed as one filmed commercial before anything is paid:
+
+- **The Reel's direction** (`VideoPlanItem.direction`): look, light (source, direction, softness, contrast, colour temperature), colour (a film-inspired grade with natural skin and exact product colours), lenses, wardrobe and props, place and continuity. The planner writes it as a commercial cinematographer; the admin edits it on the plan.
+- **Each shot's camera setup**: shot size, angle (camera height), lens look with distance and depth of field, composition (placement, foreground and background), movement, and speed (real time unless slow motion serves the idea).
+- **References by role**: a colour reference lends only its palette and light, a composition reference only its framing and perspective; neither ever replaces the product, which always comes from its own photo.
+- **Where it goes**: the key frame's brief, each shot's own picture (with the key frame, the product photo, the cast's portraits, a real photo for realism and the labelled references), and each clip's prompt. Higgsfield gets the approved picture as its start frame and, where the engine's catalog lists `image_references` (Seedance 2.5 does), the product photo and the portraits as references. Lens, angle, movement and grade are said in the prompt: the engines in use expose no lens setting through the connection, and the plan says so instead of claiming one.
+- **Before any clip**: the automatic check compares each shot's picture with the product photo, the portraits and the key frame (continuity of light, grade, wardrobe, place) and flags a generated look; the admin approves the shots.

@@ -613,6 +613,11 @@ export async function submitVideoRequest(env: Env, user: User, d: SubmitInput, o
  */
 export interface StartFrame {
   posterKey?: string;
+  /**
+   * Stored pictures sent as identity references next to the start frame (the product's photo, the
+   * cast's portraits), on engines that take references; never the start frame itself.
+   */
+  references?: string[];
 }
 
 export function startFrameKey(b: { id: string; owner: string }, opts: StartFrame): string | null {

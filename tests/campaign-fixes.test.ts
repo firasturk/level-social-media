@@ -64,13 +64,14 @@ describe("each shot gets its own starting picture (23 Oct: four shots came out a
   it("the prompt is the shot's own moment and camera, in the key frame's world, with the cast and the brand rules", () => {
     const p = framePrompt(v, shot, { cast: men, rules: ["Never show a woman, not even her hand."], productPhoto: true });
     expect(p).toMatch(/THIS SHOT: Omar pours the smoothie/);
-    expect(p).toMatch(/Camera position for this moment: low angle from the passenger seat/);
+    expect(p).toMatch(/CAMERA SETUP: shot size medium shot/);
+    expect(p).toMatch(/The clip will move like this: low angle from the passenger seat/);
     expect(p).toMatch(/do not copy the key frame's composition/);
     expect(p).toMatch(/The second image is the product itself, and it wins over the key frame: keep Sakina Mango exactly as that photo shows it/);
     expect(p).toMatch(/no mint or other garnish, no straw, no lid/);
     expect(p).toMatch(/People: only the brand's cast/);
     expect(p).toMatch(/Brand rules \(never break them\): Never show a woman/);
-    expect(p).toMatch(/Vertical 9:16 photograph/);
+    expect(p).toMatch(/A vertical 9:16 frame from a professionally filmed lifestyle commercial/);
   });
   it("Make again carries the admin's words, else what the automatic check found", () => {
     expect(redoNote({ data: JSON.stringify({ note: "No third hand" }), note: null })).toBe("No third hand");
@@ -144,5 +145,43 @@ describe("a Reel's hook is on-screen words (24 Oct: the hook was a description o
     expect(onScreenWords("كل طلعة لازمها أبو صالح")).toBe("كل طلعة لازمها أبو صالح");
     expect(onScreenWords("Your road trip drink")).toBe("Your road trip drink");
     expect(campaignInstruction({ setup: defaultSetup(), brand: { name: "B", tone: "", audience: "", language: "ar", dos: "", donts: "", style: "" }, products: [], media: [], references: [], looks: [], month: "2026-11" })).toMatch(/A video's hook: the 2 to 6 words shown on screen/);
+  });
+});
+
+describe("each Reel is directed as one filmed commercial (24 Oct)", () => {
+  const direction = { look: "digital cinema camera, fine grain, gentle highlight roll-off", lighting: "late-afternoon sun from camera left, soft fill, 4800 K", colour: "warm neutral grade, low saturation in the greens", lens: "normal primes, 35 to 85 mm looks", wardrobe: "Omar in a tan jacket, Khaled in a beige shirt", place: "one street in Amman, the same afternoon" };
+  const shot = { key: "s2", seconds: 4, action: "Omar sips while leaning on the car door", framing: "medium close-up", camera: "handheld, slight push-in", reference: null, source: "start-image" as const, asset: null, text: "", angle: "eye level, over Khaled's shoulder", lens: "50 mm look, 1.5 m away, f/2.8, street readable", placement: "Omar on the left third, the cup in the foreground", speed: "normal" as const };
+  const v = { concept: "A cold smoothie on a drive", frame: "9:16", product: { name: "Sakina", id: "p1", from: "library" }, direction } as never;
+  it("the shot picture carries the shared direction, the camera setup, the labelled references and the look to avoid", () => {
+    const p = framePrompt(v, shot, { refs: [{ role: "colour", image: 5 }, { role: "composition", image: 6 }] });
+    expect(p).toMatch(/PHOTOGRAPHIC DIRECTION \(one commercial/);
+    expect(p).toMatch(/Light: late-afternoon sun from camera left/);
+    expect(p).toMatch(/CAMERA SETUP: shot size medium close-up; camera eye level, over Khaled's shoulder; lens 50 mm look/);
+    expect(p).toMatch(/Image 5 is a colour reference only: borrow its palette/);
+    expect(p).toMatch(/Image 6 is a composition reference only: borrow its framing/);
+    expect(p).toMatch(/orange-and-teal/);
+    expect(p).not.toMatch(/photorealistic/);
+  });
+  it("the clip carries the setup, the movement, the speed, the light and the identity references", () => {
+    const c = clipPrompt(v, shot, [{ name: "omar", gender: "man", modest: true }], { references: true });
+    expect(c).toMatch(/Camera movement: handheld, slight push-in\. Real-time speed\./);
+    expect(c).toMatch(/Light, as in the start frame: late-afternoon sun/);
+    expect(c).toMatch(/reference images are the real product and the cast's faces/);
+    expect(c).toMatch(/no constant orbiting/);
+  });
+  it("plans written before it keep their signatures; a shot's cinematography counts once written", async () => {
+    const { stepSignature, cinematography, normalDirection } = await import("../shared/campaign-plan");
+    expect(cinematography({ angle: " ", lens: "", speed: undefined })).toEqual({});
+    expect(normalDirection({ look: "", lighting: "" })).toBeNull();
+    void stepSignature;
+  });
+});
+
+describe("Higgsfield clips get the product and the faces as references only where the engine takes them", () => {
+  it("reads the roles from the catalog", async () => {
+    const { takesReferences } = await import("../server/higgsfield-mcp");
+    expect(takesReferences({ roles: ["start_image", "image_references", "end_image"] })).toBe(true);
+    expect(takesReferences({ roles: ["start_image"] })).toBe(false);
+    expect(takesReferences({})).toBe(false);
   });
 });

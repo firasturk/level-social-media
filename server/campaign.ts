@@ -495,19 +495,19 @@ campaignRoutes.get("/sources", async (c) => {
 
 campaignRoutes.get("/engines", async (c) => {
   const billing = await higgsfieldBilling(c.env);
-  let mcp: { id: string; name: string; durations: number[] }[] = [];
+  let mcp: { id: string; name: string; durations: number[]; references: boolean | null }[] = [];
   if (billing === "credits" && !previewNoImages(c.env)) {
     try {
       const m = await import("./higgsfield-mcp");
       const client = new m.HiggsfieldMcp(c.env, m.fetcher());
       await client.connect();
-      mcp = (await m.mcpModels(c.env, client)).models.map((x) => ({ id: x.id, name: x.name, durations: x.durations }));
+      mcp = (await m.mcpModels(c.env, client)).models.map((x) => ({ id: x.id, name: x.name, durations: x.durations, references: x.roles ? m.takesReferences(x) : null }));
     } catch (e) {
       console.error("[campaign] mcp models", errorMessage(e));
     }
   }
   const { listEngineModels } = await import("./campaign-runner");
-  return c.json({ ok: true, billing, images: listEngineModels(), frames: [...listEngineModels().filter((x) => isFrameModel(x.model)).map((x) => ({ ...x, name: `${x.name.replace(/ \(.*\)$/, "")}: a new picture per shot (list price, US dollars)` })), { kind: "mg-camera", model: "images_change_camera", name: "Magnific Change camera: the key frame from another angle (Magnific credits)" }], clips: billing === "credits" ? mcp.map((x) => ({ provider: "higgsfield-mcp", model: x.id, name: `${x.name} (subscription credits)` })) : VIDEO_MODELS.map((m) => ({ provider: "higgsfield", model: m.slug, name: `${m.name} (Cloud API)` })) });
+  return c.json({ ok: true, billing, images: listEngineModels(), frames: [...listEngineModels().filter((x) => isFrameModel(x.model)).map((x) => ({ ...x, name: `${x.name.replace(/ \(.*\)$/, "")}: a new picture per shot (list price, US dollars)` })), { kind: "mg-camera", model: "images_change_camera", name: "Magnific Change camera: the key frame from another angle (Magnific credits)" }], clips: billing === "credits" ? mcp.map((x) => ({ provider: "higgsfield-mcp", model: x.id, name: `${x.name} (subscription credits)`, references: x.references })) : VIDEO_MODELS.map((m) => ({ provider: "higgsfield", model: m.slug, name: `${m.name} (Cloud API)` })) });
 });
 
 campaignRoutes.get("/", async (c) => {

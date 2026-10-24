@@ -39,6 +39,11 @@ export interface PlanRef {
   from: string;
   /** For an asset: a picture or a clip. */
   media?: "photo" | "clip";
+  /**
+   * What an inspiration reference is for: its palette and light (`colour`) or its framing and
+   * perspective (`composition`). Never the product: the product comes from its own photo.
+   */
+  role?: "colour" | "composition";
 }
 
 export interface CampaignSetup {
@@ -176,6 +181,33 @@ export interface ShotPlan {
   asset: PlanRef | null;
   /** On-screen words during this shot ("" for none). */
   text: string;
+  /** Camera height and angle ("eye level", "low, from hip height", "over Omar's shoulder"). */
+  angle?: string;
+  /** Lens look, distance and depth of field ("50 mm look, 1.5 m away, f/4: background readable"). */
+  lens?: string;
+  /** Subject placement and foreground/background ("cup on the right third, car door soft in the foreground"). */
+  placement?: string;
+  /** Normal speed unless slow motion serves the idea. */
+  speed?: "normal" | "slow";
+}
+
+/**
+ * A Reel's one photographic direction: every shot is a different camera setup in the same scene,
+ * filmed the same day with the same light and grade (the cinematographer's decisions, in words).
+ */
+export interface ReelDirection {
+  /** The film look in one or two sentences: camera feel, finish, what it must not look like. */
+  look: string;
+  /** The light: motivated source, direction, softness, contrast, colour temperature. */
+  lighting: string;
+  /** The grade: palette, highlight and shadow treatment, saturation, contrast; skin and product true. */
+  colour: string;
+  /** The lens family and perspective rules for the whole Reel. */
+  lens: string;
+  /** People, wardrobe and props that stay the same in every shot. */
+  wardrobe: string;
+  /** The place, time of day and screen direction kept across the cuts. */
+  place: string;
 }
 
 export interface VideoPlanItem {
@@ -197,6 +229,8 @@ export interface VideoPlanItem {
   keyFrameEngine: ImageEngine;
   frameEngine: ImageEngine;
   clipEngine: ClipEngine;
+  /** The Reel's shared photographic direction (plans written before it have none). */
+  direction?: ReelDirection;
 }
 
 export interface CampaignPlan {
@@ -442,7 +476,7 @@ export function stableHash(s: string): string {
   return a.toString(16).padStart(8, "0") + b.toString(16).padStart(8, "0");
 }
 
-const refSig = (r: PlanRef | null) => (r ? `${r.kind}:${r.id}` : "");
+const refSig = (r: PlanRef | null) => (r ? `${r.kind}:${r.id}${r.role ? `:${r.role}` : ""}` : "");
 const productSig = (p: ProductPick | null) => (p ? `${p.from}:${p.id}` : "");
 
 /** What a paid step of the item depends on: changing any of it is a material change. */
@@ -473,9 +507,11 @@ export function stepSignature(plan: CampaignPlan, spec: Pick<StepSpec, "item" | 
   if (img) return spec.kind === "post" ? itemWordsSignature(img) + itemProductionSignature(img) : itemProductionSignature(img);
   const v = plan.videos.find((x) => x.key === spec.item);
   if (!v) return "missing";
-  const shotSig = (s: ShotPlan) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset)];
+  // The cinematography counts only where it is written (plans from before it keep their signatures).
+  const cine = (s: ShotPlan) => (s.angle || s.lens || s.placement || s.speed ? [[s.angle ?? "", s.lens ?? "", s.placement ?? "", s.speed ?? ""]] : []);
+  const shotSig = (s: ShotPlan) => [s.key, s.seconds, s.action, s.framing, s.camera, s.source, refSig(s.reference), refSig(s.asset), ...cine(s)];
   const first = v.shots.find((s) => s.source === "start-image") ?? null;
-  const keyFrame = stableHash(JSON.stringify([v.concept, productSig(v.product), v.frame, v.keyFrameEngine, first ? shotSig(first) : null]));
+  const keyFrame = stableHash(JSON.stringify([v.concept, productSig(v.product), v.frame, v.keyFrameEngine, first ? shotSig(first) : null, ...(v.direction ? [v.direction] : [])]));
   if (spec.kind === "post") return stableHash(JSON.stringify([v.concept, v.hook, v.caption, v.cta, productSig(v.product), v.frame]));
   if (spec.kind === "image") return keyFrame;
   const shot = v.shots.find((s) => s.key === spec.shot);
@@ -536,11 +572,33 @@ export function planChanges(before: CampaignPlan, after: CampaignPlan): { materi
 
 const SOURCES: ShotSource[] = ["existing", "animate", "start-image"];
 
+const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+/** A shot's cinematography, the fields written only (an empty one is left out). */
+export function cinematography(s: Partial<ShotPlan> | null | undefined): Pick<ShotPlan, "angle" | "lens" | "placement" | "speed"> {
+  const out: Pick<ShotPlan, "angle" | "lens" | "placement" | "speed"> = {};
+  const angle = text(s?.angle, 160);
+  const lens = text(s?.lens, 160);
+  const placement = text(s?.placement, 240);
+  if (angle) out.angle = angle;
+  if (lens) out.lens = lens;
+  if (placement) out.placement = placement;
+  if (s?.speed === "slow" || s?.speed === "normal") out.speed = s.speed;
+  return out;
+}
+
+/** A Reel's direction when any of it is written, else none. */
+export function normalDirection(d: Partial<ReelDirection> | null | undefined): ReelDirection | null {
+  if (!d || typeof d !== "object") return null;
+  const out: ReelDirection = { look: text(d.look, 400), lighting: text(d.lighting, 400), colour: text(d.colour, 400), lens: text(d.lens, 300), wardrobe: text(d.wardrobe, 300), place: text(d.place, 300) };
+  return Object.values(out).some(Boolean) ? out : null;
+}
+
 export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defaults: { imageEngine: ImageEngine; frameEngine: ImageEngine; clipEngine: ClipEngine; frame: FrameId; videoSeconds: number }, rev = 1): CampaignPlan {
   const x = (p ?? {}) as Partial<CampaignPlan>;
   const ref = (r: unknown): PlanRef | null => {
     const o = r as PlanRef | null;
-    return o && typeof o.id === "string" && (o.kind === "reference" || o.kind === "asset" || o.kind === "preview") ? { kind: o.kind, id: o.id, label: str(o.label, 160) || o.id, thumb: typeof o.thumb === "string" ? o.thumb : null, from: str(o.from, 120), ...(o.media ? { media: o.media === "clip" ? "clip" : "photo" } : {}) } : null;
+    return o && typeof o.id === "string" && (o.kind === "reference" || o.kind === "asset" || o.kind === "preview") ? { kind: o.kind, id: o.id, label: str(o.label, 160) || o.id, thumb: typeof o.thumb === "string" ? o.thumb : null, from: str(o.from, 120), ...(o.media ? { media: o.media === "clip" ? "clip" : "photo" } : {}), ...(o.role === "colour" || o.role === "composition" ? { role: o.role } : {}) } : null;
   };
   const product = (q: unknown): ProductPick | null => {
     const o = q as ProductPick | null;
@@ -575,6 +633,7 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
         source: source === "existing" && (!asset || asset.kind !== "asset") ? "start-image" : source,
         asset: asset && asset.kind === "asset" ? asset : null,
         text: str(s?.text, 140),
+        ...cinematography(s),
       };
     });
     // Shot keys unique and in order.
@@ -602,6 +661,7 @@ export function normalizePlan(p: Partial<CampaignPlan> | null | undefined, defau
       keyFrameEngine: v?.keyFrameEngine?.kind === "engine" && v.keyFrameEngine.model ? { kind: "engine", model: v.keyFrameEngine.model } : defaults.imageEngine,
       frameEngine: v?.frameEngine?.kind === "mg-camera" ? { kind: "mg-camera", model: "images_change_camera" } : v?.frameEngine?.kind === "engine" && isFrameModel(v.frameEngine.model) ? { kind: "engine", model: v.frameEngine.model } : defaults.frameEngine,
       clipEngine: v?.clipEngine && (v.clipEngine.provider === "higgsfield-mcp" || v.clipEngine.provider === "higgsfield") && v.clipEngine.model ? { provider: v.clipEngine.provider, model: v.clipEngine.model, name: str(v.clipEngine.name, 80) || v.clipEngine.model } : defaults.clipEngine,
+      ...(normalDirection(v?.direction) ? { direction: normalDirection(v?.direction)! } : {}),
     };
   });
   // Item keys unique.

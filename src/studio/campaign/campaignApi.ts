@@ -69,7 +69,8 @@ export interface Engines {
   billing: "credits" | "cloud";
   images: { kind: "engine"; model: string; name: string }[];
   frames: { kind: "engine" | "mg-camera"; model: string; name: string }[];
-  clips: { provider: "higgsfield-mcp" | "higgsfield"; model: string; name: string }[];
+  /** `references`: the engine takes reference pictures besides the start frame (null: the catalog does not say yet). */
+  clips: { provider: "higgsfield-mcp" | "higgsfield"; model: string; name: string; references?: boolean | null }[];
 }
 
 const base = "/api/studio/campaigns";

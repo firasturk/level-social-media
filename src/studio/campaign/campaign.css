@@ -108,3 +108,13 @@
 .ca-idea-products img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
 .ca-idea .cta { margin-top: auto; align-self: flex-start; }
 @media (max-width: 640px) { .ca-suggest-ask { flex-direction: column; } }
+
+/* Photographic direction */
+.ca-direction, .ca-engine-note { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.ca-direction h4, .ca-engine-note h4 { margin: 0; }
+.ca-engine-note .ca-list { margin: 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-700, var(--ink-900)); }
+.ca-cine { margin-top: 4px; }
+.ca-ref-roles { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ca-ref-roles li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.ca-ref-roles img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
+.ca-ref-roles span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

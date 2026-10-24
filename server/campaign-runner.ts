@@ -34,6 +34,7 @@ import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type Imag
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
 import { onScreenWords, peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
 import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
+import { directionLines, LOOK_AVOID, MOTION_AVOID, movementLine, referenceLine, setupLine } from "../shared/cinematography";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -185,7 +186,7 @@ async function makePost(env: Env, user: User, row: CampaignRow, s: StepRow, plan
   } else {
     const v = video!;
     const keyShot = v.shots.find((x) => x.source === "start-image") ?? v.shots[0];
-    post = { index, type: product ? "product" : "lifestyle", title, brief: `${v.concept}\nKey frame: ${keyShot?.action ?? ""} ${keyShot?.framing ?? ""}`.trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: onScreenWords(v.hook) || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
+    post = { index, type: product ? "product" : "lifestyle", title, brief: [v.concept, `Key frame: ${keyShot?.action ?? ""}`, keyShot ? setupLine(keyShot) : "", ...directionLines(v.direction), v.direction ? LOOK_AVOID : ""].filter(Boolean).join("\n").trim(), caption: [v.caption, v.cta].filter(Boolean).join("\n"), hashtags: "", headline: onScreenWords(v.hook) || undefined, overlay: false, format: asFormat(v.frame), ideaAt: t, captionHand: true, ...(product ? { product } : {}) };
   }
   // A card that shows a person or a hand names the client's cast, so the engine draws one of them
   // (from his or her reference photo) instead of inventing someone.
@@ -263,9 +264,24 @@ export function angleFor(shot: ShotPlan, taken: Set<string>): string {
 }
 
 /** The motion prompt a shot's clip is asked with. */
-export function clipPrompt(v: VideoPlanItem, s: ShotPlan, cast: CastMember[] = []): string {
+export function clipPrompt(v: VideoPlanItem, s: ShotPlan, cast: CastMember[] = [], opts: { references?: boolean } = {}): string {
   const people = peopleRule(cast).replace(/^PEOPLE: /, "").replace(" in a post or shot", "");
-  return [s.action, s.framing && `Framing: ${s.framing}.`, s.camera && `Camera: ${s.camera}.`, v.product ? `Keep ${v.product.name} exactly as in the picture: shape, label and colours unchanged.` : "", "Natural, realistic motion; no text appears; no new objects.", showsPeople(s.action) || cast.length ? `People: ${people}` : ""].filter(Boolean).join(" ").slice(0, 1500);
+  const d = v.direction;
+  return [
+    s.action,
+    setupLine(s),
+    movementLine(s),
+    d?.lighting && `Light, as in the start frame: ${d.lighting}`,
+    d?.colour && `Colour: ${d.colour}; keep the start frame's grade, skin tones natural.`,
+    v.product ? `Keep ${v.product.name} exactly as in the picture: shape, label, colours and contents unchanged.` : "",
+    opts.references ? "The reference images are the real product and the cast's faces: keep them exactly; never take anything else from them." : "",
+    "No text appears; no new objects or people.",
+    MOTION_AVOID,
+    showsPeople(s.action) || cast.length ? `People: ${people}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 2400);
 }
 
 /** The picture a shot's clip starts from. */
@@ -302,7 +318,7 @@ export function redoNote(s: Pick<StepRow, "data" | "note">): string {
 }
 
 /** The prompt a shot's own starting picture is made with: the shot's moment, the key frame's world. */
-export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean; faces?: { name: string; image: number }[]; realRef?: number | null } = {}): string {
+export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean; faces?: { name: string; image: number }[]; realRef?: number | null; refs?: { role: "colour" | "composition"; image: number }[] } = {}): string {
   const cast = opts.cast ?? [];
   const people = peopleRule(cast).replace(/^PEOPLE: /, "");
   const faces = opts.faces ?? [];
@@ -312,11 +328,14 @@ export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMe
     "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
     v.product ? `${opts.productPhoto ? "The second image is the product itself, and it wins over the key frame: " : ""}keep ${v.product.name} exactly as ${opts.productPhoto ? "that photo shows it" : "it is"}: the same cup, shape, label, colours, size and toppings. Add nothing the product photo does not show (no mint or other garnish, no straw, no lid, no extra toppings), even if the key frame shows them.` : "",
     `The campaign idea: ${v.concept}`,
+    ...directionLines(v.direction),
     `THIS SHOT: ${s.action}`,
-    s.framing && `Framing: ${s.framing}.`,
-    s.camera && `Camera position for this moment: ${s.camera}.`,
-    "This is a different moment and a different camera position from the key frame: build the composition this shot describes; do not copy the key frame's composition, crop or pose.",
-    `Vertical ${v.frame} photograph, photorealistic, natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no watermark, no split screen.`,
+    setupLine(s),
+    s.camera && `The clip will move like this: ${s.camera}; frame the start of that move.`,
+    "This is a different camera setup in the same scene as the key frame: build the composition this shot describes; do not copy the key frame's composition, crop or pose.",
+    ...(opts.refs ?? []).map((r) => referenceLine(r.role, r.image)),
+    `A vertical ${v.frame} frame from a professionally filmed lifestyle commercial: natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no watermark, no split screen.`,
+    LOOK_AVOID,
     showsPeople(s.action) || cast.length ? `People: ${people}` : "",
     ...faces.map((f) => `Image ${f.image} is ${f.name}'s portrait: wherever ${f.name} appears, it is exactly this man's face (face shape, eyes, nose, beard, hairline, skin tone), photographed again in this scene.`),
     faces.length > 1 ? `${faces.map((f) => f.name).join(" and ")} are different people with different faces: never give two people the same face, never twins.` : "",
@@ -345,6 +364,25 @@ async function productPhoto(env: Env, plan: CampaignPlan, item: string): Promise
     if (img && raster(img.mime)) return img;
   }
   return null;
+}
+
+/** The inspiration pictures a shot's picture may borrow from, each with its role (Drive, read-only, free). */
+async function inspirationFor(env: Env, row: CampaignRow, shot: ShotPlan): Promise<{ role: "colour" | "composition"; img: { bytes: ArrayBuffer; mime: string } }[]> {
+  const picks: { id: string; role: "colour" | "composition" }[] = [];
+  if (shot.reference?.kind === "reference") picks.push({ id: shot.reference.id, role: shot.reference.role ?? "composition" });
+  try {
+    const setup = JSON.parse(row.setup) as { direction?: { references?: { id: string; role?: string }[] } };
+    const colour = setup.direction?.references?.find((r) => r.role === "colour" && !picks.some((p) => p.id === r.id));
+    if (colour) picks.push({ id: colour.id, role: "colour" });
+  } catch {
+    /* no setup references */
+  }
+  const out: { role: "colour" | "composition"; img: { bytes: ArrayBuffer; mime: string } }[] = [];
+  for (const p of picks.slice(0, 2)) {
+    const img = await photoBytes(env, p.id, 1200).catch(() => null);
+    if (img && /^image\/(png|jpeg|webp)$/i.test(img.mime)) out.push({ role: p.role, img });
+  }
+  return out;
 }
 
 /**
@@ -376,14 +414,19 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   const real = realObj ? { bytes: await realObj.arrayBuffer(), mime: realObj.httpMetadata?.contentType || "image/jpeg" } : null;
   const first2 = product ? 3 : 2;
   const faces = portraits.map((p, n) => ({ name: p.name, image: first2 + n }));
-  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product, faces, realRef: real ? first2 + portraits.length : null });
+  // Inspiration references, labelled by what they may lend: the shot's own (its framing, unless marked
+  // for colour) and the campaign's first colour reference. Never the product: that is its own photo.
+  const inspiration = await inspirationFor(env, row, shot);
+  const refStart = first2 + portraits.length + (real ? 1 : 0);
+  const refs = inspiration.map((r, n) => ({ role: r.role, image: refStart + n }));
+  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product, faces, realRef: real ? first2 + portraits.length : null, refs });
   if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
   await patchStep(env, s, { post: index, ref_kind: "engine", ref_id: model, note: `Making this shot's picture with ${model}` });
   const { makeGoogleClient } = await import("./engine");
   const engine = await makeGoogleClient(env);
   let img: { bytes: ArrayBuffer; mime: string };
   try {
-    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : []), ...portraits.map((p) => p.img), ...(real ? [real] : [])], aspectRatio: v.frame, size: config.size ?? "2K" });
+    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : []), ...portraits.map((p) => p.img), ...(real ? [real] : []), ...inspiration.map((r) => r.img)], aspectRatio: v.frame, size: config.size ?? "2K" });
   } catch (e) {
     // Google bills a picture it returns: a refusal or an error answer returns none; a lost connection may have made one.
     const message = errorMessage(e);
@@ -396,20 +439,24 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   await settleCost(env, row, s, s.reserved);
   const made = `Made by ${model} from the key frame${product ? ", the product photo" : ""}${portraits.length ? `, ${portraits.map((p) => p.name).join(" and ")}'s portrait${portraits.length > 1 ? "s" : ""}` : ""}, for this shot's own moment`;
   // The automatic check (one text call): the people's faces and an AI look, shown on the shot for the admin.
-  const flags = portraits.length || showsPeople(shot.action) || product ? await checkFrame(env, { bytes: img.bytes, mime }, portraits, shot, product).catch((e) => (console.error("[campaign] frame check", errorMessage(e)), [] as string[])) : [];
+  const keyBytes = await env.BUCKET.get(keyFrame!).then((o) => (o ? o.arrayBuffer().then((bytes) => ({ bytes, mime: o.httpMetadata?.contentType || "image/png" })) : null));
+  const flags = portraits.length || showsPeople(shot.action) || product ? await checkFrame(env, { bytes: img.bytes, mime }, portraits, shot, product, keyBytes).catch((e) => (console.error("[campaign] frame check", errorMessage(e)), [] as string[])) : [];
   await patchStep(env, s, { status: "done", output_key: key, finished: now(), note: flags.length ? `The automatic check asks you to look: ${flags.join("; ")}`.slice(0, 500) : made });
 }
 
 const FRAME_CHECK_SCHEMA = { type: "object", properties: { problems: { type: "array", items: { type: "string" } } }, required: ["problems"] } as const;
 
 /** What a person would object to in a shot's picture: the wrong or a repeated face, an AI look, broken hands. */
-async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[], shot: ShotPlan, product: { bytes: ArrayBuffer; mime: string } | null = null): Promise<string[]> {
+async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[], shot: ShotPlan, product: { bytes: ArrayBuffer; mime: string } | null = null, keyFrame: { bytes: ArrayBuffer; mime: string } | null = null): Promise<string[]> {
   const { askText, parseJson } = await import("./posts");
-  const at = product ? 3 : 2;
+  const at = 2 + (product ? 1 : 0) + (keyFrame ? 1 : 0);
   const instruction = [
     "You check one picture for a brand's video ad before it is animated. Image 1 is the picture.",
     product ? "Image 2 is the real product photo." : "",
+    keyFrame ? `Image ${product ? 3 : 2} is the Reel's key frame, another shot of the same scene.` : "",
     ...portraits.map((p, n) => `Image ${n + at} is ${p.name}'s portrait.`),
+    keyFrame ? "- broken continuity with the key frame: different light direction or time of day, a different grade or colour cast, different clothes, a different place or product;" : "",
+    "- a generated look: plastic or waxy skin, HDR, oversaturation, orange-and-teal grade, glow, heavy background blur, a distorted face or product;",
     product ? "- the product differing from its photo: added garnish (mint, fruit), a straw or a lid the photo does not show, other toppings, another cup, a changed label or colour;" : "",
     `The shot should show: ${shot.action}`,
     "List only problems you can clearly see and are certain of, that a creative director would reject, each in one short sentence; when unsure, leave it out (a false alarm costs a new picture). Count fingers before calling a hand malformed.",
@@ -421,8 +468,34 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
   ]
     .filter(Boolean)
     .join("\n");
-  const out = parseJson<{ problems?: string[] }>(await askText(env, instruction, FRAME_CHECK_SCHEMA, [pic, ...(product ? [product] : []), ...portraits.map((p) => p.img)]));
+  const out = parseJson<{ problems?: string[] }>(await askText(env, instruction, FRAME_CHECK_SCHEMA, [pic, ...(product ? [product] : []), ...(keyFrame ? [keyFrame] : []), ...portraits.map((p) => p.img)]));
   return (out.problems ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 4);
+}
+
+/** Stored keys of the product's photo and the portraits of the people a shot shows (identity references for the clip). */
+async function identityKeys(ctx: Ctx, b: BatchRow, v: VideoPlanItem, shot: ShotPlan, cast: CastMember[]): Promise<string[]> {
+  const { env, row } = ctx;
+  const keys: string[] = [];
+  const p = v.product;
+  if (p?.from === "library") {
+    const src = await first<{ key: string; reference_key: string | null }>(env.DB, "SELECT key, reference_key FROM sources WHERE id = ?", p.id);
+    if (src) keys.push(src.reference_key ?? src.key);
+  } else if (p?.from === "drive") {
+    const key = `${b.owner}/${b.id}/campaign/${row.id}/product-${p.id}.jpg`;
+    if (!(await env.BUCKET.head(key))) {
+      const img = await photoBytes(env, p.id, 1600).catch(() => null);
+      if (img) await env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: img.mime } });
+    }
+    if (await env.BUCKET.head(key)) keys.push(key);
+  }
+  const config = JSON.parse(b.config) as Config;
+  const named = cast.filter((m) => new RegExp(`\\b${m.name}\\b`, "i").test(shot.action));
+  const shown = named.length ? named : showsPeople(shot.action) ? cast : [];
+  for (const m of shown.slice(0, 3)) {
+    const a = config.client ? await first<{ image_key: string | null }>(env.DB, "SELECT image_key FROM ambassadors WHERE client = ? AND name = ?", config.client, m.name).catch(() => null) : null;
+    if (a?.image_key) keys.push(a.image_key);
+  }
+  return keys;
 }
 
 async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
@@ -551,18 +624,21 @@ async function startStep(ctx: Ctx, s: StepRow): Promise<void> {
         }
         const duration = clipSeconds(shot.seconds);
         const { castOf } = await import("./campaign");
-        const prompt = clipPrompt(v, shot, await castOf(env, (JSON.parse(b.config) as Config).client ?? null));
+        const cast = await castOf(env, (JSON.parse(b.config) as Config).client ?? null);
+        // The real product and the faces of the people in the shot go with the start frame where the engine takes references.
+        const references = engine.provider === "higgsfield-mcp" ? await identityKeys(ctx, b, v, shot, cast) : [];
+        const prompt = clipPrompt(v, shot, cast, { references: references.length > 0 });
         const note = `Campaign Autopilot ${v.key} ${shot.key}`;
         let videoId: string;
         if (engine.provider === "higgsfield-mcp") {
           const { estimateMcpVideo, submitMcpVideo } = await import("./higgsfield-mcp");
           const ask = { batch: b.id, index: index!, model: engine.model, prompt, duration, aspect: v.frame, source: "picture" as const };
-          const est = await estimateMcpVideo(env, user, ask, false, { posterKey });
+          const est = await estimateMcpVideo(env, user, ask, false, { posterKey, references });
           if (est.unlimChoice) throw new StudioError("Higgsfield asks whether to use the unlimited allowance: answer it from the Video dialog once, then retry this step.", 409);
           const amount = est.credits ?? s.estimate;
           if (amount === null) throw new StudioError("Higgsfield gave no cost for this clip and none was accepted: nothing was sent.", 409);
           if (!(await reserveFor(env, row, s, amount))) return;
-          const item = await submitMcpVideo(env, user, { ...ask, confirm: true, note }, { posterKey });
+          const item = await submitMcpVideo(env, user, { ...ask, confirm: true, note }, { posterKey, references });
           videoId = item.id;
         } else {
           const { submitVideoRequest } = await import("./video");

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, Clapperboard, Film, Image as ImageIcon, Loader2, Pause, Play, Plus, RefreshCw, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
 import { ApiError } from "@/api";
-import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
+import { defaultSetup, needsKeyFrame, planCounts, UNIT_LABEL, type CampaignPlan, type CampaignSetup, type CostUnit, type ImagePlanItem, type PlanRef, type ProductPick, type ReelDirection, type ShotPlan, type ShotSource, type VideoPlanItem } from "@shared/campaign-plan";
 import { approveShots, redoStep, suggestCampaigns, type CampaignSuggestion, retargetItem, approveCampaign, campaignEngines, campaignSources, createCampaign, discardCampaign, listCampaigns, loadCampaign, pauseCampaign, refreshPrices, regenerate, renderedStep, resumeCampaign, retryStep, savePlan, tickCampaign, type Campaign, type CampaignStep, type Engines, type Sources } from "./campaignApi";
 import "./campaign.css";
 
@@ -63,7 +63,7 @@ function Setup({ batch, sources, onCreated }: { batch: string; sources: Sources 
   const [error, setError] = useState("");
   const set = <K extends keyof CampaignSetup>(k: K, v: CampaignSetup[K]) => setS((x) => ({ ...x, [k]: v }));
   const toggleProduct = (p: ProductPick) => setS((x) => ({ ...x, products: x.products.some((q) => q.id === p.id) ? x.products.filter((q) => q.id !== p.id) : [...x.products, { id: p.id, name: p.name, from: p.from, thumb: p.thumb, ...(p.note ? { note: p.note } : {}) }] }));
-  const toggleRef = (m: PlanRef) => setS((x) => ({ ...x, direction: { ...x.direction, references: x.direction.references.some((r) => r.id === m.id) ? x.direction.references.filter((r) => r.id !== m.id) : [...x.direction.references, { kind: "reference", id: m.id, label: m.label, thumb: m.thumb, from: m.from }] } }));
+  const toggleRef = (m: PlanRef) => setS((x) => ({ ...x, direction: { ...x.direction, references: x.direction.references.some((r) => r.id === m.id) ? x.direction.references.filter((r) => r.id !== m.id) : [...x.direction.references, { kind: "reference", id: m.id, label: m.label, thumb: m.thumb, from: m.from, role: "composition" }] } }));
   const submit = async () => {
     setBusy(true);
     setError("");
@@ -254,6 +254,21 @@ function Setup({ batch, sources, onCreated }: { batch: string; sources: Sources 
                   </button>
                 ))}
             </div>
+            {s.direction.references.length > 0 && (
+              <ul className="ca-ref-roles">
+                {s.direction.references.map((r) => (
+                  <li key={r.id}>
+                    {r.thumb && <img src={r.thumb} alt="" />}
+                    <span>{r.label}</span>
+                    <select aria-label="What this reference is for" value={r.role ?? "composition"} onChange={(e) => setS((x) => ({ ...x, direction: { ...x.direction, references: x.direction.references.map((q) => (q.id === r.id ? { ...q, role: e.target.value as "colour" | "composition" } : q)) } }))}>
+                      <option value="composition">For framing and perspective</option>
+                      <option value="colour">For colour and light</option>
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <small className="ca-muted">References lend only their framing or their colour and light. The product always comes from its own photo, never from a reference.</small>
           </>
         )}
       </section>
@@ -440,9 +455,58 @@ function ProductSelect({ value, sources, onChange, disabled }: { value: ProductP
   );
 }
 
+const DIRECTION_FIELDS: { key: keyof ReelDirection; label: string; hint: string }[] = [
+  { key: "look", label: "Look", hint: "camera feel and finish: e.g. digital cinema camera, fine grain, gentle highlight roll-off" },
+  { key: "lighting", label: "Light", hint: "source, direction, softness, contrast, colour temperature" },
+  { key: "colour", label: "Colour", hint: "palette, highlights and shadows, saturation, contrast; skin and product true" },
+  { key: "lens", label: "Lenses", hint: "lens family and perspective for the whole Reel" },
+  { key: "wardrobe", label: "Wardrobe & props", hint: "what stays the same in every shot" },
+  { key: "place", label: "Place & continuity", hint: "location, time of day, screen direction" },
+];
+
+/** The Reel's one photographic direction: every shot is a camera setup in this same scene. */
+function Direction({ v, onChange }: { v: VideoPlanItem; onChange: (x: VideoPlanItem) => void }) {
+  const d: ReelDirection = v.direction ?? { look: "", lighting: "", colour: "", lens: "", wardrobe: "", place: "" };
+  return (
+    <section className="ca-direction">
+      <h4>Photographic direction</h4>
+      <small className="ca-muted">One commercial: these decisions go into the key frame, every shot's picture and every clip request. Each shot below is a different camera setup in this same scene.</small>
+      <div className="ca-grid3">
+        {DIRECTION_FIELDS.map((f) => (
+          <Field key={f.key} label={f.label}>
+            <textarea rows={2} value={d[f.key]} placeholder={f.hint} onChange={(e) => onChange({ ...v, direction: { ...d, [f.key]: e.target.value } })} />
+          </Field>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** What is actually sent to the engines for this Reel: settings submitted, references, and what only the prompt can say. */
+function EngineNote({ v, engines, costOf }: { v: VideoPlanItem; engines: Engines | null; costOf: (step: string) => string }) {
+  const clip = engines?.clips.find((x) => x.provider === v.clipEngine.provider && x.model === v.clipEngine.model);
+  const refs = clip?.references;
+  const clipCosts = v.shots.filter((s) => s.source !== "existing").map((s) => costOf(`${v.key}:${s.key}:clip`)).filter((x) => x !== "—");
+  return (
+    <section className="ca-engine-note">
+      <h4>What goes to the engines</h4>
+      <ul className="ca-list">
+        <li>
+          <b>Pictures</b> · {v.keyFrameEngine.model} for the key frame; {v.frameEngine.kind === "engine" ? `${v.frameEngine.model} for each shot's own picture` : "Magnific Change camera for the other angles"}. Sent: the shared direction and each shot's camera setup in the prompt; the key frame, the real product photo, the cast's portraits and one real photo for realism as images; colour and composition references labelled as such, never as the product.
+        </li>
+        <li>
+          <b>Clips</b> · {v.clipEngine.name}{clipCosts.length ? ` · ${clipCosts.join(" + ")}` : ""}. Settings submitted: the approved picture as the start frame, the duration, the {v.frame} frame.{" "}
+          {refs === true ? "The product photo and the cast's portraits go as references." : refs === false ? "This engine takes no reference pictures: the product and faces come from the start frame only." : "Reference pictures go only if the engine's catalog lists them (checked when the clip is sent)."}{" "}
+          Lens, angle, movement, speed, light and grade: in the prompt, as this engine has no lens or camera setting.
+        </li>
+      </ul>
+    </section>
+  );
+}
+
 function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, busy }: { v: VideoPlanItem; s: ShotPlan; i: number; sources: Sources | null; onChange: (x: ShotPlan) => void; onMove: (d: -1 | 1) => void; onDelete: () => void; onRegen: () => void; cost: string; busy: boolean }) {
   const firstStart = v.shots.find((x) => x.source === "start-image")?.key;
-  const startNote = s.source === "start-image" ? (s.key === firstStart ? "Key frame (the card's picture)" : "Another angle of the key frame") : s.source === "animate" ? (s.asset ? "From the client's photo" : "From the key frame") : "";
+  const startNote = s.source === "start-image" ? (s.key === firstStart ? "Key frame (the card's picture)" : v.frameEngine.kind === "engine" ? "Its own camera setup, same scene" : "Another angle of the key frame") : s.source === "animate" ? (s.asset ? "From the client's photo" : "From the key frame") : "";
   return (
     <li className="ca-shot">
       <div className="ca-shot-head">
@@ -463,11 +527,11 @@ function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, bus
         <Field label="Seconds">
           <input type="number" min={1} max={15} step={0.5} value={s.seconds} onChange={(e) => onChange({ ...s, seconds: Number(e.target.value) || 1 })} />
         </Field>
-        <Field label="Framing">
+        <Field label="Shot size">
           <input value={s.framing} onChange={(e) => onChange({ ...s, framing: e.target.value })} />
         </Field>
-        <Field label="Camera">
-          <input value={s.camera} onChange={(e) => onChange({ ...s, camera: e.target.value })} />
+        <Field label="Movement">
+          <input value={s.camera} onChange={(e) => onChange({ ...s, camera: e.target.value })} placeholder="static, handheld, slow push-in…" />
         </Field>
         <Field label="Source">
           <select value={s.source} onChange={(e) => onChange({ ...s, source: e.target.value as ShotSource, asset: e.target.value === "start-image" ? null : s.asset })}>
@@ -480,6 +544,23 @@ function Shot({ v, s, i, sources, onChange, onMove, onDelete, onRegen, cost, bus
       <Field label="Action">
         <textarea rows={2} dir="auto" value={s.action} onChange={(e) => onChange({ ...s, action: e.target.value })} />
       </Field>
+      <div className="ca-grid4 ca-cine">
+        <Field label="Angle">
+          <input value={s.angle ?? ""} onChange={(e) => onChange({ ...s, angle: e.target.value })} placeholder="eye level, over the shoulder…" />
+        </Field>
+        <Field label="Lens">
+          <input value={s.lens ?? ""} onChange={(e) => onChange({ ...s, lens: e.target.value })} placeholder="50 mm look, 1.5 m, f/2.8" />
+        </Field>
+        <Field label="Composition">
+          <input value={s.placement ?? ""} onChange={(e) => onChange({ ...s, placement: e.target.value })} placeholder="subject left third, cup in the foreground" />
+        </Field>
+        <Field label="Speed">
+          <select value={s.speed ?? "normal"} onChange={(e) => onChange({ ...s, speed: e.target.value as "normal" | "slow" })}>
+            <option value="normal">Real time</option>
+            <option value="slow">Slow motion</option>
+          </select>
+        </Field>
+      </div>
       <div className="ca-grid2">
         <Field label="On-screen text">
           <input dir="auto" value={s.text} onChange={(e) => onChange({ ...s, text: e.target.value })} />
@@ -553,6 +634,8 @@ function VideoItem({ v, sources, engines, onChange, onRegen, onProduct, costOf, 
           <small className="ca-muted">{needsKeyFrame(v) ? `Key frame: ${costOf(`${v.key}:-:image`)}` : "No key frame needed"}</small>
         </div>
       </div>
+      <Direction v={v} onChange={onChange} />
+      <EngineNote v={v} engines={engines} costOf={costOf} />
       <h4>Storyboard</h4>
       <ol className="ca-shots">
         {v.shots.map((s, k) => (

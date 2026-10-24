@@ -494,8 +494,11 @@ async function engineFor(env: Env, mcp: HiggsfieldMcp, d: McpAsk): Promise<{ eng
   return { engine, duration, aspect };
 }
 
-function videoParams(engine: McpVideoModel, d: McpAsk, mediaId: string, duration: number | undefined, aspect: string | undefined): Record<string, unknown> {
-  const params: Record<string, unknown> = { model: engine.id, medias: [{ value: mediaId, role: pictureRole(engine) }], count: 1 };
+/** Does the engine take reference pictures besides the start frame? Read from its catalog roles. */
+export const takesReferences = (engine: Pick<McpVideoModel, "roles">) => (engine.roles ?? []).includes("image_references") && (engine.roles ?? []).includes("start_image");
+
+function videoParams(engine: McpVideoModel, d: McpAsk, mediaId: string, duration: number | undefined, aspect: string | undefined, refIds: string[] = []): Record<string, unknown> {
+  const params: Record<string, unknown> = { model: engine.id, medias: [{ value: mediaId, role: pictureRole(engine) }, ...refIds.map((value) => ({ value, role: "image_references" }))], count: 1 };
   if (d.prompt.trim()) params.prompt = d.prompt.trim();
   if (duration !== undefined) params.duration = duration;
   if (aspect) params.aspect_ratio = aspect;
@@ -535,7 +538,11 @@ export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record =
   const { engine, duration, aspect } = await engineFor(env, mcp, d);
   const posterKey = startFrameKey(b, opts) ?? (await posterFor(env, b, { id: t.id, output: t.output }, d));
   const mediaId = await mediaFor(env, mcp, posterKey);
-  const params = videoParams(engine, d, mediaId, duration, aspect);
+  // Identity references (product photo, portraits) only where the catalog says the engine takes them;
+  // a catalog stored before it listed the roles is read again once.
+  if (opts.references?.length && !engine.roles) engine.roles = (await mcpModels(env, mcp, true)).models.find((m) => m.id === engine.id)?.roles ?? [];
+  const refIds = takesReferences(engine) ? await Promise.all((opts.references ?? []).slice(0, 4).map((k) => mediaFor(env, mcp, k))) : [];
+  const params = videoParams(engine, d, mediaId, duration, aspect, refIds);
   const r = await mcp.call("generate_video", { params: { ...params, get_cost: true } });
   const unlimChoice = unlimChoiceIn(r);
   const credits = r.isError ? null : parseCost(r);
@@ -581,7 +588,7 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
   const mcp = new HiggsfieldMcp(env, fetcher());
   // The submission tool must exist before anything is claimed or recorded: a missing name is a clear refusal, not a failed version.
   await mcp.requireTool("generate_video_batch");
-  const fingerprint = await sha256([MCP_PROVIDER, engine.id, d.prompt.trim(), duration ?? "", aspect ?? "", d.source, posterKey, String(d.useUnlim ?? "")].join("\n"));
+  const fingerprint = await sha256([MCP_PROVIDER, engine.id, d.prompt.trim(), duration ?? "", aspect ?? "", d.source, posterKey, String(d.useUnlim ?? ""), ...(opts.references ?? [])].join("\n"));
   const claimKey = `video:${b.id}:${d.index}:${fingerprint}`;
   if (!(await claimSubmission(env, claimKey, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
   const before = est.balance;

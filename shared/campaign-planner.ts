@@ -6,7 +6,7 @@
  * and anything it names outside those lists is dropped. Engines are not the model's to choose.
  * Pure; the preview's fixture answer (`demoCampaignAnswer`) lives here too.
  */
-import { normalizePlan, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ShotSource } from "./campaign-plan";
+import { cinematography, normalDirection, normalizePlan, type ReelDirection, type ImagePlanItem, type VideoPlanItem, type CampaignPlan, type CampaignSetup, type ClipEngine, type ImageEngine, type PlanRef, type ProductPick, type ShotSource } from "./campaign-plan";
 import type { FrameId } from "./video-frame";
 
 /** A product the planner may pick, with its list id (P1…). */
@@ -133,8 +133,12 @@ export const CAMPAIGN_PLAN_SCHEMA = {
                 source: { type: "string", enum: ["start-image", "animate", "existing"] },
                 asset: { type: "string" },
                 text: { type: "string" },
+                angle: { type: "string" },
+                lens: { type: "string" },
+                placement: { type: "string" },
+                speed: { type: "string", enum: ["normal", "slow"] },
               },
-              required: ["seconds", "action", "framing", "camera", "reference", "source", "asset", "text"],
+              required: ["seconds", "action", "framing", "camera", "reference", "source", "asset", "text", "angle", "lens", "placement", "speed"],
             },
           },
           voiceover: { type: "string" },
@@ -143,8 +147,13 @@ export const CAMPAIGN_PLAN_SCHEMA = {
           look: { type: "string" },
           cta: { type: "string" },
           caption: { type: "string" },
+          direction: {
+            type: "object",
+            properties: { look: { type: "string" }, lighting: { type: "string" }, colour: { type: "string" }, lens: { type: "string" }, wardrobe: { type: "string" }, place: { type: "string" } },
+            required: ["look", "lighting", "colour", "lens", "wardrobe", "place"],
+          },
         },
-        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption"],
+        required: ["concept", "hook", "product", "shots", "voiceover", "music", "transitions", "look", "cta", "caption", "direction"],
       },
     },
   },
@@ -177,8 +186,8 @@ export function campaignInstruction(x: PlannerInput): string {
     ...x.products.map((p) => `${p.listId}: ${p.name}${p.note ? ` — ${p.note}` : ""}`),
     s.productMode === "manual" && x.products.length ? "Use only these products, spread over the posts and videos." : "Pick the products that fit the objective; each post or video names at most one product id.",
     "",
-    `REFERENCES (inspiration only, never the expected result; name one by id where it guides a post or a shot):${x.references.length ? "" : " none."}`,
-    ...x.references.map((r) => `${r.listId}: ${r.label}${r.from ? ` (${r.from})` : ""}`),
+    `REFERENCES (inspiration only, never the expected result and never the product; name one by id where it guides a post or a shot):${x.references.length ? "" : " none."}`,
+    ...x.references.map((r) => `${r.listId}: ${r.label}${r.from ? ` (${r.from})` : ""}${r.role === "colour" ? " · for its palette and light only" : r.role === "composition" ? " · for its framing and perspective only" : ""}`),
     "",
     `CLIENT MEDIA (the client's own photos and clips; a shot can use one as it is with source "existing", or animate a photo with source "animate"):${x.media.length ? "" : " none."}`,
     ...x.media.map((m) => `${m.listId}: ${m.media === "clip" ? "clip" : "photo"} — ${m.label}`),
@@ -187,7 +196,10 @@ export function campaignInstruction(x: PlannerInput): string {
     `- Exactly ${s.imagePosts} image posts and exactly ${s.videos} videos.`,
     `- Each video has ${s.shotsPerVideo} shots whose seconds add up to about ${s.videoSeconds}; shots are 1 to 15 seconds. The first shot is the hook.`,
     '- A shot\'s source: "start-image" (a new picture is made for it, then animated: the usual choice, it keeps the product and the scene consistent), "animate" (a client photo from CLIENT MEDIA is animated: give its id as asset), "existing" (a client clip or photo is used as it is: give its id as asset). Only ids from CLIENT MEDIA go in asset; otherwise asset is "".',
-    "- action: what happens in the shot, concretely (subject, product, movement). framing: wide, medium, close-up or macro. camera: the camera move (static, slow push in, orbit left, pan right, tilt up, handheld follow) or the angle (low, top, left, right).",
+    "- action: what happens in the shot, concretely (subject, product, a small candid action with natural timing). framing: the shot size (wide, medium, medium close-up, close-up, insert of the product).",
+    "- DIRECT EACH REEL AS ONE FILMED COMMERCIAL. First write its direction, decided like a commercial cinematographer, in concrete photographic terms (never just \"cinematic\" or \"photorealistic\"):",
+    "  direction.look: the camera feel and finish (e.g. \"shot on a digital cinema camera with a fine film grain, gentle highlight roll-off, no glow\"); direction.lighting: the motivated source, its direction, softness, contrast and colour temperature (e.g. \"late-afternoon sun from camera left through the windscreen, soft fill from the white car interior, 4800 K, medium contrast\"); direction.colour: a film-inspired grade: palette, highlight and shadow treatment, saturation and contrast, skin tones natural and the product's colours exact (no orange-and-teal, no oversaturation, no HDR); direction.lens: the lens family and perspective for the Reel (e.g. \"normal primes, 35 to 85 mm looks, f/2.8 to f/5.6, faces and products never distorted, background still readable\"); direction.wardrobe: what the people wear and carry in every shot; direction.place: the location, time of day and screen direction kept across the cuts.",
+    "  Each shot is then a different camera setup in that same scene: same people, wardrobe, product, place, light and grade, with an intentional change of angle and size. angle: camera height and angle (eye level by default; over-the-shoulder; a purposeful low or top angle for the product only when it serves the idea; never random dramatic angles). lens: lens look, distance and depth of field (e.g. \"50 mm look, 1.5 m away, f/4, the street still readable behind\"; avoid excessive blur). placement: where the subject sits in frame and what is in the foreground and background. camera: the movement, restrained and physically plausible: static, handheld, slow push-in, tracking alongside, tilt; no orbiting unless the idea needs it, never a floating camera. speed: \"normal\" unless slow motion serves the idea.",
     "- In every shot of a video the product, the place and the people stay the same, so the shots cut together.",
     "- text: the few words on screen during the shot (\"\" for none). headline: 2 to 5 words. caption: one or two short sentences. cta: a short call to action.",
     "- A video's hook: the 2 to 6 words shown on screen over its first shot, in the campaign's language, never a description of the picture (\"Close-up of a hand…\" is wrong).",
@@ -199,6 +211,10 @@ export function campaignInstruction(x: PlannerInput): string {
 }
 
 interface RawShot {
+  angle?: string;
+  lens?: string;
+  placement?: string;
+  speed?: string;
   seconds?: number;
   action?: string;
   framing?: string;
@@ -211,7 +227,7 @@ interface RawShot {
 interface RawAnswer {
   summary?: { concept?: string; mix?: string; together?: string };
   images?: { idea?: string; objective?: string; product?: string; visual?: string; reference?: string; headline?: string; caption?: string; cta?: string }[];
-  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string }[];
+  videos?: { concept?: string; hook?: string; product?: string; shots?: RawShot[]; voiceover?: string; music?: string; transitions?: string; look?: string; cta?: string; caption?: string; direction?: Partial<ReelDirection> }[];
 }
 
 export interface PlanDefaults {
@@ -278,7 +294,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
       let source = (["start-image", "animate", "existing"].includes(s.source ?? "") ? s.source : "start-image") as ShotSource;
       // Animating needs a photo; a clip asked to be animated is used as it is.
       if (source === "animate" && media?.media === "clip") source = "existing";
-      return { key: `s${k + 1}`, seconds: Number(s.seconds) || 3, action: s.action ?? "", framing: s.framing ?? "", camera: s.camera ?? "", reference: reference(s.reference), source, asset: source === "start-image" ? null : media, text: s.text ?? "" };
+      return { key: `s${k + 1}`, seconds: Number(s.seconds) || 3, action: s.action ?? "", framing: s.framing ?? "", camera: s.camera ?? "", reference: reference(s.reference), source, asset: source === "start-image" ? null : media, text: s.text ?? "", ...cinematography({ angle: s.angle, lens: s.lens, placement: s.placement, speed: s.speed === "slow" ? "slow" : s.speed === "normal" ? "normal" : undefined }) };
     }),
     voiceover: v.voiceover ?? "",
     music: { direction: v.music ?? "", trackId: null, trackTitle: null },
@@ -289,6 +305,7 @@ export function planFromAnswer(raw: unknown, x: PlannerInput, defaults: PlanDefa
     keyFrameEngine: defaults.imageEngine,
     frameEngine: defaults.frameEngine,
     clipEngine: defaults.clipEngine,
+    ...(normalDirection(v.direction) ? { direction: normalDirection(v.direction)! } : {}),
   }));
   if (images.length < x.setup.imagePosts) notes.push(`The planner wrote ${images.length} of the ${x.setup.imagePosts} image posts asked for; add or regenerate the missing ones.`);
   if (videos.length < x.setup.videos) notes.push(`The planner wrote ${videos.length} of the ${x.setup.videos} videos asked for; add or regenerate the missing ones.`);
@@ -451,8 +468,13 @@ export function demoCampaignAnswer(instruction: string): RawAnswer & { campaign:
           source: existing ? "existing" : animate ? "animate" : "start-image",
           asset: existing ? clip : animate ? photo : "",
           text: k === 0 ? `Demo hook ${v + 1}` : k === shotsN - 1 ? "Order today" : "",
+          angle: ["eye level", "over the shoulder", "eye level, slightly high", "low, from table height"][k % 4],
+          lens: ["35 mm look, 2 m away, f/4", "50 mm look, 1.5 m away, f/2.8", "85 mm look, 2 m away, f/2.8", "macro insert, 30 cm away, f/5.6"][k % 4],
+          placement: `${DEMO}: the product on the right third, the person on the left, the street soft behind.`,
+          speed: "normal",
         };
       }),
+      direction: { look: `${DEMO}: digital cinema camera, fine grain, gentle highlight roll-off.`, lighting: `${DEMO}: late-afternoon sun from camera left, soft fill, 4800 K.`, colour: `${DEMO}: warm neutral grade, natural skin, product colours exact.`, lens: `${DEMO}: normal primes, 35 to 85 mm looks.`, wardrobe: `${DEMO}: the cast in the same clothes in every shot.`, place: `${DEMO}: one street, the same afternoon.` },
       voiceover: "",
       music: "upbeat, 110 bpm",
       transitions: "cuts",

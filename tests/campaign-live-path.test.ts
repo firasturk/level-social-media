@@ -205,7 +205,7 @@ describe("Campaign Autopilot live path (providers mocked at the studio's tools)"
     expect(calls.frame).toHaveLength(12);
     expect(calls.frame.every((f) => f.model === "gemini-3-pro-image" && f.aspectRatio === "9:16" && f.images >= 1 && f.reserved > 0)).toBe(true);
     for (const v of p.plan.videos as unknown as { shots: { key: string; source: string; action: string }[] }[]) for (const shot of v.shots.slice(1)) expect(calls.frame.some((f) => f.prompt.includes(`THIS SHOT: ${shot.action}`))).toBe(true);
-    expect(calls.frame.every((f) => /different moment and a different camera position/.test(f.prompt))).toBe(true);
+    expect(calls.frame.every((f) => /different camera setup in the same scene/.test(f.prompt))).toBe(true);
     // 16 clips on the subscription credits, each from its shot's starting picture.
     expect(calls.clip).toHaveLength(16);
     for (const v of p.plan.videos) {
