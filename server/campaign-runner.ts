@@ -412,11 +412,11 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
     ...portraits.map((p, n) => `Image ${n + at} is ${p.name}'s portrait.`),
     product ? "- the product differing from its photo: added garnish (mint, fruit), a straw or a lid the photo does not show, other toppings, another cup, a changed label or colour;" : "",
     `The shot should show: ${shot.action}`,
-    "List only real problems a creative director would reject, each in one short sentence:",
+    "List only problems you can clearly see and are certain of, that a creative director would reject, each in one short sentence; when unsure, leave it out (a false alarm costs a new picture). Count fingers before calling a hand malformed.",
     portraits.length ? "- a person whose face does not match their portrait; two people with the same face (twins);" : "",
     "- people who look AI-generated rather than photographed (waxy or plastic skin, airbrushed face, doll eyes, CGI smoothness, a stiff pose or frozen smile, a person lit separately from the set);",
     "- extra, missing or malformed hands or fingers; a woman or a girl, or a woman's hand, when the people should be men only;",
-    "- the picture not showing what the shot should show.",
+    "- the picture showing something else than the shot asks (a different action or place); close-up versus macro or a slightly different pose is not a problem.",
     'Answer {"problems": []} when it is fine.',
   ]
     .filter(Boolean)
