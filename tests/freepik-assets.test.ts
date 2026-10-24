@@ -224,8 +224,8 @@ describe("one search, one import", () => {
   });
 });
 
-describe("admins only, server-side", () => {
-  it("refuses a member every Freepik action, the chips included; the layer file stays readable", async () => {
+describe("the whole team, server-side (24 Oct)", () => {
+  it("lets a member through every Freepik action, the chips included; the layer file stays readable", async () => {
     const env = await seed();
     const d = await download(env, "demo-7");
     for (const [path, init] of [
@@ -234,8 +234,7 @@ describe("admins only, server-side", () => {
       ["/api/studio/freepik/use", { method: "POST", body: JSON.stringify({ asset: d.body.asset.id, batch: "b1", post: 1, role: "design" }), headers: JSON_HEADERS }],
     ] as [string, RequestInit][]) {
       const r = await app("member").request(path, init, env);
-      expect(r.status, path).toBe(403);
-      expect(((await json(r)) as { error: string }).error).toMatch(/Admins only for now/);
+      expect(r.status, path).not.toBe(403);
     }
     expect((await app("member").request(`/api/studio/freepik/assets/${d.body.asset.id}/file?layer=1`, {}, env)).status).toBe(200);
   });

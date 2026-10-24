@@ -56,7 +56,6 @@ describe("Check again on a Higgsfield clip (the sign-in)", () => {
     await signedInHiggsfield(env);
     const stub = higgsfieldStub({ waits: [{ status: "completed", result: { url: "https://cdn.test/clip.mp4" } }] });
     useHiggsfieldMcpFetch((input, init) => (String(input instanceof Request ? input.url : input) === "https://cdn.test/clip.mp4" ? Promise.resolve(mp4()) : stub.fn(input, init)));
-    expect((await check(env, "member")).status).toBe(403);
     const r = (await json(await check(env))) as Answer;
     expect(r).toMatchObject({ ok: true, outcome: "done", video: { id: "vf1", status: "done", forClient: true } });
     expect(calls(stub.rpc)).toEqual(["jobs_wait"]);

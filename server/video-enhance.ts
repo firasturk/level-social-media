@@ -24,7 +24,7 @@ import { StudioError, errorMessage } from "./errors";
 import { first, uuid } from "./db";
 import { ownedPlan } from "./posts";
 import { signObjectUrl } from "./signed";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findString, firstUrl, jsonOf, resultText, type McpCallResult } from "./mcp-client";
@@ -279,7 +279,7 @@ async function parseBody<T extends z.ZodTypeAny>(c: { req: { json: () => Promise
 }
 
 async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
-  const u = requireIntegrationAdmin(c, "higgsfield");
+  const u = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   return u;
 }
@@ -306,7 +306,7 @@ videoHiggsfieldRoutes.get("/tools", async (c) => {
     ok: true,
     signedIn,
     billing,
-    admin: user.role === "admin",
+    admin: teamMayRun(user, "freepik"),
     access,
     reason,
     available,

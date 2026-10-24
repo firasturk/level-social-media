@@ -98,10 +98,6 @@ export default function MediaIntake(p: MediaIntakeProps) {
         refused.push(`${f.name}: a clip (use Create or edit video)`);
         continue;
       }
-      if (video && !p.admin) {
-        refused.push(`${f.name}: only an admin can add clips for now`);
-        continue;
-      }
       if (!video && !isImageFile(f)) {
         refused.push(`${f.name}: pictures must be PNG, JPEG or WebP${p.route === "video" ? ", clips MP4" : ""}`);
         continue;
@@ -204,7 +200,7 @@ export default function MediaIntake(p: MediaIntakeProps) {
         <div className="media-source">
           {tab === "drive" ? (
             client ? (
-              <DriveGrid clientId={client} clientName={clientName} route={p.route} admin={p.admin} picked={new Set(tray.flatMap((x) => (x.from === "drive" ? [x.id] : [])))} onToggle={toggleDrive} />
+              <DriveGrid clientId={client} clientName={clientName} route={p.route} picked={new Set(tray.flatMap((x) => (x.from === "drive" ? [x.id] : [])))} onToggle={toggleDrive} />
             ) : (
               <p className="flow-muted media-empty">Choose the client first: its Drive folders are listed here.</p>
             )
@@ -226,7 +222,6 @@ export default function MediaIntake(p: MediaIntakeProps) {
               <b>Drop {text.what} here</b>
               <span className="flow-muted">
                 {p.route === "video" ? "PNG, JPEG or WebP up to 20 MB; MP4 clips up to 60 MB" : "PNG, JPEG or WebP, up to 20 MB each"}
-                {p.route === "video" && !p.admin ? " (clips: admins only for now)" : ""}
               </span>
               <button type="button" className="cta secondary small" onClick={() => fileInput.current?.click()}>
                 <Upload size={14} /> Upload files
@@ -300,7 +295,7 @@ export default function MediaIntake(p: MediaIntakeProps) {
 }
 
 /** The client's Drive as thumbnails, by role and folder, searchable; videos are only for the video route. */
-function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { clientId: string; clientName: string; route: MediaRoute; admin: boolean; picked: Set<string>; onToggle: (p: DrivePhoto) => void }) {
+function DriveGrid({ clientId, clientName, route, picked, onToggle }: { clientId: string; clientName: string; route: MediaRoute; picked: Set<string>; onToggle: (p: DrivePhoto) => void }) {
   const { state, load } = useDriveListing(clientId, true);
   const [role, setRole] = useState<DriveRole | "all">("all");
   const [q, setQ] = useState("");
@@ -368,7 +363,7 @@ function DriveGrid({ clientId, clientName, route, admin, picked, onToggle }: { c
       {list.length ? (
         <div className="media-grid">
           {list.slice(0, shown).map((ph) => {
-            const blocked = ph.video ? (route === "images" ? "A clip: use Create or edit video" : !admin ? "Clips: admins only for now" : "") : "";
+            const blocked = ph.video ? (route === "images" ? "A clip: use Create or edit video" : "") : "";
             const on = picked.has(ph.id);
             return (
               <button key={ph.id} type="button" className={`media-thumb ${on ? "on" : ""}`} disabled={!!blocked} aria-pressed={on} title={blocked || `${ph.folder ? `${ph.folder} / ` : ""}${ph.file}`} onClick={() => onToggle(ph)}>

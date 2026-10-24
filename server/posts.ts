@@ -16,7 +16,7 @@ import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
 import { approveSpend, reserveOrAsk, reserveSpend, spendFits, spendStatus } from "./spend";
 import { exactCallsCost } from "./exact";
-import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
+import { assertIntegrationEnabled, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { GOOGLE_MODELS, isGoogleModel } from "./google";
 import { cleanGrid, testGridLayout, testGridPrompt, tileCell, type TestGridInfo } from "@shared/testgrid";
 import { PALETTE_SOURCES, type PaletteSource } from "@shared/palette-source";
@@ -4230,7 +4230,7 @@ postRoutes.post("/text-assist", async (c) => {
  * row carries no estimate and needs no confirmation.
  */
 postRoutes.post("/video/idea", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
   const b = await ownedPlan(c.env, user, d.batch);

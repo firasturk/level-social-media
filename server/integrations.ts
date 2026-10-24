@@ -3,8 +3,10 @@
  * (Freepik's Photo lab, Higgsfield video, the video editor placeholder). docs/integrations.md has
  * the rules in plain words; this file is their one implementation.
  *
- *  1. Admins only, for now: `requireIntegrationAdmin` refuses a member with 403 before anything
- *     else is read. Viewing (listing jobs or videos, serving stored files) is not gated here.
+ *  1. Who may run: `requireIntegrationUser` lets the whole team run Higgsfield and Freepik /
+ *     Magnific tools (TEAM_PROVIDERS) and keeps the other providers for admins;
+ *     `requireIntegrationAdmin` keeps account settings (sign-in, keys, billing) for admins. Both
+ *     refuse with 403 before anything else is read. Viewing is not gated here.
  *  2. A switch per provider: `assertIntegrationEnabled` refuses with 503 when an admin turned the
  *     provider off (setting `integration_<provider>_enabled`). On by default.
  *  3. A ledger: `recordIntegrationOp` writes one `integration_ops` row per operation, with who,
@@ -78,11 +80,28 @@ function isProvider(p: string): p is IntegrationProvider {
 
 export const ADMINS_ONLY = "Admins only for now";
 
-/** The signed-in user when they are an admin; a member is refused with 403 and a plain reason. */
+/**
+ * The providers whose runs are open to the whole team (24 Oct, Firas): Higgsfield (presets, clips,
+ * influencers, trends) and Freepik / Magnific (picture and video tools, stock pictures). Their
+ * account settings (sign-in, keys, the billing choice) stay with admins, and so do the editor,
+ * the audio tools, Pinterest and Campaign Autopilot.
+ */
+export const TEAM_PROVIDERS: readonly IntegrationProvider[] = ["higgsfield", "freepik"];
+
+/** May this user run the provider's tools? Admins always; members for the team providers. */
+export const teamMayRun = (user: User | undefined, provider: IntegrationProvider): boolean => !!user && (user.role === "admin" || TEAM_PROVIDERS.includes(provider));
+
+/** The signed-in user when they may run the provider's tools; anyone else is refused with 403 and a plain reason. */
+export function requireIntegrationUser(c: { get(k: "user"): User }, provider: IntegrationProvider): User {
+  const user = c.get("user");
+  if (!teamMayRun(user, provider)) throw new StudioError(`${ADMINS_ONLY}: ${PROVIDER_LABELS[provider]} runs are limited to admins until the integration is approved for the whole team.`, 403);
+  return user;
+}
+
+/** The signed-in user when they are an admin (account settings: sign-in, keys, billing); a member is refused with 403. */
 export function requireIntegrationAdmin(c: { get(k: "user"): User }, provider: IntegrationProvider): User {
   const user = c.get("user");
-  if (!user || user.role !== "admin")
-    throw new StudioError(`${ADMINS_ONLY}: ${PROVIDER_LABELS[provider]} runs are limited to admins until the integration is approved for the whole team.`, 403);
+  if (!user || user.role !== "admin") throw new StudioError(`${ADMINS_ONLY}: ${PROVIDER_LABELS[provider]}'s account settings are for admins.`, 403);
   return user;
 }
 
@@ -118,7 +137,8 @@ export interface IntegrationAccess {
 
 /** What a viewer may do with a provider, for the entry points (Photo lab, Video). */
 export async function integrationAccess(env: Env, user: User | undefined, provider: IntegrationProvider): Promise<IntegrationAccess> {
-  const admin = user?.role === "admin";
+  // `admin` means "may run it": true for members on the team providers.
+  const admin = teamMayRun(user, provider);
   const enabled = await integrationSwitch(env, provider);
   const reason = !admin ? `${ADMINS_ONLY}: ${PROVIDER_LABELS[provider]} is open to admins until it is approved for the whole team.` : !enabled ? switchedOffMessage(provider) : "";
   return { admin, enabled, reason };

@@ -20,7 +20,7 @@ import { StudioError } from "./errors";
 import { first, now, run } from "./db";
 import { makeClient } from "./engine";
 import { ownedPlan } from "./posts";
-import { claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
+import { claimSubmission, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { MCP_PROVIDER } from "./higgsfield-mcp";
 import { MAGNIFIC_PROVIDER } from "./video-magnific";
 import { askJobStatus, notCollected, type Said } from "./provider-status";
@@ -102,6 +102,6 @@ videoRecheckRoutes.post("/", async (c) => {
   const parsed = z.object({ batch: z.string().min(1), id: z.string().min(1) }).safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError("Say which month and which version.");
   const v = await first<{ provider: string }>(c.env.DB, "SELECT provider FROM videos WHERE id = ?", parsed.data.id);
-  const user = requireIntegrationAdmin(c, LEDGER[v?.provider ?? ""] ?? "higgsfield");
+  const user = requireIntegrationUser(c, LEDGER[v?.provider ?? ""] ?? "higgsfield");
   return c.json({ ok: true, ...(await recheckVideo(c.env, user, parsed.data.batch, parsed.data.id)) });
 });

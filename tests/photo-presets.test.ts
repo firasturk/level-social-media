@@ -82,7 +82,7 @@ describe("browsing the gallery", () => {
   it("says Not signed in with no call before the sign-in, lists the four categories, refuses an unknown one", async () => {
     const env = await seed();
     const r = await json(await browse(env, "category=styles"));
-    expect(r).toMatchObject({ signedIn: false, items: [], reason: expect.stringMatching(/^Not signed in: Connection → Higgsfield/), admin: false, provider: "higgsfield" });
+    expect(r).toMatchObject({ signedIn: false, items: [], reason: expect.stringMatching(/^Not signed in: Connection → Higgsfield/), admin: true, provider: "higgsfield" });
     expect((r.categories as unknown[]).length).toBe(PHOTO_PRESET_CATEGORIES.length);
     const looks = await json(await browse(env, "category=magnific-looks"));
     expect(looks).toMatchObject({ signedIn: false, items: [], reason: MCP_NOT_CONNECTED, provider: "magnific" });
@@ -95,7 +95,7 @@ describe("browsing the gallery", () => {
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     const r = (await json(await browse(env, "category=styles"))) as { items: { id: string; image: string }[]; cached: boolean; signedIn: boolean; admin: boolean };
-    expect(r).toMatchObject({ signedIn: true, admin: false, cached: false });
+    expect(r).toMatchObject({ signedIn: true, admin: true, cached: false });
     expect(r.items.map((i) => i.id)).toEqual(["soul_film", "soul_editorial"]);
     expect(r.items[0].image).toBe("https://cdn.test/soul/film.jpg");
     expect(stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args)).toEqual([{ source: "soul", limit: 50 }]);
@@ -151,7 +151,7 @@ describe("browsing the gallery", () => {
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     const asMember = (await json(await app("member").request("/api/studio/photo/presets/hero_shot?source=marketing_studio", {}, env))) as { preset: Record<string, unknown>; admin: boolean };
-    expect(asMember.admin).toBe(false);
+    expect(asMember.admin).toBe(true);
     expect(asMember.preset).toMatchObject({ id: "hero_shot", kind: "preset", title: "Hero Shot", command: "/hero-shot", price: 6, needs: ["1 product picture"], runnable: true, image: "https://cdn.test/presets/hero.jpg", readiness: { ready: false, missing: ["product_image"] } });
     expect(asMember.preset.instructions).toMatch(/How \/hero-shot works/);
     expect(stub.rpc.filter((x) => x.name === "media_import_url")).toHaveLength(0);
@@ -172,14 +172,14 @@ describe("browsing the gallery", () => {
 describe("running a product-shot preset", () => {
   const run = (env: FakeEnv, body: Record<string, unknown> = {}, role: "admin" | "member" = "admin") => postJson(app(role), env, "/api/studio/photo/presets/run", { batch: "b1", index: 1, presetId: "hero_shot", source: "marketing_studio", inputs: { prompt: "warm and soft" }, ...body });
 
-  it("refuses a member, a recipe, a style, and the switch off; browsing stays open", async () => {
+  it("lets a member reach the confirm (24 Oct), refuses a recipe, a style, and the switch off; browsing stays open", async () => {
     const env = await seed();
     await signedInHiggsfield(env);
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     const member = await run(env, {}, "member");
-    expect(member.status).toBe(403);
-    expect((await json(member)).error).toMatch(/Admins only for now/);
+    expect(member.status).toBe(409);
+    expect(await json(member)).toMatchObject({ needsConfirm: true });
     expect(await run(env, { source: "recipe", presetId: "/hero-shot" })).toHaveProperty("status", 400);
     expect(await run(env, { source: "soul", presetId: "soul_film" })).toHaveProperty("status", 400);
     await setIntegrationSwitch(env, "higgsfield", false);

@@ -18,7 +18,7 @@ import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { getSetting, setSetting, deleteSetting, FREEPIK_MCP_TOKEN_SETTING } from "./settings";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { assetJson, costNotKnown, downloadEstimate, isFlattened, licenseOf, resolveFreepik, storeDownloaded, upsertStockItem, mimeOfName, type AssetJson, type AssetKind, type StockItem } from "./freepik";
 import { McpClient, resultText, type McpCallResult, type McpTool } from "./mcp-client";
 import { MAGNIFIC_CALLBACK_PATH, MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
@@ -271,8 +271,9 @@ export class MagnificMcp {
 type Variables = { user: User };
 export const freepikMcpRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
-  const u = requireIntegrationAdmin(c, "freepik");
+/** Admins for the account (sign-in, keys); with `team`, anyone the team may run it for (a run, the tool list). The switch either way. */
+async function gate(c: { get(k: "user"): User; env: Env }, team = false): Promise<User> {
+  const u = team ? requireIntegrationUser(c, "freepik") : requireIntegrationAdmin(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   return u;
 }
@@ -326,7 +327,7 @@ freepikMcpRoutes.post("/signout", async (c) => {
 
 /** The tools, with what each costs; the demo list when nothing is connected. */
 freepikMcpRoutes.get("/tools", async (c) => {
-  const user = await gate(c);
+  const user = await gate(c, true);
   const mcp = await MagnificMcp.open(c.env);
   if (!mcp) return c.json({ connected: false, demo: true, reason: MCP_NOT_CONNECTED, url: MCP_URL, source: null, tools: DEMO_TOOLS });
   const tools = await mcp.listTools();
@@ -370,7 +371,7 @@ const callSchema = z.object({
  * needs `confirm: true`; an unknown cost blocks. Stock items in the answer join the library.
  */
 freepikMcpRoutes.post("/call", async (c) => {
-  const user = await gate(c);
+  const user = await gate(c, true);
   const parsed = callSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new StudioError(`Invalid request: ${parsed.error.issues[0]?.path.join(".") || "body"} ${parsed.error.issues[0]?.message ?? "is invalid"}.`);
   const d = parsed.data;

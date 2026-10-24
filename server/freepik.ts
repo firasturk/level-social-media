@@ -16,7 +16,7 @@ import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { FREEPIK_KEY_SETTING, FREEPIK_MCP_TOKEN_SETTING, FREEPIK_PLAN_SETTING, deleteSetting, getSetting, setSetting } from "./settings";
 import { MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
-import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { ownedPlan, saveConfig } from "./posts";
 import { storeBytes } from "./styles";
 import { formatLabelOf, inspectAssetFile, type SourceFormat } from "./asset-format";
@@ -921,7 +921,7 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
 
 /** Admins only, and the integration switched on. */
 async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
-  const u = requireIntegrationAdmin(c, "freepik");
+  const u = requireIntegrationUser(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   return u;
 }
@@ -946,8 +946,8 @@ freepikRoutes.get("/status", async (c) => {
     provider: fp.provider.name,
     demo: !fp.connected,
     reason: fp.reason,
-    admin: user.role === "admin",
-    access: user.role === "admin" ? "admin" : "Admins only for now",
+    admin: teamMayRun(user, "freepik"),
+    access: teamMayRun(user, "freepik") ? "admin" : "Admins only for now",
     plan: fp.plan,
     planLabel: PLAN_LABELS[fp.plan],
     downloadEstimate: downloadEstimate(fp.plan, fp.connected),

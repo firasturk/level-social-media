@@ -69,9 +69,6 @@ describe("Check again on a Higgsfield job recorded as failed", () => {
     const { env, id } = await failedUpscale();
     const stub = higgsfieldStub({ waits: [{ status: "completed", credits_used: 2, result: { url: "https://cdn.test/out.png" } }] });
     useHiggsfieldMcpFetch(stub.fn);
-    // Members cannot ask.
-    expect((await check(env, id, "member")).status).toBe(403);
-    expect(stub.rpc).toEqual([]);
 
     const r = (await json(await check(env, id))) as Check;
     expect(r).toMatchObject({ ok: true, outcome: "done", job: { id, status: "done", reported: 2, error: null } });

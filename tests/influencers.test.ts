@@ -90,8 +90,8 @@ describe("AI influencers", () => {
     await ready(env);
     const s = stub();
     useHiggsfieldMcpFetch(s.fn);
-    // Members see nothing.
-    expect((await app("member").request("/api/studio/influencers?client=c1", {}, env)).status).toBe(403);
+    // The team sees them too (24 Oct).
+    expect((await app("member").request("/api/studio/influencers?client=c1", {}, env)).status).toBe(200);
     const prep = (await json(await postJson(app(), env, "/api/studio/influencers/prepare", { client: "c1", name: "Yazan", traits: { gender: "male", ethnicity_origin_base: "middle_eastern" }, notes: "a student" }))) as { influencer: { id: string; status: string; credits: number; design: string } };
     expect(prep.influencer).toMatchObject({ status: "draft", credits: 1.125 });
     expect(prep.influencer.design).toMatch(/Middle Eastern man/);

@@ -84,12 +84,13 @@ describe("trends with a character", () => {
     expect(characterField(null)).toBe("character_sheet");
   });
 
-  it("lists the client's ambassadors with a portrait and the account's characters, one per name; members see nothing", async () => {
+  it("lists the client's ambassadors with a portrait and the account's characters, one per name, to the whole team", async () => {
     const env = await seed();
     await ready(env);
     const s = stub();
     useHiggsfieldMcpFetch(s.fn);
-    expect((await app("member").request("/api/studio/ambassadors/trends?client=c1", {}, env)).status).toBe(403);
+    // The team uses them too (24 Oct).
+    expect((await app("member").request("/api/studio/ambassadors/trends?client=c1", {}, env)).status).toBe(200);
     const r = (await json(await app().request("/api/studio/ambassadors/trends?client=c1", {}, env))) as { characters: { id: string; name: string; from: string }[] };
     expect(r.characters.map((c) => [c.id, c.name, c.from])).toEqual([
       ["ambassador:a1", "Omar", "ambassador"],

@@ -100,7 +100,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       try {
         const st = await mcpStatus();
         setMcp(st);
-        if (!st.signedIn || !st.admin) return;
+        if (!st.signedIn || !st.access.admin) return;
         const r = await fetchMcpModels(refresh);
         setEngines(r.models);
         setEngineId((cur) => {

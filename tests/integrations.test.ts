@@ -11,7 +11,7 @@ import { studioRoutes } from "../server/studio";
 import { adminRoutes } from "../server/admin";
 import { usePhotoLabFetch, FREEPIK } from "../server/photolab";
 import { FREEPIK_KEY_SETTING, setSetting } from "../server/settings";
-import { claimSubmission, integrationSwitch, listIntegrationOps, noRetry, requireIntegrationAdmin } from "../server/integrations";
+import { claimSubmission, integrationSwitch, listIntegrationOps, noRetry, requireIntegrationAdmin, requireIntegrationUser, teamMayRun } from "../server/integrations";
 
 /**
  * Integration governance (docs/integrations.md): the Photo lab, the Freepik key and videos are
@@ -77,23 +77,28 @@ afterEach(() => {
   usePhotoLabFetch(null);
 });
 
-describe("admins only for now", () => {
-  it("refuses a member with 403 on a Photo lab run, a video, a motion idea and the Freepik key, before anything is read", async () => {
+describe("who may run what (24 Oct: the team runs Higgsfield and Freepik / Magnific tools)", () => {
+  it("keeps the Freepik key with admins: a member is refused with 403 before anything is read", async () => {
     const env = await seed();
-    for (const [path, body] of [
-      ["/api/studio/photolab/run", RUN],
-      ["/api/studio/posts/video", VIDEO],
-      ["/api/studio/posts/video/idea", { batch: "b1", index: 1 }],
-      ["/api/studio/photolab/key", { key: KEY }],
-    ] as const) {
-      const r = await postJson(MEMBER, env, path, body);
-      expect(r.status, path).toBe(403);
-      expect(String((await json(r)).error), path).toMatch(/^Admins only for now/);
-    }
+    const r = await postJson(MEMBER, env, "/api/studio/photolab/key", { key: KEY });
+    expect(r.status).toBe(403);
+    expect(String((await json(r)).error)).toMatch(/^Admins only for now/);
     const gone = await app(MEMBER).request("/api/studio/photolab/key", { method: "DELETE" }, env);
     expect(gone.status).toBe(403);
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM integration_ops").first<{ n: number }>()).toEqual({ n: 0 });
     expect(reached).toEqual([]);
+  });
+
+  it("lets the team run the Higgsfield and Freepik tools and keeps the editor, the audio and Pinterest with admins", () => {
+    for (const p of ["higgsfield", "freepik"] as const) {
+      expect(teamMayRun(MEMBER, p)).toBe(true);
+      expect(requireIntegrationUser({ get: () => MEMBER }, p)).toBe(MEMBER);
+    }
+    for (const p of ["editor", "audio", "pinterest"] as const) {
+      expect(teamMayRun(MEMBER, p)).toBe(false);
+      expect(teamMayRun(ADMIN, p)).toBe(true);
+      expect(() => requireIntegrationUser({ get: () => MEMBER }, p)).toThrow(/Admins only for now/);
+    }
   });
 
   it("requireIntegrationAdmin returns the admin and names the provider when it refuses", () => {
@@ -104,9 +109,9 @@ describe("admins only for now", () => {
   it("tells the entry points what the viewer may do: the status and the video list carry access", async () => {
     const env = await seed();
     const s = await json(await app(MEMBER).request("/api/studio/photolab/status", {}, env));
-    expect(s.access).toEqual({ admin: false, enabled: true, reason: expect.stringMatching(/^Admins only for now/) });
+    expect(s.access).toEqual({ admin: true, enabled: true, reason: "" });
     const v = await json(await app(MEMBER).request("/api/studio/posts/video/list?batch=b1&index=1", {}, env));
-    expect(v.access).toMatchObject({ admin: false, enabled: true });
+    expect(v.access).toMatchObject({ admin: true, enabled: true });
     const a = await json(await app(ADMIN).request("/api/studio/photolab/status", {}, env));
     expect(a.access).toEqual({ admin: true, enabled: true, reason: "" });
   });
@@ -302,19 +307,19 @@ describe("viewing stays open", () => {
     expect(list.status).toBe(200);
     const d = (await json(list)) as { videos: { id: string; url: string }[]; access: { admin: boolean } };
     expect(d.videos.map((v) => v.id)).toEqual(["v1"]);
-    expect(d.access.admin).toBe(false);
+    expect(d.access.admin).toBe(true);
     const file = await app(MEMBER).request(d.videos[0].url, {}, env);
     expect(file.status).toBe(200);
     expect(file.headers.get("content-type")).toBe("video/mp4");
 
-    // A Photo lab job made by the admin is visible to the member, picture included; the member cannot use it.
+    // A Photo lab job made by the admin is visible to the member, picture included; the member may use it (open to the team since 24 Oct).
     const p = (await json(await postJson(ADMIN, env, "/api/studio/photolab/run", RUN))) as { opId: string };
     const run = (await json(await postJson(ADMIN, env, "/api/studio/photolab/run", { ...RUN, opId: p.opId, confirm: true }))) as { job: { id: string } };
     const jobs = (await json(await app(MEMBER).request("/api/studio/photolab/jobs?client=c1", {}, env))) as { jobs: { id: string }[] };
     expect(jobs.jobs.map((j) => j.id)).toEqual([run.job.id]);
     expect((await app(MEMBER).request(`/api/studio/photolab/jobs/${run.job.id}/image?which=out`, {}, env)).status).toBe(200);
     expect((await app(MEMBER).request(`/api/studio/photolab/jobs/${run.job.id}`, {}, env)).status).toBe(200);
-    expect((await postJson(MEMBER, env, `/api/studio/photolab/jobs/${run.job.id}/use`, { as: "product", batch: "b1" })).status).toBe(403);
+    expect((await postJson(MEMBER, env, `/api/studio/photolab/jobs/${run.job.id}/use`, { as: "product", batch: "b1" })).status).not.toBe(403);
     expect(reached).toEqual([]);
   });
 });

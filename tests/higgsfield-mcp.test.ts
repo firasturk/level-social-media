@@ -232,7 +232,7 @@ describe("before any sign-in", () => {
     expect(reached).toEqual([]);
   });
 
-  it("refuses a member everywhere but the status, and answers 503 while the switch is off", async () => {
+  it("keeps the sign-in and the billing with admins, lets a member through the runs (24 Oct), and answers 503 while the switch is off", async () => {
     const env = await seed();
     for (const [path, init] of [
       ["/api/studio/higgsfield/mcp/signin/start", { method: "POST" }],
@@ -243,8 +243,9 @@ describe("before any sign-in", () => {
       ["/api/studio/higgsfield/mcp/generate", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ ...ask, confirm: true }) }],
     ] as [string, RequestInit][]) {
       const r = await app("member").request(path, init, env);
-      expect(r.status, path).toBe(403);
-      expect(((await json(r)) as { error: string }).error).toMatch(/Admins only for now/);
+      const account = /signin|signout|billing/.test(path);
+      expect(r.status === 403, path).toBe(account);
+      if (account) expect(((await json(r)) as { error: string }).error).toMatch(/Admins only for now/);
     }
     await integrations.setIntegrationSwitch(env, "higgsfield", false);
     for (const [path, init] of [

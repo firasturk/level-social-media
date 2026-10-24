@@ -2,7 +2,7 @@
  * Trend videos with a character (docs/ambassador-trends.md): a Genjutsu motion preset where the
  * character takes the place of the person in the video. The character is one of the client's
  * ambassadors (its portrait), one of the client's AI influencers (its character sheet, the native
- * Genjutsu reference) or a Soul character made on the Higgsfield account. Admins only, on the
+ * Genjutsu reference) or a Soul character made on the Higgsfield account. The whole team (24 Oct), on the
  * subscription credits, with the usual rules: the switch, the price from the preset's detail with
  * this character and the confirm, one claim per ask, a ledger row, no retry. Browsing the characters
  * and the galleries spends nothing. The videos are collected into R2 when the list is read.
@@ -19,7 +19,7 @@ import type { Env } from "./env";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
-import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { balanceOf, DONE, FAILED, fetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, NOT_SIGNED_IN, parseJobs, parseMediaId } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
@@ -205,7 +205,7 @@ export async function collectTrends(env: Env, client: string, fetchFn: typeof fe
 
 /** Admins, Higgsfield signed in and switched on; a paid step also needs the subscription credits chosen. */
 async function gate(c: { get(k: "user"): User; env: Env }, paid: boolean): Promise<User> {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
   await assertIntegrationEnabled(c.env, "higgsfield");
   if (paid) {
@@ -217,7 +217,7 @@ async function gate(c: { get(k: "user"): User; env: Env }, paid: boolean): Promi
 
 /** The characters (the client's ambassadors with a portrait, the account's Soul characters) and the client's trends. */
 ambassadorTrendRoutes.get("/", async (c) => {
-  requireIntegrationAdmin(c, "higgsfield");
+  requireIntegrationUser(c, "higgsfield");
   const client = c.req.query("client") ?? "";
   if (!client) throw new StudioError("Which client?");
   const characters: TrendCharacter[] = (await ambassadorsOf(c.env, client)).map((a) => ({ id: `ambassador:${a.id}`, name: a.name, from: "ambassador", image: `/api/studio/ambassadors/${a.id}/image` }));

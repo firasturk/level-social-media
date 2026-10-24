@@ -1,7 +1,7 @@
 /**
  * AI influencers (docs/influencers.md): a client's own AI person, designed in the studio and made
  * once as a Higgsfield character sheet (about 1.1 credits, or one of the account's free generations).
- * Admins only, with the usual rules: the switch, the price asked first and confirmed
+ * The whole team (24 Oct), with the usual rules: the switch, the price asked first and confirmed
  * (`ai_influencer_prepare` quotes the sheet and makes nothing), one claim per ask, a ledger row, no
  * retry. The sheet is collected into R2 when the list is read. A finished influencer is one of the
  * characters trends can use (server/ambassador-trends.ts), and can join the client's ambassadors.
@@ -20,7 +20,7 @@ import type { Env } from "./env";
 import { PREVIEW_MESSAGE, previewNoImages } from "./env";
 import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
-import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { balanceOf, DONE, FAILED, fetcher, HiggsfieldMcp, higgsfieldSignIn, NOT_SIGNED_IN, parseJobs } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findNumber, findString, findValue, firstUrl, jsonOf, resultText, type McpCallResult } from "./mcp-client";
@@ -164,7 +164,7 @@ export async function collectInfluencerJobs(env: Env, client: string, fetchFn: t
 
 /** Admins, Higgsfield signed in and switched on, the subscription credits chosen (the influencer tools run on them). */
 async function gate(c: { get(k: "user"): User; env: Env }, paid: boolean): Promise<User> {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
   await assertIntegrationEnabled(c.env, "higgsfield");
   if (paid) {
@@ -186,7 +186,7 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
 /* ───────────── Routes ───────────── */
 
 influencerRoutes.get("/", async (c) => {
-  requireIntegrationAdmin(c, "higgsfield");
+  requireIntegrationUser(c, "higgsfield");
   const client = c.req.query("client") ?? "";
   if (!client) throw new StudioError("Which client?");
   if (await higgsfieldSignIn.isSignedIn(c.env)) await collectInfluencerJobs(c.env, client).catch((e) => console.error("[influencers]", errorMessage(e)));
@@ -276,7 +276,7 @@ influencerRoutes.get("/:id/image", async (c) => {
 
 /** The finished influencer joins the client's ambassadors, so campaigns can cast it (its sheet is the portrait). */
 influencerRoutes.post("/:id/cast", async (c) => {
-  requireIntegrationAdmin(c, "higgsfield");
+  requireIntegrationUser(c, "higgsfield");
   const row = await rowOf(c.env, c.req.param("id"));
   if (row.status !== "ready" || !row.image_key) throw new StudioError("The influencer is not made yet.", 409);
   const existing = await all<{ id: string; image_key: string | null }>(c.env.DB, "SELECT id, image_key FROM ambassadors WHERE client = ?", row.client);
@@ -290,7 +290,7 @@ influencerRoutes.post("/:id/cast", async (c) => {
 
 /** A draft or a failed influencer removed (a made one is kept: it was paid for). */
 influencerRoutes.delete("/:id", async (c) => {
-  requireIntegrationAdmin(c, "higgsfield");
+  requireIntegrationUser(c, "higgsfield");
   const row = await rowOf(c.env, c.req.param("id"));
   if (row.status !== "draft" && row.status !== "failed") throw new StudioError("A made influencer is kept.", 409);
   await run(c.env.DB, "DELETE FROM influencers WHERE id = ?", row.id);

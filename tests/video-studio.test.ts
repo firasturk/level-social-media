@@ -228,14 +228,14 @@ describe("Magnific: reading the answers", () => {
 });
 
 describe("Magnific: status, engines, a clip from the picture", () => {
-  it("says Not connected to everyone and Admins only to members, with no call", async () => {
+  it("says Not connected to everyone, the team included (24 Oct), with no call", async () => {
     const env = await seed();
-    expect(await json(await app("member").request("/api/studio/video/magnific/status", {}, env))).toMatchObject({ connected: false, admin: false, access: { admin: false } });
+    expect(await json(await app("member").request("/api/studio/video/magnific/status", {}, env))).toMatchObject({ connected: false, admin: true, access: { admin: true } });
     const models = await app().request("/api/studio/video/magnific/models", {}, env);
     expect(models.status).toBe(409);
     expect(await json(models)).toMatchObject({ connected: false });
     const member = await app("member").request("/api/studio/video/magnific/models", {}, env);
-    expect(member.status).toBe(403);
+    expect(member.status).toBe(409);
   });
 
   it("lists the engines once a day, then makes a clip from the picture after the simulated cost is confirmed, and collects it", async () => {
@@ -317,7 +317,6 @@ describe("Magnific: a tool on one of our clips", () => {
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
     const stub = magnificStub();
     useMcpFetch(stub.fn);
-    expect((await enhance(env, { tool: "video_upscale", arguments: { mode: "topaz" } }, "member")).status).toBe(403);
     expect((await enhance(env, { tool: "video_zoom", arguments: {} })).status).toBe(400);
     const ask = await enhance(env, { tool: "video_hdr", arguments: {} });
     expect(ask.status).toBe(409);
@@ -383,7 +382,7 @@ describe("Higgsfield: tools on a clip and the Check panel", () => {
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     const after = (await json(await app("member").request("/api/studio/video/higgsfield/tools", {}, env))) as { available: Record<string, boolean>; tools: { name: string; available: boolean }[]; checks: { name: string; available: boolean }[]; admin: boolean };
-    expect(after.admin).toBe(false);
+    expect(after.admin).toBe(true);
     expect(after.available).toMatchObject({ upscale_video: true, reframe: true, remove_background: false, virality_predictor: true, video_analysis_create: true });
     expect(after.tools.find((t) => t.name === "remove_background")?.available).toBe(false);
     expect(after.checks.every((c) => c.available)).toBe(true);
@@ -394,7 +393,6 @@ describe("Higgsfield: tools on a clip and the Check panel", () => {
     await higgsfieldSignedIn(env);
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
-    expect((await tool(env, { tool: "upscale_video" }, "member")).status).toBe(403);
     const ask = await tool(env, { tool: "upscale_video", arguments: { scale: 2 } });
     expect(ask.status).toBe(409);
     expect(await json(ask)).toMatchObject({ needsConfirm: true, credits: 15, balance: 900 });
@@ -447,6 +445,5 @@ describe("Higgsfield: tools on a clip and the Check panel", () => {
     expect(stub.rpc.find((x) => x.name === "video_analysis_status")?.args).toEqual({ analysis_id: "an_1" });
     const checkOps = (await ops(env)).results.filter((o) => o.kind === "video.check");
     expect(checkOps.map((o) => o.status)).toEqual(["done", "done"]);
-    expect((await app("member").request("/api/studio/video/higgsfield/check/status?batch=b1&videoId=v1", {}, env)).status).toBe(403);
   });
 });

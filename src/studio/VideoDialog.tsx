@@ -141,7 +141,7 @@ export default function VideoDialog({
     try {
       const s = await mcpStatus();
       setMcp(s);
-      if (!s.signedIn || !s.admin) return;
+      if (!s.signedIn || !s.access.admin) return;
       const r = await fetchMcpModels(refresh);
       setMcpModels(r.models);
       const pick = (lastModel && r.models.find((x) => x.id === lastModel)) || r.models.find((x) => x.id === mcpModel) || r.models[0];

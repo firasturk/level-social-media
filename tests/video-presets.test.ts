@@ -319,7 +319,7 @@ describe("browsing the gallery", () => {
   it("says Not signed in with no call before the sign-in, and lists the categories", async () => {
     const env = await seed();
     const r = await json(await browse(env, "category=popular"));
-    expect(r).toMatchObject({ signedIn: false, items: [], reason: NOT_SIGNED_IN, admin: false });
+    expect(r).toMatchObject({ signedIn: false, items: [], reason: NOT_SIGNED_IN, admin: true });
     expect((r.categories as unknown[]).length).toBe(PRESET_CATEGORIES.length);
     expect(await browse(env, "category=nope")).toHaveProperty("status", 400);
   });
@@ -331,7 +331,7 @@ describe("browsing the gallery", () => {
     useHiggsfieldMcpFetch(stub.fn);
     const r = (await json(await browse(env, "category=popular"))) as { items: { id: string; video: string; command: string | null }[]; nextCursor: string; cached: boolean; signedIn: boolean; admin: boolean };
     expect(r.signedIn).toBe(true);
-    expect(r.admin).toBe(false);
+    expect(r.admin).toBe(true);
     expect(r.cached).toBe(false);
     expect(r.items.map((i) => i.id)).toEqual(["hero_shot", "glitch"]);
     expect(r.items[0].video).toBe("https://cdn.test/presets/hero.mp4");
@@ -452,7 +452,7 @@ describe("browsing the gallery", () => {
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     const asMember = (await json(await app("member").request("/api/studio/video/presets/hero_shot?source=marketing_studio", {}, env))) as { preset: Record<string, unknown>; admin: boolean };
-    expect(asMember.admin).toBe(false);
+    expect(asMember.admin).toBe(true);
     expect(asMember.preset).toMatchObject({ id: "hero_shot", title: "Hero Shot", command: "/hero-shot", price: 20, needs: ["1 product picture"], runnable: true, available: true, readiness: { ready: false, missing: ["product_image"] } });
     expect((asMember.preset.inputSchema as { required: string[] }).required).toEqual(["product_image"]);
     expect(asMember.preset.instructions).toMatch(/How \/hero-shot works/);
@@ -479,9 +479,10 @@ describe("running a preset", () => {
     await signedIn(env);
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
+    // The team runs presets too (24 Oct): a member reaches the confirm.
     const member = await run(env, {}, "member");
-    expect(member.status).toBe(403);
-    expect((await json(member)).error).toMatch(/Admins only for now/);
+    expect(member.status).toBe(409);
+    expect(await json(member)).toMatchObject({ needsConfirm: true });
     const recipe = await run(env, { source: "recipe", presetId: "/hero-shot" });
     expect(recipe.status).toBe(400);
     expect(await json(recipe)).toMatchObject({ notRunnable: true });

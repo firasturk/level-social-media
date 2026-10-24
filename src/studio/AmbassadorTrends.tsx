@@ -3,7 +3,7 @@
  * Soul characters made on the Higgsfield account, pick a Genjutsu trend (trending, new, Higgsfield's
  * own), and the character takes the place of the person in that video. The studio never makes a
  * character. Browsing spends nothing; each trend shows Higgsfield's price and waits for the confirm.
- * Members see nothing (the list is admins only).
+ * The whole team uses it (24 Oct).
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";

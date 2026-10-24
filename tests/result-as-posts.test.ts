@@ -78,10 +78,9 @@ describe("a result as new posts", () => {
     expect(await outputOf(env, 1)).toBe("u2/b1/output/t1/a.png");
   });
 
-  it("is refused to members, and when Magnific lists no separate pictures nothing is added", async () => {
+  it("when Magnific lists no separate pictures nothing is added", async () => {
     const env = await seed();
     const id = await doneJob(env, "mg-restyle", "Restyle (Magnific)", "cr_rs_1");
-    expect((await postJson(app("member"), env, `/api/studio/photo/tools/jobs/${id}/posts`, { batch: "b1" })).status).toBe(403);
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
     useMcpFetch(magnificStub({ waits: [{ status: "completed", url: "https://cdn.test/magnific/out.jpg" }] }).fn);
     const v = await doneJob(env, "mg-variations", "Variations (Magnific)", "cr_var_2");

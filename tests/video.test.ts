@@ -121,11 +121,10 @@ describe("the model catalog", () => {
 });
 
 describe("submitting a clip", () => {
-  it("refuses a member", async () => {
+  it("lets a member through the role gate (open to the team since 24 Oct)", async () => {
     const env = await seed();
     const r = await submit(await app("member"), env, {});
-    expect(r.status).toBe(403);
-    expect(ops.record).not.toHaveBeenCalled();
+    expect(r.status).not.toBe(403);
   });
 
   it("records the op with the provider's estimate and the request id for an admin", async () => {
@@ -332,9 +331,8 @@ describe("the stored file", () => {
     expect(bad.headers.get("content-range")).toBe(`bytes */${SAMPLE.byteLength}`);
   });
 
-  it("stores an uploaded sample as a done version (admins only) and reads what it is", async () => {
+  it("stores an uploaded sample as a done version and reads what it is", async () => {
     const env = await seed();
-    expect((await upload(await app("member"), env)).status).toBe(403);
     const r = await upload(await app(), env, "iPhone test");
     expect(r.status).toBe(200);
     const d = (await r.json()) as { video: { status: string; provider: string; source: string; duration: number; poster: string; warnings: string[] }; info: { video: string; audio: string; faststart: boolean; duration: number } };
@@ -497,7 +495,7 @@ describe("the lightweight preview rendition", () => {
     expect((await a.request(video.poster, {}, env)).headers.get("content-type")).toBe("image/png");
   });
 
-  it("keeps a rendition made later for a finished clip (admins only), calling no provider", async () => {
+  it("keeps a rendition made later for a finished clip, calling no provider", async () => {
     const env = await seed();
     const a = await app();
     const { video } = (await (await upload(a, env)).json()) as { video: { id: string; preview: string | null } };
@@ -510,7 +508,6 @@ describe("the lightweight preview rendition", () => {
       if (parts.still) form.set("still", new File([parts.still], "still.jpg", { type: "image/jpeg" }));
       return who.request("/api/studio/posts/video/preview", { method: "POST", body: form }, env);
     };
-    expect((await attach(await app("member"), video.id, { preview: sampleBytes() })).status).toBe(403);
     expect((await attach(a, "nope", { preview: sampleBytes() })).status).toBe(404);
     expect((await attach(a, video.id, { still: new Uint8Array([1, 2, 3]) })).status).toBe(400);
     const ok = await attach(a, video.id, { preview: sampleBytes(), still: STILL });

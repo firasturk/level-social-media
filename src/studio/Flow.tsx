@@ -1285,7 +1285,7 @@ export default function Flow(p: FlowProps) {
                         Upload files
                       </Cta>
                       <small className="flow-muted">
-                        {way === "video" ? (admin ? "Pictures up to 20 MB, MP4 clips up to 60 MB." : "Pictures up to 20 MB. Clips are added by an admin for now.") : "PNG, JPEG or WebP, up to 20 MB each."} Both sources can be combined in one selection.
+                        {way === "video" ? "Pictures up to 20 MB, MP4 clips up to 60 MB." : "PNG, JPEG or WebP, up to 20 MB each."} Both sources can be combined in one selection.
                       </small>
                     </div>
                   )}
@@ -1540,7 +1540,7 @@ export default function Flow(p: FlowProps) {
                               </button>
                             )}
                             {p.plan.length > 0 && p.batchId && client && (
-                              <button type="button" className="text-button" onClick={() => setFreepikOpen(true)} title={p.user.role === "admin" ? "A stock picture from Freepik pinned to one post as its reference" : "Admins only for now"}>
+                              <button type="button" className="text-button" onClick={() => setFreepikOpen(true)} title="A stock picture from Freepik pinned to one post as its reference">
                                 Add from Freepik
                               </button>
                             )}

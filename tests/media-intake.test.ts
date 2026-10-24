@@ -296,15 +296,10 @@ describe("Create or edit video: pictures and clips as their own cards", () => {
     expect((await monthOf(env)).plan!.filter((p) => p.media?.kind === "video").map((p) => p.index)).toEqual([2, 4]);
   });
 
-  it("a member may add pictures on the video route but not clips (403, nothing written)", async () => {
+  it("a member may add pictures and clips on the video route (open to the team since 24 Oct)", async () => {
     const env = await seed();
-    const no = await intake(env, MEMBER, "video", [{ from: "upload", file: picture("a.png") }, { from: "upload", file: clip() }]);
-    expect(no.status).toBe(403);
-    expect((await json(no)).error).toMatch(/Only an admin can add video clips/);
-    expect((await tasks(env)).length).toBe(0);
-    expect((await intake(env, MEMBER, "video", [{ from: "drive", id: "demo-clip" }])).status).toBe(403);
-    const ok = (await json(await intake(env, MEMBER, "video", [{ from: "upload", file: picture("a.png") }]))) as { created: unknown[] };
-    expect(ok.created.length).toBe(1);
+    const ok = (await json(await intake(env, MEMBER, "video", [{ from: "upload", file: picture("a.png") }, { from: "upload", file: clip() }]))) as { created: unknown[] };
+    expect(ok.created.length).toBe(2);
   });
 
   it("refuses a clip that is not H.264 MP4", async () => {

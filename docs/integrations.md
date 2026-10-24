@@ -104,3 +104,18 @@ without a provider call.
 5. Add the provider's tests to `tests/integrations.test.ts`: member → 403, switch off → 503,
    unknown cost → 409, duplicate confirmation → 409, viewing → 200. The guard in
    `tests/support/paid-guard.ts` fails any test that reaches a real host.
+
+## Open to the team (24 Oct 2026)
+
+Firas opened the paid tools to the whole team, except Campaign Autopilot:
+
+- Higgsfield: preset runs (photo and video, the Marketing Studio tabs included), clips on the
+  subscription, the motion idea, Check again, AI influencers and trends.
+- Freepik / Magnific: the picture tools, the Photo lab runs, the video tools, stock pictures.
+- Clips: any member may upload MP4 clips and add them on the video route.
+
+`requireIntegrationUser` (TEAM_PROVIDERS: higgsfield, freepik) guards the runs; `integrationAccess`
+says `admin: true` ("may run") to members on those providers. Everything else stays with admins:
+the account settings (`requireIntegrationAdmin`: Higgsfield and Magnific sign-in, the Freepik key,
+the billing choice), the editor, the audio tools, Pinterest, Prompt Box runs, Campaign Autopilot and
+the admin pages. Every paid run still shows its price and waits for the confirm.

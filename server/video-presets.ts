@@ -30,7 +30,7 @@ import { first, uuid } from "./db";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, switchedOffMessage, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, switchedOffMessage, updateIntegrationOp } from "./integrations";
 import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, NOT_SIGNED_IN, parseJobs, submitMcpVideo, TEMPLATE_MODEL, unlimChoiceIn } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findNumber, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
@@ -664,7 +664,7 @@ videoPresetRoutes.get("/", async (c) => {
   const refresh = c.req.query("refresh") === "1";
   const access = await integrationAccess(c.env, user, "higgsfield");
   const signedIn = await higgsfieldSignIn.isSignedIn(c.env);
-  const base = { ok: true, category, categories: PRESET_CATEGORIES, signedIn, admin: user.role === "admin", access, billing: await higgsfieldBilling(c.env), empty: NOTHING_IN_CATEGORY };
+  const base = { ok: true, category, categories: PRESET_CATEGORIES, signedIn, admin: teamMayRun(user, "higgsfield"), access, billing: await higgsfieldBilling(c.env), empty: NOTHING_IN_CATEGORY };
   const key = cacheKey(category, q);
   if (!cursor && !refresh) {
     const hit = await readCache(c.env, key);
@@ -698,7 +698,7 @@ videoPresetRoutes.get("/:id", async (c) => {
     if (!card) throw new StudioError("That preset is not in today's list: open the UGC category again.", 404);
     const brief = card.runnable ? { properties: { prompt: { type: "string", title: "A brief for this video (optional): the product, the moment, the words to say" } }, required: [] } : null;
     const detail: PresetDetail = { ...card, inputSchema: brief, readiness: null, available: card.runnable, instructions: card.runnable ? "Recreated by Higgsfield's Marketing Studio video model from this post's product picture (the clean product photo when the post has one). Its price is asked from Higgsfield before you confirm." : "A scripted talking head: make it on Higgsfield's Marketing Studio, where its script, voice and avatar are chosen." };
-    return c.json({ ok: true, preset: detail, readinessError: "", admin: user.role === "admin" });
+    return c.json({ ok: true, preset: detail, readinessError: "", admin: teamMayRun(user, "higgsfield") });
   }
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
   await assertIntegrationEnabled(c.env, "higgsfield");
@@ -709,7 +709,7 @@ videoPresetRoutes.get("/:id", async (c) => {
   const batch = c.req.query("batch");
   const index = Number(c.req.query("index"));
   // The readiness for exactly this post: its picture imported and offered as the preset's picture input (an admin's call: it imports media).
-  if (user.role === "admin" && batch && Number.isInteger(index) && index > 0 && detail.runnable && detail.inputSchema) {
+  if (teamMayRun(user, "higgsfield") && batch && Number.isInteger(index) && index > 0 && detail.runnable && detail.inputSchema) {
     try {
       const b = await ownedPlan(c.env, user, batch);
       const t = await first<{ output: string | null }>(c.env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index);
@@ -723,7 +723,7 @@ videoPresetRoutes.get("/:id", async (c) => {
       readinessError = errorMessage(e);
     }
   }
-  return c.json({ ok: true, preset: detail, readinessError, admin: user.role === "admin" });
+  return c.json({ ok: true, preset: detail, readinessError, admin: teamMayRun(user, "higgsfield") });
 });
 
 const inputValue = z.union([z.string().max(5000), z.number(), z.boolean(), z.array(z.union([z.string().max(2000), z.number(), z.boolean(), z.record(z.string(), z.union([z.string().max(2000), z.number(), z.boolean()]))])).max(20)]);
@@ -851,7 +851,7 @@ async function runStudioV2Preset(env: Env, user: User, d: PresetRunInput): Promi
 }
 
 videoPresetRoutes.post("/run", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   const parsed = runSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) {

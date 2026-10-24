@@ -34,7 +34,7 @@ import { OAuthSignIn, readJsonSetting } from "./oauth-signin";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, claimSubmission, releaseSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { assertIntegrationEnabled, claimSubmission, releaseSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
 import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, startFrameKey, storeFinishedClip, versionNumbers, videoItem, type StartFrame, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
@@ -784,8 +784,9 @@ registerPendingSettler(MCP_PROVIDER, settleMcpPending);
 type Variables = { user: User };
 export const higgsfieldMcpRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
-  const u = requireIntegrationAdmin(c, "higgsfield");
+/** Admins for the account (sign-in, keys); with `team`, anyone the team may run it for (a run, the tool list). The switch either way. */
+async function gate(c: { get(k: "user"): User; env: Env }, team = false): Promise<User> {
+  const u = team ? requireIntegrationUser(c, "higgsfield") : requireIntegrationAdmin(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   return u;
 }
@@ -871,7 +872,7 @@ higgsfieldMcpRoutes.post("/signout", async (c) => {
 
 /** The subscription's image-to-video engines, cached per sign-in; `?refresh=1` asks again. Admins. */
 higgsfieldMcpRoutes.get("/models", async (c) => {
-  await gate(c);
+  await gate(c, true);
   const mcp = new HiggsfieldMcp(c.env, fetcher());
   await mcp.connect();
   const { models, at } = await mcpModels(c.env, mcp, c.req.query("refresh") === "1");
@@ -881,7 +882,7 @@ higgsfieldMcpRoutes.get("/models", async (c) => {
 
 /** The cost in credits of exactly this clip (nothing is submitted), with the balance. Admins. */
 higgsfieldMcpRoutes.post("/estimate", async (c) => {
-  const user = await gate(c);
+  const user = await gate(c, true);
   const d = await parseBody(c, askSchema);
   const e = await estimateMcpVideo(c.env, user, d);
   return c.json({ ok: true, credits: e.credits, balance: e.balance, plan: e.plan, unlimChoice: e.unlimChoice ?? null, engine: e.engine, mediaId: e.mediaId });
@@ -889,7 +890,7 @@ higgsfieldMcpRoutes.post("/estimate", async (c) => {
 
 /** The clip, with `confirm: true` for the credits shown and `useUnlim` when Higgsfield asked. Admins. */
 higgsfieldMcpRoutes.post("/generate", async (c) => {
-  const user = await gate(c);
+  const user = await gate(c, true);
   const d = await parseBody(c, generateSchema);
   return c.json({ ok: true, video: await submitMcpVideo(c.env, user, d) });
 });

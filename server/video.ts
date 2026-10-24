@@ -28,7 +28,7 @@ import { getSetting } from "./settings";
 import { ownedPlan } from "./posts";
 import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { CREDITS_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { checkVideoSettings, VIDEO_MODELS, videoModel, videoPriceSetting, videoRequestInput, type VideoModel, type VideoSettings } from "@shared/video-models";
 import { isFill, isFrame, pictureFrame, type FrameFill, type FrameId } from "@shared/video-frame";
@@ -637,7 +637,7 @@ async function assertCloudBilling(env: Env): Promise<void> {
 }
 
 videoRoutes.post("/", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   await assertCloudBilling(c.env);
   const d = await parseBody(c, submitSchema);
@@ -646,7 +646,7 @@ videoRoutes.post("/", async (c) => {
 
 /** A failed clip asked for again: a new job, a new op, the same idea and settings. */
 videoRoutes.post("/retry", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   await assertCloudBilling(c.env);
   const d = await parseBody(c, z.object({ batch: z.string().min(1), id: z.string().min(1), confirm: z.boolean().optional() }));
@@ -684,7 +684,7 @@ videoRoutes.get("/list", async (c) => {
   }
   const user = c.get("user");
   const names = await audioNamesFor(c.env, b.id, index);
-  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)), engines: VIDEO_MODELS, prices, admin: user.role === "admin", access: await integrationAccess(c.env, user, "higgsfield"), billing: await higgsfieldBilling(c.env) });
+  return c.json({ ok: true, videos: rows.map((v) => videoItem(v, numbers.get(v.id) ?? 0, names)), engines: VIDEO_MODELS, prices, admin: teamMayRun(user, "higgsfield"), access: await integrationAccess(c.env, user, "higgsfield"), billing: await higgsfieldBilling(c.env) });
 });
 
 /** One line per post of the month: the version the client sees, and the newest clip (its progress or failure). */
@@ -869,7 +869,6 @@ export async function storeVideoFile(env: Env, user: User, b: { id: string; owne
  */
 videoRoutes.post("/upload", async (c) => {
   const user = c.get("user");
-  if (user.role !== "admin") throw new StudioError("Only an admin can upload a video.", 403);
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new StudioError("Send the video as a form upload.");
   const batch = String(form.get("batch") ?? "");
@@ -891,7 +890,6 @@ videoRoutes.post("/upload", async (c) => {
  */
 videoRoutes.post("/preview", async (c) => {
   const user = c.get("user");
-  if (user.role !== "admin") throw new StudioError("Only an admin can keep a preview.", 403);
   const form = await c.req.formData().catch(() => null);
   if (!form) throw new StudioError("Send the preview as a form upload.");
   const b = await ownedPlan(c.env, user, String(form.get("batch") ?? ""));

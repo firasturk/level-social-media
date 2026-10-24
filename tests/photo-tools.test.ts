@@ -96,7 +96,7 @@ describe("mapping options onto a tool's arguments", () => {
 });
 
 describe("the catalog", () => {
-  it("gives a member the tool list with no live call and Admins only; gives an admin the live availability, the lists and the balances, cached an hour", async () => {
+  it("gives the whole team (24 Oct) the live availability, the lists and the balances, cached an hour", async () => {
     const env = await seed();
     await signedInHiggsfield(env);
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
@@ -105,14 +105,11 @@ describe("the catalog", () => {
     useHiggsfieldMcpFetch(hf.fn);
     useMcpFetch(mg.fn);
     const member = (await catalog(env, "member")) as { admin: boolean; tools: unknown[]; higgsfield: { connected: boolean; admin: boolean; reason: string; available: Record<string, boolean | null> }; magnific: { reason: string; available: Record<string, boolean | null> }; upscalePresets: unknown[] };
-    expect(member.admin).toBe(false);
+    expect(member.admin).toBe(true);
     expect(member.tools).toHaveLength(PHOTO_TOOLS.length);
-    expect(member.higgsfield).toMatchObject({ connected: true, admin: false });
-    expect(member.higgsfield.reason).toMatch(/Admins only for now/);
-    expect(member.higgsfield.available["hf-upscale"]).toBeNull();
-    expect(member.upscalePresets).toEqual([]);
-    expect(hf.rpc).toEqual([]);
-    expect(mg.rpc).toEqual([]);
+    expect(member.higgsfield).toMatchObject({ connected: true, admin: true });
+    expect(member.higgsfield.reason).toBe("");
+    expect(member.higgsfield.available["hf-upscale"]).toBe(true);
     const admin = (await catalog(env)) as { admin: boolean; higgsfield: { balance: number; available: Record<string, boolean | null>; reason: string }; magnific: { balance: number; available: Record<string, boolean | null> }; upscalePresets: { id: string; label: string }[]; upscaleModes: { id: string }[]; retouchModels: { id: string }[] };
     expect(admin.admin).toBe(true);
     expect(admin.higgsfield.reason).toBe("");
@@ -141,10 +138,6 @@ describe("Higgsfield tools on the post's picture", () => {
     await signedInHiggsfield(env);
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
-    const member = await run(env, { tool: "hf-upscale", confirm: true }, "member");
-    expect(member.status).toBe(403);
-    expect((await json(member)).error).toMatch(/Admins only for now/);
-    expect(await estimate(env, { tool: "hf-upscale" }, "member")).toHaveProperty("status", 403);
     await setIntegrationSwitch(env, "higgsfield", false);
     expect(await run(env, { tool: "hf-upscale", confirm: true })).toHaveProperty("status", 503);
     expect(await run(env, { tool: "nope", confirm: true })).toHaveProperty("status", 400);
@@ -184,8 +177,6 @@ describe("Higgsfield tools on the post's picture", () => {
     expect(runOps[0]).toMatchObject({ provider: "higgsfield", status: "done", estimate: 12, reported: 12, task_id: "job-up-1" });
     expect(runOps[0].note).toMatch(/balance 1500 → 1488/);
     // The result as the post's picture: the task points at it, a take is recorded, the previous picture is kept.
-    const asMember = await postJson(app("member"), env, `/api/studio/photo/tools/jobs/${jobs[0].id}/use`, { as: "picture", batch: "b1" });
-    expect(asMember.status).toBe(403);
     const used = (await json(await postJson(app(), env, `/api/studio/photo/tools/jobs/${jobs[0].id}/use`, { as: "picture", batch: "b1" }))) as { key: string; previous: string };
     expect(used.key).toBe(outputs(env)[0]);
     expect(used.previous).toBe("u2/b1/output/t1/a.png");
@@ -243,7 +234,6 @@ describe("Higgsfield tools on the post's picture", () => {
 describe("Magnific tools on the post's picture", () => {
   it("refuses a member and the Freepik switch off; says Not connected without a sign-in", async () => {
     const env = await seed();
-    expect(await run(env, { tool: "mg-upscale", confirm: true }, "member")).toHaveProperty("status", 403);
     const notConnected = await run(env, { tool: "mg-upscale", confirm: true });
     expect(notConnected.status).toBe(409);
     expect(await json(notConnected)).toMatchObject({ connected: false });

@@ -40,7 +40,7 @@ import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan, saveConfig } from "./posts";
 import { signObjectUrl } from "./signed";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp, type IntegrationProvider } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
 /** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
 const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to Higgsfield. The picture styles and tools run on that sign-in, paid from the subscription credits.";
@@ -527,9 +527,9 @@ async function emptyProvider(env: Env, user: User, provider: ToolProvider, conne
   return { provider, connected, enabled: access.enabled, admin: access.admin, reason: !connected ? notConnected : access.reason, balance: null, available };
 }
 
-/** What each provider offers today. Members get the static list with no live call; admins get the live tool list, the option lists and the balances, kept an hour. */
+/** What each provider offers today. Anyone who may run the tools (the whole team since 24 Oct) gets the live tool list, the option lists and the balances, kept an hour; anyone else the static list with no live call. */
 export async function toolCatalog(env: Env, user: User, refresh = false): Promise<ToolCatalog> {
-  const admin = user.role === "admin";
+  const admin = teamMayRun(user, "higgsfield");
   if (admin && !refresh && catalogMemo && Date.now() - catalogMemo.at < CATALOG_TTL_MS) return catalogMemo.catalog;
   const hfSigned = await higgsfieldSignIn.isSignedIn(env);
   const mgConnected = (await tokenSource(env)) !== null;
@@ -1030,7 +1030,7 @@ photoToolRoutes.get("/catalog", async (c) => {
 async function gate(c: { get(k: "user"): User; env: Env }, toolId: string | undefined): Promise<{ user: User; tool: ToolDef }> {
   const tool = toolId ? photoTool(toolId) : undefined;
   if (!tool) throw new StudioError("Unknown tool.");
-  const user = requireIntegrationAdmin(c, ledgerProvider(tool.provider));
+  const user = requireIntegrationUser(c, ledgerProvider(tool.provider));
   await assertIntegrationEnabled(c.env, ledgerProvider(tool.provider));
   return { user, tool };
 }
@@ -1075,7 +1075,7 @@ photoToolRoutes.get("/jobs/:id/image", async (c) => {
 /** "Check again" on a failed job: a status read at the provider, free, never a new run. Admins. */
 photoToolRoutes.post("/jobs/:id/check", async (c) => {
   const job = await jobById(c.env, c.req.param("id"));
-  const user = requireIntegrationAdmin(c, ledgerProvider(job.provider));
+  const user = requireIntegrationUser(c, ledgerProvider(job.provider));
   return c.json({ ok: true, ...(await recheckPhotoJob(c.env, user, job.id)) });
 });
 
@@ -1092,7 +1092,7 @@ const useSchema = z.discriminatedUnion("as", [
  */
 photoToolRoutes.post("/jobs/:id/use", async (c) => {
   const job = await jobById(c.env, c.req.param("id"));
-  const user = requireIntegrationAdmin(c, ledgerProvider(job.provider));
+  const user = requireIntegrationUser(c, ledgerProvider(job.provider));
   await assertIntegrationEnabled(c.env, ledgerProvider(job.provider));
   if (job.status !== "done" || !job.output_key) throw new StudioError("The result is not ready yet.", 409);
   const d = await parseBody(c, useSchema);
@@ -1174,7 +1174,7 @@ export function siblingPost(from: Post, index: number, title: string, fp: string
  */
 photoToolRoutes.post("/jobs/:id/posts", async (c) => {
   const job = await jobById(c.env, c.req.param("id"));
-  const user = requireIntegrationAdmin(c, ledgerProvider(job.provider));
+  const user = requireIntegrationUser(c, ledgerProvider(job.provider));
   if (job.status !== "done" || !job.output_key) throw new StudioError("The result is not ready yet.", 409);
   const d = await parseBody(c, z.object({ batch: z.string().min(1), as: z.enum(["posts", "carousel"]).default("posts") }));
   const b = await ownedPlan(c.env, user, d.batch);

@@ -3,7 +3,7 @@
  * character sheet (about 1.1 credits, or one of the account's free generations). Designing spends
  * nothing; making shows the price and waits for the confirm. A finished influencer is one of the
  * characters under "Trends with a character", and can join the client's ambassadors so campaigns can
- * cast it. Members see nothing (the list is admins only).
+ * cast it. The whole team uses it (24 Oct).
  */
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";

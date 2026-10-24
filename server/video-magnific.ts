@@ -31,7 +31,7 @@ import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
 import { signObjectUrl } from "./signed";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
 import { posterFor } from "./higgsfield-mcp";
 import { findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
@@ -498,7 +498,7 @@ registerPendingSettler(MAGNIFIC_PROVIDER, settleMagnificPending);
 /* ───────────── Routes ───────────── */
 
 async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
-  const u = requireIntegrationAdmin(c, "freepik");
+  const u = requireIntegrationUser(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   return u;
 }
@@ -516,7 +516,7 @@ async function parseBody<T extends z.ZodTypeAny>(c: { req: { json: () => Promise
 videoMagnificRoutes.get("/status", async (c) => {
   const user = c.get("user");
   const source = await tokenSource(c.env);
-  return c.json({ ok: true, connected: !!source, source, admin: user.role === "admin", access: await integrationAccess(c.env, user, "freepik"), tools: Object.entries(MAGNIFIC_ENHANCE_TOOLS).map(([name, t]) => ({ name, ...t })), reason: source ? "" : MCP_NOT_CONNECTED });
+  return c.json({ ok: true, connected: !!source, source, admin: teamMayRun(user, "freepik"), access: await integrationAccess(c.env, user, "freepik"), tools: Object.entries(MAGNIFIC_ENHANCE_TOOLS).map(([name, t]) => ({ name, ...t })), reason: source ? "" : MCP_NOT_CONNECTED });
 });
 
 /** The video engines, cached a day; `?refresh=1` asks again. Admins. */

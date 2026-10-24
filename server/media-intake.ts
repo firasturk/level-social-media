@@ -228,8 +228,6 @@ mediaRoutes.post("/intake", async (c) => {
   }
   if (kind === "images" && picked.some((p) => p.kind === "video"))
     throw new StudioError("Edit images takes pictures only. Choose Create or edit video for clips.", 415);
-  if (picked.some((p) => p.kind === "video") && user.role !== "admin")
-    throw new StudioError("Only an admin can add video clips for now. Pictures can be added by anyone.", 403);
 
   // 2. The same file twice (in this pick, or already a card of the month) is one card.
   const seen = new Map<string, number>();

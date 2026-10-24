@@ -89,7 +89,8 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
     const s = await json(await app().request("/api/studio/freepik/status", {}, env));
     expect(s).toMatchObject({ connected: false, demo: true, provider: "demo", reason: NOT_CONNECTED, admin: true, plan: "unknown", downloadEstimate: 0, mcp: { connected: false }, switch: { enabled: true } });
     const m = await json(await app("member").request("/api/studio/freepik/status", {}, env));
-    expect(m).toMatchObject({ admin: false, access: "Admins only for now" });
+    // Open to the whole team since 24 Oct.
+    expect(m).toMatchObject({ admin: true, access: "admin" });
     expect(reached).toEqual([]);
   });
 
@@ -118,7 +119,7 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
     expect(reached).toEqual([]);
   });
 
-  it("refuses a member everywhere but the status and a stored file", async () => {
+  it("lets a member through the search, the stock and the Magnific tools (24 Oct), never calling out while nothing is connected", async () => {
     const env = await seed();
     for (const [path, init] of [
       ["/api/studio/freepik/search?q=mango", {}],
@@ -130,9 +131,10 @@ describe("Freepik with nothing connected (demo catalogue)", () => {
       ["/api/studio/freepik/mcp/call", { method: "POST", body: JSON.stringify({ tool: "stock_search", arguments: {} }), headers: JSON_HEADERS }],
     ] as [string, RequestInit][]) {
       const r = await app("member").request(path, init, env);
-      expect(r.status, path).toBe(403);
-      expect(((await json(r)) as { error: string }).error).toMatch(/Admins only for now/);
+      expect(r.status, path).not.toBe(403);
     }
+    // The Magnific key stays with admins.
+    expect((await app("member").request("/api/studio/freepik/mcp/token", { method: "POST", body: JSON.stringify({ token: "x".repeat(24) }), headers: JSON_HEADERS }, env)).status).toBe(403);
     expect(reached).toEqual([]);
   });
 

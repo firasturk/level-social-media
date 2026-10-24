@@ -31,7 +31,7 @@ import type { Config } from "../shared/config";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
-import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, switchedOffMessage } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, switchedOffMessage } from "./integrations";
 import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost } from "./higgsfield-mcp";
 /** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
 const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to Higgsfield. The picture styles and tools run on that sign-in, paid from the subscription credits.";
@@ -369,7 +369,7 @@ photoPresetRoutes.get("/", async (c) => {
   const provider = cat.provider === "higgsfield" ? "higgsfield" : "freepik";
   const access = await integrationAccess(c.env, user, provider);
   const signedIn = cat.provider === "higgsfield" ? await higgsfieldSignIn.isSignedIn(c.env) : (await tokenSource(c.env)) !== null;
-  const base = { ok: true, category, categories: PHOTO_PRESET_CATEGORIES, provider: cat.provider, signedIn, admin: user.role === "admin", access, empty: NOTHING_IN_PHOTO_CATEGORY };
+  const base = { ok: true, category, categories: PHOTO_PRESET_CATEGORIES, provider: cat.provider, signedIn, admin: teamMayRun(user, "higgsfield"), access, empty: NOTHING_IN_PHOTO_CATEGORY };
   const key = photoCacheKey(category, q);
   if (!refresh) {
     const hit = await readCache(c.env, key);
@@ -498,7 +498,7 @@ photoPresetRoutes.get("/:id", async (c) => {
     // Marketing Studio's ads and marketplace pictures take a few words of notes (the product, the offer); posters take none.
     const notes = source === STUDIO_V2_SOURCE && (cached.type === "ads" || cached.type === "marketplace") ? { properties: { notes: { type: "string", title: "Notes for the design (the offer, the headline)" } }, required: [] } : null;
     const detail: PhotoPresetDetail = { ...cached, inputSchema: notes, readiness: null, available: source === STUDIO_V2_SOURCE ? cached.runnable : null, instructions };
-    return c.json({ ok: true, preset: detail, readinessError: "", admin: user.role === "admin" });
+    return c.json({ ok: true, preset: detail, readinessError: "", admin: teamMayRun(user, "higgsfield") });
   }
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
   await assertIntegrationEnabled(c.env, "higgsfield");
@@ -508,7 +508,7 @@ photoPresetRoutes.get("/:id", async (c) => {
   let readinessError = "";
   const batch = c.req.query("batch");
   const index = Number(c.req.query("index"));
-  if (user.role === "admin" && source !== "recipe" && batch && Number.isInteger(index) && index > 0 && d.runnable && d.inputSchema) {
+  if (teamMayRun(user, "higgsfield") && source !== "recipe" && batch && Number.isInteger(index) && index > 0 && d.runnable && d.inputSchema) {
     try {
       const b = await ownedPlan(c.env, user, batch);
       const t = await first<{ output: string | null }>(c.env.DB, "SELECT output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index);
@@ -543,7 +543,7 @@ photoPresetRoutes.get("/:id", async (c) => {
     available: d.available,
     instructions: d.instructions,
   };
-  return c.json({ ok: true, preset: detail, readinessError, admin: user.role === "admin" });
+  return c.json({ ok: true, preset: detail, readinessError, admin: teamMayRun(user, "higgsfield") });
 });
 
 const inputValue = z.union([z.string().max(5000), z.number(), z.boolean()]);
@@ -696,7 +696,7 @@ async function runStudioV2Photo(env: Env, user: User, d: PhotoPresetRun): Promis
 }
 
 photoPresetRoutes.post("/run", async (c) => {
-  const user = requireIntegrationAdmin(c, "higgsfield");
+  const user = requireIntegrationUser(c, "higgsfield");
   await assertIntegrationEnabled(c.env, "higgsfield");
   const parsed = runSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) {

@@ -30,6 +30,7 @@ import {
   proposeOp,
   recordIntegrationOp,
   requireIntegrationAdmin,
+  requireIntegrationUser,
   updateIntegrationOp,
 } from "./integrations";
 import { signObjectUrl } from "./signed";
@@ -484,7 +485,7 @@ export async function proposePhotoLab(env: Env, user: User, d: PhotoLabRun): Pro
 }
 
 photoLabRoutes.post("/run", async (c) => {
-  const user = requireIntegrationAdmin(c, "freepik");
+  const user = requireIntegrationUser(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   const d = await body(c, runSchema.merge(confirmSchema));
   if (!d.opId) {
@@ -576,7 +577,7 @@ const useSchema = z.discriminatedUnion("as", [
  * output replaced; the previous picture kept as a take and with the month's earlier pictures).
  */
 photoLabRoutes.post("/jobs/:id/use", async (c) => {
-  const user = requireIntegrationAdmin(c, "freepik");
+  const user = requireIntegrationUser(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
   const job = await jobById(c.env, c.req.param("id"));
   if (job.status !== "done" || !job.output_key) throw new StudioError("The result is not ready yet.", 409);
