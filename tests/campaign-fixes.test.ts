@@ -66,7 +66,8 @@ describe("each shot gets its own starting picture (23 Oct: four shots came out a
     expect(p).toMatch(/THIS SHOT: Omar pours the smoothie/);
     expect(p).toMatch(/Camera position for this moment: low angle from the passenger seat/);
     expect(p).toMatch(/do not copy the key frame's composition/);
-    expect(p).toMatch(/The second image is the product itself: keep Sakina Mango exactly/);
+    expect(p).toMatch(/The second image is the product itself, and it wins over the key frame: keep Sakina Mango exactly as that photo shows it/);
+    expect(p).toMatch(/no mint or other garnish, no straw, no lid/);
     expect(p).toMatch(/People: only the brand's cast/);
     expect(p).toMatch(/Brand rules \(never break them\): Never show a woman/);
     expect(p).toMatch(/Vertical 9:16 photograph/);

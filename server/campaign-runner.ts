@@ -310,7 +310,7 @@ export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMe
   return [
     "Make one photograph: the starting frame of one shot in a short vertical video ad. It must look like a real photo from the same shoot as the first image.",
     "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
-    v.product ? `${opts.productPhoto ? "The second image is the product itself: " : ""}keep ${v.product.name} exactly as it is: shape, label, colours and size unchanged.` : "",
+    v.product ? `${opts.productPhoto ? "The second image is the product itself, and it wins over the key frame: " : ""}keep ${v.product.name} exactly as ${opts.productPhoto ? "that photo shows it" : "it is"}: the same cup, shape, label, colours, size and toppings. Add nothing the product photo does not show (no mint or other garnish, no straw, no lid, no extra toppings), even if the key frame shows them.` : "",
     `The campaign idea: ${v.concept}`,
     `THIS SHOT: ${s.action}`,
     s.framing && `Framing: ${s.framing}.`,
@@ -396,18 +396,21 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   await settleCost(env, row, s, s.reserved);
   const made = `Made by ${model} from the key frame${product ? ", the product photo" : ""}${portraits.length ? `, ${portraits.map((p) => p.name).join(" and ")}'s portrait${portraits.length > 1 ? "s" : ""}` : ""}, for this shot's own moment`;
   // The automatic check (one text call): the people's faces and an AI look, shown on the shot for the admin.
-  const flags = portraits.length || showsPeople(shot.action) ? await checkFrame(env, { bytes: img.bytes, mime }, portraits, shot).catch((e) => (console.error("[campaign] frame check", errorMessage(e)), [] as string[])) : [];
+  const flags = portraits.length || showsPeople(shot.action) || product ? await checkFrame(env, { bytes: img.bytes, mime }, portraits, shot, product).catch((e) => (console.error("[campaign] frame check", errorMessage(e)), [] as string[])) : [];
   await patchStep(env, s, { status: "done", output_key: key, finished: now(), note: flags.length ? `The automatic check asks you to look: ${flags.join("; ")}`.slice(0, 500) : made });
 }
 
 const FRAME_CHECK_SCHEMA = { type: "object", properties: { problems: { type: "array", items: { type: "string" } } }, required: ["problems"] } as const;
 
 /** What a person would object to in a shot's picture: the wrong or a repeated face, an AI look, broken hands. */
-async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[], shot: ShotPlan): Promise<string[]> {
+async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[], shot: ShotPlan, product: { bytes: ArrayBuffer; mime: string } | null = null): Promise<string[]> {
   const { askText, parseJson } = await import("./posts");
+  const at = product ? 3 : 2;
   const instruction = [
     "You check one picture for a brand's video ad before it is animated. Image 1 is the picture.",
-    ...portraits.map((p, n) => `Image ${n + 2} is ${p.name}'s portrait.`),
+    product ? "Image 2 is the real product photo." : "",
+    ...portraits.map((p, n) => `Image ${n + at} is ${p.name}'s portrait.`),
+    product ? "- the product differing from its photo: added garnish (mint, fruit), a straw or a lid the photo does not show, other toppings, another cup, a changed label or colour;" : "",
     `The shot should show: ${shot.action}`,
     "List only real problems a creative director would reject, each in one short sentence:",
     portraits.length ? "- a person whose face does not match their portrait; two people with the same face (twins);" : "",
@@ -418,7 +421,7 @@ async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, p
   ]
     .filter(Boolean)
     .join("\n");
-  const out = parseJson<{ problems?: string[] }>(await askText(env, instruction, FRAME_CHECK_SCHEMA, [pic, ...portraits.map((p) => p.img)]));
+  const out = parseJson<{ problems?: string[] }>(await askText(env, instruction, FRAME_CHECK_SCHEMA, [pic, ...(product ? [product] : []), ...portraits.map((p) => p.img)]));
   return (out.problems ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 4);
 }
 
