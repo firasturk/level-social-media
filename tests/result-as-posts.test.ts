@@ -80,7 +80,7 @@ describe("a result as new posts", () => {
 
   it("when Magnific lists no separate pictures nothing is added", async () => {
     const env = await seed();
-    const id = await doneJob(env, "mg-restyle", "Restyle (Magnific)", "cr_rs_1");
+    await doneJob(env, "mg-restyle", "Restyle (Magnific)", "cr_rs_1");
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
     useMcpFetch(magnificStub({ waits: [{ status: "completed", url: "https://cdn.test/magnific/out.jpg" }] }).fn);
     const v = await doneJob(env, "mg-variations", "Variations (Magnific)", "cr_var_2");
