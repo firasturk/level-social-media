@@ -11,11 +11,13 @@
  * "Product shot"…) and recipes that are not a video made from a picture (Blender, After Effects,
  * DaVinci, websites…) are dropped too.
  *
- * No UGC category: Higgsfield's UGC ads live in its Marketing Studio widget, not in the preset
- * catalog (`get_presets` with `query: "ugc"` answers nothing), so nothing is promised there.
+ * UGC: Higgsfield's UGC ads live in its Marketing Studio widget, not in the preset catalog
+ * (`get_presets` with `query: "ugc"` answers nothing); the widget lists only its first twelve per
+ * tab (it takes no page), and the category says so. Those cards (`source: "marketing_studio_v2"`)
+ * run through Marketing Studio's video model with the preset's id, not `execute_preset`.
  */
 
-export type PresetCategoryId = "popular" | "paid-ads" | "motion" | "marketing" | "production" | "faceless" | "effects" | "genjutsu" | "recipes";
+export type PresetCategoryId = "popular" | "paid-ads" | "motion" | "marketing" | "ugc" | "production" | "faceless" | "effects" | "genjutsu" | "genjutsu-new" | "genjutsu-higgsfield" | "genjutsu-styles" | "recipes";
 
 export interface PresetCategory {
   id: PresetCategoryId;
@@ -29,10 +31,14 @@ export const PRESET_CATEGORIES: readonly PresetCategory[] = [
   { id: "paid-ads", label: "Paid Ads", hint: "Presets written for ads: a product, a hook, a call to action." },
   { id: "motion", label: "Motion Design", hint: "Moving graphics and transitions from the Marketing Studio." },
   { id: "marketing", label: "Marketing", hint: "Product, logo and unboxing clips from the Marketing Studio." },
+  { id: "ugc", label: "UGC", hint: "Marketing Studio's UGC videos (talking heads, unboxings, try-ons): the ones Higgsfield shows first." },
   { id: "production", label: "Production", hint: "Katana: multi-shot productions with a storyline (the community catalog)." },
   { id: "faceless", label: "Faceless", hint: "\"What if\" explainer styles: scenes, text and data, no presenter." },
   { id: "effects", label: "Effects", hint: "The viral effects applied to a picture." },
-  { id: "genjutsu", label: "Genjutsu", hint: "Trending motion transfers and replacements." },
+  { id: "genjutsu", label: "Genjutsu trending", hint: "Trending motion transfers and replacements: your character or product takes the video's moves." },
+  { id: "genjutsu-new", label: "Genjutsu new", hint: "The newest Genjutsu motion transfers and replacements." },
+  { id: "genjutsu-higgsfield", label: "Genjutsu by Higgsfield", hint: "Higgsfield's own Genjutsu motion transfers and replacements." },
+  { id: "genjutsu-styles", label: "Genjutsu styles", hint: "Looks that redraw a video of yours (cel animation, knitted yarn, toy CGI…); they need a video clip." },
   { id: "recipes", label: "Recipes", hint: "Step-by-step commands (/hero-shot and the like) with what each one does." },
 ] as const;
 
@@ -84,6 +90,12 @@ export interface PresetDetail extends PresetCard {
 
 /** The sources `execute_preset` takes, per the tool description. */
 export const EXECUTABLE_SOURCES: readonly string[] = ["viral", "marketing_studio", "genjutsu"];
+
+/** The Marketing Studio widget's presets (UGC, ads, posters, marketplace): run with the Marketing Studio models and the preset's id. */
+export const STUDIO_V2_SOURCE = "marketing_studio_v2";
+
+/** The Marketing Studio video types its video model recreates from a product picture. A talking-head UGC script needs Higgsfield's own form. */
+export const STUDIO_V2_VIDEO_TYPES: readonly string[] = ["video_mode", "hypermotion", "mixed_media", "2d_motion", "saas_motion"];
 
 export const NOTHING_IN_CATEGORY = "Nothing in this category on your plan yet.";
 

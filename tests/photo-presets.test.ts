@@ -258,3 +258,49 @@ describe("a preset Higgsfield answers in prose (live: Street Skate)", () => {
     });
   }
 });
+
+describe("the whole catalogs and the Marketing Studio tabs", () => {
+  it("reads every page of the product-shot catalog until the cursor runs out", async () => {
+    const env = await seed();
+    await signedInHiggsfield(env);
+    const stub = higgsfieldStub({ pagedShots: true });
+    useHiggsfieldMcpFetch(stub.fn);
+    const shots = (await json(await browse(env, "category=product-shots"))) as { items: { id: string }[] };
+    expect(shots.items.map((i) => i.id)).toEqual(["hero_shot", "page_two_shot"]);
+    expect(stub.rpc.filter((x) => x.name === "get_presets").map((x) => x.args)).toEqual([
+      { source: "marketing_studio", category: "product-shot", limit: 50 },
+      { source: "marketing_studio", category: "product-shot", limit: 50, cursor: 50 },
+    ]);
+  });
+
+  it("lists the widget's ads, posters and marketplace pictures (no clips), and runs one with Marketing Studio's picture model after the confirm", async () => {
+    const env = await seed();
+    await signedInHiggsfield(env);
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    for (const [category, tab] of [["ads", "ads"], ["posters", "posters"], ["marketplace", "marketplace"]]) {
+      const r = (await json(await browse(env, `category=${category}`))) as { items: { id: string; source: string; image: string; runnable: boolean; kind: string }[] };
+      expect(stub.rpc.filter((x) => x.name === "show_marketing_studio_v2").at(-1)?.args).toEqual({ category: tab });
+      expect(r.items).toEqual([expect.objectContaining({ id: "plush-paw", source: "marketing_studio_v2", image: "https://cdn.test/ms/paw.webp", runnable: true, kind: "preset" })]);
+    }
+    const detail = (await json(await app().request("/api/studio/photo/presets/plush-paw?source=marketing_studio_v2", {}, env))) as { preset: { runnable: boolean; inputSchema: { properties: Record<string, unknown> } | null } };
+    expect(detail.preset.runnable).toBe(true);
+    // Found in the ads list first: an ad takes notes.
+    expect(Object.keys(detail.preset.inputSchema!.properties)).toEqual(["notes"]);
+    const run = (body: Record<string, unknown> = {}) => postJson(app(), env, "/api/studio/photo/presets/run", { batch: "b1", index: 1, presetId: "plush-paw", source: "marketing_studio_v2", inputs: { notes: "20% off this week" }, ...body });
+    const ask = await run();
+    expect(ask.status).toBe(409);
+    expect(await json(ask)).toMatchObject({ needsConfirm: true, credits: 3, balance: 1500 });
+    const made = stub.rpc.filter((x) => x.name === "generate_image");
+    expect(made).toHaveLength(1);
+    expect((made[0].args as { params: Record<string, unknown> }).params).toMatchObject({ get_cost: true });
+    const go = (await json(await run({ confirm: true }))) as { job: { status: string; estimate: number; label: string } };
+    expect(go.job).toMatchObject({ status: "running", estimate: 3, label: "Preset · Plush Paw" });
+    const sent = (stub.rpc.filter((x) => x.name === "generate_image").at(-1)!.args as { params: Record<string, unknown> }).params;
+    expect(sent).toEqual({ model: "marketing_studio_2_image", type: "ads", preset_id: "plush-paw", medias: [{ value: "med_1", role: "product_image" }], count: 1, notes: "20% off this week" });
+    expect(stub.rpc.filter((x) => x.name === "execute_preset")).toHaveLength(0);
+    const runOps = (await ops(env)).results.filter((o) => o.kind === "preset.run");
+    expect(runOps).toHaveLength(1);
+    expect(runOps[0]).toMatchObject({ status: "running", estimate: 3 });
+  });
+});

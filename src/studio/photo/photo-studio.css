@@ -1395,3 +1395,9 @@ body:has(.ps) .confirm-backdrop {
   background: #fff;
   color: #111;
 }
+
+/* "Show more": a whole catalog is drawn a page at a time. */
+.ps-more {
+  display: flex;
+  margin: 16px auto 0;
+}

@@ -101,6 +101,8 @@ export interface HiggsfieldOptions {
   shown?: Record<string, unknown>;
   /** `execute_preset` answers this prose instead of its JSON (live: "Preset submitted. Final job_ids: [...]"), flagged as an error or not. */
   presetProse?: { text: string; isError?: boolean };
+  /** The product-shot catalog answers in two pages (a numeric cursor), as the live one does. */
+  pagedShots?: boolean;
 }
 
 export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
@@ -120,6 +122,7 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
     { name: "remove_background", inputSchema: { type: "object", properties: { params: { type: "object", properties: { media_id: {}, media_type: {} }, required: ["media_id", "media_type"] } }, required: ["params"] } },
     { name: "relight_image", inputSchema: { type: "object", properties: { media_id: {}, prompt: {}, get_cost: {} } } },
     { name: "generate_image", inputSchema: { type: "object", properties: { params: {} } } },
+    { name: "show_marketing_studio_v2", inputSchema: { type: "object", properties: { category: {} } } },
   ];
   const hero = opts.noPrice ? { ...HERO, price: undefined } : HERO;
   const fn: typeof fetch = async (input, init) => {
@@ -156,6 +159,7 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
       if (args.source === "soul") return text(b.id, { presets: SOUL_STYLES });
       if (args.source === "marketing_studio") {
         expect(args.category).toBe("product-shot");
+        if (opts.pagedShots) return args.cursor === 50 ? text(b.id, { items: [{ ...HERO, id: "page_two_shot", name: "Page two shot" }], next_cursor: null }) : text(b.id, { items: PRODUCT_SHOTS, next_cursor: 50 });
         return text(b.id, { presets: args.query ? PRODUCT_SHOTS.filter((p) => p.name.toLowerCase().includes(String(args.query).toLowerCase())) : PRODUCT_SHOTS });
       }
       return text(b.id, { presets: [] });
@@ -185,6 +189,15 @@ export function higgsfieldStub(opts: HiggsfieldOptions = {}) {
       const p = args.params as Record<string, unknown>;
       expect(p).toEqual({ media_id: "med_1", media_type: "image" });
       return text(b.id, { job_id: "job-bg-1", status: "queued" });
+    }
+    if (name === "show_marketing_studio_v2") {
+      // The widget's answer as read live (24 Oct): a tab's first twelve; a picture preset's cover is the picture.
+      return text(b.id, { category: args.category, presets: { total: 1051, cursor: 2, items: [{ id: "plush-paw", type: args.category === "posters" ? "poster" : String(args.category), name: "Plush Paw", cover_image: { url: "https://cdn.test/ms/paw.webp", width: 1080, height: 1446 }, format_slugs: ["general"], group_name: "Hero Spotlight" }, { id: "ugc-clip", type: "video_mode", name: "A clip", cover_image: { url: "https://cdn.test/ms/clip.mp4", type: "video", poster_url: "https://cdn.test/ms/clip.webp" } }] } });
+    }
+    if (name === "generate_image" && (args.params as Record<string, unknown>).model === "marketing_studio_2_image") {
+      const p = args.params as Record<string, unknown>;
+      if (p.get_cost) return text(b.id, { cost: 3 });
+      return text(b.id, { jobs: [{ index: 0, job_id: "job-ms-1", status: "queued" }] });
     }
     if (name === "generate_image") {
       const p = args.params as Record<string, unknown>;

@@ -28,7 +28,7 @@ export function matches(c: PresetCard, q: string): boolean {
   return [c.title, c.description, c.command ?? "", c.category ?? "", c.type ?? "", c.source].some((s) => s.toLowerCase().includes(t));
 }
 
-const SOURCE_LABELS: Record<string, string> = { viral: "Effects", marketing_studio: "Marketing Studio", genjutsu: "Genjutsu", katana: "Katana", recipe: "Recipe", soul: "Soul", recraft: "Recraft", what_if: "What if" };
+const SOURCE_LABELS: Record<string, string> = { viral: "Effects", marketing_studio: "Marketing Studio", marketing_studio_v2: "Marketing Studio", genjutsu: "Genjutsu", katana: "Katana", recipe: "Recipe", soul: "Soul", recraft: "Recraft", what_if: "What if" };
 export const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s.replace(/_/g, " ");
 
 export interface PresetsState {
@@ -189,7 +189,13 @@ export function PresetCardView({ card, selected, onSelect, onUse, children }: { 
   );
 }
 
+/** Cards drawn per "Show more". */
+const GALLERY_PAGE = 60;
+
 export function PresetsGallery({ s, ps }: { s: StudioShared; ps: PresetsState }) {
+  // A whole catalog is hundreds of cards: they are drawn a page at a time as the person asks for more.
+  const [shown, setShown] = useState(GALLERY_PAGE);
+  useEffect(() => setShown(GALLERY_PAGE), [ps.category, ps.q]);
   const cat = PRESET_CATEGORIES.find((c) => c.id === ps.category)!;
   return (
     <div className="vs-gallery">
@@ -204,7 +210,10 @@ export function PresetsGallery({ s, ps }: { s: StudioShared; ps: PresetsState })
         <header className="vs-gallery-head">
           <span className="vs-gallery-title">
             <LayoutGrid size={14} /> {cat.label}
-            <small>{cat.hint}</small>
+            <small>
+              {cat.hint}
+              {ps.list && ps.list.items.length > 0 ? ` · ${ps.list.items.length} presets, refreshed from Higgsfield every day` : ""}
+            </small>
           </span>
           <label className="vs-search">
             <Search size={13} />
@@ -254,10 +263,15 @@ export function PresetsGallery({ s, ps }: { s: StudioShared; ps: PresetsState })
           </p>
         )}
         <div className="vs-grid">
-          {ps.cards.map((card) => (
+          {ps.cards.slice(0, shown).map((card) => (
             <PresetCardView key={`${card.source}:${card.id}`} card={card} selected={ps.selected?.id === card.id && ps.selected.source === card.source} onSelect={() => ps.select(card)} onUse={() => s.usePreset(card)} />
           ))}
         </div>
+        {ps.cards.length > shown && (
+          <button type="button" className="ts-btn vs-more" onClick={() => setShown((n) => n + GALLERY_PAGE)}>
+            Show more ({ps.cards.length - shown} more)
+          </button>
+        )}
         {ps.list?.nextCursor && (
           <button type="button" className="ts-btn vs-more" disabled={ps.loading} onClick={() => void ps.loadMore()}>
             {ps.loading ? <Orb size={14} status={null} /> : null} More presets
@@ -364,7 +378,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
       )}
       {detail && (
         <p className="ts-hint">
-          <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
+          <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : card.source === "marketing_studio_v2" ? "Higgsfield is asked for the price when you press Run; you confirm it before anything is made." : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
         </p>
       )}
       {readiness && typeof readiness === "object" && (readiness.ready !== undefined || readiness.missing || readiness.message) && (
@@ -408,7 +422,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
               ))}
               {!s.pictureUrl && <p className="ts-hint warn">This post has no picture yet; the preset needs one.</p>}
               <button type="button" className="ts-btn primary vs-cta" disabled={!canRun} onClick={() => void run()} title={!s.post ? "Open a post first" : undefined}>
-                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : " · cost not known"}
+                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
               </button>
               {error && (
                 <p className="ts-hint warn">

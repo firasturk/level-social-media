@@ -5,7 +5,7 @@
  * it). Nothing is invented here: a category with no answer says so, a card with no sample says so.
  */
 
-export type PhotoPresetCategoryId = "styles" | "product-shots" | "magnific-looks" | "recipes";
+export type PhotoPresetCategoryId = "styles" | "product-shots" | "ads" | "posters" | "marketplace" | "magnific-looks" | "recipes";
 
 export interface PhotoPresetCategory {
   id: PhotoPresetCategoryId;
@@ -17,7 +17,10 @@ export interface PhotoPresetCategory {
 
 export const PHOTO_PRESET_CATEGORIES: readonly PhotoPresetCategory[] = [
   { id: "styles", label: "Styles", hint: "Higgsfield's Soul picture styles: a look applied to this post's picture with a few words.", provider: "higgsfield" },
-  { id: "product-shots", label: "Product shots", hint: "Higgsfield's product-shot presets: the product set into a scene, one run each.", provider: "higgsfield" },
+  { id: "product-shots", label: "Product shots", hint: "Every Higgsfield product-shot preset (with a model or on its own): the product set into a scene, one run each.", provider: "higgsfield" },
+  { id: "ads", label: "Ads", hint: "Marketing Studio ad layouts: the product, a headline and a design (the ones Higgsfield shows first).", provider: "higgsfield" },
+  { id: "posters", label: "Posters", hint: "Marketing Studio posters: the product in a printed-poster design (the ones Higgsfield shows first).", provider: "higgsfield" },
+  { id: "marketplace", label: "Marketplace", hint: "Marketing Studio marketplace pictures: listing-ready product cards (the ones Higgsfield shows first).", provider: "higgsfield" },
   { id: "magnific-looks", label: "Magnific looks", hint: "Magnific's picture models and upscale presets, for the Magnific tools.", provider: "magnific" },
   { id: "recipes", label: "Recipes", hint: "Step-by-step picture commands (/hero-shot and the like) with what each one does.", provider: "higgsfield" },
 ] as const;
@@ -40,7 +43,7 @@ export interface PresetUse {
 /** One card of the gallery, normalised from a provider's answer. */
 export interface PhotoPresetCard {
   id: string;
-  /** Where it came from: soul, marketing_studio, magnific, recipe. */
+  /** Where it came from: soul, marketing_studio, marketing_studio_v2 (the Marketing Studio widget's ads, posters, marketplace), magnific, recipe. */
   source: string;
   provider: "higgsfield" | "magnific";
   kind: "style" | "preset" | "look" | "recipe";

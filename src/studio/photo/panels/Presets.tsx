@@ -24,7 +24,7 @@ export function matchesPhoto(c: PhotoPresetCard, q: string): boolean {
   return [c.title, c.description, c.command ?? "", c.category ?? "", c.type ?? "", c.source].some((s) => s.toLowerCase().includes(t));
 }
 
-const SOURCE_LABELS: Record<string, string> = { soul: "Soul style", marketing_studio: "Product shot", magnific: "Magnific", recipe: "Recipe" };
+const SOURCE_LABELS: Record<string, string> = { soul: "Soul style", marketing_studio: "Product shot", marketing_studio_v2: "Marketing Studio", magnific: "Magnific", recipe: "Recipe" };
 const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s.replace(/_/g, " ");
 const USE_LABEL: Record<PhotoPresetCard["kind"], string> = { style: "Use this style", preset: "Use this preset", look: "Use this look", recipe: "Use these words" };
 
@@ -160,8 +160,14 @@ export function PresetCardView({ card, selected, onSelect, onUse, children }: { 
   );
 }
 
+/** Cards drawn per "Show more". */
+const GALLERY_PAGE = 60;
+
 export function PresetsGallery({ ctx }: { ctx: StudioCtx }) {
   const ps = ctx.presets;
+  // A whole catalog is hundreds of cards: they are drawn a page at a time as the person asks for more.
+  const [shown, setShown] = useState(GALLERY_PAGE);
+  useEffect(() => setShown(GALLERY_PAGE), [ps.category, ps.q]);
   const cat = PHOTO_PRESET_CATEGORIES.find((c) => c.id === ps.category)!;
   const who = cat.provider === "higgsfield" ? "Higgsfield" : "Magnific";
   const use = (card: PhotoPresetCard) => {
@@ -186,7 +192,10 @@ export function PresetsGallery({ ctx }: { ctx: StudioCtx }) {
         <header className="ps-gallery-head">
           <span className="ps-gallery-title">
             <LayoutGrid size={14} /> {cat.label}
-            <small>{cat.hint}</small>
+            <small>
+              {cat.hint}
+              {ps.list && ps.list.items.length > 0 ? ` · ${ps.list.items.length} presets, refreshed from Higgsfield every day` : ""}
+            </small>
           </span>
           <label className="ps-search">
             <Search size={13} />
@@ -231,10 +240,15 @@ export function PresetsGallery({ ctx }: { ctx: StudioCtx }) {
           </p>
         )}
         <div className="ps-grid">
-          {ps.cards.map((card) => (
+          {ps.cards.slice(0, shown).map((card) => (
             <PresetCardView key={`${card.source}:${card.category}:${card.id}`} card={card} selected={ps.selected?.id === card.id && ps.selected.source === card.source} onSelect={() => ps.select(card)} onUse={card.use || card.kind === "preset" ? () => use(card) : null} />
           ))}
         </div>
+        {ps.cards.length > shown && (
+          <button type="button" className="ts-btn ps-more" onClick={() => setShown((n) => n + GALLERY_PAGE)}>
+            Show more ({ps.cards.length - shown} more)
+          </button>
+        )}
         {ps.list && !ps.list.admin && ps.list.signedIn && <p className="ps-note">You can browse every preset; using one on a picture is admins only for now.</p>}
         <p className="ps-note quiet">The sample pictures are the providers' own examples, shown from their sites; the studio keeps no copy. Clips live in the Video studio.</p>
       </div>
@@ -382,7 +396,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
       )}
       {detail && card.kind === "preset" && (
         <p className="ts-hint">
-          <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
+          <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : card.source === "marketing_studio_v2" ? "Higgsfield is asked for the price when you press Run; you confirm it before anything is made." : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
         </p>
       )}
       {card.kind !== "preset" && <p className="ts-hint">{card.kind === "style" ? "A style is used through Generate with a style under AI tools: the cost is asked there before anything is made." : card.kind === "look" ? "A look is used through the Magnific tools under AI tools: the cost is asked there first." : "A recipe is a set of steps, not one run: use its words under AI tools, or follow it on Higgsfield."}</p>}
@@ -453,7 +467,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
               ))}
               {!ctx.task.output && <p className="ts-hint warn">This post has no picture yet; the preset needs one.</p>}
               <button type="button" className="ts-btn primary ps-cta" disabled={!canRun || running} onClick={() => void run()}>
-                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : " · cost not known"}
+                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
               </button>
               {error && (
                 <p className="ts-hint warn">

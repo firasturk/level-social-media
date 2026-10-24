@@ -102,7 +102,7 @@ function higgsfieldStub(opts: StubOptions = {}) {
   const rpc: { method: string; name?: string; args?: Record<string, unknown> }[] = [];
   const waits = [...(opts.waits ?? [{ status: "running" }, { status: "completed", result: { url: "https://cdn.test/out.mp4" } }])];
   const text = (id: unknown, body: unknown, isError = false) => Response.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(body) }], isError } });
-  const tools = ["balance", "models_explore", "media_import_url", "generate_video", "generate_video_batch", "jobs_wait", "show_generation_by_ids", "get_presets", "get_preset_instructions", "execute_preset"];
+  const tools = ["balance", "models_explore", "media_import_url", "generate_video", "generate_video_batch", "jobs_wait", "show_generation_by_ids", "get_presets", "get_preset_instructions", "execute_preset", "show_marketing_studio_v2"];
   const hero = opts.noPrice ? { ...HERO, price: undefined } : HERO;
   const fn: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
@@ -123,6 +123,22 @@ function higgsfieldStub(opts: StubOptions = {}) {
       expect(String(args.url)).toMatch(/^https:\/\/studio\.test\/api\/public\/object\?k=/);
       expect(args.type).toBe("image");
       return text(b.id, { media_id: "med_1", type: "image", status: "ready" });
+    }
+    if (name === "show_marketing_studio_v2") {
+      // The widget's answer as read live (24 Oct): the tab's first twelve, a video's cover with its poster.
+      return text(b.id, {
+        category: args.category,
+        presets: {
+          total: 1051,
+          cursor: 2,
+          items: [
+            { id: "giant-figure", type: "video_mode", name: "Giant Figure", cover_image: { url: "https://cdn.test/ms/giant.mp4", type: "video", poster_url: "https://cdn.test/ms/giant.webp" }, format_slugs: ["legacy-ugc"], required_inputs: { product: { required: true }, avatar: { required: false } } },
+            { id: "before-after", type: "ugc", name: "Before and After", cover_image: { url: "https://cdn.test/ms/before.mp4", type: "video", poster_url: "https://cdn.test/ms/before.webp" }, format_slugs: ["talking-head"] },
+            { id: "plush-paw", type: "ads", name: "Plush Paw", cover_image: { url: "https://cdn.test/ms/paw.webp" }, format_slugs: ["general"], group_name: "Hero Spotlight" },
+            { id: "", type: "ads", name: "No id", cover_image: { url: "https://cdn.test/ms/x.webp" } },
+          ],
+        },
+      });
     }
     if (name === "get_presets") {
       if (args.preset_id) {
@@ -165,6 +181,8 @@ function higgsfieldStub(opts: StubOptions = {}) {
         ],
       });
     }
+    if (name === "generate_video") return text(b.id, { credits: 84 });
+    if (name === "generate_video_batch") return text(b.id, { jobs: [{ index: 0, job_id: "job-ugc", status: "queued" }] });
     if (name === "execute_preset") {
       expect(args).toMatchObject({ source: "marketing_studio", preset_id: "hero_shot" });
       return text(b.id, { jobs: [{ index: 0, job_id: "job-p1", status: "queued" }, { index: 1, job_id: "job-p2", status: "queued" }] });
@@ -218,7 +236,7 @@ describe("normalising the answers", () => {
     const stub = higgsfieldStub();
     useHiggsfieldMcpFetch(stub.fn);
     await browse(env, "category=popular&cursor=50");
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ limit: 50, cursor: 50 });
+    expect(stub.rpc.filter((x) => x.name === "get_presets")[0]?.args).toEqual({ limit: 50, cursor: 50 });
   });
 
   it("tells pictures, clips and words apart in a schema, and reads previews of several shapes", () => {
@@ -317,10 +335,12 @@ describe("browsing the gallery", () => {
     expect(r.cached).toBe(false);
     expect(r.items.map((i) => i.id)).toEqual(["hero_shot", "glitch"]);
     expect(r.items[0].video).toBe("https://cdn.test/presets/hero.mp4");
-    expect(r.nextCursor).toBe("page-2");
+    // The second page adds nothing new: the feed is read, no cursor is left.
+    expect(r.nextCursor).toBeNull();
     const asks = stub.rpc.filter((x) => x.name === "get_presets");
-    expect(asks).toHaveLength(1);
+    expect(asks).toHaveLength(2);
     expect(asks[0].args).toEqual({ limit: 50 });
+    expect(asks[1].args).toEqual({ limit: 50, cursor: "page-2" });
     // Cached: no second call, from this isolate or from the stored row.
     const raw = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(cacheKey("popular", "")).first<{ value: string }>();
     expect(raw?.value).toBeTruthy();
@@ -332,9 +352,9 @@ describe("browsing the gallery", () => {
     resetPresetCaches();
     const fromRow = (await json(await browse(env, "category=popular"))) as { cached: boolean };
     expect(fromRow.cached).toBe(true);
-    expect(stub.rpc.filter((x) => x.name === "get_presets")).toHaveLength(1);
-    await browse(env, "category=popular&refresh=1");
     expect(stub.rpc.filter((x) => x.name === "get_presets")).toHaveLength(2);
+    await browse(env, "category=popular&refresh=1");
+    expect(stub.rpc.filter((x) => x.name === "get_presets")).toHaveLength(4);
     // The next page is asked with the cursor and not cached.
     const page2 = (await json(await browse(env, "category=popular&cursor=page-2"))) as { cached: boolean };
     expect(page2.cached).toBe(false);
@@ -361,7 +381,9 @@ describe("browsing the gallery", () => {
         { source: "marketing_studio", category: "motion", limit: 50 },
         { source: "marketing_studio", category: "motion", limit: 50, cursor: "page-2" },
         { source: "marketing_studio", query: "product", limit: 50 },
+        { source: "marketing_studio", query: "product", limit: 50, cursor: "page-2" },
         { source: "marketing_studio", query: "logo", limit: 50 },
+        { source: "marketing_studio", query: "logo", limit: 50, cursor: "page-2" },
         { source: "marketing_studio", query: "unboxing", limit: 50 },
       ]),
     );
@@ -372,13 +394,21 @@ describe("browsing the gallery", () => {
     expect(production.items).toHaveLength(1);
     // The slashed id, the extension-less `/published/` links read by `preview_type`, not runnable from here.
     expect(production.items[0]).toMatchObject({ id: "katana/launch-day", source: "katana", runnable: false, video: "https://static.test/katana-presets/published/bb22", poster: "https://static.test/katana-presets/published/aa11", output: "video" });
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "katana", limit: 20 });
+    // Higgsfield's own Katana productions and the community's, merged.
+    expect(sortedArgs(stub.rpc.filter((x) => x.name === "get_presets").slice(-2).map((x) => x.args))).toEqual(sortedArgs([{ source: "katana", katana_source: "higgsfield", limit: 20 }, { source: "katana", limit: 20 }]));
     const faceless = (await json(await browse(env, "category=faceless"))) as { items: { id: string; source: string; video: string | null }[] };
     expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ source: "what_if", limit: 50 });
     expect(faceless.items).toHaveLength(1);
     expect(faceless.items[0]).toMatchObject({ id: "what-if/haze-countdown", source: "what_if", video: "https://static.test/what-if-styles/published/dd44" });
-    // No UGC category: the preset catalog has none (Higgsfield's UGC lives in its Marketing Studio widget).
-    expect((await browse(env, "category=ugc")).status).toBe(400);
+    // UGC comes from the Marketing Studio widget: its video presets, runnable when the video model recreates their type; a talking head is not.
+    const ugc = (await json(await browse(env, "category=ugc"))) as { items: { id: string; source: string; runnable: boolean; video: string | null; poster: string | null; type: string }[] };
+    expect(stub.rpc.filter((x) => x.name === "show_marketing_studio_v2").at(-1)?.args).toEqual({ category: "ugc" });
+    expect(ugc.items.map((i) => [i.id, i.source, i.runnable, i.type])).toEqual([
+      ["giant-figure", "marketing_studio_v2", true, "video_mode"],
+      ["before-after", "marketing_studio_v2", false, "ugc"],
+    ]);
+    expect(ugc.items[0]).toMatchObject({ video: "https://cdn.test/ms/giant.mp4", poster: "https://cdn.test/ms/giant.webp" });
+    expect((await browse(env, "category=nope")).status).toBe(400);
     const effects = (await json(await browse(env, "category=effects"))) as { items: { id: string }[] };
     expect(effects.items.map((i) => i.id)).toEqual(["glitch"]);
     const recipes = (await json(await browse(env, "category=recipes"))) as { items: { id: string; source: string; runnable: boolean; description: string }[] };
@@ -391,7 +421,7 @@ describe("browsing the gallery", () => {
     expect(genjutsu.empty).toMatch(/Nothing in this category/);
     // A search goes to the provider as `query`, joined to the category's own words (Katana and What if are searched here instead).
     await browse(env, "category=paid-ads&q=hook");
-    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toEqual({ query: "ad hook", limit: 50 });
+    expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).toMatchObject({ query: "ad hook", limit: 50 });
     await browse(env, "category=production&q=zzz");
     expect(stub.rpc.filter((x) => x.name === "get_presets").at(-1)?.args).not.toHaveProperty("query");
     await browse(env, "category=faceless&q=zzz");
@@ -519,5 +549,36 @@ describe("running a preset", () => {
     const runOps = (await ops(env)).results.filter((o) => o.kind === "preset.run");
     expect(runOps[0].estimate).toBeNull();
     expect(runOps[0].note).toMatch(/cost unknown, confirmed/);
+  });
+
+  it("runs a UGC preset from the Marketing Studio widget with its video model and preset id, from the post's product photo, after the confirm; a talking head is refused", async () => {
+    const env = await seed();
+    await signedIn(env);
+    // The post names its product, whose clean photo the month holds.
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(postConfig("c1", "2026-10", { plan: [{ index: 1, type: "product", title: "Cup", brief: "A cup", caption: "", hashtags: "", product: "cup" } as never] }))).run();
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    // The card must be in today's list first.
+    const missing = await run(env, { presetId: "giant-figure", source: "marketing_studio_v2", inputs: {} });
+    expect(missing.status).toBe(404);
+    await browse(env, "category=ugc");
+    const detail = (await json(await app().request("/api/studio/video/presets/giant-figure?source=marketing_studio_v2", {}, env))) as { preset: { runnable: boolean; inputSchema: { properties: Record<string, unknown> } } };
+    expect(detail.preset.runnable).toBe(true);
+    expect(Object.keys(detail.preset.inputSchema.properties)).toEqual(["prompt"]);
+    const talking = await run(env, { presetId: "before-after", source: "marketing_studio_v2", inputs: {} });
+    expect(talking.status).toBe(409);
+    expect((await json(talking)).error).toMatch(/talking head/);
+    const ask = await run(env, { presetId: "giant-figure", source: "marketing_studio_v2", inputs: { prompt: "a young man in Amman" } });
+    expect(ask.status).toBe(409);
+    expect(await json(ask)).toMatchObject({ needsConfirm: true, credits: 84 });
+    expect(stub.rpc.filter((x) => x.name === "generate_video_batch")).toHaveLength(0);
+    const go = (await json(await run(env, { presetId: "giant-figure", source: "marketing_studio_v2", inputs: { prompt: "a young man in Amman" }, confirm: true }))) as { video: { status: string; requestId: string } };
+    expect(go.video).toMatchObject({ status: "queued", requestId: "job-ugc" });
+    const sent = stub.rpc.find((x) => x.name === "generate_video_batch")!.args as { requests: { params: Record<string, unknown> }[] };
+    expect(sent.requests[0].params).toMatchObject({ model: "marketing_studio_v2_video", type: "video_mode", preset_id: "giant-figure", medias: [{ value: "med_1", role: "input_images" }], prompt: "a young man in Amman" });
+    // The clean product photo of the post went to Higgsfield, not the post's whole picture.
+    const imported = stub.rpc.filter((x) => x.name === "media_import_url").map((x) => decodeURIComponent(String(x.args?.url)));
+    expect(imported.some((u) => u.includes("u2/b1/src/s1.jpg"))).toBe(true);
+    expect(stub.rpc.filter((x) => x.name === "execute_preset")).toHaveLength(0);
   });
 });

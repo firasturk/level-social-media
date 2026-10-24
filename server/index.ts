@@ -140,6 +140,8 @@ export default {
     ctx.waitUntil(dailyStyles(env).catch((e) => console.error("[styles]", errorMessage(e))));
     // The clients' Drive photos are named by vision a few at a time, so the team finds them by name.
     ctx.waitUntil(readDrivePhotos(env).catch((e) => console.error("[drive]", errorMessage(e))));
+    // The Higgsfield preset galleries are read again once a day, one category per pass.
+    ctx.waitUntil(import("./preset-refresh").then((m) => m.refreshStalePresets(env)).catch((e) => console.error("[presets]", errorMessage(e))));
     // The system check runs once a day and tells the admin when something fails.
     ctx.waitUntil(dailyAudit(env).catch((e) => console.error("[audit]", errorMessage(e))));
     // The client's answers on the approval page reach the team as one e-mail per month.

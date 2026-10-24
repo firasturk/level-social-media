@@ -32,11 +32,12 @@ import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, switchedOffMessage } from "./integrations";
-import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor } from "./higgsfield-mcp";
+import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost } from "./higgsfield-mcp";
 /** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
 const NOT_SIGNED_IN = "Not signed in: Connection → Higgsfield → Sign in to Higgsfield. The picture styles and tools run on that sign-in, paid from the subscription credits.";
 import { MagnificMcp, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
-import { fetchDetail, imageInputOf, mediaOf, needsOf, parseRecipes } from "./video-presets";
+import { fetchDetail, FULL_CATALOG_PAGES, imageInputOf, mediaOf, needsOf, parseRecipes, parseStudioV2, type StudioV2Entry } from "./video-presets";
+import { STUDIO_V2_SOURCE } from "@shared/video-presets";
 import { jsonOf, objectsWith, type McpCallResult } from "./mcp-client";
 import { jobJson, magnificTools, parseMagnificEntries, startPhotoJob } from "./photo-tools";
 import { isPhotoPresetCategory, NOTHING_IN_PHOTO_CATEGORY, PHOTO_PRESET_CATEGORIES, type PhotoPresetCard, type PhotoPresetCategoryId, type PhotoPresetDetail } from "@shared/photo-presets";
@@ -269,26 +270,64 @@ function errorTextOf(r: McpCallResult): string {
 
 /* ───────────── Asking the providers ───────────── */
 
+/** The Marketing Studio widget tab a photo category reads, and the picture type its presets are made with. */
+export const STUDIO_V2_PHOTO_TABS: Partial<Record<PhotoPresetCategoryId, string>> = { ads: "ads", posters: "posters", marketplace: "marketplace" };
+
+/** A widget picture preset as a card: run with Marketing Studio's picture model and the preset's id, on the post's product picture. */
+export function studioV2PhotoCard(e: StudioV2Entry, tab: string): PhotoPresetCard {
+  return {
+    id: e.id,
+    source: STUDIO_V2_SOURCE,
+    provider: "higgsfield",
+    kind: "preset",
+    title: e.name,
+    description: `Marketing Studio ${tab}${e.group ? ` · ${e.group}` : ""}: recreated with this post's product picture.`,
+    command: null,
+    category: tab,
+    type: e.type || null,
+    image: e.image,
+    price: null,
+    needs: ["1 product picture"],
+    runnable: !!e.type,
+    prompt: null,
+    use: null,
+  };
+}
+
 export async function fetchHiggsfieldCategory(mcp: HiggsfieldMcp, category: Exclude<PhotoPresetCategoryId, "magnific-looks">, q: string): Promise<PhotoPresetCard[]> {
   if (category === "recipes") {
     const r = await mcp.call("get_preset_instructions", {});
     const items = parsePhotoRecipes(r);
     return q ? items.filter((c) => matchesPhoto(c, q)) : items;
   }
-  // The gallery takes at most 50 per page (the server refuses more); two pages give the first hundred.
+  const tab = STUDIO_V2_PHOTO_TABS[category];
+  if (tab) {
+    // The widget lists the first twelve of a tab and takes no page.
+    const r = await mcp.call("show_marketing_studio_v2", { category: tab });
+    if (r.isError) throw new StudioError(`Higgsfield refused the Marketing Studio list: ${errorTextOf(r)}`, 502);
+    const items = parseStudioV2(r)
+      .filter((e) => e.image && !e.video)
+      .map((e) => studioV2PhotoCard(e, tab));
+    return q ? items.filter((c) => matchesPhoto(c, q)) : items;
+  }
+  // The gallery takes at most 50 per page (the server refuses more): every page is read, so the whole catalog shows (418 product shots on 24 Oct).
   const args: Record<string, unknown> = category === "styles" ? { source: "soul", limit: 50 } : { source: "marketing_studio", category: "product-shot", limit: 50 };
   if (q) args.query = q;
-  const r = await mcp.call("get_presets", args);
-  if (r.isError) throw new StudioError(`Higgsfield refused the preset list: ${errorTextOf(r)}`, 502);
-  let items = category === "styles" ? parseSoulStyles(r) : parseProductShots(r);
-  const next = (jsonOf(r) as { next_cursor?: unknown } | null)?.next_cursor;
-  if (!q && (typeof next === "number" || typeof next === "string") && items.length >= 50) {
-    const r2 = await mcp.call("get_presets", { ...args, cursor: next });
-    if (!r2.isError) {
-      const more = category === "styles" ? parseSoulStyles(r2) : parseProductShots(r2);
-      const seen = new Set(items.map((x) => x.id));
-      items = items.concat(more.filter((x) => !seen.has(x.id)));
+  let items: PhotoPresetCard[] = [];
+  const seen = new Set<string>();
+  let cursor: unknown = null;
+  for (let page = 0; page < FULL_CATALOG_PAGES; page++) {
+    const r = await mcp.call("get_presets", cursor === null ? args : { ...args, cursor });
+    if (r.isError) {
+      if (page === 0) throw new StudioError(`Higgsfield refused the preset list: ${errorTextOf(r)}`, 502);
+      break;
     }
+    const more = (category === "styles" ? parseSoulStyles(r) : parseProductShots(r)).filter((x) => !seen.has(x.id));
+    for (const x of more) seen.add(x.id);
+    items = items.concat(more);
+    const next = (jsonOf(r) as { next_cursor?: unknown } | null)?.next_cursor;
+    if (!more.length || (typeof next !== "number" && typeof next !== "string") || next === cursor) break;
+    cursor = next;
   }
   return q ? items.filter((c) => matchesPhoto(c, q)) : items;
 }
@@ -302,6 +341,19 @@ export async function fetchMagnificLooks(mcp: MagnificMcp, q: string): Promise<P
   };
   const items = parseMagnificLooks(await ask("images_models_list", { includePreviews: true }), await ask("images_upscale_presets_list"));
   return q ? items.filter((c) => matchesPhoto(c, q)) : items;
+}
+
+/** How old a category's stored list is (ms), or null when none is stored. */
+export async function photoCacheAge(env: Env, category: PhotoPresetCategoryId): Promise<number | null> {
+  const stored = await readJsonSetting<CachedCategory>(env, photoCacheKey(category, ""));
+  return stored && typeof stored.at === "number" ? Date.now() - stored.at : null;
+}
+
+/** A Higgsfield category read again and stored for the day (the cron's daily refresh). An empty answer is not stored. */
+export async function refreshPhotoCategory(env: Env, mcp: HiggsfieldMcp, category: Exclude<PhotoPresetCategoryId, "magnific-looks">): Promise<number> {
+  const items = await fetchHiggsfieldCategory(mcp, category, "");
+  if (items.length) await writeCache(env, photoCacheKey(category, ""), { at: Date.now(), items });
+  return items.length;
 }
 
 /* ───────────── Routes ───────────── */
@@ -343,9 +395,13 @@ photoPresetRoutes.get("/", async (c) => {
 });
 
 async function cardFromCache(env: Env, id: string, source: string): Promise<PhotoPresetCard | null> {
-  const category: PhotoPresetCategoryId = source === "soul" ? "styles" : source === "magnific" ? "magnific-looks" : source === "recipe" ? "recipes" : "product-shots";
-  const hit = await readCache(env, photoCacheKey(category, ""));
-  return hit?.items.find((c) => c.id === id) ?? null;
+  const categories: PhotoPresetCategoryId[] = source === "soul" ? ["styles"] : source === "magnific" ? ["magnific-looks"] : source === "recipe" ? ["recipes"] : source === STUDIO_V2_SOURCE ? ["ads", "posters", "marketplace"] : ["product-shots"];
+  for (const category of categories) {
+    const hit = await readCache(env, photoCacheKey(category, ""));
+    const card = hit?.items.find((c) => c.id === id);
+    if (card) return card;
+  }
+  return null;
 }
 
 /** The clean picture of the product a preset's "Product image" gets, when the studio has one. */
@@ -436,9 +492,12 @@ photoPresetRoutes.get("/:id", async (c) => {
   const id = c.req.param("id");
   const source = c.req.query("source") || "marketing_studio";
   const cached = await cardFromCache(c.env, id, source);
-  if (source === "soul" || source === "magnific") {
+  if (source === "soul" || source === "magnific" || source === STUDIO_V2_SOURCE) {
     if (!cached) throw new StudioError("That entry is not in today's list: open the category again.", 404);
-    const detail: PhotoPresetDetail = { ...cached, inputSchema: null, readiness: null, available: null, instructions: "" };
+    const instructions = source === STUDIO_V2_SOURCE ? "Recreated by Higgsfield's Marketing Studio picture model from this post's product picture (the clean product photo when the post has one). Its price is asked from Higgsfield before you confirm." : "";
+    // Marketing Studio's ads and marketplace pictures take a few words of notes (the product, the offer); posters take none.
+    const notes = source === STUDIO_V2_SOURCE && (cached.type === "ads" || cached.type === "marketplace") ? { properties: { notes: { type: "string", title: "Notes for the design (the offer, the headline)" } }, required: [] } : null;
+    const detail: PhotoPresetDetail = { ...cached, inputSchema: notes, readiness: null, available: source === STUDIO_V2_SOURCE ? cached.runnable : null, instructions };
     return c.json({ ok: true, preset: detail, readinessError: "", admin: user.role === "admin" });
   }
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
@@ -509,6 +568,7 @@ export type PhotoPresetRun = z.infer<typeof runSchema>;
 export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): Promise<PhotoToolJob> {
   if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if (d.source === "recipe" || d.source === "soul" || d.source === "magnific") throw new StudioError(d.source === "recipe" ? "A recipe is a set of steps, not one run: use its words under AI tools." : "A style or a look is used from AI tools, not run here.", 400, false, { notRunnable: true });
+  if (d.source === STUDIO_V2_SOURCE) return runStudioV2Photo(env, user, d);
   const b = await ownedPlan(env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, d.index);
   if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
@@ -561,6 +621,74 @@ export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): P
     args: { source: d.source, preset_id: d.presetId, inputs },
     notes: clean ? [`product picture: ${clean.name} (${clean.from})`] : [],
     call: () => mcp.call("execute_preset", { source: d.source, preset_id: d.presetId, inputs }),
+    fetchFn: higgsfieldFetcher(),
+    balanceAfter: async () => (await balanceOf(mcp, true)).credits,
+  });
+  return jobJson(row);
+}
+
+/** Marketing Studio's picture model, for the widget's ads, posters and marketplace presets. */
+export const STUDIO_V2_IMAGE_MODEL = "marketing_studio_2_image";
+
+/** The request a widget picture preset runs with: its type and id, the product picture, the words as notes where the type takes them. */
+export function studioV2ImageParams(card: Pick<PhotoPresetCard, "id" | "type">, mediaId: string, words: string): Record<string, unknown> {
+  const params: Record<string, unknown> = { model: STUDIO_V2_IMAGE_MODEL, type: card.type, preset_id: card.id, medias: [{ value: mediaId, role: "product_image" }], count: 1 };
+  if (words.trim() && (card.type === "ads" || card.type === "marketplace")) params.notes = words.trim().slice(0, 5000);
+  return params;
+}
+
+/**
+ * A Marketing Studio ad, poster or marketplace picture on the post's product picture: the price
+ * asked first (`get_cost`, nothing submitted), the confirm, one claim, a ledger row, `generate_image`
+ * once; the job becomes a `photo_tool_jobs` row the AI tools panel shows. Admins.
+ */
+async function runStudioV2Photo(env: Env, user: User, d: PhotoPresetRun): Promise<PhotoToolJob> {
+  const card = await cardFromCache(env, d.presetId, STUDIO_V2_SOURCE);
+  if (!card || !card.type) throw new StudioError("That preset is not in today's list: open the category again.", 404);
+  const b = await ownedPlan(env, user, d.batch);
+  const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, d.index);
+  if (!t?.output) throw new StudioError("That post has no picture yet.", 409);
+  const mcp = new HiggsfieldMcp(env, higgsfieldFetcher());
+  await mcp.connect();
+  await mcp.requireTool("generate_image");
+  const clean = d.picture !== "post" ? (await productBrief(env, user, d.batch, d.index)).picture : null;
+  const sent = clean?.key ?? t.output;
+  const mediaId = await mediaFor(env, mcp, sent, "image");
+  const words = Object.values(d.inputs).filter((v): v is string => typeof v === "string").join("\n");
+  const params = studioV2ImageParams(card, mediaId, words);
+  const quote = await mcp.call("generate_image", { params: { ...params, get_cost: true } });
+  const credits = quote.isError ? null : parseCost(quote);
+  const bal = await balanceOf(mcp).catch(() => ({ credits: null as number | null }));
+  if (credits === null && !d.confirm) throw new StudioError(`The cost of "${card.title}" is not known: Higgsfield gave no figure. Confirm it at an unknown cost, or pick another preset.`, 409, false, { needsEstimate: true, presetId: d.presetId, balance: bal.credits });
+  if (!d.confirm) throw new StudioError(`Confirm the run: about ${credits} credits from the subscription balance${bal.credits !== null ? ` (${bal.credits} available)` : ""}.`, 409, false, { needsConfirm: true, credits, balance: bal.credits });
+  const fp = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(["photo-preset-v2", d.presetId, words, sent].join("\n"))))].map((x) => x.toString(16).padStart(2, "0")).join("");
+  if (!(await claimSubmission(env, `photopreset:${b.id}:${d.index}:${fp}`, CLAIM_TTL_MS))) throw new StudioError("This exact preset run was asked for a moment ago. Wait for it, or change its inputs.", 409);
+  const opId = await recordIntegrationOp(env, {
+    provider: "higgsfield",
+    kind: "preset.run",
+    user: user.id,
+    batch: b.id,
+    post: d.index,
+    estimate: credits,
+    status: "confirmed",
+    note: `Marketing Studio ${card.category ?? "picture"} "${card.title}" · ${credits ?? "unknown"} credits (subscription, MCP)${credits === null ? " · cost unknown, confirmed" : ""}${bal.credits !== null ? ` · balance before ${bal.credits}` : ""}`,
+  });
+  const row = await startPhotoJob(env, {
+    b,
+    t: { id: t.id, output: t.output },
+    post: d.index,
+    user,
+    provider: "higgsfield",
+    tool: `preset:${d.presetId}`,
+    label: `Preset · ${card.title}`,
+    options: words.trim() ? { notes: words.trim().slice(0, 500) } : {},
+    estimate: credits,
+    balanceBefore: bal.credits,
+    opId,
+    mcpTool: "generate_image",
+    args: { params },
+    notes: clean ? [`product picture: ${clean.name} (${clean.from})`] : [],
+    call: () => mcp.call("generate_image", { params }),
     fetchFn: higgsfieldFetcher(),
     balanceAfter: async () => (await balanceOf(mcp, true)).credits,
   });

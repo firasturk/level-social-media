@@ -31,11 +31,11 @@ import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
 import { assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, switchedOffMessage, updateIntegrationOp } from "./integrations";
-import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, NOT_SIGNED_IN, parseJobs, unlimChoiceIn } from "./higgsfield-mcp";
+import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, NOT_SIGNED_IN, parseJobs, submitMcpVideo, TEMPLATE_MODEL, unlimChoiceIn } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findNumber, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
 import { insertVideoRow, sha256, versionItem, type VideoItem } from "./video";
-import { EXECUTABLE_SOURCES, isPresetCategory, isVideoFromPictureRecipe, keepCard, NOTHING_IN_CATEGORY, outputKind, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
+import { EXECUTABLE_SOURCES, STUDIO_V2_SOURCE, STUDIO_V2_VIDEO_TYPES, isPresetCategory, isVideoFromPictureRecipe, keepCard, NOTHING_IN_CATEGORY, outputKind, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -61,44 +61,62 @@ interface PresetAsk {
   keepType?: RegExp;
   /** Drop cards whose provider `type` matches; not sent to the provider. */
   dropType?: RegExp;
+  /** A tab of the Marketing Studio widget (`show_marketing_studio_v2`) instead of `get_presets`. Not sent as is. */
+  widget?: string;
 }
 
 /** The ask as the provider takes it: the local-only fields removed. */
 function providerArgs(ask: PresetAsk): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(ask)) if (!["pages", "keepType", "dropType"].includes(k) && v !== undefined) args[k] = v;
+  for (const [k, v] of Object.entries(ask)) if (!["pages", "keepType", "dropType", "widget"].includes(k) && v !== undefined) args[k] = v;
   return args;
 }
 
 /**
+ * Every page of a catalog: the provider's page is 50 at most, so a whole catalog is read page after
+ * page (`next_cursor`) up to this many (1,000 presets), and a page that adds nothing new ends it.
+ */
+export const FULL_CATALOG_PAGES = 20;
+/** The Genjutsu galleries are community feeds without end: their first 500 (ten pages) are kept. */
+export const GENJUTSU_PAGES = 10;
+
+/**
  * What each category asks `get_presets`; "recipes" asks `get_preset_instructions` with no preset
- * instead. Picture presets in an answer (the product shots) are dropped afterwards, so the asks
- * take the provider's maximum page (50; Katana allows 20) to leave enough videos.
+ * instead. Picture presets in an answer (the product shots) are dropped afterwards. Every catalog is
+ * read whole (all its pages), so the gallery holds everything Higgsfield publishes, and it is read
+ * again every day (`refreshStalePresets`, from the cron) so new presets appear by themselves.
  *
- * Checked live (22 Oct 2026): the Marketing Studio's `product-shot` category is pictures only and
- * its videos all sit in the `motion` category (231), interleaved by four provider types:
- * `hypermotion` (product macros, logos, price rolls, HUDs: the marketing clips), `saas_motion`,
- * `2d_motion` and `mixed_media` (motion graphics and looks). Marketing takes the hypermotion
- * clips of the first two pages plus the product, logo and unboxing searches; Motion Design takes
- * the other three types of the same pages. `source: katana` with `katana_source: "higgsfield"`
- * answers nothing while the default (community) catalog answers 20 productions; `query: "ugc"`
- * and `query: "faceless"` answer nothing, so Faceless takes the "What if" explainer styles
- * (scenes, text and data, no presenter) and there is no UGC category.
+ * Checked live (22 and 24 Oct 2026): the Marketing Studio's `product-shot` category is pictures
+ * only (418) and its videos all sit in the `motion` category (231), interleaved by four provider
+ * types: `hypermotion` (product macros, logos, price rolls, HUDs: the marketing clips),
+ * `saas_motion`, `2d_motion` and `mixed_media` (motion graphics and looks). Marketing takes the
+ * hypermotion clips plus the product, logo and unboxing searches; Motion Design takes the other three
+ * types. Viral has 87 effects. Genjutsu has four galleries (trending, new, Higgsfield's own, and
+ * styles that redraw a video). `source: katana` answers the community catalog by default and
+ * Higgsfield's own with `katana_source: "higgsfield"`; `query: "ugc"` answers nothing, so the UGC
+ * tab is read from the Marketing Studio widget (its first twelve: the widget takes no page).
  */
 export const CATEGORY_ASKS: Record<Exclude<PresetCategoryId, "recipes">, PresetAsk[]> = {
-  popular: [{ limit: 50 }],
-  "paid-ads": [{ query: "ad", limit: 50 }],
-  motion: [{ source: "marketing_studio", category: "motion", limit: 50, pages: 2, dropType: /hypermotion/i }],
+  popular: [{ limit: 50, pages: 2 }],
+  "paid-ads": [{ query: "ad", limit: 50, pages: FULL_CATALOG_PAGES }],
+  motion: [{ source: "marketing_studio", category: "motion", limit: 50, pages: FULL_CATALOG_PAGES, dropType: /hypermotion/i }],
   marketing: [
-    { source: "marketing_studio", category: "motion", limit: 50, pages: 2, keepType: /hypermotion/i },
-    { source: "marketing_studio", query: "product", limit: 50 },
-    { source: "marketing_studio", query: "logo", limit: 50 },
-    { source: "marketing_studio", query: "unboxing", limit: 50 },
+    { source: "marketing_studio", category: "motion", limit: 50, pages: FULL_CATALOG_PAGES, keepType: /hypermotion/i },
+    { source: "marketing_studio", query: "product", limit: 50, pages: FULL_CATALOG_PAGES },
+    { source: "marketing_studio", query: "logo", limit: 50, pages: FULL_CATALOG_PAGES },
+    { source: "marketing_studio", query: "unboxing", limit: 50, pages: FULL_CATALOG_PAGES },
   ],
-  production: [{ source: "katana", limit: 20 }],
-  faceless: [{ source: "what_if", limit: 50 }],
-  effects: [{ source: "viral", limit: 50 }],
-  genjutsu: [{ source: "genjutsu", category: "genjutsu-trending", limit: 50 }],
+  ugc: [{ widget: "ugc" }],
+  production: [
+    { source: "katana", katana_source: "higgsfield", limit: 20, pages: FULL_CATALOG_PAGES },
+    { source: "katana", limit: 20, pages: FULL_CATALOG_PAGES },
+  ],
+  faceless: [{ source: "what_if", limit: 50, pages: FULL_CATALOG_PAGES }],
+  effects: [{ source: "viral", limit: 50, pages: FULL_CATALOG_PAGES }],
+  genjutsu: [{ source: "genjutsu", category: "genjutsu-trending", limit: 50, pages: GENJUTSU_PAGES }],
+  "genjutsu-new": [{ source: "genjutsu", category: "genjutsu-new", limit: 50, pages: GENJUTSU_PAGES }],
+  "genjutsu-higgsfield": [{ source: "genjutsu", category: "genjutsu", limit: 50, pages: GENJUTSU_PAGES }],
+  "genjutsu-styles": [{ source: "genjutsu", category: "genjutsu-styles", limit: 50, pages: FULL_CATALOG_PAGES }],
 };
 
 /** The sources whose catalog takes no `query` (searched here instead). */
@@ -264,23 +282,38 @@ function cardOf(o: Record<string, unknown>, fallbackSource: string): PresetCard 
   const category = typeof o.category === "string" ? o.category : Array.isArray(o.categories) && typeof o.categories[0] === "string" ? o.categories[0] : null;
   // What the preset makes: the provider's `preview_type` first (a picture preview is a picture preset), then the execution block's word, the preset's own output fields, then a "motion" category.
   const output = previewTypeOf(o) ?? outputKind(exec?.output_type, exec?.output, exec?.outputs, exec?.result_type, exec?.produces, exec?.media_type, o.output_type, o.output, o.result_type, o.output_kind, o.produces, o.media_type, o.kind) ?? (/motion/i.test(category ?? "") ? "video" : null);
+  const description = plainDescription(String(o.description ?? o.summary ?? o.subtitle ?? "").trim(), id);
+  const needs = needsOf(schema);
+  // A Genjutsu style redraws a video of the person's own: it cannot start from a picture.
+  if (/^genjutsu-style:/.test(id) && !needs.includes("a video clip")) needs.unshift("a video clip");
   return {
     id,
     source,
     title: String(o.name ?? o.title).trim().slice(0, 120),
-    description: String(o.description ?? o.summary ?? o.subtitle ?? "").trim().slice(0, 600),
+    description: description.slice(0, 600),
     command: commandOf(o),
     category,
     type: typeof o.type === "string" ? o.type : null,
     video,
     poster,
     price: price !== null && price >= 0 ? price : null,
-    needs: needsOf(schema),
+    needs,
     runnable: EXECUTABLE_SOURCES.includes(source) && exec?.available !== false,
     engine: engine?.slice(0, 80) ?? null,
     prompt: prompt?.slice(0, 2000) ?? null,
     output,
   };
+}
+
+/**
+ * A Genjutsu entry's description is written for an agent ("Motion transfer reference for /genjutsu.
+ * Driving video: … Select this preset, review inputs…"): the card keeps what it does, in plain words.
+ */
+export function plainDescription(text: string, id = ""): string {
+  if (/^Motion transfer reference/i.test(text)) return "Motion transfer: your character or product takes this video's moves and camera.";
+  if (/^Object replacement reference/i.test(text)) return "Object replacement: your product or character replaces the subject of this video.";
+  if (/^Genjutsu Style/i.test(text) || /^genjutsu-style:/.test(id)) return "Restyle: redraws a video of yours in this look; its motion, camera and framing stay as filmed.";
+  return text;
 }
 
 /**
@@ -303,6 +336,74 @@ export function parsePresets(r: McpCallResult, fallbackSource: string, opts: { a
     out.push(card);
   }
   return out;
+}
+
+/** One preset of the Marketing Studio widget (`show_marketing_studio_v2`), as its answer lists it. */
+export interface StudioV2Entry {
+  id: string;
+  /** The Marketing Studio type it is made with (video_mode, ugc, hypermotion…, ads, poster, marketplace, product_shots…). */
+  type: string;
+  name: string;
+  /** The group or format it sits in ("Hero Spotlight", "talking-head"). */
+  group: string;
+  video: string | null;
+  /** The still: a video's poster, or the picture itself. */
+  image: string | null;
+  /** The inputs the widget names (product, avatar) and whether each is required. */
+  inputs: Record<string, boolean>;
+}
+
+/**
+ * The presets the Marketing Studio widget lists for a tab (`{presets: {items: [{id, type, name,
+ * cover_image: {url, type?, poster_url?}, format_slugs, group_name?, required_inputs?}]}}`, read live
+ * on 24 Oct 2026). Read defensively: an entry with no id, name or cover is left out.
+ */
+export function parseStudioV2(r: McpCallResult): StudioV2Entry[] {
+  const j = jsonOf(r) as { presets?: { items?: unknown } } | null;
+  const items = Array.isArray(j?.presets?.items) ? (j!.presets!.items as unknown[]) : objectsWith(j, "cover_image");
+  const out: StudioV2Entry[] = [];
+  const seen = new Set<string>();
+  for (const x of items) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const id = typeof o.id === "string" ? o.id.trim() : "";
+    const name = typeof o.name === "string" ? o.name.trim() : "";
+    const cover = (o.cover_image && typeof o.cover_image === "object" ? o.cover_image : {}) as Record<string, unknown>;
+    const url = urlOf(cover.url);
+    if (!id || !name || !url || seen.has(id)) continue;
+    seen.add(id);
+    const isVideo = cover.type === "video" || VIDEO_RE.test(url);
+    const req = (o.required_inputs && typeof o.required_inputs === "object" ? o.required_inputs : {}) as Record<string, unknown>;
+    const inputs: Record<string, boolean> = {};
+    for (const [k, v] of Object.entries(req)) inputs[k] = !!(v && typeof v === "object" && (v as { required?: unknown }).required === true);
+    const formats = Array.isArray(o.format_slugs) ? o.format_slugs.filter((f): f is string => typeof f === "string") : [];
+    out.push({ id, type: typeof o.type === "string" ? o.type : "", name: name.slice(0, 120), group: (typeof o.group_name === "string" ? o.group_name : formats[0] ?? "").replace(/[_-]+/g, " "), video: isVideo ? url : null, image: isVideo ? urlOf(cover.poster_url) : url, inputs });
+  }
+  return out;
+}
+
+/** A widget video preset as a gallery card: runnable from here when Marketing Studio's video model recreates its type from a picture. */
+export function studioV2VideoCard(e: StudioV2Entry, tab: string): PresetCard {
+  const needs = e.inputs.product === false ? ["1 product picture (optional)"] : ["1 product picture"];
+  if (e.inputs.avatar) needs.push("a person's picture");
+  const runnable = STUDIO_V2_VIDEO_TYPES.includes(e.type);
+  return {
+    id: e.id,
+    source: STUDIO_V2_SOURCE,
+    title: e.name,
+    description: runnable ? `Marketing Studio ${e.group || tab}: recreated from this post's product picture.` : `Marketing Studio ${e.group || tab}: a scripted talking head, made from Higgsfield's own form.`,
+    command: null,
+    category: tab,
+    type: e.type || null,
+    video: e.video,
+    poster: e.image,
+    price: null,
+    needs,
+    runnable,
+    engine: TEMPLATE_MODEL,
+    prompt: null,
+    output: "video",
+  };
 }
 
 /** The `cursor` for the next page, when the answer carries one: a numeric offset (the galleries) or an opaque string (Katana), kept as text. */
@@ -425,10 +526,20 @@ export async function fetchCategory(mcp: HiggsfieldMcp, category: PresetCategory
   return { items, nextCursor };
 }
 
-/** One ask of a category: its pages in turn, the cards filtered by the ask's type rule and the typed search. */
+/** One ask of a category: its pages in turn (a page that adds nothing new ends it), the cards filtered by the ask's type rule and the typed search. */
 async function fetchAsk(mcp: HiggsfieldMcp, ask: PresetAsk, q: string, cursor: string | null): Promise<{ items: PresetCard[]; nextCursor: string | null }> {
+  if (ask.widget) {
+    const r = await mcp.call("show_marketing_studio_v2", { category: ask.widget });
+    if (r.isError) throw new StudioError(`Higgsfield refused the Marketing Studio list: ${resultText(r).slice(0, 200)}`, 502);
+    const items = parseStudioV2(r)
+      .filter((e) => e.video)
+      .map((e) => studioV2VideoCard(e, ask.widget!))
+      .filter((c) => !q || matches(c, q));
+    return { items, nextCursor: null };
+  }
   const unsearchable = UNSEARCHABLE_SOURCES.includes(ask.source ?? "");
   const items: PresetCard[] = [];
+  const seen = new Set<string>();
   let next: string | null = cursor;
   let nextCursor: string | null = null;
   for (let page = 0; page < Math.max(1, ask.pages ?? 1); page++) {
@@ -437,14 +548,26 @@ async function fetchAsk(mcp: HiggsfieldMcp, ask: PresetAsk, q: string, cursor: s
     if (q && !unsearchable) args.query = ask.query ? `${ask.query} ${q}` : q;
     if (next) args.cursor = cursorArg(next);
     const r = await mcp.call("get_presets", args);
-    if (r.isError) break;
+    if (r.isError) {
+      if (page === 0) throw new StudioError(`Higgsfield refused the preset list: ${resultText(r).slice(0, 200)}`, 502);
+      break;
+    }
+    let added = 0;
     for (const card of parsePresets(r, ask.source ?? "viral")) {
+      if (seen.has(card.id)) continue;
+      seen.add(card.id);
+      added++;
       if (ask.keepType && !ask.keepType.test(card.type ?? "")) continue;
       if (ask.dropType && ask.dropType.test(card.type ?? "")) continue;
       if (q && unsearchable && !matches(card, q)) continue;
       items.push(card);
     }
     nextCursor = nextCursorOf(r);
+    // The same cursor twice, or a page of nothing new: the catalog is read.
+    if (!added || nextCursor === next) {
+      nextCursor = null;
+      break;
+    }
     next = nextCursor;
     if (!next) break;
   }
@@ -516,6 +639,19 @@ function firstVideoUrl(text: string): string | null {
   return null;
 }
 
+/** How old a category's stored list is (ms), or null when none is stored. */
+export async function videoCacheAge(env: Env, category: PresetCategoryId): Promise<number | null> {
+  const stored = await readJsonSetting<CachedCategory>(env, cacheKey(category, ""));
+  return stored && typeof stored.at === "number" ? Date.now() - stored.at : null;
+}
+
+/** A category read again from the provider and stored for the day (the cron's daily refresh). An empty answer is not stored. */
+export async function refreshVideoCategory(env: Env, mcp: HiggsfieldMcp, category: PresetCategoryId): Promise<number> {
+  const { items, nextCursor } = await fetchCategory(mcp, category, "", null);
+  if (items.length) await writeCache(env, cacheKey(category, ""), { at: Date.now(), items, nextCursor });
+  return items.length;
+}
+
 /* ───────────── Routes ───────────── */
 
 /** The cards of a category: the cache for a day, else the provider (signed in, switch on). Every member. */
@@ -546,11 +682,24 @@ videoPresetRoutes.get("/", async (c) => {
   return c.json({ ...base, items, nextCursor, cachedAt: at, cached: false, reason: "" });
 });
 
+/** A Marketing Studio widget card from today's UGC list (the widget has no detail lookup). */
+async function studioV2Card(env: Env, id: string): Promise<PresetCard | null> {
+  const hit = await readCache(env, cacheKey("ugc", ""));
+  return hit?.items.find((c) => c.id === id && c.source === STUDIO_V2_SOURCE) ?? null;
+}
+
 /** One preset with its inputs, readiness (the post's picture prefilled for an admin), price and instructions. Every member. */
 videoPresetRoutes.get("/:id", async (c) => {
   const user = c.get("user");
   const id = c.req.param("id");
   const source = c.req.query("source") || null;
+  if (source === STUDIO_V2_SOURCE) {
+    const card = await studioV2Card(c.env, id);
+    if (!card) throw new StudioError("That preset is not in today's list: open the UGC category again.", 404);
+    const brief = card.runnable ? { properties: { prompt: { type: "string", title: "A brief for this video (optional): the product, the moment, the words to say" } }, required: [] } : null;
+    const detail: PresetDetail = { ...card, inputSchema: brief, readiness: null, available: card.runnable, instructions: card.runnable ? "Recreated by Higgsfield's Marketing Studio video model from this post's product picture (the clean product photo when the post has one). Its price is asked from Higgsfield before you confirm." : "A scripted talking head: make it on Higgsfield's Marketing Studio, where its script, voice and avatar are chosen." };
+    return c.json({ ok: true, preset: detail, readinessError: "", admin: user.role === "admin" });
+  }
   if (!(await higgsfieldSignIn.isSignedIn(c.env))) throw new StudioError(NOT_SIGNED_IN, 409, false, { notSignedIn: true });
   await assertIntegrationEnabled(c.env, "higgsfield");
   const mcp = new HiggsfieldMcp(c.env, fetcher());
@@ -598,6 +747,7 @@ export type PresetRunInput = z.infer<typeof runSchema>;
 export async function runPreset(env: Env, user: User, d: PresetRunInput): Promise<VideoItem> {
   if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   if ((await higgsfieldBilling(env)) !== "credits") throw new StudioError(CLOUD_CHOSEN, 409, false, { billing: "cloud" });
+  if (d.source === STUDIO_V2_SOURCE) return runStudioV2Preset(env, user, d);
   if (!EXECUTABLE_SOURCES.includes(d.source)) throw new StudioError(`This preset is ${d.source === "recipe" ? "a recipe" : d.source === "katana" ? "a Katana production" : "not runnable from here"}: it cannot be run from the studio. Use its words in Generate, or open it on Higgsfield.`, 400, false, { notRunnable: true });
   const b = await ownedPlan(env, user, d.batch);
   const t = await first<{ id: string; output: string | null }>(env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
@@ -679,6 +829,25 @@ export async function runPreset(env: Env, user: User, d: PresetRunInput): Promis
   // Several jobs: the first is the version's job id; the others are kept in its settings (`jobIds`).
   await updateIntegrationOp(env, opId, { taskId: jobs[0].jobId, status: "running" });
   return versionItem(env, b.id, d.index, id);
+}
+
+/**
+ * A Marketing Studio widget preset (UGC, unboxing, try-on…): Marketing Studio's video model with the
+ * preset's id and type, from the post's clean product photo when it has one (else its picture). The
+ * clip path's own rules apply: the price asked with `get_cost` first, the confirm, one claim, a
+ * ledger row, the job once (`submitMcpVideo`). Admins.
+ */
+async function runStudioV2Preset(env: Env, user: User, d: PresetRunInput): Promise<VideoItem> {
+  const card = await studioV2Card(env, d.presetId);
+  if (!card) throw new StudioError("That preset is not in today's list: open the UGC category again.", 404);
+  if (!card.runnable || !card.type) throw new StudioError(`"${card.title}" is a scripted talking head: make it on Higgsfield's Marketing Studio.`, 409, false, { notRunnable: true });
+  const b = await ownedPlan(env, user, d.batch);
+  const { productBrief } = await import("./photo-presets");
+  const product = (await productBrief(env, user, d.batch, d.index).catch(() => null))?.picture?.key;
+  // Only a file of this month can start a clip (`startFrameKey`); anything else falls back to the post's picture.
+  const posterKey = product && product.startsWith(`${b.owner}/${b.id}/`) ? product : undefined;
+  const prompt = typeof d.inputs.prompt === "string" ? d.inputs.prompt : "";
+  return submitMcpVideo(env, user, { batch: d.batch, index: d.index, model: TEMPLATE_MODEL, prompt, source: "picture", confirm: d.confirm, note: d.note ?? `Preset · ${card.title}` }, { posterKey, template: { presetId: card.id, type: card.type, name: card.title } });
 }
 
 videoPresetRoutes.post("/run", async (c) => {
