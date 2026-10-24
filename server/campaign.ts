@@ -699,7 +699,7 @@ campaignRoutes.post("/:id/regenerate", async (c) => {
   } else if (d.shot) {
     const shot = vid!.shots.find((s) => s.key === d.shot);
     if (!shot) throw new StudioError("That shot is not in the video.", 404);
-    const { plan: one } = await writePlan(c.env, b, { ...setup, imagePosts: 0, videos: 1, shotsPerVideo: 1, videoSeconds: Math.round(shot.seconds) }, row.rev + 1, `Write ONE video with ONE shot that replaces shot ${d.shot} of this video: "${vid!.concept}". The shot it replaces: "${shot.action}". Keep the same product, place and people as the rest of the video.${d.note ? ` The admin asks: ${d.note}` : ""}`);
+    const { plan: one } = await writePlan(c.env, b, { ...setup, imagePosts: 0, videos: 1, shotsPerVideo: 1, videoSeconds: Math.round(shot.seconds) }, row.rev + 1, `Write ONE video with ONE shot that replaces shot ${d.shot} of this video: "${vid!.concept}". The shot it replaces: "${shot.action}". Keep the same product, people, wardrobe, light and world as the rest of the video, and give it a camera position (angleId) that none of its other shots uses${vid!.shots.some((x) => x.key !== d.shot && x.angleId) ? ` (they use ${vid!.shots.filter((x) => x.key !== d.shot && x.angleId).map((x) => x.angleId).join(", ")})` : ""}.${d.note ? ` The admin asks: ${d.note}` : ""}`);
     const s = one.videos[0]?.shots[0];
     if (!s) throw new StudioError("The planner wrote no shot. Try again.", 502);
     next = { ...plan, rev: row.rev + 1, videos: plan.videos.map((v) => (v.key === d.item ? { ...v, shots: v.shots.map((x) => (x.key === d.shot ? { ...s, key: x.key } : x)) } : v)) };
