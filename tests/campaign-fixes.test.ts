@@ -78,3 +78,27 @@ describe("each shot gets its own starting picture (23 Oct: four shots came out a
     expect(framePrompt(v, shot, { note: "No third hand" })).toMatch(/Fix this from the last try: No third hand/);
   });
 });
+
+describe("a card with its own format is made in that format (23 Oct: a Reel's key frame came out 4:5)", () => {
+  it("a 9:16 card in a 4:5 month gets the 9:16 ratio; other cards keep the month's", async () => {
+    const { taskConfig } = await import("../server/engine");
+    const { postConfig } = await import("../shared/config");
+    const config = postConfig("c1", "2026-10", { format: "4:5", ratio: "4:5", plan: [{ index: 1, type: "product", title: "", brief: "", caption: "", hashtags: "" }, { index: 2, type: "product", title: "", brief: "", caption: "", hashtags: "", format: "9:16" }] } as never);
+    expect(taskConfig(config, { post: 2, model: null }).ratio).toBe("9:16");
+    expect(taskConfig(config, { post: 1, model: null }).ratio).toBe(config.ratio);
+    expect(taskConfig(config, { post: 2, model: "gemini-3-pro-image" })).toMatchObject({ ratio: "9:16", model: "gemini-3-pro-image" });
+  });
+});
+
+describe("the people in a shot are the cast, photographed (24 Oct: shot 4 gave Omar and Khaled one face, and looked AI-made)", () => {
+  it("each named person gets his portrait, two people never share a face, the real-people rules and a real photo for realism", () => {
+    const shot = { key: "s4", seconds: 4, action: "Khaled and Omar laughing by the car", framing: "medium", camera: "orbit left", reference: null, source: "start-image" as const, asset: null, text: "" };
+    const v = { concept: "A car ride", frame: "9:16", product: null } as never;
+    const p = framePrompt(v, shot, { faces: [{ name: "khaled", image: 3 }, { name: "omar", image: 4 }], realRef: 5 });
+    expect(p).toMatch(/Image 3 is khaled's portrait/);
+    expect(p).toMatch(/Image 4 is omar's portrait/);
+    expect(p).toMatch(/khaled and omar are different people with different faces: never give two people the same face, never twins/);
+    expect(p).toMatch(/REAL PEOPLE: every person looks photographed/);
+    expect(p).toMatch(/Image 5 is a real photograph of a real person/);
+  });
+});

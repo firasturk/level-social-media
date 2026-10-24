@@ -98,7 +98,7 @@ import {
   ZAID_MIN_WORDS,
   type FramingCheck,
 } from "./editorial";
-import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, type Config } from "@shared/config";
+import { FABRIC_CARD, isNoPrompt, NP_BACKGROUNDS, NP_POSES, ratioForFormat, type Config } from "@shared/config";
 import { buildPostPrompt, monthLabel, tileWithoutBags, type PostBrief, splitEdit, tileForPeople } from "@shared/posts";
 import { parseDirectionRules, ruleOn } from "@shared/direction-rules";
 import type { QA } from "@shared/types";
@@ -1079,8 +1079,12 @@ async function submitNext(
 }
 
 /** The batch config with the image's own engine when a refusal moved it to another one. */
-function taskConfig(config: Config, task: TaskRow): Config {
-  return task.model ? { ...config, model: task.model } : config;
+export function taskConfig(config: Config, task: Pick<TaskRow, "model" | "post">): Config {
+  // A card with its own format (a 9:16 Reel in a 4:5 month) is made in that format's ratio.
+  const post = config.mode === "post" && task.post ? (config.plan ?? []).find((p) => p.index === task.post) : undefined;
+  const ratio = post?.format ? ratioForFormat(post.format) : config.ratio;
+  const own = ratio !== config.ratio ? { ...config, ratio } : config;
+  return task.model ? { ...own, model: task.model } : own;
 }
 
 /**

@@ -33,6 +33,7 @@ import type { User } from "@shared/types";
 import { clipSeconds, stepSignature, type CampaignPlan, type CostUnit, type ImagePlanItem, type ShotPlan, type VideoPlanItem } from "../shared/campaign-plan";
 import { assembleReel, stillShots, type AssembleShot } from "../shared/campaign-assemble";
 import { peopleRule, showsPeople, stripListIdRefs, type CastMember } from "../shared/campaign-planner";
+import { REAL_PEOPLE_RULE, realRefLine } from "../shared/realism";
 import type { CampaignRow, StepRow, StoredApproval } from "./campaign";
 
 export const campaignScope = (id: string, unit: CostUnit) => `campaign:${id}:${unit}`;
@@ -301,9 +302,11 @@ export function redoNote(s: Pick<StepRow, "data" | "note">): string {
 }
 
 /** The prompt a shot's own starting picture is made with: the shot's moment, the key frame's world. */
-export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean } = {}): string {
+export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMember[]; rules?: string[]; note?: string; productPhoto?: boolean; faces?: { name: string; image: number }[]; realRef?: number | null } = {}): string {
   const cast = opts.cast ?? [];
   const people = peopleRule(cast).replace(/^PEOPLE: /, "");
+  const faces = opts.faces ?? [];
+  const withPeople = showsPeople(s.action) || faces.length > 0;
   return [
     "Make one photograph: the starting frame of one shot in a short vertical video ad. It must look like a real photo from the same shoot as the first image.",
     "The first image is the campaign's key frame: keep the same people (same faces, skin tone, hands and clothes), the same place, light, time of day and colour palette.",
@@ -315,12 +318,16 @@ export function framePrompt(v: VideoPlanItem, s: ShotPlan, opts: { cast?: CastMe
     "This is a different moment and a different camera position from the key frame: build the composition this shot describes; do not copy the key frame's composition, crop or pose.",
     `Vertical ${v.frame} photograph, photorealistic, natural skin and textures, nothing extra in the frame, no text, no captions, no logos added, no watermark, no split screen.`,
     showsPeople(s.action) || cast.length ? `People: ${people}` : "",
+    ...faces.map((f) => `Image ${f.image} is ${f.name}'s portrait: wherever ${f.name} appears, it is exactly this man's face (face shape, eyes, nose, beard, hairline, skin tone), photographed again in this scene.`),
+    faces.length > 1 ? `${faces.map((f) => f.name).join(" and ")} are different people with different faces: never give two people the same face, never twins.` : "",
+    withPeople ? REAL_PEOPLE_RULE : "",
+    opts.realRef ? realRefLine(opts.realRef) : "",
     opts.rules?.length ? `Brand rules (never break them): ${opts.rules.slice(0, 8).join(" · ")}` : "",
     opts.note ? `Fix this from the last try: ${opts.note}` : "",
   ]
     .filter(Boolean)
     .join("\n")
-    .slice(0, 4000);
+    .slice(0, 6000);
 }
 
 /** The product's photo, when the plan names one in the library or on Drive (read-only, free). */
@@ -355,14 +362,28 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   const cast = await castOf(env, config.client ?? null);
   const rules = config.client ? await (await import("./lessons")).lessonsFor(env, config.client, { batch: b.id }).catch(() => [] as string[]) : [];
   const product = await productPhoto(env, ctx.plan, s.item);
-  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product });
+  // The cast's portraits (the people this shot names, else everyone when it shows people) and one real photo for realism.
+  const named = cast.filter((m) => new RegExp(`\\b${m.name}\\b`, "i").test(`${shot.action} ${v.concept}`));
+  const shown = named.length ? named : showsPeople(shot.action) ? cast : [];
+  const portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[] = [];
+  for (const m of shown.slice(0, 3)) {
+    const row = config.client ? await first<{ image_key: string | null }>(env.DB, "SELECT image_key FROM ambassadors WHERE client = ? AND name = ?", config.client, m.name).catch(() => null) : null;
+    const obj = row?.image_key ? await env.BUCKET.get(row.image_key) : null;
+    if (obj) portraits.push({ name: m.name, img: { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" } });
+  }
+  const realKey = shown.length ? ((config.client ? await first<{ key: string }>(env.DB, "SELECT key FROM brand_assets WHERE client = ? AND kind = 'realref' ORDER BY RANDOM() LIMIT 1", config.client).catch(() => null) : null) ?? (await first<{ key: string }>(env.DB, "SELECT key FROM brand_assets WHERE kind = 'realref' ORDER BY RANDOM() LIMIT 1").catch(() => null))) : null;
+  const realObj = realKey ? await env.BUCKET.get(realKey.key) : null;
+  const real = realObj ? { bytes: await realObj.arrayBuffer(), mime: realObj.httpMetadata?.contentType || "image/jpeg" } : null;
+  const first2 = product ? 3 : 2;
+  const faces = portraits.map((p, n) => ({ name: p.name, image: first2 + n }));
+  const prompt = framePrompt(v, shot, { cast, rules, note: redoNote(s), productPhoto: !!product, faces, realRef: real ? first2 + portraits.length : null });
   if (!(await reserveFor(env, row, s, s.estimate ?? 0))) return;
   await patchStep(env, s, { post: index, ref_kind: "engine", ref_id: model, note: `Making this shot's picture with ${model}` });
   const { makeGoogleClient } = await import("./engine");
   const engine = await makeGoogleClient(env);
   let img: { bytes: ArrayBuffer; mime: string };
   try {
-    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : [])], aspectRatio: v.frame, size: config.size ?? "2K" });
+    img = await engine.edit({ model, prompt, images: [{ bytes: await keyObj.arrayBuffer(), mime: keyObj.httpMetadata?.contentType || "image/png" }, ...(product ? [product] : []), ...portraits.map((p) => p.img), ...(real ? [real] : [])], aspectRatio: v.frame, size: config.size ?? "2K" });
   } catch (e) {
     // Google bills a picture it returns: a refusal or an error answer returns none; a lost connection may have made one.
     const message = errorMessage(e);
@@ -373,7 +394,32 @@ async function engineFrame(ctx: Ctx, s: StepRow, b: BatchRow, v: VideoPlanItem, 
   const key = `${b.owner}/${b.id}/campaign/${row.id}/${v.key}-${shot.key}-frame-${s.attempts}.${/jpe?g/.test(mime) ? "jpg" : /webp/.test(mime) ? "webp" : "png"}`;
   await env.BUCKET.put(key, img.bytes, { httpMetadata: { contentType: mime } });
   await settleCost(env, row, s, s.reserved);
-  await patchStep(env, s, { status: "done", output_key: key, finished: now(), note: `Made by ${model} from the key frame${product ? " and the product photo" : ""}, for this shot's own moment` });
+  const made = `Made by ${model} from the key frame${product ? ", the product photo" : ""}${portraits.length ? `, ${portraits.map((p) => p.name).join(" and ")}'s portrait${portraits.length > 1 ? "s" : ""}` : ""}, for this shot's own moment`;
+  // The automatic check (one text call): the people's faces and an AI look, shown on the shot for the admin.
+  const flags = portraits.length || showsPeople(shot.action) ? await checkFrame(env, { bytes: img.bytes, mime }, portraits, shot).catch((e) => (console.error("[campaign] frame check", errorMessage(e)), [] as string[])) : [];
+  await patchStep(env, s, { status: "done", output_key: key, finished: now(), note: flags.length ? `The automatic check asks you to look: ${flags.join("; ")}`.slice(0, 500) : made });
+}
+
+const FRAME_CHECK_SCHEMA = { type: "object", properties: { problems: { type: "array", items: { type: "string" } } }, required: ["problems"] } as const;
+
+/** What a person would object to in a shot's picture: the wrong or a repeated face, an AI look, broken hands. */
+async function checkFrame(env: Env, pic: { bytes: ArrayBuffer; mime: string }, portraits: { name: string; img: { bytes: ArrayBuffer; mime: string } }[], shot: ShotPlan): Promise<string[]> {
+  const { askText, parseJson } = await import("./posts");
+  const instruction = [
+    "You check one picture for a brand's video ad before it is animated. Image 1 is the picture.",
+    ...portraits.map((p, n) => `Image ${n + 2} is ${p.name}'s portrait.`),
+    `The shot should show: ${shot.action}`,
+    "List only real problems a creative director would reject, each in one short sentence:",
+    portraits.length ? "- a person whose face does not match their portrait; two people with the same face (twins);" : "",
+    "- people who look AI-generated rather than photographed (waxy or plastic skin, airbrushed face, doll eyes, CGI smoothness, a stiff pose or frozen smile, a person lit separately from the set);",
+    "- extra, missing or malformed hands or fingers; a woman or a girl, or a woman's hand, when the people should be men only;",
+    "- the picture not showing what the shot should show.",
+    'Answer {"problems": []} when it is fine.',
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const out = parseJson<{ problems?: string[] }>(await askText(env, instruction, FRAME_CHECK_SCHEMA, [pic, ...portraits.map((p) => p.img)]));
+  return (out.problems ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 4);
 }
 
 async function startStep(ctx: Ctx, s: StepRow): Promise<void> {

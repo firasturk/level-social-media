@@ -532,7 +532,8 @@ campaignRoutes.post("/suggest", async (c) => {
     products: products.slice(0, 40).map((p, n) => ({ ...p, listId: `P${n + 1}` })),
     month: config.month ?? "",
     today: new Date().toISOString().slice(0, 10),
-    occasions: occasionsOf(config.month ?? "").map((o) => ({ date: o.date, name: `${o.name} (${o.ar})` })),
+    // Only the occasions still ahead: a campaign made today cannot greet a day that has passed.
+    occasions: occasionsOf(config.month ?? "").filter((o) => o.date >= new Date().toISOString().slice(0, 10)).map((o) => ({ date: o.date, name: `${o.name} (${o.ar})` })),
     cast: await castOf(c.env, config.client ?? null),
     rules: config.client ? await (await import("./lessons")).lessonsFor(c.env, config.client, { batch: b.id }).catch(() => []) : [],
     past: [...new Set(pastRows.map((r) => (JSON.parse(r.setup) as Partial<CampaignSetup>).objective?.trim() ?? "").filter(Boolean))],
@@ -928,7 +929,7 @@ campaignRoutes.post("/:id/steps/:step/redo", async (c) => {
     // The note the new take is made with: the admin's words, else the automatic check's notes on the last picture.
     const fix = mine ? d.note || redoNote({ data: null, note: x.note }) : "";
     const data = mine ? JSON.stringify({ ...(d.angle ? { angle: d.angle } : {}), ...(fix ? { note: fix } : {}) }) : x.data;
-    await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', max_attempts = attempts + 1, data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", data, mine ? ["Making again", d.angle && `angle: ${d.angle}`, fix && `with: ${fix}`].filter(Boolean).join(", ").slice(0, 400) : "Made again from the new key frame", t, row.id, x.step);
+    await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', max_attempts = MAX(max_attempts, attempts + 1), data = ?, error = NULL, note = ?, updated = ? WHERE campaign = ? AND step = ?", data, mine ? ["Making again", d.angle && `angle: ${d.angle}`, fix && `with: ${fix}`].filter(Boolean).join(", ").slice(0, 400) : "Made again from the new key frame", t, row.id, x.step);
   }
   // The clips that start from this picture, and the Reel's review, wait for the new picture.
   await run(c.env.DB, "UPDATE campaign_steps SET status = 'waiting', updated = ? WHERE campaign = ? AND step = ?", t, row.id, review.step);
