@@ -124,3 +124,15 @@ describe("the approved picture is the clip's first frame (24 Oct: Higgsfield rea
     expect(models[0].roles).toEqual(["start_image", "image_references"]);
   });
 });
+
+describe("a recommended preset is not a started clip (24 Oct: all four clips failed)", () => {
+  it("'Submitted 0/1 … declined_preset_id=<uuid>' has no job, and its preset id is declined", async () => {
+    const { parseJobs, declinedPresetIn } = await import("../server/higgsfield-mcp");
+    const text = 'Submitted 0/1 video generations.\n- index 0: submission_failed — Preset "IN THE DARK" was recommended instead of submitting a job. Retry this index with declined_preset_id=24bae836-2c4a-48e0-89b6-49fcc0b21612.\nWait for the complete requested set with jobs_wait.';
+    const r = { isError: true, content: [{ type: "text", text }] } as never;
+    expect(parseJobs(r)).toEqual([]);
+    expect(declinedPresetIn(r)).toBe("24bae836-2c4a-48e0-89b6-49fcc0b21612");
+    const ok = { content: [{ type: "text", text: "Submitted 1 job.\n- 53fc284d-dd1f-46af-b0c0-1ea9895ee1cd" }] } as never;
+    expect(parseJobs(ok).map((j) => j.jobId)).toEqual(["53fc284d-dd1f-46af-b0c0-1ea9895ee1cd"]);
+  });
+});

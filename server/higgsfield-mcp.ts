@@ -300,9 +300,12 @@ export function parseJobs(r: McpCallResult): JobEntry[] {
   // id in quotes and brackets was missed, and a submitted, charged run was recorded as never started).
   if (!out.length) {
     const text = resultText(r);
-    if (/\bsubmitted\b|\bjob/i.test(text)) {
+    // "Submitted 0/1 … Retry this index with declined_preset_id=<uuid>": nothing started, and that UUID is a preset (24 Oct, live).
+    const declined = declinedPresetIn(r);
+    if (/\bsubmitted\b|\bjob/i.test(text) && !/\bsubmitted 0\s*\/\s*\d/i.test(text)) {
       for (const m of text.matchAll(/(?<![0-9a-f-])([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?![0-9a-f-])/gi)) {
         const jobId = m[1].toLowerCase();
+        if (jobId === declined?.toLowerCase()) continue;
         if (!out.some((x) => x.jobId === jobId)) out.push({ index: out.length, jobId, status: "queued", url: null, error: null });
       }
     }
