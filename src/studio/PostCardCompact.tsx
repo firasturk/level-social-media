@@ -210,7 +210,7 @@ export default function PostCardCompact({
         </div>
         {(() => {
           const c = cardComments(post, approval);
-          return c ? <CardComments comments={c} /> : null;
+          return c ? <CardComments comments={c} steps={c.done ? post.clientSteps?.steps : undefined} /> : null;
         })()}
         {(styleTitle || post.product) && (
           <small className="pc-meta">

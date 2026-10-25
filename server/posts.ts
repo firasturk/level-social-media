@@ -28,7 +28,7 @@ import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } f
 import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftStatus, type PlanDraft } from "@shared/draft";
 import { blockingConflicts, detectConflicts, guideFor, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { traceEvent } from "./trace";
-import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, type ClientAsk } from "@shared/client-changes";
+import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, plansRemake, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatFrame, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
 import { framePostPicture, postPictureSizes, sizeLabel, type FrameOutcome } from "./picture-frame";
 import { hintsTool, INTENT_SCHEMA, intentInstruction, intentSummary, resolveIntent, validateIntent, videoCatalog, type PromptContext } from "@shared/promptbox";
@@ -5829,6 +5829,7 @@ const clientChangeSchema = z.object({
   hashtags: z.string().max(300),
   summary: z.string().max(300),
   lesson: z.string().max(300),
+  steps: z.array(z.object({ tool: z.string().max(40), what: z.string().max(300) })).max(8).optional(),
 });
 
 /**
@@ -5928,6 +5929,7 @@ postRoutes.post("/client-changes", async (c) => {
       ideaAt: t,
       clientNote: { note: ask.note, at: t, summary: ch.summary || undefined },
       clientNotes: [...(p.clientNotes ?? []), ...clientComments(cfg.approvals?.[String(p.index)]).map((x) => ({ ...x, done: t, summary: ch.summary || undefined }))].slice(-20),
+      ...(ch.steps?.length ? { clientSteps: { at: t, steps: ch.steps } } : {}),
     };
   });
   // The request is answered: the approval page asks the client again; the comments stay on the post.
@@ -5935,7 +5937,9 @@ postRoutes.post("/client-changes", async (c) => {
   await saveConfig(c.env, fresh, cfg);
   // What the request teaches about this client waits for the admin on the Lessons learned page.
   for (const ch of changes) if (ch.lesson) await rememberLesson(c.env, config.client ?? null, b.id, "client", ch.lesson, "client").catch((e) => console.error("[lessons]", e));
-  return c.json({ ok: true, indexes: done.map((x) => x.index), changes: done });
+  // "Generate now" is offered only for the posts whose plan makes the picture again.
+  const remake = done.map((x) => x.index).filter((i) => plansRemake(changes.find((ch) => ch.index === i) ?? {}));
+  return c.json({ ok: true, indexes: done.map((x) => x.index), remake, changes: done });
 });
 
 /** The client's approval link for this month (made once, then reused). */

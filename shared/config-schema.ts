@@ -115,6 +115,7 @@ export const postSchema = z.object({
   reference: z.object({ key: z.string().max(200), thumb: z.string().max(200), note: z.string().max(600).optional(), name: z.string().max(200).optional(), at: z.number(), source: z.enum(["freepik", "drive", "pinterest", "upload"]).optional() }).optional(),
   clientNote: z.object({ note: z.string().max(1000), at: z.number(), summary: z.string().max(300).optional() }).optional(),
   clientNotes: z.array(z.object({ note: z.string().max(1000), by: z.string().max(80).optional(), at: z.number(), done: z.number(), summary: z.string().max(300).optional() })).max(20).optional(),
+  clientSteps: z.object({ at: z.number(), steps: z.array(z.object({ tool: z.string().max(40), what: z.string().max(300) })).max(8) }).optional(),
   seenBefore: z.string().max(120).optional(),
   offer: z
     .object({

@@ -1373,16 +1373,18 @@ export default function Workspace({
     if (!batch || !clientPreview) return;
     setBusy("client");
     try {
-      const r = await post<{ indexes: number[]; changes: { index: number; summary: string }[] }>("/api/studio/posts/client-changes", { batch: batch.id, changes: clientPreview.map((x) => x.change) });
+      const r = await post<{ indexes: number[]; remake: number[]; changes: { index: number; summary: string }[] }>("/api/studio/posts/client-changes", { batch: batch.id, changes: clientPreview.map((x) => x.change) });
       setClientPreview(null);
       await refresh();
-      toast.success(`The client's comments are done on post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. They stay on the cards.`);
-      if (engineConnected && r.indexes.length) {
+      toast.success(`The client's comments are written into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. The comments and the steps still to do stay on the cards.`, { duration: 10000 });
+      // Only the posts whose plan makes the picture again are offered a new picture.
+      const remake = r.remake ?? r.indexes;
+      if (engineConnected && remake.length) {
         const ok = await askConfirm(
-          `The client's changes are saved into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now?`,
+          `The plan makes ${remake.length === 1 ? `post ${remake[0]}'s picture` : `the pictures of posts ${remake.join(", ")}`} again. Make ${remake.length === 1 ? "it" : `these ${remake.length}`} now?`,
           { ok: "Generate now", cancel: "Keep the changes, generate later", danger: false },
         );
-        if (ok) await generatePosts(r.indexes, true, false);
+        if (ok) await generatePosts(remake, true, false);
       }
     } catch (e) {
       toast.error((e as Error).message);

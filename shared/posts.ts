@@ -184,6 +184,8 @@ export interface Post {
   clientNote?: { note: string; at: number; summary?: string };
   /** Every comment the client wrote on this post that "Do client comments" applied, oldest first (at most 20). */
   clientNotes?: ClientComment[];
+  /** The plan "Do client comments" wrote for the last round: the studio's tools, in order, for the team to run. */
+  clientSteps?: { at: number; steps: { tool: string; what: string }[] };
   /** Campaign memory: the earlier post this idea reads like ("October 2026 · post 4"). */
   seenBefore?: string;
   /** When the designer last changed the idea or the shot by hand: a picture older than this is offered an update. */

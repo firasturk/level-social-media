@@ -110,6 +110,25 @@ describe("Do client comments", () => {
     expect(cfg.approvals?.["2"]?.status).toBe("approved");
   });
 
+  it("plans a carousel with the studio's carousel tools, keeps the plan on the post and offers no new picture", async () => {
+    const env = await seed();
+    const { preview } = (await (await send(env, { batch: "b1", preview: true })).json()) as { preview: { change: { steps: { tool: string }[] } }[] };
+    expect(preview[0].change.steps.map((s) => s.tool)).toEqual(["rewrite", "carousel-camera"]);
+    const r = (await (await send(env, { batch: "b1", changes: [preview[0].change] })).json()) as { indexes: number[]; remake: number[] };
+    expect(r.indexes).toEqual([1]);
+    expect(r.remake).toEqual([]);
+    const p1 = (await configOf(env)).plan.find((p) => p.index === 1)!;
+    expect(p1.clientSteps?.steps.map((s) => s.tool)).toEqual(["rewrite", "carousel-camera"]);
+  });
+
+  it("drops a step naming a tool the studio does not have, from a proposal sent back", async () => {
+    const env = await seed();
+    const { preview } = (await (await send(env, { batch: "b1", preview: true })).json()) as { preview: { change: Record<string, unknown> }[] };
+    const r = (await (await send(env, { batch: "b1", changes: [{ ...preview[0].change, steps: [{ tool: "photoshop", what: "x" }, { tool: "remake", what: "new" }] }] })).json()) as { remake: number[] };
+    expect(r.remake).toEqual([1]);
+    expect((await configOf(env)).plan.find((p) => p.index === 1)!.clientSteps?.steps).toEqual([{ tool: "remake", what: "new" }]);
+  });
+
   it("refuses a proposal whose comments were already done", async () => {
     const env = await seed();
     const { preview } = (await (await send(env, { batch: "b1", preview: true })).json()) as { preview: { change: Record<string, unknown> }[] };

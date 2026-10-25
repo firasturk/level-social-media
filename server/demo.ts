@@ -172,7 +172,7 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
   } else if (props.posts && (props.posts.items?.properties ?? {}).lesson) {
     // "Do client comments": each asked post comes back with its brief marked and the client's words in the summary.
     const asks = [...instruction.matchAll(/^Post (\d+) "[^"]*"[\s\S]*?THE CLIENT ASKS: "([^"]*)"/gm)];
-    out = { posts: asks.map((m) => ({ index: Number(m[1]), product: "", brief: `${DEMO}: the post's shot, changed as the client asked.`, scene: "", headline: "", caption: `${DEMO}: كما طلب العميل.`, hashtags: "#demo", summary: `${DEMO}: applied "${m[2].slice(0, 120)}".`, lesson: "" })) };
+    out = { posts: asks.map((m) => ({ index: Number(m[1]), product: "", brief: `${DEMO}: the post's shot, changed as the client asked.`, scene: "", headline: "", caption: `${DEMO}: كما طلب العميل.`, hashtags: "#demo", summary: `${DEMO}: applied "${m[2].slice(0, 120)}".`, lesson: "", steps: /carousel|كاروسيل|كروسيل|سلايد/i.test(m[2]) ? [{ tool: "rewrite", what: "The caption for a carousel." }, { tool: "carousel-camera", what: "Four slides: from above, closer, from the left, wider." }] : [{ tool: "rewrite", what: "The shot and the words as the client asked." }, { tool: "remake", what: "A new picture from the new shot." }] })) };
   } else if (props.posts && props.tiles) out = gridRead(instruction);
   else if (props.tiles && props.world) {
     // The grid read on its own, for the preview: the same tiles, no posts.

@@ -8,7 +8,7 @@ import { useState } from "react";
 import { ArrowRight, Check, MessageSquareReply } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Orb } from "@/components/Orb";
-import type { ClientChange } from "@shared/client-changes";
+import { CLIENT_CHANGE_TOOLS, clientTool, type ClientChange, type ClientToolWhen } from "@shared/client-changes";
 import type { Approval } from "@shared/config";
 import type { ClientComment, Post } from "@shared/posts";
 import "./client-changes.css";
@@ -19,6 +19,51 @@ export interface ClientChangePreview {
   comments: { note: string; by?: string; at: number }[];
   before: { product: string; headline: string; caption: string; hashtags: string; brief: string };
   change: ClientChange;
+}
+
+const WHEN: Record<ClientToolWhen, string> = { apply: "On Apply", after: "Asked after Apply", team: "You run it" };
+
+/** The plan for one post: each step with its tool, where it is, when it happens and what it costs. */
+export function PlanSteps({ steps, compact = false }: { steps: { tool: string; what: string }[]; compact?: boolean }) {
+  return (
+    <ol className={`ccd-plan ${compact ? "compact" : ""}`}>
+      {steps.map((st, i) => {
+        const t = clientTool(st.tool);
+        if (!t) return null;
+        return (
+          <li key={i} className={`ccd-step ${t.when}`}>
+            <span className="ccd-step-head">
+              <b>{t.label}</b>
+              <span className={`ccd-when ${t.when}`}>{WHEN[t.when]}</span>
+              {!compact && <small>{t.cost}</small>}
+            </span>
+            {st.what && <span className="ccd-what">{st.what}</span>}
+            {!compact && t.when !== "apply" && <small className="ccd-where">{t.where}</small>}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Which tools make a carousel, and how they differ: shown when a plan makes one. */
+function CarouselTools() {
+  return (
+    <details className="ccd-carousel">
+      <summary>The tools that make a carousel</summary>
+      <ul>
+        {CLIENT_CHANGE_TOOLS.filter((t) => "carousel" in t && t.carousel).map((t) => (
+          <li key={t.id}>
+            <b>{t.label}</b>: {t.use} <small>({t.cost})</small>
+          </li>
+        ))}
+        <li>
+          <b>Restyle</b> keeps one picture in another look: it does not make slides.
+        </li>
+      </ul>
+      <small>Each ends with “Add as a carousel” under the result: the post is slide 1 and the results the next slides, ten at most, with no further cost.</small>
+    </details>
+  );
 }
 
 function Diff({ label, before, after }: { label: string; before: string; after: string }) {
@@ -46,9 +91,10 @@ export default function ClientChangesDialog({ items, applying, onApply, onClose 
             <MessageSquareReply size={16} /> What the client's comments will change
           </DialogTitle>
           <DialogDescription>
-            Nothing is saved yet. Apply writes these changes into {items.length === 1 ? "the post" : `the ${items.length} posts`}; no picture is made until you ask. The client's comments stay on the cards, marked done, and the approval link asks the client again.
+            Nothing is saved yet. Each post shows its plan: which tool does what, when, and what it costs. Apply does the steps marked “On Apply” (free); a new picture is offered only where the plan makes one, and the steps marked “You run it” stay on the card for you, each showing its price before anything is made. The client's comments stay on the cards, marked done, and the approval link asks the client again.
           </DialogDescription>
         </DialogHeader>
+        {items.some((it) => it.change.steps?.some((st) => clientTool(st.tool)?.carousel)) && <CarouselTools />}
         <div className="ccd-list">
           {items.map((it) => (
             <article key={it.index} className="ccd-post">
@@ -63,6 +109,12 @@ export default function ClientChangesDialog({ items, applying, onApply, onClose 
                   </li>
                 ))}
               </ul>
+              {!!it.change.steps?.length && (
+                <div className="ccd-plan-box">
+                  <span className="ccd-label">The plan</span>
+                  <PlanSteps steps={it.change.steps} />
+                </div>
+              )}
               {it.change.summary && (
                 <p className="ccd-summary">
                   <Check size={13} /> {it.change.summary}
@@ -114,7 +166,7 @@ export function cardComments(p: Pick<Post, "clientNotes" | "clientNote">, approv
  * orange while it waits, green once "Do client comments" did it. It stays while the team works on
  * the post (25 Oct); a click folds or unfolds long comments.
  */
-export function CardComments({ comments }: { comments: NonNullable<ReturnType<typeof cardComments>> }) {
+export function CardComments({ comments, steps }: { comments: NonNullable<ReturnType<typeof cardComments>>; steps?: { tool: string; what: string }[] }) {
   const [open, setOpen] = useState(false);
   const when = (t: number) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   const history = comments.earlier.map((n) => `“${n.note}”${n.by ? ` · ${n.by}` : ""} · done ${when(n.done)}`).join("\n");
@@ -130,6 +182,12 @@ export function CardComments({ comments }: { comments: NonNullable<ReturnType<ty
           {n.note}
         </span>
       ))}
+      {comments.done && steps?.some((st) => clientTool(st.tool)?.when !== "apply") && (
+        <span className="pc-comments-plan">
+          <small>Still to do:</small>
+          <PlanSteps steps={steps.filter((st) => clientTool(st.tool)?.when !== "apply")} compact />
+        </span>
+      )}
     </button>
   );
 }

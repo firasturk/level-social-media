@@ -155,3 +155,88 @@
 .pc-comments.unfolded .pc-comment {
   display: block;
 }
+.ccd-plan-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.ccd-plan {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.ccd-plan.compact {
+  gap: 2px;
+  font-size: 12px;
+}
+.ccd-step-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ccd-step-head small {
+  color: var(--ink-500);
+}
+.ccd-when {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--ink-700);
+}
+.ccd-when.apply {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.ccd-when.after {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+.ccd-when.team {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.ccd-what {
+  display: block;
+  color: var(--ink-700);
+}
+.ccd-where {
+  display: block;
+  color: var(--blue);
+}
+.ccd-carousel {
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--blue-pale);
+  color: var(--ink-700);
+}
+.ccd-carousel summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--blue);
+}
+.ccd-carousel ul {
+  margin: 6px 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pc-comments-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-700);
+}
