@@ -103,10 +103,55 @@
     display: none;
   }
 }
-/* A comment the studio already applied, still shown on the card. */
-.pc-meta.client-done {
-  color: var(--success);
-}
 .approval-answers li.done b {
   color: var(--success);
+}
+/* The client's comments at the top of a card, under its title. */
+.pc-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  margin: 4px 0 2px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.pc-comments.open {
+  background: var(--warning-soft);
+  color: var(--warning-text);
+}
+.pc-comments.done {
+  background: var(--success-soft);
+  color: var(--ink-700);
+}
+.pc-comments-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pc-comments.open .pc-comments-head {
+  color: var(--warning);
+}
+.pc-comments.done .pc-comments-head {
+  color: var(--success);
+}
+.pc-comments-head small {
+  font-weight: 500;
+}
+.pc-comment {
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pc-comments.unfolded .pc-comment {
+  display: block;
 }

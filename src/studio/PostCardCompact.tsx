@@ -10,6 +10,8 @@ import "./text/text-studio.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
 import type { Task } from "@shared/types";
+import type { Approval } from "@shared/config";
+import { CardComments, cardComments } from "./ClientChangesDialog";
 
 export type EditorGroup = "idea" | "image" | "words" | "versions";
 
@@ -52,7 +54,7 @@ export default function PostCardCompact({
   inFlight: boolean;
   state: { cls: string; icon: ReactNode; text: string } | null;
   flags: { text: string }[];
-  approval?: { status: "approved" | "changes"; note?: string; by?: string; answers?: { rid: string }[] };
+  approval?: Approval;
   styleTitle?: string | null;
   dayTitle?: string;
   onEdit: (group?: EditorGroup) => void;
@@ -206,6 +208,10 @@ export default function PostCardCompact({
             </span>
           )}
         </div>
+        {(() => {
+          const c = cardComments(post, approval);
+          return c ? <CardComments comments={c} /> : null;
+        })()}
         {(styleTitle || post.product) && (
           <small className="pc-meta">
             {post.product ? post.product : ""}

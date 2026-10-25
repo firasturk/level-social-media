@@ -4,10 +4,12 @@
  * caption, the shot), and nothing is saved until the team presses Apply. Applying writes exactly what
  * is shown; no picture is made until the team asks for it. The comments stay on the cards, marked done.
  */
+import { useState } from "react";
 import { ArrowRight, Check, MessageSquareReply } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Orb } from "@/components/Orb";
 import type { ClientChange } from "@shared/client-changes";
+import type { Approval } from "@shared/config";
 import type { ClientComment, Post } from "@shared/posts";
 import "./client-changes.css";
 
@@ -93,20 +95,42 @@ export default function ClientChangesDialog({ items, applying, onApply, onClose 
   );
 }
 
-/**
- * On a card: the client's comments of the last round the studio applied, marked done, with every
- * earlier comment in the tooltip. Shown once the client has no open answer on the post.
- */
-export function DoneComments({ notes }: { notes: ClientComment[] }) {
+/** What the client wrote that a card keeps in sight: the open request, or the last round the studio did. */
+export function cardComments(p: Pick<Post, "clientNotes" | "clientNote">, approval: Approval | undefined): { done: boolean; items: { note: string; by?: string; summary?: string; at: number }[]; earlier: ClientComment[] } | null {
+  if (approval?.status === "changes") {
+    const asks = (approval.answers ?? []).filter((x) => x.status === "changes" && x.note?.trim());
+    const items = asks.length ? asks.map((x) => ({ note: x.note!.trim(), by: x.by?.trim() || undefined, at: x.at })) : approval.note?.trim() ? [{ note: approval.note.trim(), by: approval.by, at: approval.at }] : [];
+    return items.length ? { done: false, items, earlier: doneCommentsOf(p) } : null;
+  }
+  if (approval) return null;
+  const notes = doneCommentsOf(p);
+  if (!notes.length) return null;
   const last = Math.max(...notes.map((n) => n.done));
-  const round = notes.filter((n) => n.done === last);
+  return { done: true, items: notes.filter((n) => n.done === last), earlier: notes.filter((n) => n.done !== last) };
+}
+
+/**
+ * At the top of a card, under its title: every comment the client wrote, whole, with who wrote it:
+ * orange while it waits, green once "Do client comments" did it. It stays while the team works on
+ * the post (25 Oct); a click folds or unfolds long comments.
+ */
+export function CardComments({ comments }: { comments: NonNullable<ReturnType<typeof cardComments>> }) {
+  const [open, setOpen] = useState(false);
   const when = (t: number) => new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const all = notes.map((n) => `“${n.note}”${n.by ? ` · ${n.by}` : ""} · done ${when(n.done)}${n.summary ? `: ${n.summary}` : ""}`).join("\n");
+  const history = comments.earlier.map((n) => `“${n.note}”${n.by ? ` · ${n.by}` : ""} · done ${when(n.done)}`).join("\n");
   return (
-    <small className="pc-meta client-done" dir="auto" title={all}>
-      <Check size={11} /> Done · {round.map((n) => `“${n.note}”${n.by ? ` · ${n.by}` : ""}`).join(" · ")}
-      {notes.length > round.length ? ` (+${notes.length - round.length} earlier)` : ""}
-    </small>
+    <button type="button" className={`pc-comments ${comments.done ? "done" : "open"} ${open ? "unfolded" : ""}`} onClick={() => setOpen((o) => !o)} title={open ? "Fold" : "Show the whole comment"}>
+      <span className="pc-comments-head">
+        {comments.done ? <Check size={12} /> : <MessageSquareReply size={12} />} {comments.done ? "Client comments · done" : "What the client wrote"}
+        {comments.earlier.length ? <small title={history}> · {comments.earlier.length} earlier</small> : null}
+      </span>
+      {comments.items.map((n, i) => (
+        <span key={i} className="pc-comment" dir="auto" title={n.summary ? `Done: ${n.summary}` : undefined}>
+          {n.by ? <b>{n.by}: </b> : null}
+          {n.note}
+        </span>
+      ))}
+    </button>
   );
 }
 

@@ -9,7 +9,6 @@ import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post, postForm } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
 import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
-import { DoneComments, doneCommentsOf } from "./ClientChangesDialog";
 import { applyStyleToPosts, designFromLegacy, type ApplyRole } from "./text/model";
 import type { Layer, TextDesign } from "@shared/layers";
 import "./text/text-studio.css";
@@ -1140,12 +1139,6 @@ export default function PlanView({
                           )}
                           {p.seenBefore && <small className="pc-meta">Seen before · {p.seenBefore}</small>}
                           <PublishPill publication={publicationFor(publications, plan, p.index)} />
-                          {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
-                            <small className="pc-meta" dir="auto">
-                              “{approvals[String(p.index)].note}”{approvals[String(p.index)].by ? ` · ${approvals[String(p.index)].by}` : ""}
-                            </small>
-                          )}
-                          {!approvals[String(p.index)] && doneCommentsOf(p).length > 0 && <DoneComments notes={doneCommentsOf(p)} />}
                           {cardDirty && (
                             <span className="pc-unsaved">
                               Unsaved changes ·{" "}
