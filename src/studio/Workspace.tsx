@@ -107,6 +107,9 @@ const atVideoEditor = () => window.location.pathname.replace(/\/$/, "") === VIDE
 const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : p === "video-editor" ? VIDEO_EDITOR_PATH : "/");
 const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : atVideoEditor() ? "video-editor" : null);
 
+/** Which grid of a client's month was open last ("client|month" → batch id). */
+const GRID_PICK_KEY = "lsm-grid-pick";
+
 function remembered(key: string): string {
   try {
     return localStorage.getItem(key) ?? "";
@@ -210,7 +213,21 @@ export default function Workspace({
   // The studio makes grids for the month we are in: it opens on the current calendar month, never on a later one.
   const [month, setMonth] = useState<string>(() => urlParam("month", /^\d{4}-\d{2}$/) || currentMonth());
   /** Which grid of a client's month is open, when the month holds several ("client|month" → batch id). */
-  const [gridPick, setGridPick] = useState<Record<string, string>>({});
+  const [gridPick, setGridPickState] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(remembered(GRID_PICK_KEY) || "{}") as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+  // The grid open for each client's month is kept in this browser, so a refresh reopens the same posts (25 Oct).
+  const setGridPick = useCallback((f: (g: Record<string, string>) => Record<string, string>) => {
+    setGridPickState((g) => {
+      const next = f(g);
+      remember(GRID_PICK_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
   /** The art director's proposal for the client's comments, shown before anything is saved. */
   const [clientPreview, setClientPreview] = useState<ClientChangePreview[] | null>(null);
   const [busy, setBusy] = useState("");
@@ -387,7 +404,8 @@ export default function Workspace({
       const list = gridsOf(c, m);
       if (!list.length) return null;
       const picked = gridPick[`${c}|${m}`];
-      return list.find((b) => b.id === picked) ?? list[0];
+      // Nothing picked in this browser yet: the grid worked on last, not the one made last.
+      return list.find((b) => b.id === picked) ?? list.reduce((a, b) => (b.updated > a.updated ? b : a));
     },
     [gridsOf, gridPick],
   );
@@ -396,7 +414,7 @@ export default function Workspace({
     const b = batches.find((x) => x.id === id);
     if (!b?.client || !b.month) return;
     setGridPick((g) => ({ ...g, [`${b.client}|${b.month}`]: id }));
-  }, [batches]);
+  }, [batches, setGridPick]);
   // The open plan follows the client and the month.
   useEffect(() => {
     const plan = planOf(clientId, month);
