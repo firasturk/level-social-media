@@ -1,0 +1,112 @@
+.ccd {
+  max-width: 680px !important;
+  background: var(--surface);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.ccd [data-slot="dialog-title"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ccd-list {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.ccd-post {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ccd-title {
+  font-size: 14px;
+  color: var(--ink-900);
+}
+.ccd-comments {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning-text);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ccd-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-700);
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.ccd-summary svg {
+  color: var(--success);
+  flex: none;
+  margin-top: 2px;
+}
+.ccd-diff {
+  display: grid;
+  grid-template-columns: 76px 1fr auto 1fr;
+  gap: 6px;
+  align-items: start;
+  font-size: 12px;
+}
+.ccd-label {
+  color: var(--ink-500);
+}
+.ccd-before {
+  color: var(--ink-400);
+  text-decoration: line-through;
+}
+.ccd-after {
+  color: var(--ink-900);
+}
+.ccd-arrow {
+  color: var(--ink-400);
+  margin-top: 2px;
+}
+.ccd-brief {
+  font-size: 12px;
+  color: var(--ink-700);
+}
+.ccd-brief summary {
+  cursor: pointer;
+  color: var(--blue);
+}
+.ccd-brief p {
+  margin: 6px 0 0;
+}
+.ccd-scene {
+  color: var(--ink-500);
+}
+.ccd-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+}
+@media (max-width: 560px) {
+  .ccd-diff {
+    grid-template-columns: 1fr;
+  }
+  .ccd-arrow {
+    display: none;
+  }
+}
+/* A comment the studio already applied, still shown on the card. */
+.pc-meta.client-done {
+  color: var(--success);
+}
+.approval-answers li.done b {
+  color: var(--success);
+}

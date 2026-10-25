@@ -169,6 +169,10 @@ export function demoAnswer(instruction: string, schema: unknown, images = 0): st
     const req = intentRequestFrom(instruction);
     const i = req ? resolveIntent(req.message, req.ctx) : null;
     out = i ? { tool: i.tool, post: i.target.post ?? 0, slide: i.target.slide ?? 0, q: String(i.settings.q ?? ""), assetType: String(i.settings.type ?? ""), orientation: String(i.settings.orientation ?? ""), role: String(i.settings.role ?? ""), model: String(i.settings.model ?? ""), duration: Number(i.settings.duration ?? 0), aspect: String(i.settings.aspect ?? ""), operation: String(i.settings.operation ?? ""), question: i.questions[0] ?? "" } : { tool: "none", post: 0, slide: 0, q: "", assetType: "", orientation: "", role: "", model: "", duration: 0, aspect: "", operation: "", question: "" };
+  } else if (props.posts && (props.posts.items?.properties ?? {}).lesson) {
+    // "Do client comments": each asked post comes back with its brief marked and the client's words in the summary.
+    const asks = [...instruction.matchAll(/^Post (\d+) "[^"]*"[\s\S]*?THE CLIENT ASKS: "([^"]*)"/gm)];
+    out = { posts: asks.map((m) => ({ index: Number(m[1]), product: "", brief: `${DEMO}: the post's shot, changed as the client asked.`, scene: "", headline: "", caption: `${DEMO}: كما طلب العميل.`, hashtags: "#demo", summary: `${DEMO}: applied "${m[2].slice(0, 120)}".`, lesson: "" })) };
   } else if (props.posts && props.tiles) out = gridRead(instruction);
   else if (props.tiles && props.world) {
     // The grid read on its own, for the preview: the same tiles, no posts.

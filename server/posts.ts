@@ -44,7 +44,7 @@ import { monthIssues, sceneContext } from "@shared/issues";
 import { campaignSizeSchema, postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
-import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config } from "@shared/config";
+import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config, type Approval } from "@shared/config";
 import { requireActiveClient } from "./clients";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, foreignItemIn, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
@@ -5811,13 +5811,38 @@ postRoutes.delete("/chat", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Each change the client asked on a post, by who wrote it (one per reviewer; the joined note for older answers). */
+export function clientComments(a: Approval | undefined): { note: string; by?: string; at: number }[] {
+  if (!a) return [];
+  const asks = (a.answers ?? []).filter((x) => x.status === "changes" && x.note?.trim());
+  if (asks.length) return asks.map((x) => ({ note: x.note!.trim().slice(0, 1000), ...(x.by?.trim() ? { by: x.by.trim().slice(0, 80) } : {}), at: x.at }));
+  return a.status === "changes" && a.note?.trim() ? [{ note: a.note.trim().slice(0, 1000), ...(a.by?.trim() ? { by: a.by.trim().slice(0, 80) } : {}), at: a.at }] : [];
+}
+
+const clientChangeSchema = z.object({
+  index: z.number().int(),
+  product: z.string().max(300),
+  brief: z.string().max(1200),
+  scene: z.string().max(1500),
+  headline: z.string().max(80),
+  caption: z.string().max(300),
+  hashtags: z.string().max(300),
+  summary: z.string().max(300),
+  lesson: z.string().max(300),
+});
+
 /**
  * "Do client comments": every change the client asked for on the approval page is read by the art
  * director and written into its post (another product from the month or the client's Drive, a new
- * brief and scene, the caption), the request is cleared, and the posts are returned to be made again.
+ * brief and scene, the caption), and the posts are returned to be made again.
+ *
+ * `preview: true` only reads: the art director's proposal comes back, post by post, and nothing is
+ * saved. The team then sends that proposal back as `changes` to apply it as shown (no second read).
+ * Applying answers the request (the approval page asks the client again), and every comment stays
+ * on its post in `clientNotes`, marked done, so the card still shows what the client said (25 Oct).
  */
 postRoutes.post("/client-changes", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1) }));
+  const d = await body(c, z.object({ batch: z.string().min(1), preview: z.boolean().optional(), changes: z.array(clientChangeSchema).max(60).optional() }));
   const user = c.get("user");
   const b = await ownedPlan(c.env, user, d.batch);
   const config = JSON.parse(b.config) as Config;
@@ -5852,9 +5877,20 @@ postRoutes.post("/client-changes", async (c) => {
     .sort((x, y) => productRank(x.kind) - productRank(y.kind) || y.modified.localeCompare(x.modified));
   const driveOptions = drive.filter((p, i) => !matchProduct(p.name, names) && drive.findIndex((q) => q.name === p.name) === i);
   const products = [...sources.map((s) => ({ name: productName(s), note: s.note?.trim() || "" })), ...driveOptions.map((p) => ({ name: p.name, note: p.note?.trim() || "" }))];
-  const raw = await askText(c.env, clientChangesInstruction({ client: client.name, asks, products }), CLIENT_CHANGES_SCHEMA);
-  const changes = parseClientChanges(parseJson<unknown>(raw), asks, products.map((p) => p.name));
-  if (!changes.length) throw new StudioError("The art director gave no usable answer. Try again.", 502);
+  // A proposal the team already saw is applied as it is, checked again like the model's own answer.
+  const changes = d.changes
+    ? parseClientChanges({ posts: d.changes }, asks, products.map((p) => p.name))
+    : parseClientChanges(parseJson<unknown>(await askText(c.env, clientChangesInstruction({ client: client.name, asks, products }), CLIENT_CHANGES_SCHEMA)), asks, products.map((p) => p.name));
+  if (!changes.length) throw new StudioError(d.changes ? "These comments were already done or answered again: read them again." : "The art director gave no usable answer. Try again.", d.changes ? 409 : 502);
+  if (d.preview) {
+    return c.json({
+      ok: true,
+      preview: changes.map((ch) => {
+        const ask = asks.find((a) => a.index === ch.index)!;
+        return { index: ch.index, title: ask.title, comments: clientComments(config.approvals?.[String(ch.index)]), before: { product: ask.product ?? "", headline: ask.headline ?? "", caption: ask.caption, hashtags: ask.hashtags, brief: ask.brief }, change: ch };
+      }),
+    });
+  }
   // Drive products the changes name join the month.
   const imported = new Map<string, string>();
   const taken = new Set(sources.map((s) => s.stem));
@@ -5891,9 +5927,10 @@ postRoutes.post("/client-changes", async (c) => {
       captionHand: true,
       ideaAt: t,
       clientNote: { note: ask.note, at: t, summary: ch.summary || undefined },
+      clientNotes: [...(p.clientNotes ?? []), ...clientComments(cfg.approvals?.[String(p.index)]).map((x) => ({ ...x, done: t, summary: ch.summary || undefined }))].slice(-20),
     };
   });
-  // The request is answered: the approval page shows the fresh post without the old note.
+  // The request is answered: the approval page asks the client again; the comments stay on the post.
   if (cfg.approvals) for (const x of done) delete cfg.approvals[String(x.index)];
   await saveConfig(c.env, fresh, cfg);
   // What the request teaches about this client waits for the admin on the Lessons learned page.

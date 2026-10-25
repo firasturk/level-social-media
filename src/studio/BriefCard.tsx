@@ -126,7 +126,7 @@ export default function BriefCard({
           <Link2 size={14} /> Client link
         </button>
         {onClientChanges && changes > 0 && (
-          <button type="button" className="primary" onClick={onClientChanges} disabled={clientChangesBusy} title="Read what the client asked on the approval page, change those posts and make them again">
+          <button type="button" className="primary" onClick={onClientChanges} disabled={clientChangesBusy} title="Shows what the client asked and what it will change in each post; nothing is saved until you apply">
             {clientChangesBusy ? <Orb size={12} /> : <MessageSquareReply size={14} />} Do client comments ({changes})
           </button>
         )}

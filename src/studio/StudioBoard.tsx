@@ -14,6 +14,7 @@ import { NotifySubscribe } from "./Notify";
 import { countsLine, type MonthCounts } from "@shared/counts";
 import type { SaveStatus as SaveState } from "@shared/save-status";
 import SaveStatus from "./SaveStatus";
+import { doneCommentsOf } from "./ClientChangesDialog";
 
 export type StudioTab = "posts" | "words" | "approval" | "versions";
 
@@ -107,7 +108,7 @@ export default function StudioBoard({
         {badge}
         <div className="studio-actions">
           {changes > 0 && (
-            <button type="button" className="cta secondary" onClick={onClientChanges} disabled={clientChangesBusy} title="Read what the client asked on the approval page, change those posts and make them again">
+            <button type="button" className="cta secondary" onClick={onClientChanges} disabled={clientChangesBusy} title="Shows what the client asked and what it will change in each post; nothing is saved until you apply">
               <MessageSquareReply size={14} /> Do client comments ({changes})
             </button>
           )}
@@ -254,7 +255,7 @@ export function ApprovalView({
                     {String(x.index).padStart(2, "0")} · {x.title}
                   </b>
                   <span className={`flow-pill ${a?.status === "approved" ? "ok" : a?.status === "changes" ? "warn" : ""}`}>
-                    {a?.status === "approved" ? "Client approved" : a?.status === "changes" ? "Change asked" : t ? "Not seen yet" : "No picture yet"}
+                    {a?.status === "approved" ? "Client approved" : a?.status === "changes" ? "Change asked" : doneCommentsOf(x).length ? "Comments done · to see again" : t ? "Not seen yet" : "No picture yet"}
                     {a?.by ? ` · by ${a.by}` : ""}
                   </span>
                   {a?.answers?.length ? (
@@ -278,6 +279,22 @@ export function ApprovalView({
                       {a?.at ? <small className="flow-muted">{new Date(a.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</small> : null}
                     </>
                   )}
+                  {!a && doneCommentsOf(x).length ? (
+                    <ul className="approval-answers">
+                      {[...doneCommentsOf(x)]
+                        .sort((p, q) => q.done - p.done || q.at - p.at)
+                        .map((n, i) => (
+                          <li key={i} className="done">
+                            <b dir="auto">{n.by?.trim() || "The client"}</b> asked for a change
+                            <q dir="auto">{n.note}</q>
+                            <small className="flow-muted">
+                              Done {new Date(n.done).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                              {n.summary ? ` · ${n.summary}` : ""}
+                            </small>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : null}
                 </div>
                 <button type="button" className="text-button" onClick={() => onOpen(x.index)}>
                   Open the post

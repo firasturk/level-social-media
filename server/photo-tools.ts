@@ -1158,7 +1158,7 @@ export function variationTiles(raw: unknown, identifier: string): string[] {
 /** What a new post copies from the post the result was made on: its idea, product, words and design, not its client answers, checks, date or place in a grid. */
 export function siblingPost(from: Post, index: number, title: string, fp: string, at: number): Post {
   const post: Post = { ...from, index, title: title.slice(0, 80), ideaAt: at };
-  for (const k of ["textCheck", "prechecks", "group", "clientNote", "seenBefore", "date", "tile", "tileSpec", "shot"] as const) delete post[k];
+  for (const k of ["textCheck", "prechecks", "group", "clientNote", "clientNotes", "seenBefore", "date", "tile", "tileSpec", "shot"] as const) delete post[k];
   if (from.source === "media" && from.media) post.media = { ...from.media, fp, at };
   return post;
 }

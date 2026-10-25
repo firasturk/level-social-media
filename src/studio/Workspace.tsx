@@ -72,6 +72,7 @@ const VideoEditor = lazyScreen(() => import("@/video-editor/ui/VideoEditor"));
 const PhotoStudio = lazyScreen(() => import("./photo/PhotoStudio"));
 import type { PhotoPanel } from "./photo/types";
 import { clientHold, holdSubject } from "@shared/client-hold";
+import ClientChangesDialog, { type ClientChangePreview } from "./ClientChangesDialog";
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -210,6 +211,8 @@ export default function Workspace({
   const [month, setMonth] = useState<string>(() => urlParam("month", /^\d{4}-\d{2}$/) || currentMonth());
   /** Which grid of a client's month is open, when the month holds several ("client|month" → batch id). */
   const [gridPick, setGridPick] = useState<Record<string, string>>({});
+  /** The art director's proposal for the client's comments, shown before anything is saved. */
+  const [clientPreview, setClientPreview] = useState<ClientChangePreview[] | null>(null);
   const [busy, setBusy] = useState("");
   const [exporting, setExporting] = useState(false);
   const [acting, setActing] = useState(false);
@@ -1333,14 +1336,29 @@ export default function Workspace({
   };
 
   /** The client's link, straight into WhatsApp. */
-  /** The client's change requests are read, written into their posts and those posts are made again. */
+  /** The client's change requests are read and shown first ("What the client's comments will change"); nothing is saved yet. */
   async function doClientChanges() {
     if (!batch) return;
     setBusy("client");
     try {
-      const r = await post<{ indexes: number[]; changes: { index: number; summary: string }[] }>("/api/studio/posts/client-changes", { batch: batch.id });
+      const r = await post<{ preview: ClientChangePreview[] }>("/api/studio/posts/client-changes", { batch: batch.id, preview: true });
+      setClientPreview(r.preview);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** The proposal the team saw is written into the posts as shown; the pictures are made again only on a yes. */
+  async function applyClientChanges() {
+    if (!batch || !clientPreview) return;
+    setBusy("client");
+    try {
+      const r = await post<{ indexes: number[]; changes: { index: number; summary: string }[] }>("/api/studio/posts/client-changes", { batch: batch.id, changes: clientPreview.map((x) => x.change) });
+      setClientPreview(null);
       await refresh();
-      for (const ch of r.changes) toast.success(`Post ${ch.index}: ${ch.summary || "changed as the client asked"}`, { duration: 12000 });
+      toast.success(`The client's comments are done on post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. They stay on the cards.`);
       if (engineConnected && r.indexes.length) {
         const ok = await askConfirm(
           `The client's changes are saved into post${r.indexes.length > 1 ? "s" : ""} ${r.indexes.join(", ")}. Make ${r.indexes.length === 1 ? "that picture" : `these ${r.indexes.length} pictures`} again now?`,
@@ -2325,6 +2343,7 @@ export default function Workspace({
       )}
 
       <PhotoLabDialog onChanged={refresh} />
+      {clientPreview && <ClientChangesDialog items={clientPreview} applying={busy === "client"} onApply={() => void applyClientChanges()} onClose={() => setClientPreview(null)} />}
       <Suspense fallback={null}>
         {deliverOpen && batch && client && (
           <DeliverDialog

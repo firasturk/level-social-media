@@ -129,6 +129,19 @@ export interface PostReference {
   source?: "freepik" | "drive" | "pinterest" | "upload";
 }
 
+/** One comment the client wrote on the approval page, kept on its post once the studio applied it. */
+export interface ClientComment {
+  note: string;
+  /** The name the reviewer typed on the approval page. */
+  by?: string;
+  /** When the client wrote it. */
+  at: number;
+  /** When "Do client comments" applied it. */
+  done: number;
+  /** What the studio changed for it. */
+  summary?: string;
+}
+
 export interface Post {
   index: number;
   type: PostType;
@@ -169,6 +182,8 @@ export interface Post {
   onLocation?: boolean;
   /** The client's last change request on this post, and what the studio did about it. */
   clientNote?: { note: string; at: number; summary?: string };
+  /** Every comment the client wrote on this post that "Do client comments" applied, oldest first (at most 20). */
+  clientNotes?: ClientComment[];
   /** Campaign memory: the earlier post this idea reads like ("October 2026 · post 4"). */
   seenBefore?: string;
   /** When the designer last changed the idea or the shot by hand: a picture older than this is offered an update. */
