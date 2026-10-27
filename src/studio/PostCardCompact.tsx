@@ -5,8 +5,9 @@
  */
 import { isMediaPost } from "@shared/posts";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Aperture, Check, Clapperboard, Ellipsis, GalleryHorizontalEnd, Image as ImageIcon, Pencil, Rows3, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
+import { Aperture, Check, ChevronLeft, ChevronRight, Clapperboard, Ellipsis, GalleryHorizontalEnd, Image as ImageIcon, Pencil, Plus, Rows3, Sparkles, TriangleAlert, Type, Wand2 } from "lucide-react";
 import "./text/text-studio.css";
+import "./carousel.css";
 import { Orb } from "@/components/Orb";
 import { POST_TYPE_INFO, type Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -46,6 +47,7 @@ export default function PostCardCompact({
   primary,
   extra,
   select,
+  carousel,
 }: {
   post: Post;
   task: Task | null;
@@ -79,6 +81,12 @@ export default function PostCardCompact({
   /** Anything the card still shows under its title (an unsaved-changes row, a client's note). */
   extra?: ReactNode;
   /** While cards are being chosen for one step (a style, the Text studio, one video): the tick and its place in the order. */
+  /**
+   * The card is a carousel (27 Oct): its slides are posts of their own, shown one at a time like
+   * Instagram's; the arrows and dots change the slide, and the whole card (picture, words, actions,
+   * comments) is the shown slide's. `onAdd` adds an empty slide after the last.
+   */
+  carousel?: { slides: { index: number; mark?: "ok" | "warn" | "" }[]; at: number; onGo: (at: number) => void; onAdd?: () => void };
   select?: { on: boolean; n: number; onToggle: () => void };
 }) {
   const [open, setOpen] = useState(false);
@@ -195,6 +203,30 @@ export default function PostCardCompact({
           )}
         </header>
         {media}
+        {carousel && (
+          <div className="pc-carousel" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+            {carousel.at > 0 && (
+              <button type="button" className="pc-car-arrow prev" aria-label="Previous slide" onClick={() => carousel.onGo(carousel.at - 1)}>
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            {carousel.at < carousel.slides.length - 1 && (
+              <button type="button" className="pc-car-arrow next" aria-label="Next slide" onClick={() => carousel.onGo(carousel.at + 1)}>
+                <ChevronRight size={18} />
+              </button>
+            )}
+            <div className="pc-car-dots">
+              {carousel.slides.map((s, i) => (
+                <button key={s.index} type="button" className={`pc-car-dot ${i === carousel.at ? "on" : ""} ${s.mark ?? ""}`} aria-label={`Slide ${i + 1}`} aria-current={i === carousel.at} title={`Slide ${i + 1} (post ${s.index})`} onClick={() => carousel.onGo(i)} />
+              ))}
+              {carousel.onAdd && (
+                <button type="button" className="pc-car-add" title="Add a slide after the last: an empty idea with its own picture, style and words" aria-label="Add a slide" onClick={carousel.onAdd}>
+                  <Plus size={11} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <div className="pc-body">
         <div className="pc-title-row">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useRef } from "react";
-import { Check, MessageSquare, Play } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, GalleryHorizontalEnd, MessageSquare, Play } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { applyTheme } from "@/theme";
@@ -9,6 +9,8 @@ import OverlayPreview from "@/studio/OverlayPreview";
 import { resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { monthLabel } from "@shared/posts";
 import { shortDate } from "@shared/occasions";
+import { carouselEntries, carouselStatus } from "@shared/carousel";
+import "./share-carousel.css";
 import type { ReviewAnswer as Approval, ReviewVersion } from "@shared/config";
 
 /** The clip the team selected for the client: served through this link, never the provider's URL. */
@@ -36,7 +38,7 @@ interface SharedPost {
   /** Faces in the picture as [x, y, w, h] fractions: the words keep off them. */
   faces?: number[][];
   /** A carousel's slide or a series' post. */
-  group?: { kind: "carousel" | "series"; slide: number; of: number } | null;
+  group?: { id: string; kind: "carousel" | "series"; slide: number; of: number } | null;
   image: number | null;
   approval: Approval | null;
 }
@@ -140,9 +142,12 @@ export default function SharePage({ token }: { token: string }) {
         </div>
       </div>
     );
-  const ready = data.posts.filter((p) => p.image);
-  const approved = data.posts.filter((p) => p.approval?.status === "approved").length;
-  const changes = data.posts.filter((p) => p.approval?.status === "changes").length;
+  // A carousel is one post here, as on Instagram: ready when every slide is, answered as one.
+  const cards = carouselEntries(data.posts).map((e) => e.slides ?? [e.post]);
+  const ready = cards.filter((list) => list.every((p) => p.image));
+  const statusOf = (list: SharedPost[]) => carouselStatus(list.map((p) => p.approval?.status));
+  const approved = cards.filter((list) => statusOf(list) === "approved").length;
+  const changes = cards.filter((list) => statusOf(list) === "changes").length;
   const allDone = ready.length > 0 && approved === ready.length;
   return (
     <div className="share-page">
@@ -241,12 +246,12 @@ export default function SharePage({ token }: { token: string }) {
             <span />
           </div>
         <div className="share-feed-grid">
-          {(data.order ?? data.posts.map((p) => p.index)).map((i) => {
-            const p = data.posts.find((x) => x.index === i);
-            if (!p) return null;
+          {carouselEntries((data.order ?? data.posts.map((p) => p.index)).map((i) => data.posts.find((x) => x.index === i)).filter((x): x is SharedPost => !!x)).map(({ post: p, slides }) => {
+            const i = p.index;
+            const mark = slides ? carouselStatus(slides.map((x) => x.approval?.status)) : (p.approval?.status ?? null);
             const src = p.image ? `${base}/image/${p.index}?v=${p.image}&w=1080` : null;
             return (
-              <a key={i} href={`#post-${i}`} className={`share-feed-cell ${p.approval?.status ?? ""}`} title={`Post ${i}`}>
+              <a key={i} href={`#post-${i}`} className={`share-feed-cell ${mark ?? ""}`} title={`Post ${i}`}>
                 {p.video ? (
                   <>
                     <img src={p.video.poster ?? src ?? undefined} alt="" loading="lazy" />
@@ -263,7 +268,12 @@ export default function SharePage({ token }: { token: string }) {
                 ) : (
                   <span className="share-pending">Being prepared</span>
                 )}
-                {p.approval && <span className={`share-feed-mark ${p.approval.status}`}>{p.approval.status === "approved" ? <Check size={13} /> : <MessageSquare size={13} />}</span>}
+                {slides && (
+                  <span className="share-feed-carousel" aria-label="Carousel">
+                    <GalleryHorizontalEnd size={14} />
+                  </span>
+                )}
+                {mark && <span className={`share-feed-mark ${mark}`}>{mark === "approved" ? <Check size={13} /> : <MessageSquare size={13} />}</span>}
               </a>
             );
           })}
@@ -271,18 +281,19 @@ export default function SharePage({ token }: { token: string }) {
         </div>
       </section>
       <main className="share-grid">
-        {data.posts.map((p) => (
+        {carouselEntries(data.posts).map(({ post: p, slides }) => (
           <SharedCard
             key={p.index}
             post={p}
+            slides={slides}
             base={base}
             spec={spec}
             logo={data.client.logo ? `${base}/logo?v=${data.client.updated}` : null}
             name={name}
             rid={rid}
             onNeedName={askName}
-            onAnswered={(approval) =>
-              setData((d) => (d ? { ...d, posts: d.posts.map((x) => (x.index === p.index ? { ...x, approval } : x)) } : d))
+            onAnswered={(index, approval) =>
+              setData((d) => (d ? { ...d, posts: d.posts.map((x) => (x.index === index ? { ...x, approval } : x)) } : d))
             }
           />
         ))}
@@ -294,8 +305,29 @@ export default function SharePage({ token }: { token: string }) {
   );
 }
 
+/** One slide's or one post's picture or clip, as it will go out. */
+function SharedMedia({ post, base, spec, logo }: { post: SharedPost; base: string; spec: ReturnType<typeof resolveOverlay>; logo: string | null }) {
+  const src = post.image ? `${base}/image/${post.index}?v=${post.image}&w=1440` : null;
+  if (post.video) {
+    // The clip plays by itself while on screen, muted and inline on iPhone too, with the browser's controls and a sound button; the words are already in it (or not): nothing is drawn over it.
+    return <AutoplayVideo key={post.video.id} src={post.video.url} poster={post.video.poster ?? src} mode="player" label={`Post ${post.index} video`} />;
+  }
+  if (src) return post.overlay && spec.template !== "none" ? <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} /> : <img src={src} alt="" loading="lazy" />;
+  return (
+    <span className="design-card-empty">
+      <Orb size={28} status={null} /> Being prepared
+    </span>
+  );
+}
+
+/**
+ * One post on the client's link. A carousel (27 Oct) is one post as on Instagram: its slides swipe
+ * (or step with the arrows and dots), one caption under them, Approve answers every slide, and a
+ * change is asked on the slide on screen.
+ */
 function SharedCard({
   post,
+  slides,
   base,
   spec,
   logo,
@@ -305,6 +337,8 @@ function SharedCard({
   onAnswered,
 }: {
   post: SharedPost;
+  /** A carousel's slides in order (the first is `post`). */
+  slides?: SharedPost[];
   base: string;
   spec: ReturnType<typeof resolveOverlay>;
   logo: string | null;
@@ -313,14 +347,40 @@ function SharedCard({
   rid: string;
   /** No name yet: the page asks for it (once) before the answer goes. */
   onNeedName: () => void;
-  onAnswered: (a: Approval) => void;
+  onAnswered: (index: number, a: Approval) => void;
 }) {
+  const list = slides ?? [post];
+  const [at, setAt] = useState(0);
+  const cur = list[Math.min(at, list.length - 1)];
+  const track = useRef<HTMLDivElement>(null);
+  const carousel = list.length > 1 || !!slides;
+  const status = carousel ? carouselStatus(list.map((x) => x.approval?.status)) : post.approval?.status ?? null;
+  const asked = list.filter((x) => x.approval?.status === "changes" && x.approval.note);
   const [asking, setAsking] = useState(false);
-  const [note, setNote] = useState(post.approval?.note ?? "");
+  const [note, setNote] = useState(cur.approval?.note ?? "");
   const reasons = ["Change the words", "Change the picture", "The colours", "The product looks wrong", "Another date"];
   const toggleReason = (r: string) => setNote((n) => (n.includes(r) ? n.replace(new RegExp(`${r}\\.?\\s*`), "").trim() : `${r}. ${n}`.trim()));
   const [sending, setSending] = useState(false);
-  const src = post.image ? `${base}/image/${post.index}?v=${post.image}&w=1440` : null;
+  const ready = list.every((x) => x.image || x.video);
+
+  function go(i: number) {
+    const next = Math.max(0, Math.min(list.length - 1, i));
+    setAt(next);
+    const el = track.current;
+    if (el) el.scrollTo({ left: next * el.clientWidth * (getComputedStyle(el).direction === "rtl" ? -1 : 1), behavior: "smooth" });
+  }
+
+  async function send(p: SharedPost, status: Approval["status"]) {
+    const r = await fetch(`${base}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // The answer is pinned to the exact version on screen: the clip by id, or the picture by its stamp.
+      body: JSON.stringify({ index: p.index, status, note: status === "changes" ? note : undefined, by: name.trim(), rid, version: p.version ?? undefined }),
+    });
+    const d = (await r.json()) as { approval?: Approval; error?: string };
+    if (!r.ok || !d.approval) throw new Error(d.error || "Could not send.");
+    onAnswered(p.index, d.approval);
+  }
 
   async function answer(status: Approval["status"]) {
     if (!name.trim()) {
@@ -329,15 +389,8 @@ function SharedCard({
     }
     setSending(true);
     try {
-      const r = await fetch(`${base}/review`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // The answer is pinned to the exact version on screen: the clip by id, or the picture by its stamp.
-        body: JSON.stringify({ index: post.index, status, note: status === "changes" ? note : undefined, by: name.trim(), rid, version: post.version ?? undefined }),
-      });
-      const d = (await r.json()) as { approval?: Approval; error?: string };
-      if (!r.ok || !d.approval) throw new Error(d.error || "Could not send.");
-      onAnswered(d.approval);
+      // Approving a carousel approves every slide; a change is asked on the slide on screen.
+      for (const p of status === "approved" ? list : [cur]) await send(p, status);
       setAsking(false);
     } catch (e) {
       alert((e as Error).message);
@@ -347,50 +400,84 @@ function SharedCard({
   }
 
   return (
-    <article id={`post-${post.index}`} className={`design-card share-card ${post.approval?.status === "approved" ? "text-ok" : post.approval?.status === "changes" ? "text-warn" : ""}`}>
+    <article id={`post-${post.index}`} className={`design-card share-card ${status === "approved" ? "text-ok" : status === "changes" ? "text-warn" : ""} ${carousel ? "share-carousel" : ""}`}>
       <div className="design-card-picture share-media">
-        {post.video ? (
-          // The clip plays by itself while on screen, muted and inline on iPhone too, with the browser's controls and a sound button; the words are already in it (or not): nothing is drawn over it.
-          <AutoplayVideo key={post.video.id} src={post.video.url} poster={post.video.poster ?? src} mode="player" label={`Post ${post.index} video`} />
-        ) : src ? (
-          post.overlay && spec.template !== "none" ? (
-            <OverlayPreview src={src} spec={spec} text={{ headline: post.headline, subline: post.subline }} logoSrc={logo} patch={post.ov ?? undefined} faces={post.faces} width={720} />
-          ) : (
-            <img src={src} alt="" loading="lazy" />
-          )
+        {carousel ? (
+          <div
+            ref={track}
+            className="share-slides"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              const i = Math.round(Math.abs(el.scrollLeft) / Math.max(1, el.clientWidth));
+              if (i !== at) setAt(i);
+            }}
+          >
+            {list.map((x) => (
+              <div key={x.index} id={x.index !== post.index ? `post-${x.index}` : undefined} className="share-slide">
+                <SharedMedia post={x} base={base} spec={spec} logo={logo} />
+              </div>
+            ))}
+          </div>
         ) : (
-          <span className="design-card-empty">
-            <Orb size={28} status={null} /> Being prepared
-          </span>
+          <SharedMedia post={post} base={base} spec={spec} logo={logo} />
+        )}
+        {carousel && (
+          <>
+            {at > 0 && (
+              <button type="button" className="share-arrow prev" aria-label="Previous" onClick={() => go(at - 1)}>
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            {at < list.length - 1 && (
+              <button type="button" className="share-arrow next" aria-label="Next" onClick={() => go(at + 1)}>
+                <ChevronRight size={18} />
+              </button>
+            )}
+            <span className="share-count">
+              {at + 1}/{list.length}
+            </span>
+          </>
         )}
         <span className="design-card-badges">
           <span className="design-card-index">{String(post.index).padStart(2, "0")}</span>
           {post.date && <span className="design-card-date">{shortDate(post.date)}</span>}
-          {post.group && (
+          {post.group?.kind === "series" && (
             <span className="design-card-type">
-              {post.group.kind === "carousel" ? "Carousel" : "Series"} {post.group.slide}/{post.group.of}
+              Series {post.group.slide}/{post.group.of}
+            </span>
+          )}
+          {carousel && (
+            <span className="design-card-type">
+              <GalleryHorizontalEnd size={12} /> Carousel
             </span>
           )}
         </span>
-        {post.approval && (
-          <span className={`design-card-mark ${post.approval.status === "approved" ? "ok" : "warn"}`} title={post.approval.status === "approved" ? "Approved" : "A change was asked"}>
-            {post.approval.status === "approved" ? <Check size={14} /> : <MessageSquare size={14} />}
+        {status && (
+          <span className={`design-card-mark ${status === "approved" ? "ok" : "warn"}`} title={status === "approved" ? "Approved" : "A change was asked"}>
+            {status === "approved" ? <Check size={14} /> : <MessageSquare size={14} />}
           </span>
         )}
       </div>
+      {carousel && (
+        <div className="share-dots" aria-label="Slides">
+          {list.map((x, i) => (
+            <button key={x.index} type="button" className={`share-dot ${i === at ? "on" : ""} ${x.approval?.status ?? ""}`} aria-label={`Slide ${i + 1}`} aria-current={i === at} onClick={() => go(i)} />
+          ))}
+        </div>
+      )}
       <div className="design-card-body">
-        {post.version && (
+        {cur.version && (
           <small className="share-version">
-            Version currently shown: <b>{post.version.label ?? (post.version.kind === "video" ? "Video" : "Picture")}</b>
-            {post.approval?.version && post.approval.version.id !== post.version.id ? <> · you answered on {post.approval.version.label ?? "an earlier version"}; this one is newer.</> : null}
+            {carousel ? `Slide ${at + 1}: ` : ""}Version currently shown: <b>{cur.version.label ?? (cur.version.kind === "video" ? "Video" : "Picture")}</b>
+            {cur.approval?.version && cur.approval.version.id !== cur.version.id ? <> · you answered on {cur.approval.version.label ?? "an earlier version"}; this one is newer.</> : null}
           </small>
         )}
-        {(post.headline || post.subline) && (
+        {(cur.headline || cur.subline) && (
           <div className="design-card-title">
-            <strong dir="auto">{post.headline || post.subline}</strong>
-            {post.headline && post.subline && (
+            <strong dir="auto">{cur.headline || cur.subline}</strong>
+            {cur.headline && cur.subline && (
               <small dir="auto" className="design-card-subline">
-                {post.subline}
+                {cur.subline}
               </small>
             )}
           </div>
@@ -399,6 +486,7 @@ function SharedCard({
           <span className="design-card-label">
             <MessageSquare size={12} /> Caption
           </span>
+          {/* A carousel goes out with one caption: its first slide's. */}
           <p className="share-caption" dir="auto">
             {post.caption}
           </p>
@@ -409,7 +497,7 @@ function SharedCard({
         {asking ? (
           <div className="design-card-caption share-ask">
             <span className="design-card-label">
-              <MessageSquare size={12} /> What would you like changed?
+              <MessageSquare size={12} /> {carousel ? `What would you like changed on slide ${at + 1}?` : "What would you like changed?"}
             </span>
             <div className="share-reasons" aria-label="What to change">
               {reasons.map((r) => (
@@ -430,31 +518,38 @@ function SharedCard({
           </div>
         ) : (
           <div className="design-card-actions">
+            <button type="button" className={`${status === "approved" ? "primary" : "secondary"} btn-pill`} onClick={() => void answer("approved")} disabled={sending || !ready}>
+              {sending ? <Orb size={13} /> : <Check size={13} />} {status === "approved" ? "Approved" : carousel ? "Approve the carousel" : "Approve"}
+            </button>
             <button
               type="button"
-              className={`${post.approval?.status === "approved" ? "primary" : "secondary"} btn-pill`}
-              onClick={() => void answer("approved")}
-              disabled={sending || !src}
+              className={`${cur.approval?.status === "changes" ? "primary warn" : "secondary"} btn-pill`}
+              onClick={() => {
+                setNote(cur.approval?.note ?? "");
+                setAsking(true);
+              }}
+              disabled={sending || !(cur.image || cur.video)}
             >
-              {sending ? <Orb size={13} /> : <Check size={13} />} {post.approval?.status === "approved" ? "Approved" : "Approve"}
-            </button>
-            <button type="button" className={`${post.approval?.status === "changes" ? "primary warn" : "secondary"} btn-pill`} onClick={() => setAsking(true)} disabled={sending || !src}>
-              <MessageSquare size={13} /> {post.approval?.status === "changes" ? "Change asked" : "Ask for a change"}
+              <MessageSquare size={13} /> {cur.approval?.status === "changes" ? "Change asked" : carousel ? "Ask for a change on this slide" : "Ask for a change"}
             </button>
           </div>
         )}
-        {post.approval?.status === "changes" && post.approval.note && !asking && (
+        {asked.length > 0 && !asking && (
           <div className="text-finding warn">
             <span className="text-finding-icon" aria-hidden>
               <MessageSquare size={15} />
             </span>
             <span className="text-finding-text">
               <b>You asked for a change</b>
-              <span dir="auto">“{post.approval.note}”</span>
+              {asked.map((x) => (
+                <span key={x.index} dir="auto">
+                  {carousel ? `Slide ${list.indexOf(x) + 1}: ` : ""}“{x.approval!.note}”
+                </span>
+              ))}
             </span>
           </div>
         )}
-        {post.approval?.status === "approved" && !asking && (
+        {status === "approved" && !asking && (
           <div className="text-finding ok">
             <span className="text-finding-icon" aria-hidden>
               <Check size={15} />

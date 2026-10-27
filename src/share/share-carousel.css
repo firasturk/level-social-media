@@ -1,0 +1,96 @@
+/* A carousel on the client's link: one post whose slides swipe, as on Instagram (27 Oct). */
+.share-slides {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.share-slides::-webkit-scrollbar {
+  display: none;
+}
+.share-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  position: relative;
+}
+.share-slide > img,
+.share-slide > canvas,
+.share-slide video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.share-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.share-arrow.prev {
+  left: 10px;
+}
+.share-arrow.next {
+  right: 10px;
+}
+.share-count {
+  position: absolute;
+  top: 10px;
+  right: 44px;
+  z-index: 3;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+}
+.share-dots {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 0 0;
+}
+.share-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--line-strong, #c8c8c8);
+  cursor: pointer;
+}
+.share-dot.on {
+  background: var(--blue, #0095f6);
+}
+.share-dot.changes {
+  box-shadow: 0 0 0 2px #f59e0b;
+}
+.share-feed-carousel {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  display: grid;
+}
+.share-feed-carousel ~ .share-feed-mark {
+  top: auto;
+  bottom: 6px;
+}
