@@ -3685,9 +3685,11 @@ postRoutes.post("/faces", async (c) => {
     }
     if (!qa || (Array.isArray(qa.faces) && !(d.force && !(qa.faces as unknown[]).length))) continue;
     try {
-      const obj = await c.env.BUCKET.get(t.output!);
-      if (!obj) continue;
-      const image: ImageBytes = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" };
+      // The words are written from a 1080-px copy of the picture (a 2K PNG is too large for Claude).
+      const small = await resizedPicture(c.env, t.output!, 1080).catch(() => null);
+      const obj = small ? null : await c.env.BUCKET.get(t.output!);
+      if (!small && !obj) continue;
+      const image: ImageBytes = small ? { bytes: small.bytes, mime: small.mime } : { bytes: await obj!.arrayBuffer(), mime: obj!.httpMetadata?.contentType || "image/png" };
       const raw = parseJson<unknown>(
         await askText(
           c.env,

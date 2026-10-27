@@ -161,7 +161,9 @@ export class GoogleVisionOcr implements OcrProvider {
   }
 
   async detect(image: ImageBytes): Promise<OcrResult> {
-    const r = await this.fetchImpl(VISION_URL, {
+    // The runtime's fetch must not be called as a method of this object ("Illegal invocation").
+    const fetchImpl = this.fetchImpl;
+    const r = await fetchImpl(VISION_URL, {
       method: "POST",
       headers: await this.headers(),
       body: JSON.stringify({

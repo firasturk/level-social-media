@@ -1009,7 +1009,10 @@ export default function PlanView({
                 const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
                 const stale = !!t?.output && !inFlight && olderIdea(t, p, revision);
                 const target = p.group ? { kind: "slide" as const, index: p.index, slide: p.group.slide, of: p.group.of, title: p.title } : { kind: "post" as const, index: p.index, title: p.title };
-                const cannotMake = inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer));
+                // A post made in a style has its shot instead of an idea: that is enough to make it.
+                const cannotMake = inFlight || running || !(p.brief.trim() || p.scene?.trim()) || (p.type === "offer" && !offerReady(p.offer));
+                /** A take that failed while an earlier picture stays on the card: the card offers the next try. */
+                const failedTake = t?.status === "review" && !!t.error && !!t.output;
                 /** A card made from the client's own file: never generated; its one paid step is restyling it in its saved style, confirmed. */
                 const mediaCard = isMediaPost(p);
                 const restyleDue = mediaCard && !!p.style && p.media?.styled !== p.style && !!t?.output && !inFlight;
@@ -1023,9 +1026,9 @@ export default function PlanView({
                         onClick: () => void restyle(p, t!),
                       }
                     : undefined
-                  : !t?.output || t.status === "failed" || stale
+                  : !t?.output || t.status === "failed" || stale || failedTake
                   ? {
-                      label: `${stale ? "Make it again" : t?.status === "failed" ? "Try again" : "Make the picture"}${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
+                      label: `${stale ? "Make it again" : t?.status === "failed" || failedTake ? "Try again" : "Make the picture"}${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
                       title: `${stale ? "The idea, product or direction changed after this picture was made: another version is made for the new idea; this one stays under Versions." : t?.status === "failed" ? "Makes this post's picture again after the failure." : "Makes this post's first picture."} ${scopeNote(target, plan.length)}`,
                       disabled: cannotMake,
                       onClick: async () => {
@@ -1033,7 +1036,7 @@ export default function PlanView({
                         const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Not now" });
                         if (!ok) return;
                         if (stale) regenerate(t, p.index);
-                        else void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"));
+                        else void saveThen(() => onGeneratePosts([p.index], t?.status === "failed" || failedTake));
                       },
                     }
                   : undefined;

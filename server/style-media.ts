@@ -103,12 +103,18 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
   const t = now();
   const taken = new Set((await all<{ stem: string }>(env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem.normalize("NFC").toLowerCase()));
   const keyOf = new Map<number, string>();
+  /** A planned post with a product of the month (a card converted earlier): its extras are worked out again for the new style. */
+  const nameOf = new Map<number, string>();
   const inserts: { index: number; name: string; mime: string; output: string }[] = [];
   for (const { index } of assign) {
     const post = plan.find((p) => p.index === index);
     if (!post) throw new StudioError(`Post ${index} is not in the month.`, 404);
-    // A planned post keeps the usual style path (the style saved, its picture a later step).
-    if (!isMediaPost(post)) continue;
+    // A planned post keeps the usual style path (the style saved, its picture a later step); when
+    // it has a product of the month, the other products it shows follow the new style's count.
+    if (!isMediaPost(post)) {
+      if (post.product?.trim()) nameOf.set(index, post.product.trim());
+      continue;
+    }
     const task = await first<{ output: string | null; status: string }>(env.DB, "SELECT output, status FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, index);
     if (!task?.output) throw new StudioError(`Post ${index} has no picture to work from.`, 409);
     if (["queued", "processing", "finalizing"].includes(task.status)) throw new StudioError(`Post ${index} is being made: wait for it first.`, 409);
@@ -139,7 +145,8 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
   const used: string[] = [];
   for (const { index, style } of assign) {
     const key = keyOf.get(index);
-    const src = key ? sources.find((s) => s.key === key) : undefined;
+    const name = nameOf.get(index);
+    const src = key ? sources.find((s) => s.key === key) : name ? sources.find((s) => productName(s) === name) : undefined;
     if (!src) continue;
     const own = productName(src);
     const want = Math.min((counts[style] ?? 1) - 1, Math.max(0, pool.length - 1));

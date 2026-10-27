@@ -165,3 +165,21 @@ describe("how many products a style shows", () => {
     expect(text).toContain('{"count": 1, "same": true}');
   });
 });
+
+describe("a card styled again", () => {
+  it("works its other products out again for the new style instead of keeping the first style's", async () => {
+    const env = await seed(1);
+    await apply(env, [1, 2]);
+    expect((await planOf(env)).find((p) => p.index === 1)).toMatchObject({ product: "فخارة شعيرية", exact: true });
+    const t = Date.now();
+    await env.DB.prepare("INSERT INTO styles (id, kind, status, title, prompt, tags, source, note, created, updated, products) VALUES ('st3', 'product', 'active', 'Sky Mirror Tray', 'a group of the products on a puddle mirror', 'mirror', '', '', ?, ?, 3)").bind(t, t).run();
+    const d = (await (await apply(env, [1], "st3")).json()) as { prepared: { index: number; product: string; extras: string[]; exact: boolean }[] };
+    expect(d.prepared).toHaveLength(1);
+    expect(d.prepared[0]).toMatchObject({ index: 1, product: "فخارة شعيرية", exact: false });
+    expect(d.prepared[0].extras.sort()).toEqual(["Spanish latte", "شهيرة"]);
+    const one = (await planOf(env)).find((p) => p.index === 1)!;
+    expect(one.products?.slice().sort()).toEqual(["Spanish latte", "شهيرة"]);
+    expect(one.exact).toBeUndefined();
+    expect(one.style).toBe("st3");
+  });
+});
