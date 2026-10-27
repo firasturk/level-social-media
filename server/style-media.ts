@@ -134,7 +134,9 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
       const referenceKey = await resizedPicture(env, x.output, 720)
         .then((r) => r?.key ?? null)
         .catch(() => null);
-      await run(env.DB, "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'lead', 'product', '', ?)", uuid(), b.id, x.name, stemOf(x.name), x.output, referenceKey, x.mime, t);
+      // The real size: the engine takes the original only when it is light, else the small copy.
+      const size = (await env.BUCKET.head(x.output).catch(() => null))?.size ?? 0;
+      await run(env.DB, "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'lead', 'product', '', ?)", uuid(), b.id, x.name, stemOf(x.name), x.output, referenceKey, x.mime, size, t);
     }),
   );
   // Every product of the month, described once: the style writer and the engine read the notes.

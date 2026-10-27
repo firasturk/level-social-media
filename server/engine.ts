@@ -788,6 +788,8 @@ async function settleFailedAttempt(
     const fallback = await contentFallbackModel(env, config.model);
     if (fallback) {
       await run(env.DB, "UPDATE tasks SET model = ? WHERE id = ?", fallback, task.id);
+      // The failed attempt is listed with the engine's own reason, so Versions keeps it when the other engine fails too.
+      await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: `${config.model ?? "The batch engine"}: ${message}` });
       console.log(`[router] task ${task.id}: ${config.model ?? "the batch engine"} failed (${message.slice(0, 120)}); moving to ${fallback}`);
       await requeue(env, task, `${config.model ?? "the batch engine"} could not make this picture; trying ${fallback}. ${message}`);
       return;
@@ -802,6 +804,7 @@ async function settleFailedAttempt(
     // disabled model, no credits there) fails this picture alone and hands it back to the batch's
     // engine for the next try. The month never stops for an engine it does not run on.
     await run(env.DB, "UPDATE tasks SET model = NULL WHERE id = ?", task.id);
+    await setSetting(env, engineOffKey(task.model), String(now())).catch(() => undefined);
     await failTask(env, task, `${task.model} could not take this picture either: ${message} Retry this image.`, task.output);
     return;
   }
@@ -1133,12 +1136,21 @@ export async function autoTakeAllowed(env: Env, batch: BatchRow, _config: Config
   };
 }
 
+/** An engine that refused its model outright (disabled on the account, no credits) is left out of the router for a week. */
+const ENGINE_OFF_MS = 7 * 24 * 60 * 60 * 1000;
+const engineOffKey = (model: string) => `engine_off:${model}`;
+async function engineOff(env: Env, model: string): Promise<boolean> {
+  const raw = await getSetting(env, engineOffKey(model)).catch(() => null);
+  return !!raw && now() - Number(raw) < ENGINE_OFF_MS;
+}
+
 async function contentFallbackModel(env: Env, current: string | undefined): Promise<string | null> {
   const candidates: string[] = [];
   if ((await resolveGoogleAuth(env)).auth) candidates.push("gemini-3-pro-image");
   if (await engineConfigured(env)) candidates.push("nano-banana-pro");
   if ((await resolveOpenAIKey(env)).key) candidates.push("gpt-image-1");
-  return candidates.find((m) => m !== current) ?? null;
+  for (const m of candidates) if (m !== current && !(await engineOff(env, m))) return m;
+  return null;
 }
 
 /**
@@ -2260,7 +2272,8 @@ const ENGINE_ORIGINAL_MAX = 7 * 1024 * 1024;
 /** The R2 key the engine is given for a source: the original while it is light enough, else the small copy. */
 export async function engineKeyOf(env: Env, source: { key: string; reference_key?: string | null; size?: number | null }): Promise<string> {
   if (!source.reference_key) return source.key;
-  const size = source.size ?? (await env.BUCKET.head(source.key))?.size ?? Infinity;
+  // A size of 0 is unknown (a source made from a stored picture), never "small": the bucket says.
+  const size = source.size || (await env.BUCKET.head(source.key))?.size || Infinity;
   return size <= ENGINE_ORIGINAL_MAX ? source.key : source.reference_key;
 }
 
