@@ -75,7 +75,9 @@ describe("style gallery", () => {
     expect(p).toContain("Image 2's product, packaging, logo and print never appear");
     expect(p).not.toContain("palm leaves");
     expect(p).toContain("No prices on artwork");
-    expect(p).toContain("CLIENT LOOK (colour grade and finish only");
+    // The picked style is the look: the client's usual finish stays off a styled post (27 Oct).
+    expect(p).not.toContain("CLIENT LOOK");
+    expect(p).not.toContain("CLIENT STYLE");
     expect(p).not.toContain("duplicated products");
   });
 

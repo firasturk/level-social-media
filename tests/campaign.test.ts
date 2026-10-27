@@ -85,7 +85,8 @@ describe("a campaign brief wins over the month", () => {
     expect(q).toContain("ITS COLOURS ARE COPIED");
     expect(q).toContain("the picked style's own colours lead this picture");
     expect(q).not.toContain("BACKGROUND: the backdrop");
-    expect(q).toContain("CLIENT LOOK");
+    // The picked style is the look: the client's usual finish stays off it (27 Oct).
+    expect(q).not.toContain("CLIENT LOOK");
   });
   it("tells the preflight and the review that the brief's reference and ingredients stay", () => {
     const pf = preflightInstruction({ client: "Abu Saleh", scene: "chilies around the cup", products: ["a cup"], people: [], reference: "style", lessons: [], campaign: { ingredients: "red chili" } });

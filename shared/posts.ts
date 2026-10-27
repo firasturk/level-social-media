@@ -791,11 +791,11 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // A grid month follows its grid: the theme's pins and their visual language step back too.
   const theme = b.styleKey || b.grid ? "" : chosen ? withoutPaletteText(b.theme.trim()) : b.theme.trim();
   const style = [chosen ? withoutPaletteText(b.style.trim()) : b.style.trim(), theme].filter(Boolean).join("\n");
-  if (b.campaign && b.styleKey) {
-    // The designer's reference is the look: the client's usual finish would pull the picture away from it.
-  } else if (style && b.styleKey)
-    parts.push(`CLIENT LOOK (colour grade and finish only; the picked style decides the set, composition, people and scale):\n${style}`);
-  else if (style && b.onLocation)
+  if (b.styleKey) {
+    // A picked style (or the designer's reference) is the look: the client's usual finish pulled
+    // the picture away from it even as "colour grade only" (its yellow planes and sprinkling hands
+    // came back over a mirrored ingredient stack, 27 Oct). The client's rules still apply below.
+  } else if (style && b.onLocation)
     parts.push(`CLIENT STYLE (its palette, energy and finish only: this picture is on location, so the studio backgrounds, seamless colours, pedestals and plain planes it describes do not apply):\n${style}`);
   else if (style) parts.push(`CLIENT STYLE:\n${style}`);
   // Layout rules (logo placement, bands, marks, type) belong to the designer's overlay, not the photo.

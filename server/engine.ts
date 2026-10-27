@@ -2334,7 +2334,9 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     campaignStaging: !!pb.campaign || !!pb.editRef,
     idea: pb.brief,
     coffeeDay: pb.occasionId === "coffee-day",
-    brand: pb.palette?.length || pb.photography ? { palette: pb.palette ?? [], photography: pb.photography } : undefined,
+    // A post made in a picked style follows the style's look, not the brand's usual one: the
+    // review does not hold it to the brand palette (that flag's self-fix pulled it back, 27 Oct).
+    brand: !pb.styleKey && (pb.palette?.length || pb.photography) ? { palette: pb.palette ?? [], photography: pb.photography } : undefined,
     style: pb.styleKey ? pb.shot : undefined,
     // The tile as the post was asked to follow it: its bags and cards were left out on purpose.
     tile: pb.grid && pb.tile ? tileForPeople(tileWithoutBags(pb.tile, !!pb.hasProduct || !!pb.exact), (pb.ambassadors ?? []).length) : undefined,
