@@ -699,7 +699,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // A style picked from the gallery is the picture to make, not just a mood.
   const picked = b.campaign
     ? `the reference picture the designer attached to the campaign brief (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surfaces, colours, light, props, effects and mood closely, with this brand's product in place of its product${b.campaign.ingredients?.trim() ? ` and the brief's ingredients (${b.campaign.ingredients.trim()}) where it shows its own` : ""}; never its product, packaging, text, logo, price, buttons or the identity of its people, and nothing of the page or app it was saved from`
-    : `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people${b.paletteChosen && b.palette.length ? `. ITS COLOURS ARE NOT COPIED: the backdrop, surfaces, props and light take the month's colours (${b.palette.join(", ")}) instead` : ""}`;
+    : `the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people. ITS COLOURS ARE COPIED: the backdrop, surfaces, props and light keep the style's own colours as its picture shows them; the month's palette does not apply here, and the product keeps the exact colours of its own photo`;
   // In exact mode the reference's own product is never drawn: its place stays empty for the real photo.
   const exactRef = b.exact
     ? " ITS PRODUCT IS NOT DRAWN: the cup, can, glass, bottle, box or dish it shows is left out entirely, with no stand-in of any kind; where it stands, the scene's own surface is left empty for the real product that is set in afterwards. Nothing of its print, logo or lettering appears anywhere."
@@ -847,9 +847,12 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     ? `COLOURS: the brief names these colours and they lead the picture, over the reference's colours: ${b.campaign.colours.join(", ")}. The backdrop, surfaces, props, fabrics and light are built from them (the first is the main background); the reference gives the composition, camera, set and mood, not its colours. The product keeps the exact colours of its photo and is never recoloured.`
     : b.campaign
       ? `COLOURS: this post follows a campaign brief, so the month's palette does not apply. The backdrop, surfaces, props and light keep the colours, contrast and mood of the attached reference picture (a dark moody scene stays dark); the product keeps the exact colours of its photo and is never recoloured.`
-      : paletteRule(b.palette, !!b.paletteChosen);
+      : b.styleKey
+        ? // A picked style is a whole look, its colours included (27 Oct): the month's palette stays off it.
+          "COLOURS: the picked style's own colours lead this picture: the backdrop, surfaces, props and light keep the colours of the attached style picture and of the shot above; the month's palette does not apply. The product keeps the exact colours of its photo and is never recoloured."
+        : paletteRule(b.palette, !!b.paletteChosen);
   if (palette) parts.push(palette);
-  if (chosen)
+  if (chosen && !b.styleKey)
     parts.push(
       `BACKGROUND: the backdrop, wall and main surface behind the product are ${b.palette[0]}; the other chosen colours go to ${b.props?.trim() ? "the props, fabrics and accents" : "the surfaces, the light and the people's clothes"}.`,
     );

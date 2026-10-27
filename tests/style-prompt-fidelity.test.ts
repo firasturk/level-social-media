@@ -31,6 +31,12 @@ describe("a post made in a style keeps its product's details", () => {
     expect(prompt).toContain("pistachio-green drink in its real clear plastic cup");
     expect(prompt).toContain("pale and dark green swirls with turquoise Arabic calligraphy");
   });
+  it("lets the style's own colours lead instead of the month's palette", () => {
+    const prompt = buildPostPrompt(base);
+    expect(prompt).toContain("the picked style's own colours lead this picture");
+    expect(prompt).not.toContain("chosen by the designer for this month");
+    expect(prompt).not.toContain("BACKGROUND: the backdrop");
+  });
   it("gives the garment print rule to garments only", () => {
     expect(buildPostPrompt(base)).not.toContain("FRONT PRINT");
     const tee = buildPostPrompt({ ...base, product: "A white cotton t-shirt with a red logo printed on the chest." } as never);

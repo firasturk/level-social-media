@@ -1,6 +1,6 @@
 Image 1 is the product photo: the product is the source of truth and is reproduced exactly.
 
-Image 2 is the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people.
+Image 2 is the style the designer picked (its people are placeholders: the attached ambassadors take their place, at the ambassadors' own age and gender): recreate its composition, camera angle and distance, set, surface, gesture, effects and light closely, with this brand's product in place of its product; never its product, text, logo or the identity of its people. ITS COLOURS ARE COPIED: the backdrop, surfaces, props and light keep the style's own colours as its picture shows them; the month's palette does not apply here, and the product keeps the exact colours of its own photo.
 
 Create the scene described below around the product.
 
@@ -20,7 +20,7 @@ PHOTOGRAPHY DIRECTION (the lens, light and angle of every picture of this brand;
 
 FORMAT: a portrait post frame; the subject fills it with comfortable margins. Nothing important touches the edges; no bars, borders or collage.
 
-PALETTE: the scene, props, surfaces and light sit inside this palette: Sky blue #0a7bd6, Sign yellow #f2c200, Asphalt #2b2b2b. The product, its packaging and print keep the exact colours of its photo; packaging is never recoloured to match the palette.
+COLOURS: the picked style's own colours lead this picture: the backdrop, surfaces, props and light keep the colours of the attached style picture and of the shot above; the month's palette does not apply. The product keeps the exact colours of its photo and is never recoloured.
 
 PRODUCT TRUTH (most important): this is a real commercial photoshoot of the attached product photos. Every product looks exactly as in its photo: same shape, proportions, number of pieces, arrangement, colours, filling, toppings, packaging and print. Packaging stays exactly as photographed: a closed box keeps its printed lid on, an open box or tray stays open as shown; a product is never opened, closed, unwrapped, re-packed or taken out of its box, and its box never changes shape, material or size. Nothing is added onto or into a product (no nuts, pine nuts, seeds, sauce, syrup, cream, herbs, powder, petals or decoration that its photo does not show) and nothing is removed; packaging is never redesigned: its print, logo, colours and pattern are copied exactly from the photo, and no product name, file name, number or new word is ever written on a box, tin, label or anywhere else. The only food and drink in the picture are the attached products: no other dishes, sweets, drinks, juices, coffee, tea, glasses of liquid, fruit or loose ingredients, whatever the style reference or the brief shows. Props are non-food: plates and trays, fabrics, ceramics, wood, stone, metal, leaves and flowers kept away from the food.
 

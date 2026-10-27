@@ -80,9 +80,11 @@ describe("a campaign brief wins over the month", () => {
     expect(p).toContain("THE BRIEF'S INGREDIENTS");
     expect(p).toContain("red chili pepper, liquid chocolate");
     expect(p).not.toContain("other food or drinks, ");
-    // An ordinary styled post still takes the month's palette.
+    // An ordinary styled post keeps the style's own colours too (27 Oct): the palette stays off it.
     const q = buildPostPrompt(base);
-    expect(q).toContain("ITS COLOURS ARE NOT COPIED");
+    expect(q).toContain("ITS COLOURS ARE COPIED");
+    expect(q).toContain("the picked style's own colours lead this picture");
+    expect(q).not.toContain("BACKGROUND: the backdrop");
     expect(q).toContain("CLIENT LOOK");
   });
   it("tells the preflight and the review that the brief's reference and ingredients stay", () => {

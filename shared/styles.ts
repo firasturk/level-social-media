@@ -268,9 +268,12 @@ export function adaptStyleInstruction(r: AdaptRequest): string {
       ? "THE PRODUCT IS CLOTHING: it is WORN by the post's person (the style's person, replaced by this brand's ambassador) with its exact print, graphic, colours and cut as photographed; the side that carries the print faces the camera, so a garment printed on the BACK is worn by a person seen from behind or turned three-quarter away, and one printed on the CHEST by a person facing the camera; the print is never moved to the other side, and when the description does not say where it sits, the shot never names a side; it is folded or laid flat only when the style shows nobody. Its print is never redrawn, and no shopping bag, carrier or packaging is added around it."
       : "",
     "THE PRODUCT keeps its real packaging, shape, label and colours, never recoloured; a closed box stays closed and an open one open; real size against hands and furniture; held level or set on a surface; never put into a bag or onto another object.",
-    r.palette.length
+    // The style is a whole look, its colours included (27 Oct): the month's palette no longer
+    // recolours it; the brand's main colour fills the style's own placeholder alone. A campaign's
+    // reference keeps the brief's named colours as before.
+    r.reference && r.palette.length
       ? `COLOURS: name only these: ${r.palette.join(", ")}. The background is ${r.palette[0]}; props and fabrics take the others.`
-      : "",
+      : `COLOURS: keep the style's own colours (its background, surfaces, props, fabrics and light) exactly as its prompt and picture show them; do not replace them with the brand's colours.${r.palette.length ? ` Where the style says 'the brand's main colour', write ${r.palette[0]}.` : ""} The product keeps the colours of its own photo.`,
     r.people.length
       ? `PEOPLE: only ${r.people.join("; ")}, each as described (their own gender, a man never in a headscarf or dress, modest clothing when their look says so).`
       : r.briefPeople
