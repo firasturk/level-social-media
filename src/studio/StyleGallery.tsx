@@ -422,8 +422,14 @@ export default function StyleScreen({
           ? "Select one for this post"
           : "Pick a style"
       : n
-        ? `Use ${n} for the grid${pick.posts ? ` · ${pick.posts} posts` : ""}`
-        : "Pick styles for the grid";
+        ? pick.label
+          ? n === 1
+            ? `Use for the ${pick.posts ?? n} card${(pick.posts ?? n) === 1 ? "" : "s"}`
+            : `Use ${n} styles, one card each in turn`
+          : `Use ${n} for the grid${pick.posts ? ` · ${pick.posts} posts` : ""}`
+        : pick.label
+          ? "Pick one style for all, or one per card"
+          : "Pick styles for the grid";
   // Page numbers around the current one, with the first and last always reachable.
   const nums = [...new Set([1, page - 2, page - 1, page, page + 1, page + 2, pageCount])].filter((x) => x >= 1 && x <= pageCount).sort((a, b) => a - b);
 
@@ -689,7 +695,7 @@ export default function StyleScreen({
       {(n > 0 || (pick && !reviewing)) && (
         <div className="style-dock">
           <span className="style-dock-count">
-            {n ? `${n} selected` : pick?.mode === "grid" ? `Select the styles for ${pick.posts ?? "your"} posts` : pick?.mode === "feed" ? "Select one grid" : "Select one style"}
+            {n ? `${n} selected` : pick?.mode === "grid" ? (pick.label ? `Select one style for the ${pick.posts ?? ""} cards, or one per card` : `Select the styles for ${pick.posts ?? "your"} posts`) : pick?.mode === "feed" ? "Select one grid" : "Select one style"}
           </span>
           {n > 0 && reviewing && (
             <>

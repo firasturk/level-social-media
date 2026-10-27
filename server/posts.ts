@@ -920,7 +920,7 @@ export async function describeUpload(env: Env, sourceId: string): Promise<void> 
 }
 
 /** Product uploads of the plan, by their display name (upload name without folder and extension). */
-function productName(s: SourceRow): string {
+export function productName(s: SourceRow): string {
   return decodeEntities(stemOf(s.name).split("/").pop() ?? s.name);
 }
 
@@ -5482,9 +5482,18 @@ postRoutes.post("/style", async (c) => {
     }),
   );
   const user = c.get("user");
-  const b = await ownedPlan(c.env, user, d.batch);
-  const scenes = await writeStyleScenes(c.env, b, JSON.parse(b.config) as Config, d.assign);
-  const fresh = await ownedPlan(c.env, user, d.batch);
+  return c.json({ ok: true, plan: await assignStyles(c.env, user, d.batch, d.assign) });
+});
+
+/**
+ * The styles written into the posts: each post's idea and shot rewritten for the style with its
+ * own products (writeStyleScenes), then its words. Shared by the route and the client-picture path
+ * (server/style-media.ts). Nothing is made.
+ */
+export async function assignStyles(env: Env, user: User, batchId: string, assign: { index: number; style: string | null }[]): Promise<Post[]> {
+  const b = await ownedPlan(env, user, batchId);
+  const scenes = await writeStyleScenes(env, b, JSON.parse(b.config) as Config, assign);
+  const fresh = await ownedPlan(env, user, batchId);
   const cfg = JSON.parse(fresh.config) as Config;
   cfg.plan = (cfg.plan ?? []).map((p) => {
     const s = scenes.get(p.index);
@@ -5500,21 +5509,21 @@ postRoutes.post("/style", async (c) => {
     const tileOv = p.tileSpec ? overlayFromTile(p.tileSpec.text, p.tileSpec.kind) : {};
     return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo }, ...(before ? { brief: before } : {}) };
   });
-  await saveConfig(c.env, fresh, cfg);
+  await saveConfig(env, fresh, cfg);
   // The words follow the style: the headline and caption are written for the picture the style
   // describes, with the post's own products. The idea (brief) and the scene stay the style's.
-  for (const a of d.assign) {
+  for (const a of assign) {
     const s = scenes.get(a.index);
     if (!s?.style || !s.scene) continue;
     try {
-      const latest = await ownedPlan(c.env, user, d.batch);
+      const latest = await ownedPlan(env, user, batchId);
       const latestCfg = JSON.parse(latest.config) as Config;
       const post = (latestCfg.plan ?? []).find((p) => p.index === a.index);
       // A campaign post's words are the designer's brief: they are never written again for a style.
       if (!post || post.group) continue;
       const names = [post.product, ...(post.products ?? [])].filter(Boolean);
       await rewritePostIdea(
-        c.env,
+        env,
         latest,
         latestCfg,
         a.index,
@@ -5525,8 +5534,20 @@ postRoutes.post("/style", async (c) => {
       console.error("[style] words", a.index, errorMessage(e));
     }
   }
-  const done = await ownedPlan(c.env, user, d.batch);
-  return c.json({ ok: true, plan: (JSON.parse(done.config) as Config).plan });
+  const done = await ownedPlan(env, user, batchId);
+  return (JSON.parse(done.config) as Config).plan ?? [];
+}
+
+/**
+ * The chosen client pictures made in a style for real (27 Oct): each card's photo becomes a product
+ * of the month and the post is written in the style (server/style-media.ts); the page then runs the
+ * usual Generate on them, confirmed with its price. Nothing is paid here.
+ */
+postRoutes.post("/style-media", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).min(1).max(MAX_POST_COUNT), style: z.string().min(1).max(80) }));
+  const { prepareMediaForStyle } = await import("./style-media");
+  const r = await prepareMediaForStyle(c.env, c.get("user"), d.batch, d.indexes, d.style);
+  return c.json({ ok: true, ...r });
 });
 
 /** The official portrait of a royal day: uploaded by the team, framed on the post exactly as it is. */

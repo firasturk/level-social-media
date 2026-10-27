@@ -144,7 +144,7 @@ Buttons: "Make the picture · about $X" (no picture yet; asks first, only this p
 "Remove this post" acts at once (its picture is kept with the month's earlier versions). A carousel is one card that slides (arrows, dots, "+" after the dots; chip "Carousel 2/3"): every slide is a post of its own and the card's buttons act on the slide shown. "+" or "Add a slide" (menu) adds a copy of slide 1, picture and words, as the next slide (ten at most, nothing paid); "Make it a carousel" on a single post makes it slide 1 and adds slide 2 as its copy; "Remove this slide" removes one. On the client's link a carousel is one post that swipes: "Approve the carousel" approves every slide, a change is asked on the slide on screen. "Unsaved edits kept: …" on a card offers "Open to finish" or "Discard". Clicking the picture opens the post editor ("Idea", "Image", "Words & design", "Versions").
 
 ### Choosing several cards
-"Choose cards", tick cards (numbered in order). Bar: "Apply a style to N chosen" (saves the style; nothing paid; then "Restyle" each card, confirmed), "Open in Text studio (1 of N)", "Combine into one video" (admins, 2+ cards), "Clear", x to stop.
+"Choose cards", tick cards (numbered in order). Bar: "Apply a style to N chosen" (pick one style for all the cards, or several, one card each in turn; a client's own picture is then made again in the style for real: its photo becomes a product of the month and is set in exactly, or, when the style shows several products, other products of the month join it so none repeats; confirmed with the price, one picture each; a planned post only gets the style saved, nothing paid), "Open in Text studio (1 of N)", "Combine into one video" (admins, 2+ cards), "Clear", x to stop.
 
 ## 9. Carousels
 

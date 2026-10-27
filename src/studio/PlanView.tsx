@@ -404,29 +404,35 @@ export default function PlanView({
     setChosenRoute(null);
   };
   /** A gallery style saved on exactly the chosen cards, after one confirm that names them; no picture is made. */
-  async function styleChosen(style: StyleItem, indexes: number[]) {
+  /**
+   * Styles for the chosen cards (27 Oct): one style for all, or several, one card each in turn. A
+   * client's own picture is made again in the style for real (its photo the product, set in exactly
+   * or drawn from it when the style shows several products, each another product of the month); a
+   * planned post gets the style saved and its idea written in it, its picture a later step.
+   */
+  async function stylesChosen(styles: StyleItem[], indexes: number[]) {
     const targets = indexes.map((i) => draftRef.current.find((x) => x.index === i)).filter((x): x is Post => !!x);
-    if (!targets.length) return;
-    const media = targets.filter(isMediaPost);
-    const others = targets.filter((x) => !isMediaPost(x));
-    const n = targets.length;
+    if (!targets.length || !styles.length || !batchId) return;
+    const pairs = targets.map((p, i) => ({ post: p, style: styles[i % styles.length] }));
+    const media = pairs.filter((x) => isMediaPost(x.post));
+    const others = pairs.filter((x) => !isMediaPost(x.post));
+    const names = styles.length === 1 ? `“${styles[0].title}”` : `${styles.length} styles, one card each in turn`;
     const label = scopeLabel({ kind: "selection", indexes: targets.map((x) => x.index) });
-    const rest = plan.length - n;
     const ok = await askConfirm(
-      `Save the style “${style.title}” on ${label}? It is saved on each card now: no picture is made and nothing is paid.${media.length ? ` Restyling each picture is then its own step on its card (Restyle${perPicture ? `, about ${formatUsd(perPicture)} each` : ""}), confirmed one picture at a time.` : ""}${others.length ? ` ${others.length === 1 ? "One planned post gets" : `${others.length} planned posts get`} its idea and shot written in the style; making ${others.length === 1 ? "its picture" : "their pictures"} stays a separate step with its cost.` : ""}${rest > 0 ? ` The month's other ${rest} post${rest === 1 ? " stays" : "s stay"} as ${rest === 1 ? "it is" : "they are"}.` : ""}`,
-      { ok: `Save on ${n} card${n === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
+      `Apply ${names} to ${label}?${media.length ? ` ${media.length === 1 ? "One card is the client's own picture: it is made again in the style, its photo as the product" : `${media.length} cards are the client's own pictures: they are made again in the style, each photo as its product`} (set in exactly, or drawn from it when the style shows several products, each another product of the month); about ${perPicture ? formatUsd(perPicture * media.length) : "the usual price"} plus the exact-product steps, asked once more with the exact figure before the run. The photos stay under Versions and join the month's products.` : ""}${others.length ? ` ${others.length === 1 ? "One planned post gets" : `${others.length} planned posts get`} the style saved and ${others.length === 1 ? "its" : "their"} idea written in it; making the picture${others.length === 1 ? "" : "s"} stays a separate step.` : ""}`,
+      { ok: media.length ? "Apply and make" : `Save on ${targets.length} card${targets.length === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
     );
     if (!ok) return;
     try {
+      if (others.length) await onStyles(others.map((x) => ({ index: x.post.index, style: x.style.id })));
       if (media.length) {
-        const ids = new Set(media.map((x) => x.index));
-        const next = draftRef.current.map((x) => (ids.has(x.index) ? { ...x, style: style.id } : x));
-        draftRef.current = next;
-        setDraft(next);
-        await onSavePlan(next);
-      }
-      if (others.length) await onStyles(others.map((x) => ({ index: x.index, style: style.id })));
-      toast.success(`Style “${style.title}” saved on ${label}. Nothing was made.`);
+        const byStyle = new Map<string, number[]>();
+        for (const x of media) byStyle.set(x.style.id, [...(byStyle.get(x.style.id) ?? []), x.post.index]);
+        for (const [style, idx] of byStyle) await post("/api/studio/posts/style-media", { batch: batchId, indexes: idx, style });
+        await onRefresh?.();
+        toast.success(`${media.length} card${media.length === 1 ? "" : "s"} written in the style; the picture${media.length === 1 ? " is" : "s are"} made next.`);
+        await onGeneratePosts(media.map((x) => x.post.index), true);
+      } else toast.success(`Style saved on ${label}. Nothing was made.`);
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -638,12 +644,13 @@ export default function PlanView({
           onClose={() => setStyleFor(null)}
           forClient={{ id: client.id, name: client.name }}
           pick={{
-            mode: "post",
+            mode: "grid",
+            posts: styleFor.length,
             label: `${styleFor.length} chosen card${styleFor.length === 1 ? "" : "s"} (posts ${styleFor.map((i) => String(i).padStart(2, "0")).join(", ")})`,
             onPick: (_ids: string[], items: StyleItem[]) => {
               const targets = styleFor;
               setStyleFor(null);
-              if (items[0]) void styleChosen(items[0], targets);
+              if (items.length) void stylesChosen(items, targets);
             },
           }}
         />
@@ -676,11 +683,17 @@ export default function PlanView({
           mode: "post",
           label: picking !== null ? `Post ${String(picking).padStart(2, "0")}` : undefined,
           tab: picking !== null && draft.find((x) => x.index === picking)?.people?.length ? "lifestyle" : undefined,
-          onPick: (ids: string[]) => {
+          onPick: (ids: string[], items: StyleItem[]) => {
             if (picking === null || !ids[0]) return;
             const [index, id] = [picking, ids[0]];
-            setPendingStyle((m) => new Map(m).set(index, id));
             setPicking(null);
+            // A client's own picture is made in the style for real, like the chosen-cards path.
+            const target = draftRef.current.find((x) => x.index === index);
+            if (target && isMediaPost(target) && items[0]) {
+              void stylesChosen([items[0]], [index]);
+              return;
+            }
+            setPendingStyle((m) => new Map(m).set(index, id));
           },
         }}
       />

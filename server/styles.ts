@@ -68,6 +68,8 @@ export interface StyleRow {
   tiles: number;
   /** The client a suggested grid was found for ('' for the shared library). */
   client: string;
+  /** How many product units the picture shows (0: not read yet; server/style-media.ts). */
+  products: number;
 }
 
 function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = new Map()): StyleItem {
