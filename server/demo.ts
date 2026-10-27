@@ -5,7 +5,7 @@
  * "DEMO FIXTURE" in its words. Pictures are never made on a preview whatever is pressed.
  */
 import { previewNoImages, type Env } from "./env";
-import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
+import { resolveAnthropicKey, resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { feedbackFromInstruction, interpretFeedback } from "../shared/feedback";
 import { intentRequestFrom, resolveIntent } from "../shared/promptbox";
 import { demoCampaignAnswer, demoRetarget, isCampaignSchema, isRetargetSchema } from "../shared/campaign-planner";
@@ -13,7 +13,7 @@ import { demoSuggestions, isSuggestSchema } from "../shared/campaign-suggest";
 
 export async function demoMode(env: Env): Promise<boolean> {
   if (!previewNoImages(env)) return false;
-  return !(await resolveGoogleAuth(env)).auth && !(await resolveOpenAIKey(env)).key;
+  return !(await resolveGoogleAuth(env)).auth && !(await resolveOpenAIKey(env)).key && !(await resolveAnthropicKey(env)).key;
 }
 
 type Schema = { type?: string; properties?: Record<string, Schema>; items?: Schema; enum?: string[]; required?: string[] };

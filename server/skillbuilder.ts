@@ -5,7 +5,8 @@
  */
 import type { Env } from "./env";
 import { StudioError, errorMessage } from "./errors";
-import { resolveGoogleKey, resolveOpenAIKey } from "./settings";
+import { resolveAnthropicKey, resolveGoogleKey, resolveOpenAIKey } from "./settings";
+import { tryClaude } from "./anthropic";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 
@@ -39,14 +40,18 @@ export async function buildSkillFromReferences(
   if (!images.length) throw new StudioError("Add reference photos to this skill first.");
   const google = (await resolveGoogleKey(env)).key;
   const openai = (await resolveOpenAIKey(env)).key;
-  if (!google && !openai)
+  const anthropic = (await resolveAnthropicKey(env)).key;
+  if (!google && !openai && !anthropic)
     throw new StudioError(
-      "Building from references needs a Google or OpenAI key in Connection.",
+      "Building from references needs a Claude, Google or OpenAI key in Connection.",
       428,
     );
   const instruction = skillBuilderInstruction(title, images.length);
   let text: string;
-  if (google) {
+  const claude = await tryClaude(env, instruction, images, SCHEMA);
+  if (claude !== null) text = claude;
+  else if (!google && !openai) throw new StudioError("Claude could not answer this time, and no Google or OpenAI key is connected to answer instead.", 502);
+  else if (google) {
     try {
       text = await askVisionGoogle(google, instruction, images, SCHEMA);
     } catch (e) {

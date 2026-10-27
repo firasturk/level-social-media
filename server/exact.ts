@@ -9,6 +9,7 @@ import { rateFor } from "@shared/pricing";
 import { reserveSpend } from "./spend";
 import type { ImageBytes } from "./openai";
 import { resolveGoogleAuth, resolveOpenAIKey } from "./settings";
+import { tryClaude } from "./anthropic";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import {
   alphaFromBackground,
@@ -179,7 +180,9 @@ async function findSpot(env: Env, product: ImageBytes, scene: ImageBytes, note: 
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
   let text: string;
-  if (google) {
+  const claude = await tryClaude(env, instruction, [product, scene], SPOT_SCHEMA);
+  if (claude !== null) text = claude;
+  else if (google) {
     try {
       text = await askVisionGoogle(google, instruction, [product, scene], SPOT_SCHEMA);
     } catch (e) {
@@ -187,7 +190,7 @@ async function findSpot(env: Env, product: ImageBytes, scene: ImageBytes, note: 
       text = await askVisionOpenAI(openai, instruction, [product, scene]);
     }
   } else if (openai) text = await askVisionOpenAI(openai, instruction, [product, scene]);
-  else throw new StudioError("Exact product mode needs a Google or OpenAI key in Connection.", 428);
+  else throw new StudioError("Exact product mode needs a Claude, Google or OpenAI key in Connection.", 428);
   const d = JSON.parse(text.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as {
     box?: number[];
     light?: string;

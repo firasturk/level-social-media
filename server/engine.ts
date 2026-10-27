@@ -78,6 +78,10 @@ import {
 import {
   buildBriefWithGoogle,
   buildBriefWithOpenAI,
+  builderInstruction,
+  imageParts,
+  parseBrief,
+  SCHEMA as BUILDER_SCHEMA,
   planRun,
   type EditorialBrief,
   type EditorialRequest,
@@ -111,7 +115,9 @@ import {
   resolveGoogleAuth,
   resolveOpenAIKey,
   setSetting,
+  resolveAnthropicKey,
 } from "./settings";
+import { tryClaude } from "./anthropic";
 import { GoogleImageClient, isGoogleModel } from "./google";
 import { VertexImageClient } from "./vertex";
 import { FalClient, decodeFalHandle, encodeFalHandle, isFalModel } from "./fal";
@@ -1347,14 +1353,19 @@ async function ensureBrief(
   // so one key is enough and errors come from a single provider.
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
-  if (!google && !openai)
+  const anthropic = (await resolveAnthropicKey(env)).key;
+  if (!google && !openai && !anthropic)
     throw new StudioError(
-      "The editorial prompt builder needs a Google or OpenAI key in Connection.",
+      "The editorial prompt builder needs a Claude, Google or OpenAI key in Connection.",
       428,
       true,
     );
   const preferOpenAI = isOpenAIModel(config.model) ? !!openai : !google;
   const build = async (): Promise<EditorialBrief> => {
+    // Claude writes the prompt first when its key is saved (27 Oct); the vendors below stand in.
+    const claude = await tryClaude(env, builderInstruction(req), imageParts(req), BUILDER_SCHEMA);
+    if (claude !== null) return parseBrief(claude);
+    if (!google && !openai) throw new StudioError("Claude could not write this prompt, and no Google or OpenAI key is connected to write it instead.", 502, true);
     if (preferOpenAI) {
       try {
         return await buildBriefWithOpenAI(openai!, req);
@@ -1729,8 +1740,13 @@ async function askVision(
 ): Promise<string> {
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
-  if (!google && !openai && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
-  if (!google && !openai) throw new StudioError("Connect Google or OpenAI first.", 428, true);
+  const anthropic = (await resolveAnthropicKey(env)).key;
+  if (!google && !openai && !anthropic && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
+  if (!google && !openai && !anthropic) throw new StudioError("Connect Claude, Google or OpenAI first.", 428, true);
+  // Claude answers first when its key is saved (27 Oct); the others stand in when it cannot.
+  const claude = await tryClaude(env, instruction, images, schema);
+  if (claude !== null) return claude;
+  if (!google && !openai) throw new StudioError("Claude could not answer this time, and no Google or OpenAI key is connected to answer instead.", 502, true);
   if (!google) return askVisionOpenAI(openai!, instruction, images, fetch, "gpt-4.1-mini");
   try {
     return await askVisionGoogle(google, instruction, images, schema);
@@ -2273,7 +2289,9 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
   let text: string;
-  if (google) {
+  const claude = await tryClaude(env, instruction, all, POST_REVIEW_SCHEMA);
+  if (claude !== null) text = claude;
+  else if (google) {
     try {
       text = await askVisionGoogle(google, instruction, all, POST_REVIEW_SCHEMA);
     } catch (e) {

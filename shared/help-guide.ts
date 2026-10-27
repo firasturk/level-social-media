@@ -260,7 +260,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 
 ## 19. Connection and Admin (admins)
 
-- Connection: tabs "Higgsfield" (sign-in for credits; billing "Subscription credits · sign-in" or "Cloud API · pay per clip"), "Google", "Google Cloud" (also the Drive account), "OpenAI", "fal.ai", "Freepik" (Photo lab key, stock, Magnific sign-in), "Instagram", "Pinterest" (for "Edit like this video" links), "Notifications" (Resend key, sender, "Send a test e-mail"). A green dot = connected.
+- Connection: tabs "Higgsfield" (sign-in for credits; billing "Subscription credits · sign-in" or "Cloud API · pay per clip"), "Claude" (the Anthropic API key: once saved, Claude answers every text call first (plans, ideas, client comments, captions, picture reviews, help, Prompt Box), Google and OpenAI stand in; shows this month's spend against its cap, US$200 by default, editable), "Google", "Google Cloud" (also the Drive account), "OpenAI", "fal.ai", "Freepik" (Photo lab key, stock, Magnific sign-in), "Instagram", "Pinterest" (for "Edit like this video" links), "Notifications" (Resend key, sender, "Send a test e-mail"). A green dot = connected.
 - Admin page: "Team" ("Make admin"/"Make member", move a person's months to you), "System check", "Integrations" (one switch per provider, recent operations), "Studio hero video", "Workspace settings" ("Invite code for new accounts", "Ask before spending more than ($)", "Four-stage workflow", "Who sees prices", "Autopilot reviews before paying", "Delete batches after (days)", webhook, notification e-mails).
 - New members register on the sign-in page with "Have an invite code? Create an account".
 

@@ -302,6 +302,7 @@ export interface StateResponse {
     configured: boolean;
     source: "secret" | "stored" | "none";
     openai: "secret" | "stored" | "none";
+  anthropic: "secret" | "stored" | "none";
     google: "secret" | "stored" | "none";
     fal: "secret" | "stored" | "none";
     review: boolean;

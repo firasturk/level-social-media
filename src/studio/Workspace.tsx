@@ -167,6 +167,7 @@ export default function Workspace({
     configured: false,
     source: "none",
     openai: "none",
+    anthropic: "none",
     google: "none",
     fal: "none",
     review: false,

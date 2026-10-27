@@ -21,12 +21,15 @@ async function app(role: User["role"]) {
 
 // Secrets set as Worker secrets make the key routes answer 409 before touching the database, so
 // an admin's request proves the guard let it through without needing D1.
-const env = { OPENAI_API_KEY: "secret", GEMINI_API_KEY: "secret", FAL_KEY: "secret" };
+const env = { OPENAI_API_KEY: "secret", GEMINI_API_KEY: "secret", FAL_KEY: "secret", ANTHROPIC_API_KEY: "secret" };
 
 describe("engine connection permissions", () => {
   const writes: [string, string][] = [
     ["POST", "/api/studio/engine/openai-key"],
     ["DELETE", "/api/studio/engine/openai-key"],
+    ["POST", "/api/studio/engine/anthropic-key"],
+    ["DELETE", "/api/studio/engine/anthropic-key"],
+    ["POST", "/api/studio/engine/anthropic-cap"],
     ["POST", "/api/studio/engine/google-key"],
     ["DELETE", "/api/studio/engine/google-key"],
     ["POST", "/api/studio/engine/vertex"],
@@ -48,7 +51,7 @@ describe("engine connection permissions", () => {
 
   it("lets an admin through the guard (the key routes then stop on the Worker secret)", async () => {
     const a = await app("admin");
-    for (const path of ["/api/studio/engine/openai-key", "/api/studio/engine/google-key", "/api/studio/engine/fal-key"]) {
+    for (const path of ["/api/studio/engine/openai-key", "/api/studio/engine/google-key", "/api/studio/engine/fal-key", "/api/studio/engine/anthropic-key"]) {
       const r = await a.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "k".repeat(30) }) }, env);
       expect(`${path} -> ${r.status}`).toBe(`${path} -> 409`);
     }

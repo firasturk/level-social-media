@@ -10,7 +10,8 @@ import { StudioError, errorMessage } from "./errors";
 import { sanitizeSvg, SvgRefused } from "@shared/svg-sanitize";
 import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
-import { getSetting, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
+import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
+import { tryClaude } from "./anthropic";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
@@ -141,7 +142,7 @@ async function body<T extends z.ZodTypeAny>(
   return parsed.data;
 }
 
-/** One JSON answer from the text model: Google (API key or Vertex) first, OpenAI as the stand-in. */
+/** One JSON answer from the text model: Claude first (27 Oct), then Google (API key or Vertex), OpenAI as the stand-in. */
 export async function askText(
   env: Env,
   instruction: string,
@@ -150,10 +151,14 @@ export async function askText(
 ): Promise<string> {
   const google = (await resolveGoogleAuth(env)).auth;
   const openai = (await resolveOpenAIKey(env)).key;
+  const anthropic = (await resolveAnthropicKey(env)).key;
   // A preview with no key answers from demo fixtures: no provider is called.
-  if (!google && !openai && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
-  if (!google && !openai)
-    throw new StudioError("This needs a Google or OpenAI key in Connection.", 428);
+  if (!google && !openai && !anthropic && (await demoMode(env))) return demoAnswer(instruction, schema, images.length);
+  if (!google && !openai && !anthropic)
+    throw new StudioError("This needs a Claude, Google or OpenAI key in Connection.", 428);
+  const claude = await tryClaude(env, instruction, images, schema);
+  if (claude !== null) return claude;
+  if (!google && !openai) throw new StudioError("Claude could not answer this time (the log says why), and no Google or OpenAI key is connected to answer instead.", 502);
   if (google) {
     try {
       return await askVisionGoogle(google, instruction, images, schema);

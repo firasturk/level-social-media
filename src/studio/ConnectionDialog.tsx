@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { askConfirm } from "@/lib/confirm";
 import { Check, KeyRound, Trash2, TriangleAlert } from "lucide-react";
 import { Orb } from "@/components/Orb";
@@ -23,6 +23,7 @@ export interface EngineInfo {
   configured: boolean;
   source: "secret" | "stored" | "none";
   openai: "secret" | "stored" | "none";
+  anthropic: "secret" | "stored" | "none";
   google: "secret" | "stored" | "none";
   fal: "secret" | "stored" | "none";
   review: boolean;
@@ -91,12 +92,12 @@ export default function ConnectionDialog({
     }
   }
   const [falKey, setFalKey] = useState("");
-  type Vendor = "higgsfield" | "google" | "vertex" | "openai" | "fal" | "freepik" | "meta" | "pinterest" | "notify";
+  type Vendor = "higgsfield" | "claude" | "google" | "vertex" | "openai" | "fal" | "freepik" | "meta" | "pinterest" | "notify";
   // Opens on the tab last used in this browser, else on the vendor of the current image model.
   const [vendor, setVendorState] = useState<Vendor>(() => {
     try {
       const saved = localStorage.getItem("connection-tab") as Vendor | null;
-      if (saved && ["higgsfield", "google", "vertex", "openai", "fal", "freepik", "meta", "pinterest", "notify"].includes(saved))
+      if (saved && ["higgsfield", "claude", "google", "vertex", "openai", "fal", "freepik", "meta", "pinterest", "notify"].includes(saved))
         return saved;
     } catch {
       /* private mode */
@@ -117,6 +118,60 @@ export default function ConnectionDialog({
   };
   const [savingFal, setSavingFal] = useState(false);
   const [savingOpenai, setSavingOpenai] = useState(false);
+  // Claude (27 Oct): the key, and the month's spend against its cap, read when the tab opens.
+  const [anthropicKey, setAnthropicKey] = useState("");
+  const [savingAnthropic, setSavingAnthropic] = useState(false);
+  const [claude, setClaude] = useState<{ source: "secret" | "stored" | "none"; spend: { month: string; usd: number; calls: number; input: number; output: number }; cap: number } | null>(null);
+  const [capText, setCapText] = useState("");
+  const refreshClaude = useCallback(async () => {
+    try {
+      const r = await get<{ source: "secret" | "stored" | "none"; spend: { month: string; usd: number; calls: number; input: number; output: number }; cap: number }>("/api/studio/engine/anthropic");
+      setClaude(r);
+      setCapText(String(r.cap));
+    } catch {
+      /* the tab shows the key alone */
+    }
+  }, []);
+  useEffect(() => {
+    void refreshClaude();
+  }, [refreshClaude, engine.anthropic]);
+  async function saveAnthropic() {
+    setSavingAnthropic(true);
+    try {
+      const r = await post<{ ok: boolean; message: string }>("/api/studio/engine/anthropic-key", { key: anthropicKey });
+      setAnthropicKey("");
+      setResult(r);
+      await onChanged();
+      await refreshClaude();
+      toast.success("Claude key saved and verified: Claude now answers every text call first.");
+    } catch (e) {
+      setResult({ ok: false, message: (e as Error).message });
+    } finally {
+      setSavingAnthropic(false);
+    }
+  }
+  async function removeAnthropic() {
+    if (!(await askConfirm("Remove the saved Claude key? Google and OpenAI answer the text calls again."))) return;
+    try {
+      await del("/api/studio/engine/anthropic-key");
+      setResult(null);
+      await onChanged();
+      await refreshClaude();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  async function saveCap() {
+    const usd = Number(capText);
+    if (!Number.isFinite(usd) || usd < 0) return toast.error("The cap is a number of US dollars.");
+    try {
+      await post("/api/studio/engine/anthropic-cap", { usd });
+      await refreshClaude();
+      toast.success(`Claude stops at US$${usd} this month.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   const [savingModel, setSavingModel] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -286,6 +341,7 @@ export default function ConnectionDialog({
           {(
             [
               ["higgsfield", "Higgsfield", engine.configured],
+              ["claude", "Claude", engine.anthropic !== "none"],
               ["google", "Google", engine.google !== "none"],
               ["vertex", "Google Cloud", !!engine.vertex],
               ["openai", "OpenAI", engine.openai !== "none"],
@@ -590,6 +646,53 @@ export default function ConnectionDialog({
               Images run one at a time per request on Vertex; Economy mode (Flex) is an AI Studio
               feature and is ignored while Vertex is connected.
             </p>
+          </>
+        )}
+        {vendor === "claude" && (
+          <>
+            <div className="qa-heading" style={{ marginTop: 12 }}>
+              <KeyRound size={18} />
+              <strong>Claude (Anthropic): the text and vision model</strong>
+            </div>
+            {engine.anthropic !== "none" ? (
+              <div className="success-note">
+                <Check size={19} />
+                {engine.anthropic === "secret" ? "A Claude key is configured as a server secret." : "A Claude key is saved on the server."} Claude answers every text call first (plans, ideas, client comments, captions, picture reviews, help, Prompt Box); Google and OpenAI stand in when it cannot.
+              </div>
+            ) : (
+              <p className="quality-note">
+                Add an Anthropic API key and Claude writes the plans, the ideas, the captions and the picture reviews first (Opus for planning, Sonnet for words and reviews, Haiku for the help assistant). Create it at{" "}
+                <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer" className="text-link">
+                  console.anthropic.com → Keys &amp; access
+                </a>
+                .
+              </p>
+            )}
+            {engine.anthropic !== "secret" && (
+              <div className="footer-actions">
+                <input id="anthropic-key" type="password" autoComplete="off" placeholder="sk-ant-..." aria-label="Claude API key" value={anthropicKey} onChange={(e) => setAnthropicKey(e.target.value.trim())} />
+                <button className="primary" onClick={() => void saveAnthropic()} disabled={savingAnthropic || !anthropicKey}>
+                  {savingAnthropic ? <Orb size={17} /> : <KeyRound size={17} />}
+                  {engine.anthropic === "stored" ? "Replace" : "Save"}
+                </button>
+                {engine.anthropic === "stored" && (
+                  <button className="secondary danger" onClick={() => void removeAnthropic()} aria-label="Remove Claude key">
+                    <Trash2 size={17} />
+                  </button>
+                )}
+              </div>
+            )}
+            {claude && (
+              <div className="quality-note" style={{ marginTop: 12 }}>
+                <b>This month ({claude.spend.month}):</b> US${claude.spend.usd.toFixed(2)} of US${claude.cap} · {claude.spend.calls} call{claude.spend.calls === 1 ? "" : "s"} · {Math.round(claude.spend.input / 1000)}K tokens in, {Math.round(claude.spend.output / 1000)}K out. At the cap the studio stops asking Claude until the month turns; the other providers answer.
+                <div className="footer-actions" style={{ marginTop: 8 }}>
+                  <input type="number" min={0} step={10} aria-label="Monthly cap in US dollars" value={capText} onChange={(e) => setCapText(e.target.value)} style={{ maxWidth: 120 }} />
+                  <button className="secondary" onClick={() => void saveCap()} disabled={capText === String(claude.cap)}>
+                    Set the monthly cap
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
         {vendor === "openai" && (

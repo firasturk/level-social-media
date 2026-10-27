@@ -120,7 +120,7 @@ export function pickScene(req: EditorialRequest, scenes: string[]): string | nul
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
 }
 
-const SCHEMA = {
+export const SCHEMA = {
   type: "object",
   properties: {
     subject: { type: "string" },
@@ -262,7 +262,7 @@ export function planRun(req: EditorialRequest): { scene: string | null; mood?: s
   return { scene, mood: pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))] };
 }
 
-function imageParts(req: EditorialRequest): ImageBytes[] {
+export function imageParts(req: EditorialRequest): ImageBytes[] {
   return [req.image, ...(req.extraImages ?? [])];
 }
 
@@ -274,7 +274,7 @@ function toBase64(bytes: ArrayBuffer): string {
   return btoa(s);
 }
 
-function parseBrief(text: string): EditorialBrief {
+export function parseBrief(text: string): EditorialBrief {
   const cleaned = text
     .trim()
     .replace(/^```(?:json)?/i, "")

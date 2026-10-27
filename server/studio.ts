@@ -47,7 +47,11 @@ import {
   setSetting,
   HERO_KEYS,
   heroStamp,
+  resolveAnthropicKey,
+  ANTHROPIC_KEY_SETTING,
+  ANTHROPIC_CAP_SETTING,
 } from "./settings";
+import { claudeCap, claudeSpend, CLAUDE_MODELS, verifyAnthropicKey } from "./anthropic";
 import {
   MODES,
   cardsPerSource,
@@ -285,6 +289,7 @@ studioRoutes.get("/state", async (c) => {
       configured: keyLooksValid(engineKey.key),
       source: engineKey.source,
       openai: (await resolveOpenAIKey(c.env)).source,
+      anthropic: (await resolveAnthropicKey(c.env)).source,
       google: (await resolveGoogleKey(c.env)).source,
       fal: (await resolveFalKey(c.env)).source,
       review: !!(await resolveGoogleAuth(c.env)).auth,
@@ -401,6 +406,38 @@ studioRoutes.delete("/engine/openai-key", async (c) => {
   await deleteSetting(c.env, OPENAI_KEY_SETTING);
   await deleteSetting(c.env, MODELS_CACHE);
   return c.json({ ok: true });
+});
+
+/**
+ * Claude (Connection → Claude, 27 Oct): the key, verified against the free models list, and the
+ * month's spend against its cap. Saving a key makes Claude the first text model for every text
+ * call; the status is open to everyone, the writes to admins (the guard above).
+ */
+studioRoutes.get("/engine/anthropic", async (c) => {
+  const [{ source }, spend, cap] = await Promise.all([resolveAnthropicKey(c.env), claudeSpend(c.env), claudeCap(c.env)]);
+  return c.json({ source, spend, cap, models: CLAUDE_MODELS });
+});
+
+studioRoutes.post("/engine/anthropic-key", async (c) => {
+  if (c.env.ANTHROPIC_API_KEY)
+    throw new StudioError("The Claude key is managed as a Worker secret on this deployment.", 409);
+  const { key } = await body(c, z.object({ key: z.string().trim().min(20).max(400) }));
+  const check = await verifyAnthropicKey(key);
+  if (!check.ok) throw new StudioError(`Anthropic rejected this key: ${check.message}`, 400);
+  await setSetting(c.env, ANTHROPIC_KEY_SETTING, key);
+  return c.json({ ok: true, message: check.message });
+});
+
+studioRoutes.delete("/engine/anthropic-key", async (c) => {
+  await deleteSetting(c.env, ANTHROPIC_KEY_SETTING);
+  return c.json({ ok: true });
+});
+
+/** The month's cap for Claude in US$ (0 stops Claude without removing the key). */
+studioRoutes.post("/engine/anthropic-cap", async (c) => {
+  const { usd } = await body(c, z.object({ usd: z.number().min(0).max(100_000) }));
+  await setSetting(c.env, ANTHROPIC_CAP_SETTING, String(usd));
+  return c.json({ ok: true, cap: usd });
 });
 
 /** Known image models on the Higgsfield API. Each is probed (no generation) and cached for an hour. */

@@ -25,6 +25,7 @@
     "check": "node scripts/stub-assets.mjs && pnpm typecheck && pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
     "@cf-wasm/photon": "0.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
