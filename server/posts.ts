@@ -850,8 +850,9 @@ interface SourceRow {
 }
 
 /** Originals up to this size go to the engine as they are, so a print or a logo stays readable. */
-const ENGINE_ORIGINAL_MAX = 7 * 1024 * 1024;
-const engineKey = (s: SourceRow) => (s.reference_key && (s.size ?? 0) > ENGINE_ORIGINAL_MAX ? s.reference_key : s.key);
+const ENGINE_ORIGINAL_MAX = 3 * 1024 * 1024; // the same cap as the engine: above it the 1440-px copy goes
+// An unknown size (0) is never "light": the small copy goes to the engine.
+const engineKey = (s: SourceRow) => (s.reference_key && (s.size || Infinity) > ENGINE_ORIGINAL_MAX ? s.reference_key : s.key);
 
 const MAX_NOTE_BYTES = 6 * 1024 * 1024;
 

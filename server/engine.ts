@@ -735,6 +735,8 @@ async function settleFailedAttempt(
       task.card,
     ]).total + (task.edit || task.recenter ? 0.008 : 0);
   const message = errorMessage(e, "Generation failed.");
+  // A string or array that outgrew the runtime is a bug here, not the vendor's: its place is logged.
+  if (e instanceof RangeError) console.error("[engine] range error", task.id, (e.stack ?? message).slice(0, 1200));
   // The reservation is given back only when the vendor is known to have done no work: it rejected
   // the request before generating (a bad request, a rejected key, an empty balance, a missing
   // model, a rate limit). A content refusal may be billed and keeps its cost. A timeout, a dropped
@@ -2267,7 +2269,24 @@ async function submitTask(
 }
 
 /** Originals up to this size go to the engine as they are: a print or a logo stays readable. */
-const ENGINE_ORIGINAL_MAX = 7 * 1024 * 1024;
+/**
+ * The original product photo goes to the engine only when it is light; above this the 1440-px
+ * copy goes (a print stays readable at that size). Four 6 MB originals in one request broke the
+ * Google call ("Invalid string length") and weighed on the isolate's memory (27 Oct).
+ */
+export const ENGINE_ORIGINAL_MAX = 3 * 1024 * 1024;
+/** A picture attached to a request (an extra product, a style, a pinned reference, a revision) is shrunk above this. */
+const ATTACHED_MAX = 3 * 1024 * 1024;
+/** The bytes of a stored picture for a request: the picture itself when light, else its 1440-px JPEG copy. */
+async function lightBytes(env: Env, key: string, fallbackMime = "image/jpeg"): Promise<ImageBytes | null> {
+  const obj = await env.BUCKET.get(key);
+  if (!obj) return null;
+  if (obj.size > ATTACHED_MAX) {
+    const small = await resizedPicture(env, key, 1440).catch(() => null);
+    if (small && small.key !== key) return { bytes: small.bytes, mime: small.mime };
+  }
+  return { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || fallbackMime };
+}
 
 /** The R2 key the engine is given for a source: the original while it is light enough, else the small copy. */
 export async function engineKeyOf(env: Env, source: { key: string; reference_key?: string | null; size?: number | null }): Promise<string> {
@@ -2445,19 +2464,19 @@ async function submitOpenAITask(
     // Order matters: the prompt numbers products, then portraits, then the one reference.
     const post = await postImages(postBrief(task), (id) => referenceKey(env, id));
     for (const i of post.images) {
-      const obj = await env.BUCKET.get(i.key);
+      const obj = await lightBytes(env, i.key);
       if (!obj) {
         if (i.refId) throw new StudioError("Reference photo is missing from the library.", 500);
         continue;
       }
-      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      images.push(obj);
       if (i.role === "look") roles.mood = true;
       if (i.role === "editRef") roles.reference = true;
     }
   }
   const edit = task.edit?.trim() ?? "";
   if ((edit || task.recenter) && task.output && !splitEdit(edit).fresh) {
-    images.push(await outputBytes(env, task));
+    images.push((await lightBytes(env, task.output, "image/png")) ?? (await outputBytes(env, task)));
     roles.revision = true;
   }
 

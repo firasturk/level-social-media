@@ -202,7 +202,7 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
   // The card's picture is the product photo as it is; the smaller copy is the engine's reference.
   await Promise.all(
     inserts.map(async (x) => {
-      const referenceKey = await resizedPicture(env, x.output, 720)
+      const referenceKey = await resizedPicture(env, x.output, 1440)
         .then((r) => r?.key ?? null)
         .catch(() => null);
       // The real size: the engine takes the original only when it is light, else the small copy.
