@@ -797,6 +797,14 @@ async function settleFailedAttempt(
   // before working, its recorded cost otherwise, which may be billed).
   await recordTake(env, batch, task, { status: "failed", key: null, cost: billing === "none" ? 0 : refund, note: message });
   void traceEvent(env, { kind: "generation", traceId: batch.id, spanId: task.id, name: "failed", output: { error: message }, model: config.model ?? null, cost: billing === "none" ? 0 : refund, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: config.model ?? null, attempt: task.attempts, error: message, billing } });
+  if (isFatalEngineError(e) && task.model) {
+    // The picture had been handed to another engine (the router); that engine's own trouble (a
+    // disabled model, no credits there) fails this picture alone and hands it back to the batch's
+    // engine for the next try. The month never stops for an engine it does not run on.
+    await run(env.DB, "UPDATE tasks SET model = NULL WHERE id = ?", task.id);
+    await failTask(env, task, `${task.model} could not take this picture either: ${message} Retry this image.`, task.output);
+    return;
+  }
   await failTask(env, task, message, task.output);
   if (isFatalEngineError(e)) await pauseBatch(env, batch.id, message);
 }
@@ -825,9 +833,10 @@ const MIN_WIDTH = 2;
 /**
  * Synchronous Google pictures in flight at once in one isolate: each one holds its 2K result (as
  * base64 and as bytes) and its review copy in memory, and six at once took the isolate past its
- * 128 MB twice on 27 Oct, losing the pictures in flight. Four keep it well inside.
+ * 128 MB twice on 27 Oct with six, and again with four (the exact-mode cut-outs and the reviews
+ * decode the pictures here too). Two keep it inside.
  */
-const GOOGLE_SYNC_PARALLEL = 4;
+const GOOGLE_SYNC_PARALLEL = 2;
 const googleFull = (env: Env) => Math.min(concurrency(env), GOOGLE_SYNC_PARALLEL);
 
 function narrowAfterRateLimit(env: Env): void {
@@ -2270,12 +2279,15 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
   if (pb.hasProduct || pb.exact) {
     const source = await first<SourceRow>(env.DB, "SELECT * FROM sources WHERE id = ?", pb.exact?.source ?? task.source);
     if (!source) throw new StudioError("Product photo unavailable for review.");
-    images.push(await sourceBytes(env, source));
+    // The vision model compares with a 1080-px copy of each product photo: a client's own 6 MB
+    // picture as base64 is too large for Claude and heavy on the isolate's memory.
+    const small = async (key: string): Promise<ImageBytes | null> => resizedPicture(env, key, 1080).catch(() => null);
+    images.push((await small(source.reference_key || source.key)) ?? (await sourceBytes(env, source)));
     notes.push(pb.product ?? "");
     for (const x of pb.extraProducts ?? []) {
-      const obj = await env.BUCKET.get(x.key);
+      const obj = (await small(x.key)) ?? (await env.BUCKET.get(x.key).then(async (o) => (o ? { bytes: await o.arrayBuffer(), mime: o.httpMetadata?.contentType || "image/jpeg" } : null)));
       if (!obj) continue;
-      images.push({ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" });
+      images.push(obj);
       notes.push(x.note ?? "");
     }
   }
