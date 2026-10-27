@@ -147,6 +147,8 @@ export interface StyleAssign {
 export interface PoolProduct {
   name: string;
   family: Family;
+  /** The source's id: the page shows its picture. */
+  id: string;
 }
 
 /**
@@ -215,7 +217,7 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
   await describeProducts(env, sources);
   const families = await ensureFamilies(env, sources);
   const names = sources.map(productName);
-  const pool: PoolProduct[] = names.map((name) => ({ name, family: families.get(name) ?? "Other" }));
+  const pool: PoolProduct[] = sources.map((src) => ({ name: productName(src), family: families.get(productName(src)) ?? "Other", id: src.id }));
   const prepared: PreparedCard[] = [];
   const used: string[] = [];
   for (const a of assign) {

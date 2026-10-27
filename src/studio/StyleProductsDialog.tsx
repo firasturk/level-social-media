@@ -22,9 +22,10 @@ export interface StyleProductCard {
 export interface StyleProductPool {
   name: string;
   family: string;
+  id: string;
 }
 
-export default function StyleProductsDialog({ cards, pool, onConfirm, onClose }: { cards: StyleProductCard[]; pool: StyleProductPool[]; onConfirm: (choice: Record<number, string[]>) => void; onClose: () => void }) {
+export default function StyleProductsDialog({ cards, pool, thumb, onConfirm, onClose }: { cards: StyleProductCard[]; pool: StyleProductPool[]; thumb: (id: string) => string; onConfirm: (choice: Record<number, string[]>) => void; onClose: () => void }) {
   const [choice, setChoice] = useState<Record<number, string[]>>(() => Object.fromEntries(cards.map((c) => [c.index, c.suggested])));
   const families = [...new Set(pool.map((p) => p.family))];
   const toggle = (card: StyleProductCard, name: string) => {
@@ -58,7 +59,8 @@ export default function StyleProductsDialog({ cards, pool, onConfirm, onClose }:
                   </small>
                 </div>
                 <div className="spd-own">
-                  <span className="chip on">
+                  <span className="chip on spd-chip">
+                    {pool.find((p) => p.name === card.product) && <img src={thumb(pool.find((p) => p.name === card.product)!.id)} alt="" />}
                     <Check size={12} /> {card.product}
                   </span>
                   <small>{card.family} · this card’s own product</small>
@@ -74,7 +76,8 @@ export default function StyleProductsDialog({ cards, pool, onConfirm, onClose }:
                       <div key={f} className="spd-family">
                         <span className={`spd-fam ${f === card.family ? "same" : ""}`}>{f}</span>
                         {items.map((p) => (
-                          <button key={p.name} type="button" className={`chip ${cur.includes(p.name) ? "on" : ""}`} onClick={() => toggle(card, p.name)} title={cur.includes(p.name) ? "Take it out of this picture" : "Put it in this picture"}>
+                          <button key={p.name} type="button" className={`chip spd-chip ${cur.includes(p.name) ? "on" : ""}`} onClick={() => toggle(card, p.name)} title={cur.includes(p.name) ? "Take it out of this picture" : "Put it in this picture"}>
+                            <img src={thumb(p.id)} alt="" loading="lazy" />
                             {cur.includes(p.name) && <Check size={12} />} {p.name}
                           </button>
                         ))}

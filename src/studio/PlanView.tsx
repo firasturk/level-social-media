@@ -47,6 +47,7 @@ import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
 import StyleProductsDialog, { type StyleProductCard, type StyleProductPool } from "./StyleProductsDialog";
+import AddPostDialog from "./AddPostDialog";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -389,6 +390,13 @@ export default function PlanView({
   /** The products-in-each-picture question for styles that show several products; answered by the team or dropped. */
   const [productPick, setProductPick] = useState<{ cards: StyleProductCard[]; pool: StyleProductPool[] } | null>(null);
   const productPickRef = useRef<((choice: Record<number, string[]> | null) => void) | null>(null);
+  /** "Add a post": a product of the month and a style, then the card with the product's own photo. */
+  const [addPostOpen, setAddPostOpen] = useState(false);
+  const [addPostStyle, setAddPostStyle] = useState<StyleItem | null>(null);
+  const [addPostPicking, setAddPostPicking] = useState(false);
+  /** The card being dragged onto another (its index), for the drop that makes a carousel. */
+  const [dragCard, setDragCard] = useState<number | null>(null);
+  const [dropOn, setDropOn] = useState<number | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   /** The chosen cards still waiting for the Text studio, after the one open now. */
   const [textQueue, setTextQueue] = useState<number[]>([]);
@@ -415,93 +423,108 @@ export default function PlanView({
    * planned post gets the style saved and its idea written in it, its picture a later step.
    */
   /**
-   * The products of one styled post, chosen by hand (27 Oct): the same question as Apply a style
-   * asks, for this card alone; the style is written again with the chosen products, then the
-   * picture is offered to be made again.
+   * The style written into cards with a product of the month (27 Oct): first the products question
+   * when a style shows several (the studio's suggestion ticked, the month's products by family with
+   * their pictures), then the style written with exactly those products. Nothing is paid here.
+   * Returns false when the team stepped back.
    */
-  async function chooseProducts(p: Post) {
-    if (!p.style || !batchId) return;
-    const wait = toast.loading("Reading the style and the month's products…");
-    try {
-      type Prepared = { prepared: { index: number; product: string; family: string; want: number; suggested: string[] }[]; pool: StyleProductPool[] };
-      const r = await post<Prepared>("/api/studio/posts/style-media", { batch: batchId, assign: [{ index: p.index, style: p.style }], preview: true });
-      toast.dismiss(wait);
-      const card = r.prepared.find((c) => c.index === p.index);
-      if (!card) return void toast.info("This card has no product of the month to build on.");
-      if (!card.want) return void toast.info(`“${styleOf(p.style)?.title ?? "This style"}” shows one product: nothing to add.`);
+  async function styleWithProducts(cards: { index: number; title: string; style: string; styleTitle: string; saved?: string[] }[]): Promise<boolean> {
+    if (!cards.length || !batchId) return true;
+    type Prepared = { prepared: { index: number; product: string; family: string; want: number; suggested: string[] }[]; pool: StyleProductPool[] };
+    const r = await post<Prepared>("/api/studio/posts/style-media", { batch: batchId, assign: cards.map(({ index, style }) => ({ index, style })), preview: true });
+    const asking = r.prepared.filter((c) => c.want > 0);
+    let assign = cards.map(({ index, style }) => ({ index, style, products: undefined as string[] | undefined }));
+    if (asking.length) {
       const choice = await new Promise<Record<number, string[]> | null>((resolve) => {
         productPickRef.current = resolve;
-        setProductPick({ cards: [{ index: p.index, title: p.title, styleTitle: styleOf(p.style!)?.title ?? "", product: card.product, family: card.family, want: card.want, suggested: p.products?.length ? p.products : card.suggested }], pool: r.pool });
+        setProductPick({
+          cards: asking.map((c) => {
+            const card = cards.find((x) => x.index === c.index)!;
+            // What the card already carries comes first, the suggestion fills the rest.
+            const saved = (card.saved ?? []).filter((n) => n !== c.product && r.pool.some((x) => x.name === n));
+            const suggested = [...saved, ...c.suggested.filter((n) => !saved.includes(n))].slice(0, c.want);
+            return { index: c.index, title: card.title, styleTitle: card.styleTitle, product: c.product, family: c.family, want: c.want, suggested };
+          }),
+          pool: r.pool,
+        });
       });
       setProductPick(null);
       productPickRef.current = null;
-      if (!choice) return;
-      const writing = toast.loading("Writing the style with these products…");
-      await post("/api/studio/posts/style-media", { batch: batchId, assign: [{ index: p.index, style: p.style, products: choice[p.index] ?? [] }] });
+      if (!choice) return false;
+      assign = assign.map((a) => ({ ...a, products: choice[a.index] }));
+    }
+    const wait = toast.loading(`Writing the style into ${cards.length} card${cards.length === 1 ? "" : "s"}: the products, the shot… (about half a minute)`);
+    try {
+      await post("/api/studio/posts/style-media", { batch: batchId, assign });
       await onRefresh?.();
-      toast.dismiss(writing);
+    } finally {
+      toast.dismiss(wait);
+    }
+    return true;
+  }
+  /** The products of one styled post, chosen by hand from its card; then the picture is offered to be made again. */
+  async function chooseProducts(p: Post) {
+    if (!p.style || !batchId) return;
+    try {
+      const ok = await styleWithProducts([{ index: p.index, title: p.title, style: p.style, styleTitle: styleOf(p.style)?.title ?? "", saved: p.products }]);
+      if (!ok) return;
       const t = taskOf(p.index);
       if (t?.output) onGeneratePosts([p.index], true);
       else toast.success("Products saved on the card.");
     } catch (e) {
-      toast.dismiss(wait);
       toast.error((e as Error).message);
     }
   }
-  async function stylesChosen(styles: StyleItem[], indexes: number[]) {
+  /**
+   * Styles for the chosen cards (27 Oct): one style for all, or several, one card each in turn. A
+   * client's own picture, or a planned post with a product of the month, is made in the style for
+   * real (its photo the product, set in exactly or drawn from it when the style shows several
+   * products, each another product of the month, chosen first); any other planned post gets the
+   * style saved and its idea written in it. `quick` (one card from its menu) skips the opening
+   * confirm; `generate` (default) makes the pictures right after.
+   */
+  async function stylesChosen(styles: StyleItem[], indexes: number[], opts: { quick?: boolean; generate?: boolean } = {}) {
     const targets = indexes.map((i) => draftRef.current.find((x) => x.index === i)).filter((x): x is Post => !!x);
     if (!targets.length || !styles.length || !batchId) return;
     const pairs = targets.map((p, i) => ({ post: p, style: styles[i % styles.length] }));
-    // The client's own pictures, and planned posts with a product of the month, go through the
-    // products step (a style showing several products takes others of the month, chosen here).
     const media = pairs.filter((x) => isMediaPost(x.post) || !!x.post.product?.trim());
     const others = pairs.filter((x) => !media.includes(x));
     const names = styles.length === 1 ? `“${styles[0].title}”` : `${styles.length} styles, one card each in turn`;
     const label = scopeLabel({ kind: "selection", indexes: targets.map((x) => x.index) });
-    const ok = await askConfirm(
-      `Apply ${names} to ${label}?${media.length ? ` ${media.length === 1 ? "One card is the client's own picture: it is made again in the style, its photo as the product" : `${media.length} cards are the client's own pictures: they are made again in the style, each photo as its product`} (set in exactly, or drawn from it when the style shows several products, each another product of the month); about ${perPicture ? formatUsd(perPicture * media.length) : "the usual price"} plus the exact-product steps, asked once more with the exact figure before the run. The photos stay under Versions and join the month's products.` : ""}${others.length ? ` ${others.length === 1 ? "One planned post gets" : `${others.length} planned posts get`} the style saved and ${others.length === 1 ? "its" : "their"} idea written in it; making the picture${others.length === 1 ? "" : "s"} stays a separate step.` : ""}`,
-      { ok: media.length ? "Apply and make" : `Save on ${targets.length} card${targets.length === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
-    );
-    if (!ok) return;
-    let wait = toast.loading(`Reading the styles and the month's products…`);
+    if (!opts.quick) {
+      const ok = await askConfirm(
+        `Apply ${names} to ${label}?${media.length ? ` ${media.length === 1 ? "One card has a product of the month: it is made in the style, its photo as the product" : `${media.length} cards have a product of the month: they are made in the style, their photos as the products`} (a style that shows several products asks which first). The pictures are confirmed with their cost next.` : " Nothing is made: the style is saved and the idea written in it."}`,
+        { ok: media.length ? "Apply and make" : `Save on ${targets.length} card${targets.length === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
+      );
+      if (!ok) return;
+    }
     try {
-      let assign = media.map((x) => ({ index: x.post.index, style: x.style.id, products: undefined as string[] | undefined }));
       if (media.length) {
-        // First the question: which products join each picture when its style shows several.
-        type Prepared = { prepared: { index: number; product: string; family: string; want: number; suggested: string[] }[]; pool: StyleProductPool[] };
-        const r = await post<Prepared>("/api/studio/posts/style-media", { batch: batchId, assign: assign.map(({ index, style }) => ({ index, style })), preview: true });
-        const asking = r.prepared.filter((c) => c.want > 0);
-        if (asking.length) {
+        const ok = await styleWithProducts(media.map((x) => ({ index: x.post.index, title: x.post.title, style: x.style.id, styleTitle: x.style.title, saved: x.post.products })));
+        if (!ok) return;
+      }
+      if (others.length) {
+        const wait = toast.loading(`Writing the style into ${others.length} card${others.length === 1 ? "" : "s"}…`);
+        try {
+          await onStyles(others.map((x) => ({ index: x.post.index, style: x.style.id })));
+        } finally {
           toast.dismiss(wait);
-          const choice = await new Promise<Record<number, string[]> | null>((resolve) => {
-            productPickRef.current = resolve;
-            setProductPick({
-              cards: asking.map((c) => ({ index: c.index, title: media.find((x) => x.post.index === c.index)?.post.title ?? `Post ${c.index}`, styleTitle: media.find((x) => x.post.index === c.index)?.style.title ?? "", product: c.product, family: c.family, want: c.want, suggested: c.suggested })),
-              pool: r.pool,
-            });
-          });
-          setProductPick(null);
-          productPickRef.current = null;
-          if (!choice) return;
-          assign = assign.map((a) => ({ ...a, products: choice[a.index] }));
-          wait = toast.loading(`Writing the style into ${targets.length} card${targets.length === 1 ? "" : "s"}: the products, the shots… (about half a minute)`);
         }
       }
-      if (others.length) await onStyles(others.map((x) => ({ index: x.post.index, style: x.style.id })));
-      if (media.length) {
-        await post("/api/studio/posts/style-media", { batch: batchId, assign });
-        await onRefresh?.();
+      if (opts.generate === false) {
+        toast.success(`Style written on ${label}.`);
+        return;
       }
-      toast.dismiss(wait);
-      // The cards with a picture already are offered their new picture now: the client's own
-      // pictures always, a planned post when its style changed its shot.
-      const remake = [...media.map((x) => x.post.index), ...others.filter((x) => !!taskOf(x.post.index)?.output).map((x) => x.post.index)];
-      if (remake.length) {
+      // The cards with a product are made now (again when they have a picture, first when not);
+      // a planned post without a product only when its style changed its shot.
+      const again = [...media.filter((x) => !!taskOf(x.post.index)?.output), ...others.filter((x) => !!taskOf(x.post.index)?.output)].map((x) => x.post.index);
+      const first = media.filter((x) => !taskOf(x.post.index)?.output).map((x) => x.post.index);
+      if (again.length || first.length) {
         toast.success(`${targets.length} card${targets.length === 1 ? "" : "s"} written in the style.`);
-        onGeneratePosts(remake, true);
+        if (again.length) onGeneratePosts(again, true);
+        if (first.length) void saveThen(() => onGeneratePosts(first, false));
       } else toast.success(`Style saved on ${label}. Nothing was made.`);
     } catch (e) {
-      toast.dismiss(wait);
       toast.error((e as Error).message);
     }
   }
@@ -674,7 +697,45 @@ export default function PlanView({
       toast.error(e instanceof Error ? e.message : "Could not add the slide.");
     }
   }
+  /**
+   * A post from a product of the month (27 Oct): the card shows the product's own photo, the style
+   * (when picked) is written into it with its products question, and the picture is a later step.
+   */
+  async function addPostFromProduct(sourceId: string) {
+    if (!batchId) return;
+    const style = addPostStyle;
+    setAddPostOpen(false);
+    setAddPostStyle(null);
+    const wait = toast.loading("Adding the post…");
+    try {
+      const r = await post<{ index: number; product: string }>("/api/studio/posts/add-from-product", { batch: batchId, source: sourceId });
+      await onRefresh?.();
+      toast.dismiss(wait);
+      if (style) {
+        const ok = await styleWithProducts([{ index: r.index, title: r.product, style: style.id, styleTitle: style.title }]);
+        if (ok) toast.success(`Post ${r.index} added with “${style.title}”: its picture is the product's photo until you make it.`);
+      } else toast.success(`Post ${r.index} added: its picture is the product's photo until you pick a style and make it.`);
+    } catch (e) {
+      toast.dismiss(wait);
+      toast.error((e as Error).message);
+    }
+  }
+  /** A card dropped onto another: the dropped post becomes the next slide of the target's carousel. */
+  async function dropCard(index: number, into: number) {
+    if (!batchId || index === into) return;
+    try {
+      const r = await post<{ slide: number }>("/api/studio/posts/carousel-join", { batch: batchId, index, into });
+      await onRefresh?.();
+      toast.success(`Post ${index} is now slide ${r.slide} of the carousel.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   function addPost() {
+    if (products.length) {
+      setAddPostOpen(true);
+      return;
+    }
     const next: Post = {
       index: draft.length + 1,
       type: "lifestyle",
@@ -706,7 +767,35 @@ export default function PlanView({
 
   return (
     <section className={`plan ${dragging ? "dragging" : ""}`} {...dropProps}>
-      {productPick && <StyleProductsDialog cards={productPick.cards} pool={productPick.pool} onConfirm={(choice) => productPickRef.current?.(choice)} onClose={() => productPickRef.current?.(null)} />}
+      {productPick && <StyleProductsDialog cards={productPick.cards} pool={productPick.pool} thumb={sourceUrl} onConfirm={(choice) => productPickRef.current?.(choice)} onClose={() => productPickRef.current?.(null)} />}
+      {addPostOpen && (
+        <AddPostDialog
+          products={products.map((x) => ({ id: x.id, name: displayName(x.name), src: sourceUrl(x.id) }))}
+          style={addPostStyle}
+          onPickStyle={() => setAddPostPicking(true)}
+          onClearStyle={() => setAddPostStyle(null)}
+          onClose={() => {
+            setAddPostOpen(false);
+            setAddPostStyle(null);
+          }}
+          onContinue={(sourceId) => void addPostFromProduct(sourceId)}
+        />
+      )}
+      {addPostPicking && (
+        <StyleScreen
+          open
+          onClose={() => setAddPostPicking(false)}
+          forClient={{ id: client.id, name: client.name }}
+          pick={{
+            mode: "post",
+            label: "The new post",
+            onPick: (_ids: string[], items: StyleItem[]) => {
+              setAddPostPicking(false);
+              if (items[0]) setAddPostStyle(items[0]);
+            },
+          }}
+        />
+      )}
       {styleFor !== null && (
         <StyleScreen
           open
@@ -758,8 +847,8 @@ export default function PlanView({
             setPicking(null);
             // A client's own picture is made in the style for real, like the chosen-cards path.
             const target = draftRef.current.find((x) => x.index === index);
-            if (target && isMediaPost(target) && items[0]) {
-              void stylesChosen([items[0]], [index]);
+            if (target && (isMediaPost(target) || !!target.product?.trim()) && items[0]) {
+              void stylesChosen([items[0]], [index], { quick: true });
               return;
             }
             setPendingStyle((m) => new Map(m).set(index, id));
@@ -1163,7 +1252,44 @@ export default function PlanView({
                 ];
                 const chosenAt = chosenNow.indexOf(p.index);
                 return (
-                  <article key={p.index} id={`post-card-${p.index}`} className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""} ${chosenAt >= 0 ? "selected" : ""} ${slides ? "carousel-card" : ""}`}>
+                  <article
+                    key={p.index}
+                    id={`post-card-${p.index}`}
+                    className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""} ${chosenAt >= 0 ? "selected" : ""} ${slides ? "carousel-card" : ""} ${dropOn === p.index && dragCard !== null && dragCard !== p.index ? "drop-slide" : ""} ${dragCard === p.index ? "dragging-card" : ""}`}
+                    draggable={!slides && !inFlight}
+                    onDragStart={(e) => {
+                      // Dragging starts on the card itself, never from a field or a button inside it.
+                      const el = e.target as HTMLElement;
+                      if (el.closest("input, textarea, button, select, a, [contenteditable]")) return e.preventDefault();
+                      e.dataTransfer.setData("application/x-lsm-post", String(p.index));
+                      e.dataTransfer.effectAllowed = "move";
+                      setDragCard(p.index);
+                    }}
+                    onDragEnd={() => {
+                      setDragCard(null);
+                      setDropOn(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (!e.dataTransfer.types.includes("application/x-lsm-post")) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = "move";
+                      if (dropOn !== p.index) setDropOn(p.index);
+                    }}
+                    onDragLeave={() => {
+                      if (dropOn === p.index) setDropOn(null);
+                    }}
+                    onDrop={(e) => {
+                      const raw = e.dataTransfer.getData("application/x-lsm-post");
+                      if (!raw) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDragCard(null);
+                      setDropOn(null);
+                      const from = Number(raw);
+                      if (Number.isFinite(from) && from !== p.index) void dropCard(from, p.index);
+                    }}
+                  >
                     {/* The other slides keep their anchors, so a link to one of them still finds the card. */}
                     {slides?.filter((x) => x.index !== p.index).map((x) => <span key={x.index} id={`post-card-${x.index}`} className="pc-anchor" aria-hidden />)}
                     <PostCardCompact

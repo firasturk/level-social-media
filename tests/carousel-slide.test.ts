@@ -118,3 +118,54 @@ describe("Add a slide", () => {
     expect(await tasksOf(env)).toHaveLength(1);
   });
 });
+
+describe("a card dropped onto another", () => {
+  it("makes the dropped post the next slide of the target's carousel, picture and words kept", async () => {
+    const env = await seed();
+    const t = Date.now();
+    // A second single post with its own picture.
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    cfg.plan.push({ index: 3, type: "product", title: "Sakina", brief: "The green smoothie.", caption: "سكينة", hashtags: "", product: "sakina" } as never);
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    await env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, post, updated) VALUES ('t3', 'b1', 's1', 3, 'ready', 'u1/b1/output/t3/a.png', '', 3, ?)").bind(t).run();
+    const r = await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 3, into: 1 }) }, env);
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { group: string; slide: number };
+    expect(d.slide).toBe(2);
+    const plan = await planOf(env);
+    expect(plan.find((p) => p.index === 1)!.group).toEqual({ id: d.group, kind: "carousel", slide: 1, of: 2 });
+    expect(plan.find((p) => p.index === 3)).toMatchObject({ title: "Sakina", caption: "سكينة", group: { id: d.group, kind: "carousel", slide: 2, of: 2 } });
+    // The dropped post's own picture stays its own.
+    expect((await tasksOf(env)).find((x) => x.post === 3)!.output).toBe("u1/b1/output/t3/a.png");
+    // Dropping a third single onto any slide of the carousel appends slide 3.
+    cfg.plan = plan;
+    cfg.plan.push({ index: 4, type: "tip", title: "Tip", brief: "x", caption: "", hashtags: "" } as never);
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    const r2 = (await (await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 4, into: 3 }) }, env)).json()) as { slide: number };
+    expect(r2.slide).toBe(3);
+    expect((await planOf(env)).filter((p) => p.group?.id === d.group).map((p) => p.group!.of)).toEqual([3, 3, 3]);
+  });
+  it("refuses a series part and a post already in a carousel", async () => {
+    const env = await seed();
+    expect((await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2, into: 1 }) }, env)).status).toBe(409);
+    await slide(env, 1);
+    expect((await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 3, into: 1 }) }, env)).status).toBe(409);
+  });
+});
+
+describe("Add a post from a product", () => {
+  it("adds a planned post whose card shows the product's own photo, no spend", async () => {
+    const env = await seed();
+    const r = await app().request("/api/studio/posts/add-from-product", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", source: "s1" }) }, env);
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { index: number; product: string };
+    expect(d).toEqual({ ok: true, index: 3, product: "drive" });
+    const plan = await planOf(env);
+    expect(plan.find((p) => p.index === 3)).toMatchObject({ type: "product", title: "drive", product: "drive", brief: "" });
+    const task = (await tasksOf(env)).find((x) => x.post === 3)!;
+    expect(task).toMatchObject({ status: "ready", output: "u1/b1/src/s1.png", source: "s1" });
+    const takes = await env.DB.prepare("SELECT post, status, cost, note FROM post_takes WHERE post = 3").all<{ post: number; status: string; cost: number; note: string }>();
+    expect(takes.results).toEqual([{ post: 3, status: "made", cost: 0, note: "The product's own photo (drive), no spend" }]);
+    expect((await app().request("/api/studio/posts/add-from-product", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", source: "nope" }) }, env)).status).toBe(404);
+  });
+});

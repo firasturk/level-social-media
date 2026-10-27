@@ -74,3 +74,27 @@ export function copyPost(from: Post, index: number, title: string, fp: string, a
 export function slideTitle(title: string, slide: number): string {
   return `${title.replace(/(\s·\sslide \d+)+$/u, "").trim()} · slide ${slide}`;
 }
+
+/**
+ * One card dropped onto another (27 Oct): the dropped post becomes the next slide of the target's
+ * carousel (a single target becomes slide 1 of a new one). The dropped post keeps its picture, words
+ * and style. Null when either is a series part, the dropped post already belongs to a carousel, or
+ * the carousel is full.
+ */
+export function joinCarousel<P extends Grouped>(plan: P[], dragged: number, into: number, newId: () => string): { plan: P[]; group: string; slide: number } | null {
+  const from = plan.find((p) => p.index === dragged);
+  const to = plan.find((p) => p.index === into);
+  if (!from || !to || from.index === to.index) return null;
+  if (from.group || to.group?.kind === "series") return null;
+  const id = to.group?.kind === "carousel" ? to.group.id : newId();
+  const members = to.group?.kind === "carousel" ? plan.filter((p) => p.group?.id === id) : [to];
+  const of = members.length + 1;
+  if (of > CAROUSEL_MAX) return null;
+  const next = plan.map((p) => {
+    if (p.index === from.index) return { ...p, group: { id, kind: "carousel" as const, slide: of, of } };
+    if (p.index === to.index && !p.group) return { ...p, group: { id, kind: "carousel" as const, slide: 1, of } };
+    if (p.group?.id === id) return { ...p, group: { ...p.group, of } };
+    return p;
+  });
+  return { plan: next, group: id, slide: of };
+}

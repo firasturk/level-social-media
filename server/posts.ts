@@ -12,7 +12,7 @@ import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
 import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { tryClaude } from "./anthropic";
-import { CAROUSEL_MAX, copyPost, slideTitle, withSlide } from "@shared/carousel";
+import { CAROUSEL_MAX, copyPost, joinCarousel, slideTitle, withSlide } from "@shared/carousel";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
@@ -1617,6 +1617,53 @@ postRoutes.post("/slide", async (c) => {
     ]);
   }
   return c.json({ ok: true, index: added.index, slide: added.group!.slide, group: added.group!.id, copied: !!src });
+});
+
+/** A card dropped onto another: the dropped post becomes the next slide of the target's carousel. */
+postRoutes.post("/carousel-join", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT), into: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const plan = cfg.plan ?? [];
+  const from = plan.find((p) => p.index === d.index);
+  const to = plan.find((p) => p.index === d.into);
+  if (!from || !to) throw new StudioError("That post is not in the month.", 404);
+  if (from.group?.kind === "carousel") throw new StudioError("This card is already a slide of a carousel: take it out first.", 409);
+  if (from.group?.kind === "series" || to.group?.kind === "series") throw new StudioError("A series part cannot join a carousel.", 409);
+  const r = joinCarousel(plan, d.index, d.into, () => uuid());
+  if (!r) throw new StudioError(`A carousel holds at most ${CAROUSEL_MAX} slides.`, 409);
+  cfg.plan = r.plan;
+  await saveConfig(c.env, b, cfg);
+  return c.json({ ok: true, group: r.group, slide: r.slide });
+});
+
+/**
+ * "Add a post" from a product of the month (27 Oct): a planned post whose product is that photo,
+ * shown on the card as it is (a task of its own on the stored photo, no spend); the style, its
+ * products and the picture are later steps.
+ */
+postRoutes.post("/add-from-product", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), source: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const plan = cfg.plan ?? [];
+  if (plan.length >= MAX_POST_COUNT) throw new StudioError(`A month holds at most ${MAX_POST_COUNT} posts.`, 409);
+  const src = await first<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE id = ? AND batch = ? AND kind = 'product'", d.source, b.id);
+  if (!src) throw new StudioError("That product is not in the month.", 404);
+  const t = now();
+  const index = plan.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+  const name = productName(src);
+  const added: Post = { index, type: "product", title: name.slice(0, 80), brief: "", caption: "", hashtags: "", product: name, ideaAt: t };
+  cfg.plan = [...plan, added];
+  cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
+  await saveConfig(c.env, b, cfg);
+  const made = postRevision(added, cfg);
+  const task = uuid();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, NULL, ?, ?, ?)").bind(task, b.id, src.id, index, src.key, JSON.stringify({ post: true, index, type: added.type, from: { product: src.id } }), index, JSON.stringify({ text: "", hashtags: "" }), made, made, t),
+    c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, index, task, src.key, `The product's own photo (${name}), no spend`, made, t),
+  ]);
+  return c.json({ ok: true, index, product: name });
 });
 
 /** One post leaves the month: its picture stays under Earlier versions, the later posts move up one number. */

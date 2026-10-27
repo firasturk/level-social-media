@@ -40,3 +40,77 @@
 .spd .chip {
   cursor: pointer;
 }
+.spd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 4px;
+}
+.spd-chip img {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-2, #f3f4f6);
+}
+.spd-family {
+  align-items: flex-start;
+}
+.spd-fam {
+  padding-top: 12px;
+}
+/* a card dragged onto another: the target shows it takes the card as a slide */
+.post-card.drop-slide {
+  outline: 3px dashed var(--accent, #2b3fd8);
+  outline-offset: -3px;
+}
+.post-card.dragging-card {
+  opacity: 0.5;
+}
+.apd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.apd-product {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  background: var(--surface);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--ink-700);
+  text-align: center;
+}
+.apd-product img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface-2, #f3f4f6);
+}
+.apd-product span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apd-product.on {
+  border-color: var(--accent);
+}
+.apd-tick {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
