@@ -7,7 +7,7 @@ import type { Post } from "../shared/posts";
 import type { User } from "../shared/types";
 import { StudioError } from "../server/errors";
 import * as posts from "../server/posts";
-import { productCountInstruction, styleProductCount } from "../server/style-media";
+import { familyOf, productCountInstruction, styleProductCount } from "../server/style-media";
 
 /**
  * A client's own picture made in a style for real (27 Oct): each chosen card's photo becomes a
@@ -60,6 +60,8 @@ beforeEach(() => {
   reached = guardFetch().reached;
   // The products' notes are written by a vision call elsewhere: stood in for here.
   vi.spyOn(posts, "describeProducts").mockResolvedValue(undefined);
+  // The families come from the text model; stood in for here (the words decide when it says nothing).
+  vi.spyOn(posts, "askText").mockResolvedValue(JSON.stringify({ families: [{ name: "Spanish latte", family: "Coffee drinks" }] }));
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -73,7 +75,7 @@ describe("a style that shows one product", () => {
     expect(r.status).toBe(200);
     const d = (await r.json()) as { prepared: { index: number; product: string; extras: string[]; exact: boolean }[]; counts: Record<string, number> };
     expect(d.counts).toEqual({ st1: 1 });
-    expect(d.prepared).toEqual([
+    expect(d.prepared.map(({ index, product, extras, exact }) => ({ index, product, extras, exact }))).toEqual([
       { index: 1, product: "فخارة شعيرية", extras: [], exact: true },
       { index: 2, product: "شهيرة", extras: [], exact: true },
     ]);
@@ -181,5 +183,39 @@ describe("a card styled again", () => {
     expect(one.products?.slice().sort()).toEqual(["Spanish latte", "شهيرة"]);
     expect(one.exact).toBeUndefined();
     expect(one.style).toBe("st3");
+  });
+});
+
+describe("the products in a picture that shows several", () => {
+  it("reads a family from the words", () => {
+    expect(familyOf("Iced Spanish latte in a clear cup")).toBe("Coffee drinks");
+    expect(familyOf("Fruit cocktail with watermelon and kiwi")).toBe("Fresh juices & smoothies");
+    expect(familyOf("Lotus milkshake topped with biscuit crumbs")).toBe("Milkshakes & ice cream");
+    expect(familyOf("Baked vermicelli pudding in a clay pot")).toBe("Desserts & sweets");
+    expect(familyOf("كنافة بالفخار")).toBe("Desserts & sweets");
+    expect(familyOf("a thing")).toBe("Other");
+  });
+  it("suggests products of the same family first and keeps the families on the sources", async () => {
+    const env = await seed(3);
+    const t = Date.now();
+    await env.DB.prepare("INSERT INTO sources (id, batch, name, stem, key, mime, size, created, kind, role, note) VALUES ('s9', 'b1', 'Mango smoothie.png', 'mango smoothie', 'u1/b1/src/s9.png', 'image/png', 10, ?, 'product', 'lead', 'a mango smoothie')").bind(t).run();
+    // Card 2 (شهيرة, a fruit smoothie by its title) wants two others: the mango smoothie before the latte.
+    const d = (await (await app().request("/api/studio/posts/style-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", assign: [{ index: 2, style: "st1" }], preview: true }) }, env)).json()) as { prepared: { index: number; family: string; want: number; suggested: string[]; extras: string[] }[]; pool: { name: string; family: string }[] };
+    expect(d.prepared[0]).toMatchObject({ index: 2, want: 2 });
+    expect(d.prepared[0].suggested[0]).toBe("Mango smoothie");
+    expect(d.pool.find((p) => p.name === "Spanish latte")?.family).toBe("Coffee drinks");
+    expect(d.pool.find((p) => p.name === "Mango smoothie")?.family).toBe("Fresh juices & smoothies");
+    expect((await env.DB.prepare("SELECT family FROM sources WHERE id = 's0'").first<{ family: string }>())!.family).toBe("Coffee drinks");
+    // A preview writes nothing into the plan.
+    const two = (await planOf(env)).find((p) => p.index === 2)!;
+    expect(two.style).toBeUndefined();
+    expect(two.products).toBeUndefined();
+  });
+  it("takes the team's own choice over the suggestion, never the card's own product", async () => {
+    const env = await seed(3);
+    const d = (await (await applyMixed(env, [{ index: 2, style: "st1", products: ["شهيرة", "Spanish latte"] } as never])).json()) as { prepared: { extras: string[]; exact: boolean }[] };
+    expect(d.prepared[0].extras).toEqual(["Spanish latte"]);
+    expect(d.prepared[0].exact).toBe(false);
+    expect((await planOf(env)).find((p) => p.index === 2)!.products).toEqual(["Spanish latte"]);
   });
 });

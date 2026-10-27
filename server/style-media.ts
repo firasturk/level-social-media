@@ -54,6 +54,64 @@ export async function styleProductCount(env: Env, style: StyleRow): Promise<numb
   return count;
 }
 
+/** The families a month's products fall into, for a style that shows several: like goes with like. */
+export const FAMILIES = ["Coffee drinks", "Tea & matcha", "Fresh juices & smoothies", "Milkshakes & ice cream", "Desserts & sweets", "Savoury food", "Packaged goods", "Clothing", "Other"] as const;
+export type Family = (typeof FAMILIES)[number];
+const FAMILY_SCHEMA = { type: "object", properties: { families: { type: "array", items: { type: "object", properties: { name: { type: "string" }, family: { type: "string" } }, required: ["name", "family"] } } }, required: ["families"] };
+
+/** A family read from the words alone, when the model is not there: the common drink and food words, Arabic and English. */
+export function familyOf(text: string): Family {
+  const t = text.toLowerCase();
+  if (/\b(coffee|latte|espresso|cappuccino|mocha|americano|macchiato|cortado|hot chocolate|cold brew)\b|قهوة|لاتيه|اسبريسو|كابتشينو|موكا|شوكولاتة ساخنة|كولد برو/.test(t)) return "Coffee drinks";
+  if (/\b(tea|matcha|chai|karak)\b|شاي|ماتشا|كرك/.test(t)) return "Tea & matcha";
+  if (/\b(milkshake|milk shake|shake|ice cream|gelato|frappe|frappuccino)\b|ميلك شيك|شيك|ايس كريم|آيس كريم|فرابيه/.test(t)) return "Milkshakes & ice cream";
+  if (/\b(smoothie|juice|cocktail|mocktail|lemonade|mojito|slush|slushie|fruit)\b|سموثي|عصير|كوكتيل|موهيتو|ليموناضة|فواكه|فاكهة/.test(t)) return "Fresh juices & smoothies";
+  if (/\b(dessert|pudding|cake|kunafa|knafeh|baklava|pastry|pastries|cookie|cookies|brownie|croissant|waffle|crepe|cheesecake|sweet|sweets|chocolate bar)\b|حلو|حلويات|كنافة|بقلاوة|كيك|كوكيز|كرواسون|وافل|كريب|فخارة|مهلبية|بودينغ/.test(t)) return "Desserts & sweets";
+  if (/\b(sandwich|burger|pizza|salad|shawarma|falafel|manakish|wrap|fries|meal|dish|rice|chicken|meat|soup)\b|ساندويش|برجر|بيتزا|سلطة|شاورما|فلافل|مناقيش|وجبة|رز|دجاج|لحم|شوربة/.test(t)) return "Savoury food";
+  if (/\b(shirt|t-shirt|tee|hoodie|sweatshirt|dress|abaya|jacket|trousers|pants|jeans|skirt|garment|scarf)\b|قميص|هودي|فستان|عباية|جاكيت|بنطلون/.test(t)) return "Clothing";
+  if (/\b(box|tin|jar|bottle|bag|pack|packet|sachet|can)\b|علبة|برطمان|زجاجة|كيس/.test(t)) return "Packaged goods";
+  return "Other";
+}
+
+type FamilyRow = { id: string; name: string; note?: string | null; family: string | null };
+
+/**
+ * Every product of the month placed in a family once (the text model reads the names and notes
+ * together; the words alone decide when it is not there), kept on the source.
+ */
+export async function ensureFamilies(env: Env, sources: FamilyRow[]): Promise<Map<string, Family>> {
+  const out = new Map<string, Family>();
+  const missing = sources.filter((s) => !s.family);
+  const answers = new Map<string, string>();
+  if (missing.length) {
+    try {
+      const raw = await askText(
+        env,
+        [
+          "Place each product of a café or shop in ONE family, so that a picture showing several products shows products that belong together (coffee with coffee, fresh juice with fresh juice).",
+          `Families (use these exact words): ${FAMILIES.join(" | ")}.`,
+          `Products, as "name: description":\n${missing.map((s) => `- ${productName(s as never)}: ${(s.note ?? "").slice(0, 200)}`).join("\n")}`,
+          'Return ONLY JSON: {"families": [{"name": "<the product name exactly>", "family": "<one of the families>"}]}.',
+        ].join("\n\n"),
+        FAMILY_SCHEMA,
+      );
+      for (const f of parseJson<{ families?: { name?: unknown; family?: unknown }[] }>(raw).families ?? []) {
+        const fam = String(f.family ?? "");
+        if ((FAMILIES as readonly string[]).includes(fam)) answers.set(String(f.name ?? "").trim(), fam);
+      }
+    } catch (e) {
+      console.error("[style] product families", errorMessage(e));
+    }
+  }
+  for (const s of sources) {
+    const name = productName(s as never);
+    const fam = (s.family && (FAMILIES as readonly string[]).includes(s.family) ? s.family : answers.get(name) ?? familyOf(`${name} ${s.note ?? ""}`)) as Family;
+    out.set(name, fam);
+    if (fam !== s.family) await run(env.DB, "UPDATE sources SET family = ? WHERE id = ?", fam, s.id);
+  }
+  return out;
+}
+
 const stemOf = (name: string) => name.replace(/\.[a-z0-9]+$/i, "").trim().toLowerCase();
 /** A product name no other source of the month uses ("Mango", then "Mango 2", "Mango 3"). */
 function freeName(base: string, taken: Set<string>): string {
@@ -67,8 +125,14 @@ export interface PreparedCard {
   index: number;
   /** The card's own photo, now a product of the month. */
   product: string;
+  /** The product's family (coffee, juice, dessert…). */
+  family: Family;
+  /** How many other products the style shows beside this one. */
+  want: number;
   /** Other products of the month in the picture, when the style shows several. */
   extras: string[];
+  /** The studio's suggestion (the same family first, rotated across the cards). */
+  suggested: string[];
   /** The real photo is set in exactly (one product in the style). */
   exact: boolean;
 }
@@ -76,6 +140,13 @@ export interface PreparedCard {
 export interface StyleAssign {
   index: number;
   style: string;
+  /** The other products the team chose for this card (the suggestion when absent). */
+  products?: string[];
+}
+
+export interface PoolProduct {
+  name: string;
+  family: Family;
 }
 
 /**
@@ -88,7 +159,7 @@ export interface StyleAssign {
  * here (the caption is written from the finished picture). The pictures are made by the usual
  * Generate, which the page calls next with its own confirmation.
  */
-export async function prepareMediaForStyle(env: Env, user: User, batchId: string, assign: StyleAssign[]): Promise<{ prepared: PreparedCard[]; counts: Record<string, number>; plan: Post[] }> {
+export async function prepareMediaForStyle(env: Env, user: User, batchId: string, assign: StyleAssign[], opts: { preview?: boolean } = {}): Promise<{ prepared: PreparedCard[]; counts: Record<string, number>; pool: PoolProduct[]; plan: Post[] }> {
   const styleIds = [...new Set(assign.map((a) => a.style))];
   const styles = await Promise.all(styleIds.map((id) => styleRow(env, id)));
   const counts: Record<string, number> = {};
@@ -140,24 +211,34 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
     }),
   );
   // Every product of the month, described once: the style writer and the engine read the notes.
-  const sources = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name", b.id);
+  const sources = await all<SourceRow & { family: string | null }>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category, family FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name", b.id);
   await describeProducts(env, sources);
-  const pool = sources.map(productName);
+  const families = await ensureFamilies(env, sources);
+  const names = sources.map(productName);
+  const pool: PoolProduct[] = names.map((name) => ({ name, family: families.get(name) ?? "Other" }));
   const prepared: PreparedCard[] = [];
   const used: string[] = [];
-  for (const { index, style } of assign) {
-    const key = keyOf.get(index);
-    const name = nameOf.get(index);
+  for (const a of assign) {
+    const key = keyOf.get(a.index);
+    const name = nameOf.get(a.index);
     const src = key ? sources.find((s) => s.key === key) : name ? sources.find((s) => productName(s) === name) : undefined;
     if (!src) continue;
     const own = productName(src);
-    const want = Math.min((counts[style] ?? 1) - 1, Math.max(0, pool.length - 1));
-    // The products no card of this run used yet come first, then the least recently used.
-    const candidates = pool.filter((n) => n !== own).sort((x, y) => used.lastIndexOf(x) - used.lastIndexOf(y));
-    const extras = candidates.slice(0, want);
+    const family = families.get(own) ?? "Other";
+    const want = Math.min((counts[a.style] ?? 1) - 1, Math.max(0, names.length - 1));
+    // Like goes with like: the same family first, among them the ones no card of this run used yet
+    // (then the least recently used), the other families only to fill the count.
+    const candidates = names
+      .filter((n) => n !== own)
+      .sort((x, y) => Number(families.get(y) === family) - Number(families.get(x) === family) || used.lastIndexOf(x) - used.lastIndexOf(y));
+    const suggested = candidates.slice(0, want);
+    // The team's own choice wins over the suggestion (only products of the month, never the card's own).
+    const chosen = a.products ? [...new Set(a.products.filter((n) => n !== own && names.includes(n)))].slice(0, Math.max(want, 0)) : null;
+    const extras = chosen ?? suggested;
     used.push(...extras);
-    prepared.push({ index, product: own, extras, exact: extras.length === 0 });
+    prepared.push({ index: a.index, product: own, family, want, extras, suggested, exact: extras.length === 0 });
   }
+  if (opts.preview) return { prepared, counts, pool, plan };
   if (prepared.length) {
     const fresh = await ownedPlan(env, user, batchId);
     const cfg = JSON.parse(fresh.config) as Config;
@@ -172,6 +253,12 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
     });
     await saveConfig(env, fresh, cfg);
   }
-  const done = await assignStyles(env, user, batchId, assign, { words: false });
-  return { prepared, counts, plan: done };
+  const done = await assignStyles(
+    env,
+    user,
+    batchId,
+    assign.map(({ index, style }) => ({ index, style })),
+    { words: false },
+  );
+  return { prepared, counts, pool, plan: done };
 }

@@ -46,6 +46,7 @@ import { publicationFor } from "@shared/publish";
 import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
 import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
+import StyleProductsDialog, { type StyleProductCard, type StyleProductPool } from "./StyleProductsDialog";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
 import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
@@ -385,6 +386,9 @@ export default function PlanView({
   const [chosen, setChosen] = useState<number[]>([]);
   const [chosenRoute, setChosenRoute] = useState<"images" | "video" | null>(null);
   const [styleFor, setStyleFor] = useState<number[] | null>(null);
+  /** The products-in-each-picture question for styles that show several products; answered by the team or dropped. */
+  const [productPick, setProductPick] = useState<{ cards: StyleProductCard[]; pool: StyleProductPool[] } | null>(null);
+  const productPickRef = useRef<((choice: Record<number, string[]> | null) => void) | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   /** The chosen cards still waiting for the Text studio, after the one open now. */
   const [textQueue, setTextQueue] = useState<number[]>([]);
@@ -414,8 +418,10 @@ export default function PlanView({
     const targets = indexes.map((i) => draftRef.current.find((x) => x.index === i)).filter((x): x is Post => !!x);
     if (!targets.length || !styles.length || !batchId) return;
     const pairs = targets.map((p, i) => ({ post: p, style: styles[i % styles.length] }));
-    const media = pairs.filter((x) => isMediaPost(x.post));
-    const others = pairs.filter((x) => !isMediaPost(x.post));
+    // The client's own pictures, and planned posts with a product of the month, go through the
+    // products step (a style showing several products takes others of the month, chosen here).
+    const media = pairs.filter((x) => isMediaPost(x.post) || !!x.post.product?.trim());
+    const others = pairs.filter((x) => !media.includes(x));
     const names = styles.length === 1 ? `“${styles[0].title}”` : `${styles.length} styles, one card each in turn`;
     const label = scopeLabel({ kind: "selection", indexes: targets.map((x) => x.index) });
     const ok = await askConfirm(
@@ -423,11 +429,33 @@ export default function PlanView({
       { ok: media.length ? "Apply and make" : `Save on ${targets.length} card${targets.length === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
     );
     if (!ok) return;
-    const wait = toast.loading(`Writing the style into ${targets.length} card${targets.length === 1 ? "" : "s"}: the products, the shots… (about half a minute)`);
+    let wait = toast.loading(`Reading the styles and the month's products…`);
     try {
+      let assign = media.map((x) => ({ index: x.post.index, style: x.style.id, products: undefined as string[] | undefined }));
+      if (media.length) {
+        // First the question: which products join each picture when its style shows several.
+        type Prepared = { prepared: { index: number; product: string; family: string; want: number; suggested: string[] }[]; pool: StyleProductPool[] };
+        const r = await post<Prepared>("/api/studio/posts/style-media", { batch: batchId, assign: assign.map(({ index, style }) => ({ index, style })), preview: true });
+        const asking = r.prepared.filter((c) => c.want > 0);
+        if (asking.length) {
+          toast.dismiss(wait);
+          const choice = await new Promise<Record<number, string[]> | null>((resolve) => {
+            productPickRef.current = resolve;
+            setProductPick({
+              cards: asking.map((c) => ({ index: c.index, title: media.find((x) => x.post.index === c.index)?.post.title ?? `Post ${c.index}`, styleTitle: media.find((x) => x.post.index === c.index)?.style.title ?? "", product: c.product, family: c.family, want: c.want, suggested: c.suggested })),
+              pool: r.pool,
+            });
+          });
+          setProductPick(null);
+          productPickRef.current = null;
+          if (!choice) return;
+          assign = assign.map((a) => ({ ...a, products: choice[a.index] }));
+          wait = toast.loading(`Writing the style into ${targets.length} card${targets.length === 1 ? "" : "s"}: the products, the shots… (about half a minute)`);
+        }
+      }
       if (others.length) await onStyles(others.map((x) => ({ index: x.post.index, style: x.style.id })));
       if (media.length) {
-        await post("/api/studio/posts/style-media", { batch: batchId, assign: media.map((x) => ({ index: x.post.index, style: x.style.id })) });
+        await post("/api/studio/posts/style-media", { batch: batchId, assign });
         await onRefresh?.();
       }
       toast.dismiss(wait);
@@ -644,6 +672,7 @@ export default function PlanView({
 
   return (
     <section className={`plan ${dragging ? "dragging" : ""}`} {...dropProps}>
+      {productPick && <StyleProductsDialog cards={productPick.cards} pool={productPick.pool} onConfirm={(choice) => productPickRef.current?.(choice)} onClose={() => productPickRef.current?.(null)} />}
       {styleFor !== null && (
         <StyleScreen
           open

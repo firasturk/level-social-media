@@ -5555,9 +5555,17 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
  * usual Generate on them, confirmed with its price. Nothing is paid here.
  */
 postRoutes.post("/style-media", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), assign: z.array(z.object({ index: z.number().int().min(1).max(MAX_POST_COUNT), style: z.string().min(1).max(80) })).min(1).max(MAX_POST_COUNT) }));
+  const d = await body(
+    c,
+    z.object({
+      batch: z.string().min(1),
+      assign: z.array(z.object({ index: z.number().int().min(1).max(MAX_POST_COUNT), style: z.string().min(1).max(80), products: z.array(z.string().min(1).max(120)).max(8).optional() })).min(1).max(MAX_POST_COUNT),
+      /** true: only say which products each card would show (the suggestion and the month's products by family); nothing is written. */
+      preview: z.boolean().optional(),
+    }),
+  );
   const { prepareMediaForStyle } = await import("./style-media");
-  const r = await prepareMediaForStyle(c.env, c.get("user"), d.batch, d.assign);
+  const r = await prepareMediaForStyle(c.env, c.get("user"), d.batch, d.assign, { preview: !!d.preview });
   return c.json({ ok: true, ...r });
 });
 

@@ -1,0 +1,42 @@
+.spd .ccd-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+.spd-own {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.spd-own small,
+.spd-pick > small {
+  color: var(--ink-500, #6b7280);
+  font-size: 12px;
+}
+.spd-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.spd-family {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.spd-fam {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-500, #6b7280);
+  min-width: 120px;
+}
+.spd-fam.same {
+  color: var(--accent, #2b3fd8);
+  font-weight: 600;
+}
+.spd .chip {
+  cursor: pointer;
+}
