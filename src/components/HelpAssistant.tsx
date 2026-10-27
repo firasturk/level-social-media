@@ -41,8 +41,8 @@ interface HelpItem {
 }
 
 const STORE = "lsm-help-chat";
-/** What Firas is doing while he answers (the character: grumpy, but on it). */
-const THINKING = ["Firas is sighing…", "Firas is finishing his coffee first…", "Firas is looking it up, grudgingly…", "Firas is rolling his eyes…", "Firas is muttering something…", "Firas is opening the guide (again)…"];
+/** What Firas is doing while he answers (the character: a warm colleague, on it). */
+const THINKING = ["Firas is looking it up…", "Firas is opening the guide…", "Firas is checking the exact buttons…", "Firas is writing the steps…", "One moment, Firas is on it…"];
 const when = (t: number) => new Date(t).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const screenNow = () => `${window.location.pathname}${window.location.search}`.slice(0, 200);
 
@@ -179,7 +179,7 @@ export default function HelpAssistant({ user }: { user: User }) {
               <div className="help-thread">
                 {!turns.length && (
                   <div className="help-empty">
-                    <p>I'm Firas, the studio's assistant 😠 Grumpy, but I answer. Ask me how to do anything in the studio, in Arabic or English. If it isn't in the studio yet, I pass it to Firas himself.</p>
+                    <p>I'm Firas, the studio's assistant 🙂 Ask me how to do anything in the studio, in Arabic or English. If it isn't in the studio yet, I pass it to Firas himself.</p>
                     <div className="help-examples">
                       {["How do I make a carousel?", "How do I change the words on a post?", "How do I send the month to the client?"].map((q) => (
                         <button key={q} type="button" onClick={() => setText(q)}>

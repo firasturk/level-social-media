@@ -69,13 +69,14 @@ describe("asking", () => {
     const text = helpInstruction({ message: "q?", history: [{ role: "user", text: "earlier" }], role: "member", name: "Nour" });
     expect(text).toContain("Member: earlier");
     expect(text).toContain("member, not an admin");
-    // The character the owner asked for: grumpy, laughs at simple questions, but the request to Firas stays plain.
-    expect(text).toContain("للمرة المليون 😠");
-    expect(text).toContain("شغل مخك");
-    expect(text).toContain("آخر مرة بتسأل");
+    // The character, softened for the team (27 Oct): warm and light, never teasing; the request to Firas stays plain.
+    expect(text).toContain("warm, quick colleague");
+    expect(text).toContain("never teasing");
+    expect(text).not.toContain("شغل مخك");
+    expect(text).not.toContain("آخر مرة بتسأل");
+    expect(text).not.toContain("grumpy");
     expect(text).toContain("written plainly and politely");
-    expect(text).toContain("هاد وجهي الطبيعي");
-    expect(text).toContain("drop the act and just help");
+    expect(text).toContain("skip every pleasantry and just help");
     expect(text).toContain("ALWAYS SHORT");
     expect(text).not.toContain("هاد السؤال ضحكني");
     expect(helpInstruction({ message: "q", history: [], role: "member", name: "N", local: { hour: 23, weekday: 5 } })).toContain("Their local time: 23:00, Friday.");
