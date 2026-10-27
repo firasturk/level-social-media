@@ -2629,7 +2629,8 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     if (existing)
       statements.push(
         env.DB.prepare(
-          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, making_for = ?, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
+          // A new take starts on the batch's engine again: an engine the router moved the picture to earlier is forgotten.
+          "UPDATE tasks SET status = 'queued', source = ?, prompt = ?, brief = ?, caption = ?, preflight = NULL, error = NULL, edit = ?, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, model = NULL, making_for = ?, updated = ? WHERE id = ? AND status NOT IN ('processing','finalizing')",
         ).bind(sourceId, prompt, JSON.stringify(brief), caption, d.note?.trim() || null, postRevision(post, config), now(), existing.id),
       );
     else
