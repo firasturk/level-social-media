@@ -414,6 +414,40 @@ export default function PlanView({
    * or drawn from it when the style shows several products, each another product of the month); a
    * planned post gets the style saved and its idea written in it, its picture a later step.
    */
+  /**
+   * The products of one styled post, chosen by hand (27 Oct): the same question as Apply a style
+   * asks, for this card alone; the style is written again with the chosen products, then the
+   * picture is offered to be made again.
+   */
+  async function chooseProducts(p: Post) {
+    if (!p.style || !batchId) return;
+    const wait = toast.loading("Reading the style and the month's products…");
+    try {
+      type Prepared = { prepared: { index: number; product: string; family: string; want: number; suggested: string[] }[]; pool: StyleProductPool[] };
+      const r = await post<Prepared>("/api/studio/posts/style-media", { batch: batchId, assign: [{ index: p.index, style: p.style }], preview: true });
+      toast.dismiss(wait);
+      const card = r.prepared.find((c) => c.index === p.index);
+      if (!card) return void toast.info("This card has no product of the month to build on.");
+      if (!card.want) return void toast.info(`“${styleOf(p.style)?.title ?? "This style"}” shows one product: nothing to add.`);
+      const choice = await new Promise<Record<number, string[]> | null>((resolve) => {
+        productPickRef.current = resolve;
+        setProductPick({ cards: [{ index: p.index, title: p.title, styleTitle: styleOf(p.style!)?.title ?? "", product: card.product, family: card.family, want: card.want, suggested: p.products?.length ? p.products : card.suggested }], pool: r.pool });
+      });
+      setProductPick(null);
+      productPickRef.current = null;
+      if (!choice) return;
+      const writing = toast.loading("Writing the style with these products…");
+      await post("/api/studio/posts/style-media", { batch: batchId, assign: [{ index: p.index, style: p.style, products: choice[p.index] ?? [] }] });
+      await onRefresh?.();
+      toast.dismiss(writing);
+      const t = taskOf(p.index);
+      if (t?.output) onGeneratePosts([p.index], true);
+      else toast.success("Products saved on the card.");
+    } catch (e) {
+      toast.dismiss(wait);
+      toast.error((e as Error).message);
+    }
+  }
   async function stylesChosen(styles: StyleItem[], indexes: number[]) {
     const targets = indexes.map((i) => draftRef.current.find((x) => x.index === i)).filter((x): x is Post => !!x);
     if (!targets.length || !styles.length || !batchId) return;
@@ -1106,6 +1140,7 @@ export default function PlanView({
                     ? p.style
                       ? [
                           { label: "Change the style", onClick: () => setPicking(p.index), disabled: !!busy },
+                          { label: "Products in this picture…", onClick: () => void chooseProducts(p), disabled: !!busy || inFlight || running, title: "Which products of the month join this card's own in the picture (for a style that shows several); the style is written again and the picture offered to be made again" },
                           { label: "Take the style off", onClick: () => void onStyles([{ index: p.index, style: null }]), disabled: !!busy },
                         ]
                       : [{ label: "Pick a style", onClick: () => setPicking(p.index), disabled: !!busy }]
