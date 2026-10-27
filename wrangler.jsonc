@@ -36,6 +36,7 @@
     "@shared/draft": "./shared/draft.ts",
     "@shared/conflicts": "./shared/conflicts.ts",
     "@shared/client-changes": "./shared/client-changes.ts",
+    "@shared/carousel": "./shared/carousel.ts",
     "@shared/ideas-chat": "./shared/ideas-chat.ts",
     "@shared/memory": "./shared/memory.ts",
     "@shared/photography": "./shared/photography.ts",

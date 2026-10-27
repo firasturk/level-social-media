@@ -4,6 +4,8 @@
  * show them as one card that slides like Instagram's, in slide order, where the first slide stood.
  */
 import { CAROUSEL_MAX } from "./publish";
+import type { Post } from "./posts";
+export { CAROUSEL_MAX };
 
 interface Grouped {
   index: number;
@@ -53,4 +55,22 @@ export function withSlide<P extends Grouped & { title: string; date?: string }>(
 export function carouselStatus(statuses: ("approved" | "changes" | null | undefined)[]): "approved" | "changes" | null {
   if (statuses.some((s) => s === "changes")) return "changes";
   return statuses.length > 0 && statuses.every((s) => s === "approved") ? "approved" : null;
+}
+
+/**
+ * A post copied beside another (a tool's result, a carousel's slide): the same idea, words, product,
+ * style and layout under its own index and title; nothing the original earned from its reviews,
+ * the client's comments or its place in a group comes along. A media post keeps its file under a
+ * new fingerprint.
+ */
+export function copyPost(from: Post, index: number, title: string, fp: string, at: number): Post {
+  const post: Post = { ...from, index, title: title.slice(0, 80), ideaAt: at };
+  for (const k of ["textCheck", "prechecks", "group", "clientNote", "clientNotes", "clientSteps", "seenBefore", "date", "tile", "tileSpec", "shot"] as const) delete post[k];
+  if (from.source === "media" && from.media) post.media = { ...from.media, fp, at };
+  return post;
+}
+
+/** "Kunafa · slide 3" from any slide's title: the base without an earlier " · slide N". */
+export function slideTitle(title: string, slide: number): string {
+  return `${title.replace(/(\s·\sslide \d+)+$/u, "").trim()} · slide ${slide}`;
 }

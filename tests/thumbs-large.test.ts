@@ -17,7 +17,9 @@ describe("card-size copies of very large pictures", () => {
   it("reads the size from the header and refuses to decode past the budget", () => {
     expect(imageSize(jpegHeader(4480, 6720).buffer as ArrayBuffer)).toEqual({ width: 4480, height: 6720 });
     expect(decodable({ width: 4480, height: 6720 })).toBe(false);
-    expect(decodable({ width: 3000, height: 4000 })).toBe(true);
+    expect(decodable({ width: 2500, height: 3000 })).toBe(true);
+    // A 19 MB Drive PNG that killed the Worker on 27 Oct: shrunk by Drive instead.
+    expect(decodable({ width: 2789, height: 4176 })).toBe(false);
     expect(4480 * 6720).toBeGreaterThan(MAX_DECODE_PIXELS);
     expect(decodable(null)).toBe(true);
   });

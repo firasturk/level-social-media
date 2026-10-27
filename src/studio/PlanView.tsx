@@ -71,7 +71,7 @@ import { confirmScope, scopeLabel, scopeNote } from "@shared/scope";
 import { formatUsd } from "@shared/pricing";
 import { askConfirm } from "@/lib/confirm";
 import { isMediaPost } from "@shared/posts";
-import { carouselEntries, withSlide, type CardEntry } from "@shared/carousel";
+import { carouselEntries, type CardEntry } from "@shared/carousel";
 import { CAROUSEL_MAX } from "@shared/publish";
 import type { StyleItem } from "@shared/styles";
 import { CombineDialog, restyleInstruction, SelectionBar } from "./MediaSelection";
@@ -588,24 +588,17 @@ export default function PlanView({
       toast.error(e instanceof Error ? e.message : "Could not remove the post.");
     }
   }
-  /** One more slide after a carousel's last; a single post becomes slide 1 of a new carousel (27 Oct). Saved at once; nothing is made. */
-  function addSlide(at: number) {
-    const r = withSlide(
-      draftRef.current,
-      at,
-      (index, lead) => ({ index, type: lead.type, title: lead.title, brief: "", caption: "", hashtags: "", ...(lead.date ? { date: lead.date } : {}), ...(lead.product ? { product: lead.product } : {}), ...(lead.style ? { style: lead.style } : {}) }),
-      () => crypto.randomUUID(),
-    );
-    if (!r) {
-      toast.error(`A carousel holds at most ${CAROUSEL_MAX} slides, and a series part cannot be one.`);
-      return;
+  /** One more slide after the carousel's last, a copy of slide 1 with its picture; a single post becomes slide 1 of a new carousel (27 Oct). Nothing is made or paid. */
+  async function addSlide(at: number) {
+    if (!batchId) return;
+    try {
+      const r = await post<{ index: number; slide: number; group: string; copied: boolean }>("/api/studio/posts/slide", { batch: batchId, index: at });
+      setSlideAt((g) => ({ ...g, [r.group]: r.slide }));
+      await onRefresh?.();
+      toast.success(r.copied ? `Slide ${r.slide} added as a copy of slide 1, picture included: change what differs.` : `Slide ${r.slide} added as a copy of slide 1's idea and words: make its picture.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not add the slide.");
     }
-    const added = r.plan.find((x) => x.index === r.index)!;
-    added.title = `${added.title} · slide ${added.group!.slide}`;
-    setDraft(r.plan);
-    setSlideAt((g) => ({ ...g, [added.group!.id]: added.group!.slide }));
-    void onSavePlan(r.plan);
-    toast.success(`Slide ${added.group!.slide} added: write its idea under Edit the idea, then make its picture.`);
   }
   function addPost() {
     const next: Post = {
@@ -1041,7 +1034,7 @@ export default function PlanView({
                         ? [{ label: "Previous picture", onClick: () => { const was = t!.output!; setRestoring(p.index); void onRestorePicture(p.index, prevOf(t)!).then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } }).finally(() => setRestoring(null)); }, disabled: restoring !== null || running }]
                         : []),
                       { label: "Versions", onClick: () => onEdit(p.index, "versions") },
-                      ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => addSlide(p.index), disabled: !!busy || running, title: slides ? "An empty slide after the last, with its own idea, picture, style and words; nothing is made or paid" : "This post becomes slide 1 of a carousel and an empty slide 2 is added after it; nothing is made or paid" }]),
+                      ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => void addSlide(p.index), disabled: !!busy || running, title: slides ? "A slide after the last: a copy of slide 1 with its picture, to change what differs; nothing is made or paid" : "This post becomes slide 1 of a carousel and slide 2 is added as its copy; nothing is made or paid" }]),
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                     ]
                   : [
@@ -1079,7 +1072,7 @@ export default function PlanView({
                     ? [{ label: "Previous picture", onClick: () => { const was = t!.output!; setRestoring(p.index); void onRestorePicture(p.index, prevOf(t)!).then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } }).finally(() => setRestoring(null)); }, disabled: restoring !== null || running }]
                     : []),
                   { label: "Reference picture and versions", onClick: () => onEdit(p.index, "versions") },
-                  ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => addSlide(p.index), disabled: !!busy || running, title: slides ? "An empty slide after the last, with its own idea, picture, style and words; nothing is made or paid" : "This post becomes slide 1 of a carousel and an empty slide 2 is added after it; nothing is made or paid" }]),
+                  ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => void addSlide(p.index), disabled: !!busy || running, title: slides ? "A slide after the last: a copy of slide 1 with its picture, to change what differs; nothing is made or paid" : "This post becomes slide 1 of a carousel and slide 2 is added as its copy; nothing is made or paid" }]),
                   { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                 ];
                 const chosenAt = chosenNow.indexOf(p.index);
@@ -1113,7 +1106,7 @@ export default function PlanView({
                               slides: slides.map((x) => ({ index: x.index, mark: approvals[String(x.index)]?.status === "approved" ? "ok" : approvals[String(x.index)]?.status === "changes" ? "warn" : "" })),
                               at: Math.max(0, slides.findIndex((x) => x.index === p.index)),
                               onGo: (i) => slides[i]?.group && setSlideAt((g) => ({ ...g, [slides[i].group!.id]: slides[i].group!.slide })),
-                              onAdd: slides.length < CAROUSEL_MAX ? () => addSlide(p.index) : undefined,
+                              onAdd: slides.length < CAROUSEL_MAX ? () => void addSlide(p.index) : undefined,
                             }
                           : undefined
                       }

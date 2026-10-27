@@ -12,6 +12,7 @@ import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
 import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { tryClaude } from "./anthropic";
+import { CAROUSEL_MAX, copyPost, slideTitle, withSlide } from "@shared/carousel";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
@@ -1578,6 +1579,43 @@ postRoutes.post("/remove", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
   const cfg = await removePostAt(c.env, c.get("user"), d.batch, d.index);
   return c.json({ ok: true, plan: cfg.plan, postCount: cfg.postCount });
+});
+
+/**
+ * "Add a slide" / "Make it a carousel" (27 Oct): one more slide after the carousel's last, a copy of
+ * slide 1 (its picture too, when it has one: a task of its own on the same stored picture), so the
+ * team changes what differs instead of starting from nothing. A single post becomes slide 1 of a
+ * new carousel. Whichever slide is on screen, the copy is of slide 1. Nothing is made or paid.
+ */
+postRoutes.post("/slide", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const plan = cfg.plan ?? [];
+  const at = plan.find((p) => p.index === d.index);
+  if (!at) throw new StudioError("That post is not in the month.", 404);
+  if (at.group?.kind === "series") throw new StudioError("A series part cannot be a carousel slide: make the carousel from a single post.", 409);
+  if (plan.length >= MAX_POST_COUNT) throw new StudioError(`A month holds at most ${MAX_POST_COUNT} posts.`, 409);
+  const from = (at.group?.kind === "carousel" && plan.find((p) => p.group?.id === at.group!.id && p.group!.slide === 1)) || at;
+  const t = now();
+  const r = withSlide(plan, from.index, (index, lead) => ({ ...copyPost(lead, index, lead.title, `slide:${uuid()}`, t), ...(lead.date ? { date: lead.date } : {}) }), () => uuid());
+  if (!r) throw new StudioError(`A carousel holds at most ${CAROUSEL_MAX} slides.`, 409);
+  const added = r.plan.find((p) => p.index === r.index)!;
+  added.title = slideTitle(from.title, added.group!.slide);
+  cfg.plan = r.plan;
+  cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
+  await saveConfig(c.env, b, cfg);
+  // The picture comes along: a task of its own on the same stored picture, with the review it had.
+  const src = await first<{ source: string; output: string; qa: string | null; prompt: string | null; caption: string | null }>(c.env.DB, "SELECT source, output, qa, prompt, caption FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, from.index);
+  if (src) {
+    const made = postRevision(added, cfg);
+    const task = uuid();
+    await c.env.DB.batch([
+      c.env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(task, b.id, src.source, added.index, src.output, src.prompt ?? "", JSON.stringify({ post: true, index: added.index, type: added.type, from: { post: from.index, slide: true } }), added.index, src.caption ?? JSON.stringify({ text: added.caption ?? "", hashtags: added.hashtags ?? "" }), src.qa, made, made, t),
+      c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, added.index, task, src.output, `Slide ${added.group!.slide}: a copy of slide 1 (post ${from.index}), no spend`, made, t),
+    ]);
+  }
+  return c.json({ ok: true, index: added.index, slide: added.group!.slide, group: added.group!.id, copied: !!src });
 });
 
 /** One post leaves the month: its picture stays under Earlier versions, the later posts move up one number. */

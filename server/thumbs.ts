@@ -19,8 +19,10 @@ export function thumbWidth(raw: string | undefined): ThumbWidth | null {
 /**
  * The most pixels a picture may have for the Worker to decode it here. A camera original (a 30 MP
  * Drive photo is 120 MB of RGBA) is beyond the Worker's 128 MB: decoding it kills the request.
+ * 9 MP: an 11.6 MP, 19 MB Drive PNG (2789 × 4176) still killed it on 27 Oct, a 10.9 MP one barely
+ * passed; above this the Drive copy or the original is served instead.
  */
-export const MAX_DECODE_PIXELS = 12_000_000;
+export const MAX_DECODE_PIXELS = 9_000_000;
 
 /** Whether a picture of this size can be decoded here; an unreadable header is tried. */
 export function decodable(size: { width: number; height: number } | null): boolean {
