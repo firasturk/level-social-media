@@ -73,23 +73,38 @@ export interface PreparedCard {
   exact: boolean;
 }
 
+export interface StyleAssign {
+  index: number;
+  style: string;
+}
+
 /**
- * The chosen cards made ready for the style: each card's photo a product source (its stored picture
- * under a free name), the post a planned post again (its product that photo, exact when the style
- * shows one product, with other products of the month when it shows several, rotated so two cards
- * do not repeat the same extras), then the style written into every post. The pictures are made by
- * the usual Generate, which the page calls next with its own confirmation.
+ * The chosen cards made ready for their styles, all in one pass (27 Oct): each card's photo a
+ * product source (its stored picture under a free name), the post a planned post again (its
+ * product that photo, exact when its style shows one product, with other products of the month
+ * when it shows several, rotated across the cards so two do not repeat the same extras), then
+ * every style written into its post. The slow steps (counting a style's products, the smaller
+ * copies, the products' notes, the style writing) run side by side; the words are not rewritten
+ * here (the caption is written from the finished picture). The pictures are made by the usual
+ * Generate, which the page calls next with its own confirmation.
  */
-export async function prepareMediaForStyle(env: Env, user: User, batchId: string, indexes: number[], styleId: string): Promise<{ prepared: PreparedCard[]; count: number; plan: Post[] }> {
-  const style = await styleRow(env, styleId);
-  if (!style?.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
-  const count = await styleProductCount(env, style);
+export async function prepareMediaForStyle(env: Env, user: User, batchId: string, assign: StyleAssign[]): Promise<{ prepared: PreparedCard[]; counts: Record<string, number>; plan: Post[] }> {
+  const styleIds = [...new Set(assign.map((a) => a.style))];
+  const styles = await Promise.all(styleIds.map((id) => styleRow(env, id)));
+  const counts: Record<string, number> = {};
+  await Promise.all(
+    styles.map(async (st, i) => {
+      if (!st?.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
+      counts[styleIds[i]] = await styleProductCount(env, st);
+    }),
+  );
   const b = await ownedPlan(env, user, batchId);
   const plan = (JSON.parse(b.config) as Config).plan ?? [];
   const t = now();
   const taken = new Set((await all<{ stem: string }>(env.DB, "SELECT stem FROM sources WHERE batch = ?", b.id)).map((r) => r.stem.normalize("NFC").toLowerCase()));
   const keyOf = new Map<number, string>();
-  for (const index of indexes) {
+  const inserts: { index: number; name: string; mime: string; output: string }[] = [];
+  for (const { index } of assign) {
     const post = plan.find((p) => p.index === index);
     if (!post) throw new StudioError(`Post ${index} is not in the month.`, 404);
     // A planned post keeps the usual style path (the style saved, its picture a later step).
@@ -97,35 +112,39 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
     const task = await first<{ output: string | null; status: string }>(env.DB, "SELECT output, status FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, index);
     if (!task?.output) throw new StudioError(`Post ${index} has no picture to work from.`, 409);
     if (["queued", "processing", "finalizing"].includes(task.status)) throw new StudioError(`Post ${index} is being made: wait for it first.`, 409);
+    keyOf.set(index, task.output);
     const have = await first<{ id: string }>(env.DB, "SELECT id FROM sources WHERE batch = ? AND key = ? AND kind = 'product'", b.id, task.output);
-    if (!have) {
-      const ext = (/\.(png|jpe?g|webp)$/i.exec(task.output)?.[1] ?? "png").toLowerCase();
-      const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
-      const base = (post.title || `Post ${index}`).replace(/\s*·\s*slide \d+$/u, "").trim().slice(0, 60) || `Post ${index}`;
-      const name = `${freeName(base, taken)}.${ext === "jpeg" ? "jpg" : ext}`;
-      taken.add(stemOf(name).normalize("NFC"));
-      // The card's picture is the product photo as it is; the smaller copy is the engine's reference.
-      const referenceKey = await resizedPicture(env, task.output, 720)
+    if (have) continue;
+    const ext = (/\.(png|jpe?g|webp)$/i.exec(task.output)?.[1] ?? "png").toLowerCase();
+    const mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    const base = (post.title || `Post ${index}`).replace(/\s*·\s*slide \d+$/u, "").trim().slice(0, 60) || `Post ${index}`;
+    const name = `${freeName(base, taken)}.${ext === "jpeg" ? "jpg" : ext}`;
+    taken.add(stemOf(name).normalize("NFC"));
+    inserts.push({ index, name, mime, output: task.output });
+  }
+  // The card's picture is the product photo as it is; the smaller copy is the engine's reference.
+  await Promise.all(
+    inserts.map(async (x) => {
+      const referenceKey = await resizedPicture(env, x.output, 720)
         .then((r) => r?.key ?? null)
         .catch(() => null);
-      await run(env.DB, "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'lead', 'product', '', ?)", uuid(), b.id, name, stemOf(name), task.output, referenceKey, mime, t);
-    }
-    keyOf.set(index, task.output);
-  }
+      await run(env.DB, "INSERT INTO sources (id, batch, name, stem, key, reference_key, mime, size, role, kind, note, created) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'lead', 'product', '', ?)", uuid(), b.id, x.name, stemOf(x.name), x.output, referenceKey, x.mime, t);
+    }),
+  );
   // Every product of the month, described once: the style writer and the engine read the notes.
   const sources = await all<SourceRow>(env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY name", b.id);
   await describeProducts(env, sources);
   const pool = sources.map(productName);
   const prepared: PreparedCard[] = [];
   const used: string[] = [];
-  for (const index of indexes) {
+  for (const { index, style } of assign) {
     const key = keyOf.get(index);
     const src = key ? sources.find((s) => s.key === key) : undefined;
     if (!src) continue;
     const own = productName(src);
-    const want = Math.min(count - 1, Math.max(0, pool.length - 1));
+    const want = Math.min((counts[style] ?? 1) - 1, Math.max(0, pool.length - 1));
     // The products no card of this run used yet come first, then the least recently used.
-    const candidates = pool.filter((n) => n !== own).sort((a, c) => used.lastIndexOf(a) - used.lastIndexOf(c));
+    const candidates = pool.filter((n) => n !== own).sort((x, y) => used.lastIndexOf(x) - used.lastIndexOf(y));
     const extras = candidates.slice(0, want);
     used.push(...extras);
     prepared.push({ index, product: own, extras, exact: extras.length === 0 });
@@ -144,6 +163,6 @@ export async function prepareMediaForStyle(env: Env, user: User, batchId: string
     });
     await saveConfig(env, fresh, cfg);
   }
-  const done = await assignStyles(env, user, batchId, indexes.map((index) => ({ index, style: styleId })));
-  return { prepared, count, plan: done };
+  const done = await assignStyles(env, user, batchId, assign, { words: false });
+  return { prepared, counts, plan: done };
 }

@@ -423,17 +423,23 @@ export default function PlanView({
       { ok: media.length ? "Apply and make" : `Save on ${targets.length} card${targets.length === 1 ? "" : "s"}`, danger: false, cancel: "Not now" },
     );
     if (!ok) return;
+    const wait = toast.loading(`Writing the style into ${targets.length} card${targets.length === 1 ? "" : "s"}: the products, the shots… (about half a minute)`);
     try {
       if (others.length) await onStyles(others.map((x) => ({ index: x.post.index, style: x.style.id })));
       if (media.length) {
-        const byStyle = new Map<string, number[]>();
-        for (const x of media) byStyle.set(x.style.id, [...(byStyle.get(x.style.id) ?? []), x.post.index]);
-        for (const [style, idx] of byStyle) await post("/api/studio/posts/style-media", { batch: batchId, indexes: idx, style });
+        await post("/api/studio/posts/style-media", { batch: batchId, assign: media.map((x) => ({ index: x.post.index, style: x.style.id })) });
         await onRefresh?.();
-        toast.success(`${media.length} card${media.length === 1 ? "" : "s"} written in the style; the picture${media.length === 1 ? " is" : "s are"} made next.`);
-        await onGeneratePosts(media.map((x) => x.post.index), true);
+      }
+      toast.dismiss(wait);
+      // The cards with a picture already are offered their new picture now: the client's own
+      // pictures always, a planned post when its style changed its shot.
+      const remake = [...media.map((x) => x.post.index), ...others.filter((x) => !!taskOf(x.post.index)?.output).map((x) => x.post.index)];
+      if (remake.length) {
+        toast.success(`${targets.length} card${targets.length === 1 ? "" : "s"} written in the style.`);
+        onGeneratePosts(remake, true);
       } else toast.success(`Style saved on ${label}. Nothing was made.`);
     } catch (e) {
+      toast.dismiss(wait);
       toast.error((e as Error).message);
     }
   }

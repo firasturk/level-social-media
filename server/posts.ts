@@ -5490,7 +5490,7 @@ postRoutes.post("/style", async (c) => {
  * own products (writeStyleScenes), then its words. Shared by the route and the client-picture path
  * (server/style-media.ts). Nothing is made.
  */
-export async function assignStyles(env: Env, user: User, batchId: string, assign: { index: number; style: string | null }[]): Promise<Post[]> {
+export async function assignStyles(env: Env, user: User, batchId: string, assign: { index: number; style: string | null }[], opts: { words?: boolean } = {}): Promise<Post[]> {
   const b = await ownedPlan(env, user, batchId);
   const scenes = await writeStyleScenes(env, b, JSON.parse(b.config) as Config, assign);
   const fresh = await ownedPlan(env, user, batchId);
@@ -5514,7 +5514,7 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
   // describes, with the post's own products. The idea (brief) and the scene stay the style's.
   for (const a of assign) {
     const s = scenes.get(a.index);
-    if (!s?.style || !s.scene) continue;
+    if (!s?.style || !s.scene || opts.words === false) continue;
     try {
       const latest = await ownedPlan(env, user, batchId);
       const latestCfg = JSON.parse(latest.config) as Config;
@@ -5544,9 +5544,9 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
  * usual Generate on them, confirmed with its price. Nothing is paid here.
  */
 postRoutes.post("/style-media", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), indexes: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).min(1).max(MAX_POST_COUNT), style: z.string().min(1).max(80) }));
+  const d = await body(c, z.object({ batch: z.string().min(1), assign: z.array(z.object({ index: z.number().int().min(1).max(MAX_POST_COUNT), style: z.string().min(1).max(80) })).min(1).max(MAX_POST_COUNT) }));
   const { prepareMediaForStyle } = await import("./style-media");
-  const r = await prepareMediaForStyle(c.env, c.get("user"), d.batch, d.indexes, d.style);
+  const r = await prepareMediaForStyle(c.env, c.get("user"), d.batch, d.assign);
   return c.json({ ok: true, ...r });
 });
 

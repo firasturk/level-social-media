@@ -50,7 +50,8 @@ async function seed(products: number) {
   return env;
 }
 
-const apply = (env: FakeEnv, indexes: number[], style = "st1") => app().request("/api/studio/posts/style-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", indexes, style }) }, env);
+const apply = (env: FakeEnv, indexes: number[], style = "st1") => app().request("/api/studio/posts/style-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", assign: indexes.map((index) => ({ index, style })) }) }, env);
+const applyMixed = (env: FakeEnv, assign: { index: number; style: string }[]) => app().request("/api/studio/posts/style-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", assign }) }, env);
 const planOf = async (env: FakeEnv) => (JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] }).plan;
 const productsOf = (env: FakeEnv) => env.DB.prepare("SELECT name, key, stem FROM sources WHERE kind = 'product' ORDER BY name").all<{ name: string; key: string; stem: string }>().then((r) => r.results);
 
@@ -70,8 +71,8 @@ describe("a style that shows one product", () => {
     const env = await seed(1);
     const r = await apply(env, [1, 2]);
     expect(r.status).toBe(200);
-    const d = (await r.json()) as { prepared: { index: number; product: string; extras: string[]; exact: boolean }[]; count: number };
-    expect(d.count).toBe(1);
+    const d = (await r.json()) as { prepared: { index: number; product: string; extras: string[]; exact: boolean }[]; counts: Record<string, number> };
+    expect(d.counts).toEqual({ st1: 1 });
     expect(d.prepared).toEqual([
       { index: 1, product: "فخارة شعيرية", extras: [], exact: true },
       { index: 2, product: "شهيرة", extras: [], exact: true },
@@ -124,6 +125,28 @@ describe("a style that shows several products", () => {
     // The month holds three products once both cards joined: each card and two others, never six.
     expect(d.prepared[0].extras).toHaveLength(2);
     expect(d.prepared[1].extras).toHaveLength(2);
+  });
+});
+
+describe("several styles in one request", () => {
+  it("writes each card its own style, counts every style once, and rotates the extras across the cards", async () => {
+    const env = await seed(4);
+    const t = Date.now();
+    await env.DB.prepare("INSERT INTO styles (id, kind, status, title, prompt, tags, source, note, created, updated, products) VALUES ('st2', 'product', 'active', 'Starry Slush', 'the product alone under a starry sky, low angle', 'night', '', '', ?, ?, 1)").bind(t, t).run();
+    const r = await applyMixed(env, [
+      { index: 1, style: "st1" },
+      { index: 2, style: "st2" },
+    ]);
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { prepared: { index: number; extras: string[]; exact: boolean }[]; counts: Record<string, number> };
+    expect(d.counts).toEqual({ st1: 4, st2: 1 });
+    // Card 1's style shows four products: the month's other two join it. Card 2's shows one: exact.
+    expect(d.prepared[0]).toMatchObject({ index: 1, exact: false });
+    expect(d.prepared[0].extras.sort()).toEqual(["Spanish latte", "شهيرة"]);
+    expect(d.prepared[1]).toMatchObject({ index: 2, extras: [], exact: true });
+    const plan = await planOf(env);
+    expect(plan.find((p) => p.index === 1)!.style).toBe("st1");
+    expect(plan.find((p) => p.index === 2)!.style).toBe("st2");
   });
 });
 
