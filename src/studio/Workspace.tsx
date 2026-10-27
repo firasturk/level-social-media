@@ -928,7 +928,7 @@ export default function Workspace({
     askNotifications();
     setBusy("generate");
     try {
-      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[]; draft?: boolean }>("/api/studio/posts/generate", {
+      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[]; blocked?: { index: number; why: string }[]; draft?: boolean }>("/api/studio/posts/generate", {
         batch: batch.id,
         indexes,
         regenerate,
@@ -949,6 +949,9 @@ export default function Workspace({
         );
       if (r.skipped?.length)
         toast.warning(`Offer post${r.skipped.length > 1 ? "s" : ""} ${r.skipped.join(", ")} not generated: fill the offer's products, price and contents first.`);
+      // A post held back by a conflict says so here, with its reason, instead of staying quietly unmade.
+      if (r.blocked?.length)
+        toast.warning(`Not generated: ${r.blocked.map((x) => `post ${x.index} (${x.why})`).join(" · ")}`, { duration: 15000 });
     } catch (e) {
       // Above the spend limit: the server started nothing; one approval here starts the same run.
       const err = e as ApiError;

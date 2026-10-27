@@ -21,6 +21,22 @@ describe("input conflicts", () => {
     const named = detectConflicts({ campaign: brief, post: { brief: "x", people: ["Lina"] }, style: { prompt: "A woman holds the cup." } });
     expect(named.filter((c) => c.kind === "people")).toEqual([]);
   });
+  it("a shot written from the style settles the style's hand: the shot's own 'no people' line is no conflict with the style's prompt", () => {
+    // 27 Oct: three of Abu Saleh's posts were held back because their style's prompt names a hand
+    // while the shot the writer made from it ends "No people, hands or other food appear".
+    const style = { title: "Tic-Tac-Toe Play", prompt: "A hand places the product on a tic-tac-toe grid drawn in red crayon." };
+    const dropped = detectConflicts({ post: { brief: "", scene: "Top-down shot of a tic-tac-toe grid in red crayon, four pots of the dessert on the squares, sharp shadows. No people, hands, drinks or other food appear.", sceneFromStyle: true }, style });
+    expect(blockingConflicts(dropped)).toEqual([]);
+    // Kept on purpose ("a man's hand ... no people besides the hand"): still no conflict with itself.
+    const kept = detectConflicts({ post: { brief: "A man's hand bursts out of a sea of ice holding the smoothie.", scene: "Top-down: a man's bare hand rises from the ice cubes gripping the cup. No people besides the hand, and no text except the product's own logo.", sceneFromStyle: true }, style: { title: "Ice Cube Mosaic", prompt: "The brand ambassador's hand rises from the ice cubes gripping the product." } });
+    expect(blockingConflicts(kept)).toEqual([]);
+    // The brief's own "no people" still holds against a shot that brings a hand in.
+    const brief = detectConflicts({ campaign: { text: "No people in any picture." }, post: { brief: "x", scene: "A man's hand rises from the ice gripping the cup.", sceneFromStyle: true }, style });
+    expect(blockingConflicts(brief).map((c) => [c.kind, c.source, c.against])).toEqual([["people", "style", "brief"]]);
+    // Without the flag, the style's raw prompt is still read against the post's words.
+    const raw = detectConflicts({ post: { brief: "", scene: "No people appear." }, style });
+    expect(blockingConflicts(raw).length).toBe(1);
+  });
   it("a grid tile with a croissant against a brand that sells no food, and a brand rule against writing", () => {
     const c = detectConflicts({ brand: { donts: "The brand sells no food.", rules: "No writing in the picture." }, post: { brief: "x", tileSpec: { scene: "A croissant beside the cup, bold text across the top." } } });
     expect(c.map((x) => [x.kind, x.source, x.against]).sort()).toEqual([

@@ -758,7 +758,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.hasProduct && productText && productText.toLowerCase() !== "the product")
     parts.push(`THE PRODUCT IN IMAGE 1 (as photographed): ${productText}`);
-  if (b.hasProduct) {
+  // A garment's print stays where its photo shows it; a cup "with calligraphy on the front" is no garment.
+  if (b.hasProduct && sellsClothing([productText, ...extras.map((e) => e.note ?? "")])) {
     const back = backPrintRule([productText, ...extras.map((e) => e.note ?? "")]);
     if (back) parts.push(back);
   }
@@ -774,7 +775,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // A picked style replaces the post's own idea of the photograph: the style, written for this product, is the picture.
   if (b.styleKey && b.shot?.trim())
     parts.push(
-      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
+      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.

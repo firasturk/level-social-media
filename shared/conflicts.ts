@@ -46,7 +46,24 @@ export interface Conflict {
 export interface GuideInput {
   brand?: { dos?: string | null; donts?: string | null; rules?: string | null; colours?: string[] };
   campaign?: { text?: string | null; summary?: string | null };
-  post: { title?: string; brief: string; scene?: string; headline?: string; caption?: string; people?: string[]; allow?: string[]; type?: string; product?: string; exact?: boolean; tileSpec?: { kind?: string; scene?: string; productPlacement?: string; textPlacement?: string } | null };
+  post: {
+    title?: string;
+    brief: string;
+    scene?: string;
+    headline?: string;
+    caption?: string;
+    people?: string[];
+    allow?: string[];
+    type?: string;
+    product?: string;
+    exact?: boolean;
+    tileSpec?: { kind?: string; scene?: string; productPlacement?: string; textPlacement?: string } | null;
+    /**
+     * The shot was written from the style for this post: it is the style's final word here (the
+     * writer kept or dropped the style's hand), so the style's own prompt is not read against it.
+     */
+    sceneFromStyle?: boolean;
+  };
   style?: { title?: string; prompt?: string } | null;
   theme?: { direction?: string | null; shots?: string[] | null; title?: string } | null;
   /** Approved rules (lessons) carried by the prompt. */
@@ -169,15 +186,19 @@ export function detectConflicts(g: GuideInput): Conflict[] {
   const out: Conflict[] = [];
   const allowed = new Set((p.allow ?? []) as ConflictKind[]);
   const wants: { kind: ConflictKind; against: Conflict["against"] }[] = [];
+  // A shot written from the style settles what the style brings in: its closing "no people" is
+  // the writer's decision, not a constraint the style's own prompt breaks (the style's hand was
+  // dropped, or kept on purpose).
+  const styleWritten = !!p.sceneFromStyle && !!p.scene?.trim();
   for (const k of constraintsOf(g.campaign?.text)) wants.push({ kind: k, against: "brief" });
-  for (const k of constraintsOf(`${p.brief} ${p.scene ?? ""}`)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "post" });
+  for (const k of constraintsOf(styleWritten ? p.brief : `${p.brief} ${p.scene ?? ""}`)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "post" });
   for (const k of constraintsOf(g.brand?.donts)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "brand kit" });
   for (const k of constraintsOf(g.brand?.rules)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "brand kit" });
   for (const r of g.rules ?? []) for (const k of constraintsOf(r)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "rule" });
   // A post that names people wants people: "no people" from the month does not apply to it.
   const peopleWanted = (p.people?.length ?? 0) > 0;
   const sources: { source: Conflict["source"]; text: string }[] = [];
-  if (g.style?.prompt) sources.push({ source: "style", text: g.style.prompt });
+  if (g.style?.prompt) sources.push({ source: "style", text: styleWritten ? p.scene! : g.style.prompt });
   if (p.tileSpec?.scene) sources.push({ source: "grid tile", text: `${p.tileSpec.scene} ${p.tileSpec.productPlacement ?? ""}` });
   if (!g.style?.prompt && !p.tileSpec?.scene && g.theme?.shots?.length) sources.push({ source: "theme", text: g.theme.shots.join(" ") });
   for (const w of wants) {

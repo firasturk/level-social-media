@@ -55,7 +55,7 @@ async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
 import { rememberLesson, rememberLessons } from "./lessons";
-import { hashDistance, pictureHash } from "./thumbs";
+import { hashDistance, pictureHash, resizedPicture } from "./thumbs";
 import {
   StudioError,
   errorMessage,
@@ -405,7 +405,7 @@ async function finalizeInFlight(env: Env, batch: BatchRow, config: Config): Prom
         await failTask(
           env,
           task,
-          "The OpenAI generation did not finish in time. Retry this image.",
+          "The picture was cut off while it was being made (the server restarted). Retry this image.",
           task.output,
         );
       continue;
@@ -557,9 +557,13 @@ async function storeResultBytes(
 
   let qa: QA;
   if (config.mode === "post") {
+    // The review and the OCR read a 1080-px JPEG copy of the picture (made once here, the copy the
+    // page shows): a 2K PNG of 6 MB as base64 is too large for Claude and, with six pictures in
+    // flight at once, for the isolate's memory (the run of 27 Oct died twice of exceeded memory).
+    const reviewBytes: ImageBytes = (await resizedPicture(env, key, 1080).catch(() => null)) ?? result;
     // A post is checked against the real product photo: what changed, writing, bags, drinks, people.
     try {
-      qa = await reviewPostImage(env, task, result);
+      qa = await reviewPostImage(env, task, reviewBytes);
       // Every finding is proposed as a lesson with its exact words; it waits for the admin before any prompt carries it.
       if (qa.automated) await rememberLessons(env, batch.client, batch.id, qa.flags).catch((e) => console.error("[lessons]", e));
       if (exactNote) qa = { ...qa, flags: [...(qa.flags ?? []), { kind: "invented", text: exactNote }] };
@@ -622,7 +626,7 @@ async function storeResultBytes(
     }
     // Writing read by OCR (when Google Vision is connected) is a review note added after the retake
     // decisions: it never queues a take by itself. A faint reading says "check the writing".
-    qa = await ocrReviewFlags(env, batch, task, qa, result, [pb.product?.split(":")[0] ?? "", ...(pb.productNames ?? []), ...(pb.extraProducts ?? []).map((x) => x.name)]);
+    qa = await ocrReviewFlags(env, batch, task, qa, reviewBytes, [pb.product?.split(":")[0] ?? "", ...(pb.productNames ?? []), ...(pb.extraProducts ?? []).map((x) => x.name)]);
     // A person that looks generated is a review note like any other: the team decides with Fix it.
     // (An automatic second take doubled the time and the cost of every post with people.)
     await run(
@@ -818,9 +822,16 @@ let lastWidenAt = 0;
 /** A quiet stretch this long widens the engine by one image. */
 const WIDEN_AFTER_MS = 45_000;
 const MIN_WIDTH = 2;
+/**
+ * Synchronous Google pictures in flight at once in one isolate: each one holds its 2K result (as
+ * base64 and as bytes) and its review copy in memory, and six at once took the isolate past its
+ * 128 MB twice on 27 Oct, losing the pictures in flight. Four keep it well inside.
+ */
+const GOOGLE_SYNC_PARALLEL = 4;
+const googleFull = (env: Env) => Math.min(concurrency(env), GOOGLE_SYNC_PARALLEL);
 
 function narrowAfterRateLimit(env: Env): void {
-  const current = googleWidth || concurrency(env);
+  const current = googleWidth || googleFull(env);
   googleWidth = Math.max(MIN_WIDTH, current - 2);
   lastRateLimitAt = now();
 }
@@ -831,7 +842,7 @@ function narrowAfterRateLimit(env: Env): void {
  * instead of collapsing to one image at a time.
  */
 function googleParallel(env: Env): number {
-  const full = concurrency(env);
+  const full = googleFull(env);
   if (!googleWidth) return full;
   if (googleWidth < full && now() - Math.max(lastRateLimitAt, lastWidenAt) > WIDEN_AFTER_MS) {
     googleWidth += 1;
@@ -2431,7 +2442,7 @@ async function submitOpenAITask(
   // Record the id before the slow call so a concurrent driver sees the task as in flight.
   await run(
     env.DB,
-    "UPDATE tasks SET request_id = ?, updated = ? WHERE id = ? AND lease = ?",
+    "UPDATE tasks SET request_id = ?, error = 'Making the picture…', updated = ? WHERE id = ? AND lease = ?",
     requestId,
     now(),
     task.id,

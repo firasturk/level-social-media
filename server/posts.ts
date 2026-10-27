@@ -2609,7 +2609,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     const guideInput = {
       brand: { dos: client.dos, donts: client.donts, rules: client.image_rules },
       campaign: config.campaign ? { text: config.campaign.text, summary: config.campaign.summary } : undefined,
-      post: { title: post.title, brief: post.brief, scene: post.scene, headline: post.headline, caption: post.caption, people: post.people, allow: post.allow, type: post.type, product: post.product, exact: !!exactProduct, tileSpec: post.tileSpec },
+      post: { title: post.title, brief: post.brief, scene: post.scene, headline: post.headline, caption: post.caption, people: post.people, allow: post.allow, type: post.type, product: post.product, exact: !!exactProduct, tileSpec: post.tileSpec, sceneFromStyle: !!styled && !!post.scene?.trim() },
       style: styled ? { title: styled.title, prompt: styled.prompt } : null,
       theme: theme ? { direction: theme.goal || theme.description, shots: theme.shots ? (() => { try { return JSON.parse(theme.shots) as string[]; } catch { return []; } })() : [], title: theme.title } : null,
       rules: lessons,
@@ -2672,12 +2672,20 @@ export async function generateRun(env: Env, user: User, d: GenerateBody, waitUnt
   const c = { env };
   const b = await ownedPlan(c.env, user, d.batch);
   const config = JSON.parse(b.config) as Config;
-  const { statements, planned, paid, exactPlanned, skipped, missingProduct, draft } = await preparePlan(c.env, user, b, config, d);
+  const { statements, planned, paid, exactPlanned, skipped, missingProduct, draft, outcomes } = await preparePlan(c.env, user, b, config, d);
+  // A post held back by a conflict (the style brings in what the post or the brand asked to leave
+  // out) is named with its reason: the run says so instead of quietly making fewer pictures.
+  const blocked = outcomes.filter((o) => o.status === "blocked" && !skipped.includes(o.index)).map((o) => ({ index: o.index, why: o.why ?? "" }));
   if (!planned)
     throw new StudioError(
-      skipped.length || missingProduct.length
-        ? "Nothing to generate yet: see the posts that were skipped."
-        : "Every post already has its picture. Change a post's idea, words or reference and press Generate again (it is made again by itself), or press Make again on the post.",
+      blocked.length
+        ? `Nothing to generate: ${blocked.map((x) => `post ${x.index}: ${x.why}`).join(" ")}`
+        : skipped.length || missingProduct.length
+          ? "Nothing to generate yet: see the posts that were skipped."
+          : "Every post already has its picture. Change a post's idea, words or reference and press Generate again (it is made again by itself), or press Make again on the post.",
+      400,
+      false,
+      { blocked },
     );
   // The spend limit: every run's estimate (one automatic retake per picture included, and the
   // exact-mode cut-out and harmonising calls) is approved into the month's ledger when it starts;
@@ -2726,7 +2734,7 @@ export async function generateRun(env: Env, user: User, d: GenerateBody, waitUnt
       deferSync: true,
     }).catch((e) => console.error("[posts] first pass failed", e)),
   );
-  return { status: 200, body: { ok: true, planned, paid, skipped, missingProduct, draft: !!draft, approved: budget } };
+  return { status: 200, body: { ok: true, planned, paid, skipped, missingProduct, blocked, draft: !!draft, approved: budget } };
 }
 
 /**
