@@ -741,6 +741,36 @@ export default function PlanView({
       toast.error((e as Error).message);
     }
   }
+  /** A slide moved inside its carousel (28 Oct): slides are numbered by card order, so this is a move of the post. */
+  async function moveSlide(slide: Post, slides: Post[], to: "first" | "earlier" | "later") {
+    if (!batchId || !slide.group) return;
+    const i = slides.findIndex((x) => x.index === slide.index);
+    if (i < 0) return;
+    const order = draftRef.current.map((p) => p.index);
+    let before: number | null;
+    let at: number;
+    if (to === "first") {
+      if (i === 0) return;
+      before = slides[0].index;
+      at = 1;
+    } else if (to === "earlier") {
+      if (i === 0) return;
+      before = slides[i - 1].index;
+      at = i;
+    } else {
+      if (i >= slides.length - 1) return;
+      before = i + 2 < slides.length ? slides[i + 2].index : (order[order.indexOf(slides[slides.length - 1].index) + 1] ?? null);
+      at = i + 2;
+    }
+    try {
+      await post<{ index: number }>("/api/studio/posts/reorder", { batch: batchId, index: slide.index, before });
+      await onRefresh?.();
+      setSlideAt((g) => ({ ...g, [slide.group!.id]: at }));
+      toast.success(`Now slide ${at} of ${slides.length}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   /** A picture or clip from the computer dropped on a card: the card becomes the client's own file. */
   async function dropFileOnCard(index: number, file: File) {
     if (!batchId) return;
@@ -1257,6 +1287,13 @@ export default function PlanView({
                         : []),
                       { label: "Versions", onClick: () => onEdit(p.index, "versions") },
                       ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => void addSlide(p.index), disabled: !!busy || running, title: slides ? "A slide after the last: a copy of slide 1 with its picture, to change what differs; nothing is made or paid" : "This post becomes slide 1 of a carousel and slide 2 is added as its copy; nothing is made or paid" }]),
+                      ...(slides && slides.length > 1 && p.group
+                        ? [
+                            { label: "Make this slide 1", onClick: () => void moveSlide(p, slides, "first"), disabled: !!busy || running || p.group.slide === 1, title: "This slide becomes the cover; the others keep their order after it" },
+                            { label: "Move this slide earlier", onClick: () => void moveSlide(p, slides, "earlier"), disabled: !!busy || running || p.group.slide === 1 },
+                            { label: "Move this slide later", onClick: () => void moveSlide(p, slides, "later"), disabled: !!busy || running || p.group.slide === slides.length },
+                          ]
+                        : []),
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                     ]
                   : [
@@ -1297,7 +1334,14 @@ export default function PlanView({
                     : []),
                   { label: "Reference picture and versions", onClick: () => onEdit(p.index, "versions") },
                   ...(p.group?.kind === "series" || (slides?.length ?? 1) >= CAROUSEL_MAX ? [] : [{ label: slides ? "Add a slide" : "Make it a carousel", onClick: () => void addSlide(p.index), disabled: !!busy || running, title: slides ? "A slide after the last: a copy of slide 1 with its picture, to change what differs; nothing is made or paid" : "This post becomes slide 1 of a carousel and slide 2 is added as its copy; nothing is made or paid" }]),
-                  { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
+                  ...(slides && slides.length > 1 && p.group
+                        ? [
+                            { label: "Make this slide 1", onClick: () => void moveSlide(p, slides, "first"), disabled: !!busy || running || p.group.slide === 1, title: "This slide becomes the cover; the others keep their order after it" },
+                            { label: "Move this slide earlier", onClick: () => void moveSlide(p, slides, "earlier"), disabled: !!busy || running || p.group.slide === 1 },
+                            { label: "Move this slide later", onClick: () => void moveSlide(p, slides, "later"), disabled: !!busy || running || p.group.slide === slides.length },
+                          ]
+                        : []),
+                      { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                 ];
                 const chosenAt = chosenNow.indexOf(p.index);
                 return (

@@ -203,4 +203,23 @@ describe("Moving a card", () => {
     expect(r2.index).toBe(1);
     expect((await planOf(env)).map((p) => p.title)).toEqual(["فخارة شعيرية", "Series one", "Third"]);
   });
+  it("makes a later slide the cover when it is moved before slide 1 (28 Oct)", async () => {
+    const env = await seed();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    const g = { id: "car", kind: "carousel" as const };
+    cfg.plan = [
+      { ...cfg.plan[0], group: { ...g, slide: 1, of: 3 } },
+      { index: 2, type: "product", title: "Two", brief: "x", caption: "", hashtags: "", product: "sakina", group: { ...g, slide: 2, of: 3 } } as never,
+      { index: 3, type: "product", title: "Three", brief: "x", caption: "", hashtags: "", product: "sakina", group: { ...g, slide: 3, of: 3 } } as never,
+    ];
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    const r = await app().request("/api/studio/posts/reorder", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 3, before: 1 }) }, env);
+    expect(r.status).toBe(200);
+    const plan = await planOf(env);
+    expect(plan.map((p) => [p.index, p.title, p.group?.slide, p.group?.of])).toEqual([
+      [1, "Three", 1, 3],
+      [2, "فخارة شعيرية", 2, 3],
+      [3, "Two", 3, 3],
+    ]);
+  });
 });
