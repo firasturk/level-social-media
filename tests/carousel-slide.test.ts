@@ -229,6 +229,19 @@ describe("Moving a card", () => {
       [2, "Three", 1],
       [3, "فخارة شعيرية", 2],
     ]);
+    // A stale tab saving its whole old copy of the month cannot move the slides or undo the carousel.
+    const stale = (await planOf(env)).map((p) => ({ ...p, group: p.index === 2 ? undefined : { ...g, slide: p.index, of: 3 } }));
+    const save = await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: stale, only: [1, 2, 3] }) }, env);
+    expect(save.status).toBe(200);
+    expect((await planOf(env)).map((p) => [p.index, p.group?.slide])).toEqual([
+      [1, 3],
+      [2, 1],
+      [3, 2],
+    ]);
+    // A partial save touches only the named post: another tab's older words for the rest never land.
+    const partial = (await planOf(env)).map((p) => ({ ...p, headline: p.index === 1 ? "mine" : "stale" }));
+    await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: partial, only: [1] }) }, env);
+    expect((await planOf(env)).map((p) => p.headline ?? null)).toEqual(["mine", null, null]);
     const out = await app().request("/api/studio/posts/slide-order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2, slide: 4 }) }, env);
     expect(out.status).toBe(409);
   });
