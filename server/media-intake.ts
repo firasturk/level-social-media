@@ -362,6 +362,111 @@ mediaRoutes.post("/intake", async (c) => {
   } satisfies IntakeResult);
 });
 
+/**
+ * A file dropped on a card (27 Oct): the card becomes the client's own picture or clip (an upload
+ * from the computer), its words, style and place kept; the picture before stays under Versions.
+ * Form: batch, index, file (PNG, JPEG, WebP or MP4), poster (the clip's first frame, optional).
+ */
+mediaRoutes.post("/attach", async (c) => {
+  const user = c.get("user");
+  const form = await c.req.formData().catch(() => {
+    throw new StudioError("Send the file as a form: the month, the card and the file.");
+  });
+  const batchId = String(form.get("batch") ?? "");
+  const index = Number(form.get("index"));
+  if (!batchId || !Number.isInteger(index) || index < 1) throw new StudioError("Say which card the file goes on.");
+  const b = await ownedPlan(c.env, user, batchId);
+  const file = form.get("file");
+  if (!(typeof file === "object" && file !== null && "arrayBuffer" in file)) throw new StudioError("The file did not arrive; drop it again.");
+  const f = file as File;
+  const k = VIDEO_TYPES.test(f.type) ? "video" : IMAGE_TYPES.test(f.type) ? "image" : null;
+  if (!k) throw new StudioError(`${f.name}: pictures must be PNG, JPEG or WebP; clips MP4.`, 415);
+  if (k === "image" && f.size > MEDIA_IMAGE_MAX) throw new StudioError(`${f.name} is too large (20 MB at most for a picture).`, 413);
+  if (k === "video" && f.size > MEDIA_VIDEO_MAX) throw new StudioError(`${f.name} is too large (60 MB at most for a clip).`, 413);
+  const config = JSON.parse(b.config) as Config;
+  const plan = config.plan ?? [];
+  const post = plan.find((p) => p.index === index);
+  if (!post) throw new StudioError("That post is not in the month.", 404);
+  const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND post = ? AND status IN ('queued','processing','finalizing') LIMIT 1", b.id, index);
+  if (busy) throw new StudioError("This post is being made: wait for it, then drop the file.", 409);
+  const bytes = await f.arrayBuffer();
+  const fp = `upload:${await sha256Hex(bytes)}`;
+  const t = now();
+  const taskId = uuid();
+  const format = config.format ?? "4:5";
+  const written: string[] = [];
+  let picture: string;
+  let video: { id: string; key: string; info: ReturnType<typeof readMp4> } | undefined;
+  try {
+    if (k === "image") {
+      const mime = sniffImage(bytes);
+      if (!mime) throw new StudioError(`${f.name} is not a readable PNG, JPEG or WebP picture.`, 415);
+      picture = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.${extOf(mime)}`;
+      await c.env.BUCKET.put(picture, bytes, { httpMetadata: { contentType: mime } });
+      written.push(picture);
+    } else {
+      const info = readMp4(bytes);
+      if (!info.isMp4) throw new StudioError(`${f.name} is not an MP4 (no ftyp box at the start).`, 415);
+      if (info.video !== "h264") throw new StudioError(`${f.name}: the clip must be H.264 in an MP4 for iPhone playback (found: ${info.codecs.join(", ") || "no video track"}).`, 415);
+      const videoId = uuid();
+      const key = `${b.owner}/${b.id}/video/${taskId}/${videoId}.mp4`;
+      await c.env.BUCKET.put(key, bytes, { httpMetadata: { contentType: "video/mp4" } });
+      written.push(key);
+      let poster: { bytes: ArrayBuffer; mime: string } | null = null;
+      const p = form.get("poster");
+      if (typeof p === "object" && p !== null && "arrayBuffer" in p && (p as File).size <= 5 * 1024 * 1024) {
+        const pb = await (p as File).arrayBuffer();
+        const mime = sniffImage(pb);
+        if (mime) poster = { bytes: pb, mime };
+      }
+      if (!poster) poster = { bytes: await plainBackground("#202024", format), mime: "image/png" };
+      picture = `${b.owner}/${b.id}/output/${taskId}/${uuid()}.${extOf(poster.mime)}`;
+      await c.env.BUCKET.put(picture, poster.bytes, { httpMetadata: { contentType: poster.mime } });
+      written.push(picture);
+      video = { id: videoId, key, info };
+    }
+  } catch (e) {
+    await c.env.BUCKET.delete(written).catch(() => undefined);
+    throw e;
+  }
+  // The card: the same post, now the client's own file (its words, style and day kept).
+  const fresh = await ownedPlan(c.env, user, b.id);
+  const cfg = JSON.parse(fresh.config) as Config;
+  const media: PostMedia = { kind: k, from: "upload", name: f.name.slice(0, 200), fp, at: t };
+  cfg.plan = (cfg.plan ?? []).map((p) => (p.index === index ? { ...p, source: "media" as const, media, ideaAt: t } : p));
+  await saveConfig(c.env, fresh, cfg);
+  const updated = cfg.plan.find((p) => p.index === index)!;
+  const made = postRevision(updated, cfg);
+  const source = await mediaSourceOf(c.env, b.id, picture);
+  const brief = JSON.stringify({ post: true, index, type: updated.type, media: k });
+  const old = await first<{ id: string }>(c.env.DB, "SELECT id FROM tasks WHERE batch = ? AND post = ? ORDER BY updated DESC LIMIT 1", b.id, index);
+  const statements: D1PreparedStatement[] = [];
+  if (old) {
+    // The post's task takes the file; the picture before stays listed under its takes.
+    statements.push(c.env.DB.prepare("UPDATE tasks SET source = ?, status = 'ready', output = ?, prompt = '', brief = ?, qa = NULL, edit = NULL, recenter = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, model = NULL, attempts = 0, making_for = ?, made_for = ?, updated = ? WHERE id = ?").bind(source, picture, brief, made, made, t, old.id));
+    statements.push(c.env.DB.prepare("DELETE FROM tasks WHERE batch = ? AND post = ? AND id <> ?").bind(b.id, index, old.id));
+  } else {
+    statements.push(c.env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, NULL, ?, ?, ?)").bind(taskId, b.id, source, index, picture, brief, index, JSON.stringify({ text: updated.caption ?? "", hashtags: updated.hashtags ?? "" }), made, made, t));
+  }
+  const task = old?.id ?? taskId;
+  statements.push(c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, index, task, picture, `Uploaded: ${f.name}`.slice(0, 500), made, t));
+  if (video) {
+    const info = video.info;
+    const warnings: string[] = [];
+    if (info.audio && info.audio !== "aac") warnings.push("The sound is not AAC; iPhone may play it silently.");
+    if (info.faststart === false) warnings.push("The moov index is at the end of the file; playback starts only after the whole file is fetched.");
+    const settings = { duration: info.duration ? Math.round(info.duration) : undefined, faststart: info.faststart, codecs: info.codecs, width: info.width, height: info.height, warnings, note: `Dropped on the card: ${f.name}`.slice(0, 200) };
+    statements.push(
+      c.env.DB.prepare(
+        "INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, request_id, key, error, created, updated, provider, settings, poster_key, source, for_client, op_id) VALUES (?, ?, ?, ?, ?, 'upload', ?, 'done', NULL, ?, NULL, ?, ?, 'upload', ?, ?, 'upload', 0, NULL)",
+      ).bind(video.id, b.id, index, task, user.id, f.name.slice(0, 200), video.key, t, t, JSON.stringify(settings), picture),
+    );
+  }
+  await c.env.DB.batch(statements);
+  if (video) await autoSelectForClient(c.env, { id: video.id, batch: b.id, post: index, status: "done", key: video.key });
+  return c.json({ ok: true, index, kind: k, name: f.name });
+});
+
 const combineItems = z
   .array(z.object({ post: z.number().int().min(1).max(MAX_POST_COUNT), still: z.string().regex(/^still\d{1,2}$/).optional() }))
   .min(2, "Choose at least two cards to combine.")

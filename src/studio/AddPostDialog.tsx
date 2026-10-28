@@ -3,16 +3,27 @@
  * style from the gallery, then the studio: the new card shows the product's own photo until its
  * picture is made. Nothing is paid here.
  */
-import { useState } from "react";
-import { Check, Palette, Plus, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, Clapperboard, Palette, Plus, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { styleThumb } from "./StyleGallery";
 import type { StyleItem } from "@shared/styles";
 import "./client-changes.css";
 import "./style-products.css";
 
-export default function AddPostDialog({ products, style, onPickStyle, onClearStyle, onContinue, onClose }: { products: { id: string; name: string; src: string }[]; style: StyleItem | null; onPickStyle: () => void; onClearStyle: () => void; onContinue: (sourceId: string) => void; onClose: () => void }) {
+export default function AddPostDialog({ products, style, onPickStyle, onClearStyle, onContinue, onClip, onClose }: { products: { id: string; name: string; src: string }[]; style: StyleItem | null; onPickStyle: () => void; onClearStyle: () => void; onContinue: (sourceId: string) => void; onClip: (file: File, onProgress: (pct: number, phase: string) => void) => Promise<void>; onClose: () => void }) {
   const [source, setSource] = useState<string | null>(null);
+  const [upload, setUpload] = useState<{ name: string; pct: number; phase: string; error?: string } | null>(null);
+  const clipInput = useRef<HTMLInputElement | null>(null);
+  async function clipPicked(file: File) {
+    setUpload({ name: file.name, pct: 0, phase: "Starting…" });
+    try {
+      await onClip(file, (pct, phase) => setUpload({ name: file.name, pct, phase }));
+      onClose();
+    } catch (e) {
+      setUpload({ name: file.name, pct: 0, phase: "", error: (e as Error).message });
+    }
+  }
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="ccd spd apd">
@@ -23,6 +34,42 @@ export default function AddPostDialog({ products, style, onPickStyle, onClearSty
           <DialogDescription>Choose a product of the month and, if you like, a style. The new card shows the product's own photo; its picture is made when you ask.</DialogDescription>
         </DialogHeader>
         <div className="ccd-list">
+          <div className="ccd-post apd-clip">
+            <div className="ccd-title">
+              <b>Or add a video</b>
+              <small>an MP4 from this computer, up to 60 MB · its own card at once</small>
+            </div>
+            <input
+              ref={clipInput}
+              type="file"
+              accept="video/mp4,video/quicktime,.mp4,.mov"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void clipPicked(f);
+              }}
+            />
+            {upload ? (
+              <div className="apd-progress">
+                <div className="apd-bar">
+                  <i style={{ width: `${upload.pct}%` }} />
+                </div>
+                <small>
+                  {upload.error ? <span className="apd-error">{upload.error}</span> : `${upload.phase} ${upload.name} · ${upload.pct}%`}
+                </small>
+                {upload.error && (
+                  <button type="button" className="chip" onClick={() => clipInput.current?.click()}>
+                    Try again
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button type="button" className="chip" onClick={() => clipInput.current?.click()}>
+                <Clapperboard size={12} /> Upload a clip
+              </button>
+            )}
+          </div>
           <div className="ccd-post">
             <div className="ccd-title">
               <b>1. The product</b>
@@ -73,7 +120,7 @@ export default function AddPostDialog({ products, style, onPickStyle, onClearSty
           <button type="button" className="btn ghost" onClick={onClose}>
             Not now
           </button>
-          <button type="button" className="btn primary" disabled={!source} onClick={() => source && onContinue(source)}>
+          <button type="button" className="btn primary" disabled={!source || !!upload} onClick={() => source && onContinue(source)}>
             Continue to the studio
           </button>
         </div>

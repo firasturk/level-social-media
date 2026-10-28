@@ -99,6 +99,30 @@ export async function postForm<T>(path: string, form: FormData): Promise<T> {
   return parse<T>(await fetch(path, { method: "POST", credentials: "same-origin", body: form }));
 }
 
+/** A form sent with the bytes counted as they go (an upload with a progress bar). */
+export function uploadForm<T>(path: string, form: FormData, onProgress?: (sent: number, of: number) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded, e.total);
+    };
+    xhr.onerror = () => reject(new Error("The upload was interrupted. Check the connection and try again."));
+    xhr.onload = () => {
+      let data: unknown = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        /* not JSON */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
+      else reject(new ApiError((data as { error?: string } | null)?.error ?? `Request failed (${xhr.status})`, xhr.status, (data ?? undefined) as Record<string, unknown> | undefined));
+    };
+    xhr.send(form);
+  });
+}
+
 export async function del<T>(path: string): Promise<T> {
   return parse<T>(await fetch(path, { method: "DELETE", credentials: "same-origin" }));
 }

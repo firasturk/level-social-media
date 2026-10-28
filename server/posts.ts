@@ -1666,6 +1666,47 @@ postRoutes.post("/add-from-product", async (c) => {
   return c.json({ ok: true, index, product: name });
 });
 
+/**
+ * A card moved to another place in the month (27 Oct): the posts are numbered again in the new
+ * order, and everything filed under a number (pictures, takes, comments, clips, preflights, the
+ * client's answers) moves with its post. `before` is the post it now stands before; none = the end.
+ */
+postRoutes.post("/reorder", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT), before: z.number().int().min(1).max(MAX_POST_COUNT).nullable().optional() }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const plan = cfg.plan ?? [];
+  const moving = plan.find((p) => p.index === d.index);
+  if (!moving) throw new StudioError("That post is not in the month.", 404);
+  if (d.before != null && d.before !== d.index && !plan.some((p) => p.index === d.before)) throw new StudioError("That place is not in the month.", 404);
+  const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND status IN ('queued','processing','finalizing') LIMIT 1", b.id);
+  if (busy) throw new StudioError("Pictures are being made: wait for them, then move the cards.", 409);
+  const rest = plan.filter((p) => p.index !== d.index);
+  const at = d.before == null || d.before === d.index ? rest.length : rest.findIndex((p) => p.index === d.before);
+  const ordered = [...rest.slice(0, at), moving, ...rest.slice(at)];
+  const moves = ordered.map((p, i) => ({ from: p.index, to: i + 1 }));
+  await movePostRows(c.env, b.id, moves);
+  const renumbered = ordered.map((p, i) => ({ ...p, index: i + 1 }));
+  // A carousel or series counts its slides again, in the new order.
+  const groups = new Map<string, number>();
+  for (const p of renumbered) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  cfg.plan = renumbered.map((p) => {
+    if (!p.group) return p;
+    const slide = (seen.get(p.group.id) ?? 0) + 1;
+    seen.set(p.group.id, slide);
+    const of = groups.get(p.group.id) ?? 1;
+    return of > 1 ? { ...p, group: { ...p.group, slide, of } } : { ...p, group: undefined };
+  });
+  if (cfg.approvals) {
+    const next: NonNullable<Config["approvals"]> = {};
+    for (const m of moves) if (cfg.approvals[String(m.from)]) next[String(m.to)] = cfg.approvals[String(m.from)];
+    cfg.approvals = next;
+  }
+  await saveConfig(c.env, b, cfg);
+  return c.json({ ok: true, index: moves.find((m) => m.from === d.index)!.to, order: cfg.plan.map((p) => p.index) });
+});
+
 /** One post leaves the month: its picture stays under Earlier versions, the later posts move up one number. */
 async function removePostAt(env: Env, user: User, batchId: string, index: number): Promise<Config> {
   const d = { batch: batchId, index };
@@ -1728,7 +1769,7 @@ async function movePostRows(env: Env, batchId: string, moves: { from: number; to
   const changed = moves.filter((m) => m.from !== m.to);
   if (!changed.length) return;
   const PARK = 10000;
-  for (const table of ["tasks", "post_comments", "videos"]) {
+  for (const table of ["tasks", "post_comments", "videos", "post_takes", "plan_preflights"]) {
     for (const m of changed) await run(env.DB, `UPDATE ${table} SET post = ? WHERE batch = ? AND post = ?`, m.to + PARK, batchId, m.from);
     for (const m of changed) await run(env.DB, `UPDATE ${table} SET post = ? WHERE batch = ? AND post = ?`, m.to, batchId, m.to + PARK);
   }

@@ -3,7 +3,7 @@
  * small enough for one request, the combine of chosen cards, the Start card's clip, and the cards
  * just made (so the Studio opens with them selected, ready for the next explicit step).
  */
-import { get, postForm } from "@/api";
+import { get, postForm, uploadForm } from "@/api";
 import { posterOf } from "./stillClip";
 
 export type MediaRoute = "images" | "video";
@@ -146,4 +146,33 @@ export function takeNewCards(batch: string | null): { route: MediaRoute; indexes
   } catch {
     return null;
   }
+}
+
+/** One clip from the computer as a new card of the month, its bytes counted as they go. */
+export async function uploadClipCard(batch: string, file: File, onProgress?: (percent: number, phase: string) => void): Promise<IntakeAnswer> {
+  const form = new FormData();
+  form.set("kind", "video");
+  form.set("batch", batch);
+  form.set("file0", file, file.name);
+  onProgress?.(0, "Reading the first frame…");
+  const poster = await posterOf(file);
+  if (poster) form.set("poster0", poster, "poster.jpg");
+  form.set("items", JSON.stringify([{ from: "upload", field: "file0", ...(poster ? { poster: "poster0" } : {}) }]));
+  onProgress?.(0, "Uploading…");
+  return uploadForm<IntakeAnswer>("/api/studio/media/intake", form, (sent, of) => onProgress?.(Math.round((sent / Math.max(1, of)) * 100), sent >= of ? "Saving on the card…" : "Uploading…"));
+}
+
+/** A picture or clip dropped on a card: the card becomes the client's own file. */
+export async function attachFileToCard(batch: string, index: number, file: File, onProgress?: (percent: number, phase: string) => void): Promise<{ ok: true; index: number; kind: "image" | "video"; name: string }> {
+  const form = new FormData();
+  form.set("batch", batch);
+  form.set("index", String(index));
+  form.set("file", file, file.name);
+  if (isVideoFile(file)) {
+    onProgress?.(0, "Reading the first frame…");
+    const poster = await posterOf(file);
+    if (poster) form.set("poster", poster, "poster.jpg");
+  }
+  onProgress?.(0, "Uploading…");
+  return uploadForm("/api/studio/media/attach", form, (sent, of) => onProgress?.(Math.round((sent / Math.max(1, of)) * 100), sent >= of ? "Saving on the card…" : "Uploading…"));
 }

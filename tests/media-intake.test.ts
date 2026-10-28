@@ -378,3 +378,52 @@ describe("helpers", () => {
     expect(sniffImage(new Uint8Array([1, 2, 3]).buffer)).toBeNull();
   });
 });
+
+describe("A file dropped on a card", () => {
+  const attach = (env: FakeEnv, user: User, index: number, file: File, poster?: File) => {
+    const form = new FormData();
+    form.set("batch", "b1");
+    form.set("index", String(index));
+    form.set("file", file, file.name);
+    if (poster) form.set("poster", poster, "poster.png");
+    return app(user).request("/api/studio/media/attach", { method: "POST", body: form }, env);
+  };
+  it("makes the card the client's own picture, its words kept, the picture before under its takes", async () => {
+    const env = await seed();
+    // The month's planned post is 1; the uploaded picture becomes card 2, which then takes the second file.
+    await intake(env, ADMIN, "images", [{ from: "upload", file: picture("first.png") }]);
+    const before = (await tasks(env)).find((x) => x.post === 2)!;
+    const r = await attach(env, ADMIN, 2, picture("second.png", [10, 20, 30]));
+    expect(r.status).toBe(200);
+    expect(await json(r)).toMatchObject({ ok: true, index: 2, kind: "image", name: "second.png" });
+    const after = (await tasks(env)).find((x) => x.post === 2)!;
+    expect(after.id).toBe(before.id);
+    expect(after.output).not.toBe(before.output);
+    expect(after.status).toBe("ready");
+    const month = await monthOf(env);
+    expect(month.plan![1]).toMatchObject({ index: 2, source: "media", media: { kind: "image", from: "upload", name: "second.png" } });
+    const takes = await env.DB.prepare("SELECT key, note FROM post_takes WHERE batch = 'b1' AND post = 2 ORDER BY created").all<{ key: string; note: string }>();
+    expect(takes.results.map((t) => t.note)).toEqual(["Uploaded: first.png", "Uploaded: second.png"]);
+  });
+  it("makes a planned card a clip of the client's own, with its frame as the picture", async () => {
+    const env = await seed();
+    const month = await monthOf(env);
+    month.plan = [{ index: 1, type: "tip", title: "Planned", brief: "A tip.", caption: "c", hashtags: "#h" } as never];
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(month)).run();
+    const r = await attach(env, ADMIN, 1, clip("drop.mp4"), picture("frame.png"));
+    expect(r.status).toBe(200);
+    expect(await json(r)).toMatchObject({ index: 1, kind: "video" });
+    const after = await monthOf(env);
+    expect(after.plan![0]).toMatchObject({ title: "Planned", caption: "c", source: "media", media: { kind: "video", name: "drop.mp4" } });
+    const v = await videos(env);
+    expect(v).toHaveLength(1);
+    expect(v[0]).toMatchObject({ post: 1, status: "done", provider: "upload", source: "upload", for_client: 1 });
+    expect((await tasks(env))[0].status).toBe("ready");
+  });
+  it("refuses an unknown card and a file that is neither a picture nor an MP4", async () => {
+    const env = await seed();
+    expect((await attach(env, ADMIN, 9, picture("x.png"))).status).toBe(404);
+    await intake(env, ADMIN, "images", [{ from: "upload", file: picture("first.png") }]);
+    expect((await attach(env, ADMIN, 1, new File([new Uint8Array([1, 2, 3])], "a.txt", { type: "text/plain" }))).status).toBe(415);
+  });
+});

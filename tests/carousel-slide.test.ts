@@ -169,3 +169,38 @@ describe("Add a post from a product", () => {
     expect((await app().request("/api/studio/posts/add-from-product", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", source: "nope" }) }, env)).status).toBe(404);
   });
 });
+
+describe("Moving a card", () => {
+  it("numbers the posts again in the new order and moves everything filed under a number", async () => {
+    const env = await seed();
+    const t = Date.now();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[]; approvals?: Record<string, unknown> };
+    cfg.plan.push({ index: 3, type: "product", title: "Third", brief: "x", caption: "", hashtags: "", product: "sakina" } as never);
+    cfg.approvals = { "1": { status: "approved" } };
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    await env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, post, updated) VALUES ('t3', 'b1', 's1', 3, 'ready', 'u1/b1/output/t3/a.png', '', 3, ?)").bind(t).run();
+    await env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, created) VALUES ('k1', 'b1', 1, 't1', 'made', 'u1/b1/output/t1/a.png', 0, 'first', ?)").bind(t).run();
+    // Post 1 goes to the end: the order becomes 2, 3, 1 and the numbers 1, 2, 3.
+    const r = await app().request("/api/studio/posts/reorder", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 1, before: null }) }, env);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ ok: true, index: 3, order: [1, 2, 3] });
+    const plan = await planOf(env);
+    expect(plan.map((p) => [p.index, p.title])).toEqual([
+      [1, "Series one"],
+      [2, "Third"],
+      [3, "فخارة شعيرية"],
+    ]);
+    const rows = await tasksOf(env);
+    expect(rows.map((x) => [x.post, x.output])).toEqual([
+      [2, "u1/b1/output/t3/a.png"],
+      [3, "u1/b1/output/t1/a.png"],
+    ]);
+    expect((await env.DB.prepare("SELECT post FROM post_takes WHERE id = 'k1'").first<{ post: number }>())!.post).toBe(3);
+    const after = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { approvals?: Record<string, unknown> };
+    expect(Object.keys(after.approvals ?? {})).toEqual(["3"]);
+    // And back before post 1: the order 3, 1, 2.
+    const r2 = (await (await app().request("/api/studio/posts/reorder", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 3, before: 1 }) }, env)).json()) as { index: number };
+    expect(r2.index).toBe(1);
+    expect((await planOf(env)).map((p) => p.title)).toEqual(["فخارة شعيرية", "Series one", "Third"]);
+  });
+});

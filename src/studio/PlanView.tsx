@@ -74,6 +74,7 @@ import { formatUsd } from "@shared/pricing";
 import { askConfirm } from "@/lib/confirm";
 import { isMediaPost } from "@shared/posts";
 import { carouselEntries, type CardEntry } from "@shared/carousel";
+import { attachFileToCard, isImageFile, isVideoFile, uploadClipCard } from "./mediaApi";
 import { CAROUSEL_MAX } from "@shared/publish";
 import type { StyleItem } from "@shared/styles";
 import { CombineDialog, restyleInstruction, SelectionBar } from "./MediaSelection";
@@ -397,6 +398,8 @@ export default function PlanView({
   /** The card being dragged onto another (its index), for the drop that makes a carousel. */
   const [dragCard, setDragCard] = useState<number | null>(null);
   const [dropOn, setDropOn] = useState<number | null>(null);
+  /** Where on the target the card is held: before it, after it (a move), or on it (a carousel slide). */
+  const [dropZone, setDropZone] = useState<"before" | "after" | "slide" | "file" | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   /** The chosen cards still waiting for the Text studio, after the one open now. */
   const [textQueue, setTextQueue] = useState<number[]>([]);
@@ -720,6 +723,43 @@ export default function PlanView({
       toast.error((e as Error).message);
     }
   }
+  /** A card held before or after another: the posts are numbered again in the new order. */
+  async function moveCard(index: number, target: number, zone: "before" | "after") {
+    if (!batchId || index === target) return;
+    const order = draftRef.current.map((p) => p.index);
+    const at = order.indexOf(target);
+    const before = zone === "before" ? target : (order[at + 1] ?? null);
+    if (before === index) return;
+    try {
+      const r = await post<{ index: number }>("/api/studio/posts/reorder", { batch: batchId, index, before });
+      await onRefresh?.();
+      toast.success(`Post ${index} is now post ${r.index}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+  /** A picture or clip from the computer dropped on a card: the card becomes the client's own file. */
+  async function dropFileOnCard(index: number, file: File) {
+    if (!batchId) return;
+    if (!isVideoFile(file) && !isImageFile(file)) return void toast.error(`${file.name}: pictures must be PNG, JPEG or WebP; clips MP4.`);
+    const id = toast.loading(`Uploading ${file.name}… 0%`);
+    try {
+      const r = await attachFileToCard(batchId, index, file, (pct, phase) => toast.loading(`${phase} ${file.name} · ${pct}%`, { id }));
+      await onRefresh?.();
+      toast.success(`${r.kind === "video" ? "Clip" : "Picture"} on post ${index}: ${r.name}.`, { id });
+    } catch (e) {
+      toast.error((e as Error).message, { id });
+    }
+  }
+  /** A clip from the computer as a new card, from the Add a post dialog. */
+  async function addClipCard(file: File, onProgress: (pct: number, phase: string) => void) {
+    if (!batchId) return;
+    const r = await uploadClipCard(batchId, file, onProgress);
+    await onRefresh?.();
+    const made = r.created[0];
+    if (made) toast.success(`Post ${made.index} added: ${made.name}.`);
+    else if (r.existing[0]) toast.info(`${r.existing[0].name} is already post ${r.existing[0].index}.`);
+  }
   /** A card dropped onto another: the dropped post becomes the next slide of the target's carousel. */
   async function dropCard(index: number, into: number) {
     if (!batchId || index === into) return;
@@ -732,7 +772,7 @@ export default function PlanView({
     }
   }
   function addPost() {
-    if (products.length) {
+    if (products.length || batchId) {
       setAddPostOpen(true);
       return;
     }
@@ -751,6 +791,8 @@ export default function PlanView({
 
   const dropProps = {
     onDragOver: (e: React.DragEvent) => {
+      // A card on the move is not a product upload.
+      if (e.dataTransfer.types.includes("application/x-lsm-post")) return;
       e.preventDefault();
       setDragging(true);
     },
@@ -779,6 +821,7 @@ export default function PlanView({
             setAddPostStyle(null);
           }}
           onContinue={(sourceId) => void addPostFromProduct(sourceId)}
+          onClip={addClipCard}
         />
       )}
       {addPostPicking && (
@@ -1255,8 +1298,8 @@ export default function PlanView({
                   <article
                     key={p.index}
                     id={`post-card-${p.index}`}
-                    className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""} ${chosenAt >= 0 ? "selected" : ""} ${slides ? "carousel-card" : ""} ${dropOn === p.index && dragCard !== null && dragCard !== p.index ? "drop-slide" : ""} ${dragCard === p.index ? "dragging-card" : ""}`}
-                    draggable={!slides && !inFlight}
+                    className={`post-card design-card studio-card compact ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${t?.output && !inFlight ? (flags.length ? "qa-warn" : "qa-ok") : ""} ${chosenAt >= 0 ? "selected" : ""} ${slides ? "carousel-card" : ""} ${dropOn === p.index && dropZone && (dragCard === null || dragCard !== p.index) ? `drop-${dropZone}` : ""} ${dragCard === p.index ? "dragging-card" : ""}`}
+                    draggable={!inFlight}
                     onDragStart={(e) => {
                       // Dragging starts on the card itself, never from a field or a button inside it.
                       const el = e.target as HTMLElement;
@@ -1268,26 +1311,45 @@ export default function PlanView({
                     onDragEnd={() => {
                       setDragCard(null);
                       setDropOn(null);
+                      setDropZone(null);
                     }}
                     onDragOver={(e) => {
-                      if (!e.dataTransfer.types.includes("application/x-lsm-post")) return;
+                      const isCard = e.dataTransfer.types.includes("application/x-lsm-post");
+                      const isFile = e.dataTransfer.types.includes("Files");
+                      if (!isCard && !isFile) return;
                       e.preventDefault();
                       e.stopPropagation();
-                      e.dataTransfer.dropEffect = "move";
+                      e.dataTransfer.dropEffect = isCard ? "move" : "copy";
+                      // A card held over the left or right quarter moves before or after this one; over the middle it becomes a slide.
+                      const box = e.currentTarget.getBoundingClientRect();
+                      const x = (e.clientX - box.left) / Math.max(1, box.width);
+                      const zone = isFile ? "file" : x < 0.28 ? "before" : x > 0.72 ? "after" : slides && dragCard !== null ? "slide" : "slide";
                       if (dropOn !== p.index) setDropOn(p.index);
+                      if (dropZone !== zone) setDropZone(zone);
                     }}
-                    onDragLeave={() => {
-                      if (dropOn === p.index) setDropOn(null);
+                    onDragLeave={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      if (dropOn === p.index) {
+                        setDropOn(null);
+                        setDropZone(null);
+                      }
                     }}
                     onDrop={(e) => {
                       const raw = e.dataTransfer.getData("application/x-lsm-post");
-                      if (!raw) return;
+                      const file = e.dataTransfer.files?.[0];
+                      if (!raw && !file) return;
                       e.preventDefault();
                       e.stopPropagation();
+                      const zone = dropZone;
                       setDragCard(null);
                       setDropOn(null);
-                      const from = Number(raw);
-                      if (Number.isFinite(from) && from !== p.index) void dropCard(from, p.index);
+                      setDropZone(null);
+                      if (raw) {
+                        const from = Number(raw);
+                        if (!Number.isFinite(from) || from === p.index) return;
+                        if (zone === "before" || zone === "after") void moveCard(from, p.index, zone);
+                        else void dropCard(from, p.index);
+                      } else if (file) void dropFileOnCard(p.index, file);
                     }}
                   >
                     {/* The other slides keep their anchors, so a link to one of them still finds the card. */}

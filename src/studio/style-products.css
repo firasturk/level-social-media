@@ -114,3 +114,35 @@
   display: grid;
   place-items: center;
 }
+.apd-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.apd-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2, #eef0f3);
+  overflow: hidden;
+}
+.apd-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent, #2b3fd8);
+  transition: width 0.2s ease;
+}
+.apd-error {
+  color: #b42318;
+}
+/* a card held before or after another: where it will land */
+.post-card.drop-before {
+  box-shadow: -6px 0 0 0 var(--accent, #2b3fd8);
+}
+.post-card.drop-after {
+  box-shadow: 6px 0 0 0 var(--accent, #2b3fd8);
+}
+/* a file from the computer held over a card */
+.post-card.drop-file {
+  outline: 3px dashed #0f9d58;
+  outline-offset: -3px;
+}
