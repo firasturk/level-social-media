@@ -104,7 +104,7 @@ describe("a result as a carousel", () => {
     expect(await outputOf(env, 1)).toBe("u2/b1/output/t1/a.png");
   });
 
-  it("adds a restyle as the next slide of a carousel the post is already in, and refuses past ten slides", async () => {
+  it("adds a restyle as the next slide of a carousel the post is already in, and refuses past fifteen slides", async () => {
     const env = await seed();
     const rs = await doneJob(env, "mg-restyle", "Restyle (Magnific)", "cr_rs_1");
     expect(await json(await postJson(app(), env, `/api/studio/photo/tools/jobs/${rs}/posts`, { batch: "b1", as: "carousel" }))).toMatchObject({ posts: [2] });
@@ -124,11 +124,16 @@ describe("a result as a carousel", () => {
     ]);
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
     useMcpFetch(magnificStub({ waits: [{ status: "completed", results: { tiles: TILES } }] }).fn);
+    // Nine variations fit beside three slides (15 at most, 28 Oct); a second nine would not.
     const v = await doneJob(env, "mg-variations", "Variations (Magnific)", "cr_var_9");
-    const over = await postJson(app(), env, `/api/studio/photo/tools/jobs/${v}/posts`, { batch: "b1", as: "carousel" });
+    expect(await json(await postJson(app(), env, `/api/studio/photo/tools/jobs/${v}/posts`, { batch: "b1", as: "carousel" }))).toMatchObject({ posts: [4, 5, 6, 7, 8, 9, 10, 11, 12] });
+    expect((await plan(env)).length).toBe(12);
+    useMcpFetch(magnificStub({ waits: [{ status: "completed", results: { tiles: TILES } }] }).fn);
+    await env.DB.prepare("INSERT INTO photo_tool_jobs (id, batch, post, task, owner, provider, tool, label, options, input_key, output_key, status, provider_job, estimate, reported, settings, created, updated) VALUES ('job-var-2', 'b1', 1, 't1', 'u1', 'magnific', 'mg-variations', 'Variations (Magnific)', '{}', 'u2/b1/output/t1/a.png', 'u2/b1/output/t1/job-mg-variations.png', 'done', 'cr_var_9b', 150, 150, '{}', 1, 1)").run();
+    const over = await postJson(app(), env, "/api/studio/photo/tools/jobs/job-var-2/posts", { batch: "b1", as: "carousel" });
     expect(over.status).toBe(409);
-    expect(((await json(over)) as { error: string }).error).toContain("at most 10");
-    expect((await plan(env)).length).toBe(3);
+    expect(((await json(over)) as { error: string }).error).toContain("at most 15");
+    expect((await plan(env)).length).toBe(12);
   });
 
   it("refuses a carousel on a post that is part of a series", async () => {

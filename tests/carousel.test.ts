@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carouselEntries, carouselStatus, withSlide } from "@shared/carousel";
+import { CAROUSEL_MAX, carouselEntries, carouselStatus, withSlide } from "@shared/carousel";
 
 type P = { index: number; title: string; date?: string; group?: { id: string; kind: "carousel" | "series"; slide: number; of: number } };
 const g = (id: string, slide: number, of: number, kind: "carousel" | "series" = "carousel") => ({ id, kind, slide, of });
@@ -38,11 +38,11 @@ describe("a carousel as one card (27 Oct)", () => {
     expect(single.plan.find((p) => p.index === 1)!.group).toEqual({ id: "fresh", kind: "carousel", slide: 1, of: 2 });
     expect(single.plan.find((p) => p.index === 7)!.group).toEqual({ id: "fresh", kind: "carousel", slide: 2, of: 2 });
   });
-  it("refuses a series part and an eleventh slide", () => {
+  it("refuses a series part and a slide past the limit", () => {
     const make = (index: number): P => ({ index, title: "x" });
     expect(withSlide(plan, 4, make, () => "x")).toBeNull();
-    const ten: P[] = Array.from({ length: 10 }, (_, i) => ({ index: i + 1, title: `s${i}`, group: g("full", i + 1, 10) }));
-    expect(withSlide(ten, 1, make, () => "x")).toBeNull();
+    const full: P[] = Array.from({ length: CAROUSEL_MAX }, (_, i) => ({ index: i + 1, title: `s${i}`, group: g("full", i + 1, CAROUSEL_MAX) }));
+    expect(withSlide(full, 1, make, () => "x")).toBeNull();
   });
   it("answers for the whole carousel on the client's link", () => {
     expect(carouselStatus(["approved", "approved"])).toBe("approved");
