@@ -33,7 +33,7 @@ export const CAPTION_MAX = 2200;
 export const DAILY_LIMIT = 25;
 /** A carousel holds 2 to 10 pictures. */
 export const CAROUSEL_MIN = 2;
-export const CAROUSEL_MAX = 10;
+export const CAROUSEL_MAX = 15;
 /** The hour (local to the designer) a scheduled post goes out by default. */
 export const DEFAULT_HOUR = 10;
 

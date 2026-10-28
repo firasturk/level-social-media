@@ -146,3 +146,39 @@
   outline: 3px dashed #0f9d58;
   outline-offset: -3px;
 }
+
+/* Removed posts (28 Oct): a row per removed post or slide, its picture, title and Restore. */
+.spd-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.spd-thumb {
+  width: 56px;
+  height: 70px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex: none;
+  background: var(--surface-2, #f3f4f6);
+}
+.spd-thumb-empty {
+  display: block;
+  border: 1px dashed var(--line, #d1d5db);
+}
+.spd-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.spd-text strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spd-text small {
+  color: var(--ink-500, #6b7280);
+  font-size: 12px;
+}

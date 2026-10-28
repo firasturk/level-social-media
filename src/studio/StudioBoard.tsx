@@ -5,7 +5,7 @@
  * lists over the same plan. Everything the old toolbar did is one click away under More.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, MessagesSquare, UserPlus } from "lucide-react";
+import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, MessagesSquare, RotateCcw, UserPlus } from "lucide-react";
 import { formatUsd } from "@shared/pricing";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -34,6 +34,7 @@ export default function StudioBoard({
   onClientLink,
   onDiscuss,
   onAssign,
+  onRestore,
   onFeed,
   changes,
   onClientChanges,
@@ -61,6 +62,8 @@ export default function StudioBoard({
   onDiscuss?: () => void;
   /** An admin assigns the month to team members (the copywriter) who then open it with full access. */
   onAssign?: () => void;
+  /** Opens the removed posts of this month, to bring one back. */
+  onRestore?: () => void;
   /** The feed opens as its own screen; its tab is a door, not a view. */
   onFeed: () => void;
   changes: number;
@@ -132,6 +135,11 @@ export default function StudioBoard({
           {onAssign && (
             <button type="button" className="cta secondary" onClick={onAssign} title="Assign this month to team members: they open it with full access to fix the words and pictures">
               <UserPlus size={14} /> Assign
+            </button>
+          )}
+          {onRestore && (
+            <button type="button" className="cta secondary" onClick={onRestore} title="The posts and slides removed from this month: bring one back with its picture">
+              <RotateCcw size={14} /> Removed
             </button>
           )}
           {makeCount > 0 ? (

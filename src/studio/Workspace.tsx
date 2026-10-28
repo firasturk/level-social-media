@@ -48,6 +48,7 @@ import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
 import AssignDialog from "./AssignDialog";
+import RemovedDialog from "./RemovedDialog";
 import { NotifyBadge } from "./Notify";
 import IdeasChat from "./IdeasChat";
 import OcrPanel from "./OcrPanel";
@@ -212,6 +213,7 @@ function StudioWorkspace({
   const [connection, setConnection] = useState(false);
   /** "Assign": the month given to team members (admins only). */
   const [assignOpen, setAssignOpen] = useState(false);
+  const [removedOpen, setRemovedOpen] = useState(false);
   // Back from the Higgsfield, Magnific or Pinterest sign-in (`?higgsfield=connected|error`, `?magnific=…`, `?pinterest=…`): say so, open Connection, clean the address.
   useEffect(() => {
     const returns = [
@@ -2075,6 +2077,7 @@ function StudioWorkspace({
               return (
                 <>
                 {assignOpen && batch && <AssignDialog batchId={batch.id} onClose={() => setAssignOpen(false)} />}
+                {removedOpen && batch && <RemovedDialog batchId={batch.id} onClose={() => setRemovedOpen(false)} onRestored={() => refresh()} />}
                 <StudioBoard
                   tab={studioTab}
                   onTab={setStudioTab}
@@ -2087,6 +2090,7 @@ function StudioWorkspace({
                   onClientLink={() => void shareMonth()}
                   onDiscuss={batch ? discussMonth : undefined}
                   onAssign={user.role === "admin" ? () => setAssignOpen(true) : undefined}
+                  onRestore={batch ? () => setRemovedOpen(true) : undefined}
                   onFeed={openFeed}
                   changes={changes}
                   onClientChanges={() => void doClientChanges()}

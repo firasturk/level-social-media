@@ -148,10 +148,10 @@ Buttons: "Make the picture · about $X" (no picture yet; asks first, only this p
 
 ## 9. Carousels
 
-A carousel is a group of posts with slide numbers; it publishes as one Instagram post (2 to 10 slides, each needs a picture). Ways to make one:
+A carousel is a group of posts with slide numbers; it publishes as one Instagram post (2 to 15 slides, each needs a picture). Ways to make one:
 1. Brief: write it ("a carousel of 5 slides that reveals the new cup") or set "Carousels" and "Slides per carousel" in "Campaign size", then "Plan it" and apply the draft.
 2. Grid: carousels in the grid's reading are planned as carousels.
-3. From an existing post with the Photo studio's AI tools (admins): card → "Edit picture" → "AI tools" → pick a tool (e.g. "Variations", "Restyle", "Reimagine", "Change camera") → "Run …" and confirm the credits → under the result click "Add as a carousel". The post becomes slide 1 and the result the next slide(s); this step is free. "Variations" adds its nine pictures (10 slides, the maximum); other tools add one, so run more tools to add more slides. A carousel holds at most 10; a series post cannot become a carousel. The alternative is "Add as a new post" ("Add each picture as a new post" for Variations): new single posts after the month's posts, copying the idea and words.
+3. From an existing post with the Photo studio's AI tools (admins): card → "Edit picture" → "AI tools" → pick a tool (e.g. "Variations", "Restyle", "Reimagine", "Change camera") → "Run …" and confirm the credits → under the result click "Add as a carousel". The post becomes slide 1 and the result the next slide(s); this step is free. "Variations" adds its nine pictures; other tools add one, so run more tools to add more slides. A carousel holds at most 15; a series post cannot become a carousel. The alternative is "Add as a new post" ("Add each picture as a new post" for Variations): new single posts after the month's posts, copying the idea and words.
 Each slide is its own card with its own picture, words and versions.
 
 ## 10. The Photo studio
@@ -286,7 +286,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - Publishing videos, Reels or Stories to Instagram (pictures and carousels only), or publishing to TikTok, Facebook or other platforms.
 - Instagram's music library in a video (add it in the Instagram app when posting).
 - A precise mask or pixel-locked AI edit ("Mark an area" only guides; the whole picture is redrawn).
-- Making carousels by talking to the planner, or carousels over 10 slides.
+- Making carousels by talking to the planner, or carousels over 15 slides.
 - Automatic translation of captions or headlines.
 - WhatsApp notifications to the team when a client answers (e-mail only).
 - Expiring, password-protecting or renewing the client link.

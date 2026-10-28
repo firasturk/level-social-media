@@ -1749,6 +1749,94 @@ postRoutes.post("/add-from-product", async (c) => {
   return c.json({ ok: true, index, product: name });
 });
 
+/** The posts removed from this month, newest first, each with its picture, for "Restore a removed post". */
+postRoutes.get("/removed", async (c) => {
+  const b = await ownedPlan(c.env, c.get("user"), c.req.query("batch"));
+  const rows = await all<{ id: string; label: string; plan: string | null; outputs: string; created: number }>(
+    c.env.DB,
+    "SELECT id, label, plan, outputs, created FROM month_versions WHERE batch = ? AND kind = 'snapshot' AND label LIKE 'Removed: %' ORDER BY created DESC LIMIT 60",
+    b.id,
+  );
+  return c.json({
+    ok: true,
+    removed: rows.map((v) => {
+      const key = (Object.values(JSON.parse(v.outputs) as Record<string, string>)[0] as string | undefined) ?? null;
+      const title = v.label.replace(/^Removed:\s*/, "");
+      return {
+        id: v.id,
+        title,
+        key,
+        image: key ? `/api/studio/posts/versions/image?batch=${b.id}&key=${encodeURIComponent(key)}` : null,
+        created: v.created,
+        /** The post's words and idea were kept: it comes back exactly; otherwise its picture and title come back. */
+        exact: !!v.plan,
+        slide: /\s·\sslide \d+$/u.test(title),
+      };
+    }),
+  });
+});
+
+/**
+ * A removed post back in the month (28 Oct): a slide returns to its carousel as its last slide
+ * (its own carousel when it still exists, else the one whose first slide shares its title), a
+ * post to the end of the month; its picture comes back as its own, no spend.
+ */
+postRoutes.post("/restore", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), version: z.string().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const v = await first<{ id: string; label: string; plan: string | null; outputs: string }>(
+    c.env.DB,
+    "SELECT id, label, plan, outputs FROM month_versions WHERE id = ? AND batch = ? AND kind = 'snapshot' AND label LIKE 'Removed: %'",
+    d.version,
+    b.id,
+  );
+  if (!v) throw new StudioError("That removed post is not here any more.", 404);
+  const cfg = JSON.parse(b.config) as Config;
+  const plan = cfg.plan ?? [];
+  if (plan.length >= MAX_POST_COUNT) throw new StudioError(`A month holds at most ${MAX_POST_COUNT} posts.`, 409);
+  const key = Object.values(JSON.parse(v.outputs) as Record<string, string>)[0] as string | undefined;
+  const saved = v.plan ? (JSON.parse(v.plan) as Post[])[0] : undefined;
+  const title = v.label.replace(/^Removed:\s*/, "");
+  const base = title.replace(/(\s·\sslide \d+)+$/u, "").trim();
+  const index = plan.reduce((m, p) => Math.max(m, p.index), 0) + 1;
+  const t = now();
+  const sources = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY created", b.id);
+  let lead = saved?.group?.kind === "carousel" ? plan.find((p) => p.group?.id === saved.group!.id && p.group!.slide === 1) : undefined;
+  if (!lead && /\s·\sslide \d+$/u.test(title)) lead = plan.find((p) => p.group?.kind === "carousel" && p.group.slide === 1 && p.title.replace(/(\s·\sslide \d+)+$/u, "").trim() === base);
+  let restored: Post;
+  if (lead) {
+    const members = plan.filter((p) => p.group?.id === lead!.group!.id);
+    if (members.length >= CAROUSEL_MAX) throw new StudioError(`A carousel holds at most ${CAROUSEL_MAX} slides.`, 409);
+    const of = members.length + 1;
+    const from: Post = saved ? { ...saved } : copyPost(lead, index, lead.title, `restore:${uuid()}`, t);
+    restored = { ...from, index, title: slideTitle(base, of), group: { id: lead.group!.id, kind: "carousel", slide: of, of } };
+    cfg.plan = [...plan.map((p) => (p.group?.id === lead!.group!.id ? { ...p, group: { ...p.group!, of } } : p)), restored];
+  } else {
+    const from: Post = saved ? { ...saved, group: undefined } : { index, type: "product", title: title.slice(0, 80), brief: "", caption: "", hashtags: "", ideaAt: t };
+    if (!saved) {
+      const m = matchProduct(title, sources.map(productName));
+      if (m) from.product = m;
+    }
+    restored = { ...from, index };
+    cfg.plan = [...plan, restored];
+  }
+  cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
+  await saveConfig(c.env, b, cfg);
+  if (key) {
+    const own = sources.find((s) => productName(s) === restored.product) ?? sources[0] ?? (await first<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? ORDER BY created LIMIT 1", b.id));
+    if (own) {
+      const made = postRevision(restored, cfg);
+      const task = uuid();
+      await c.env.DB.batch([
+        c.env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, brief, post, caption, qa, making_for, made_for, updated) VALUES (?, ?, ?, ?, 'ready', ?, '', ?, ?, ?, NULL, ?, ?, ?)").bind(task, b.id, own.id, index, key, JSON.stringify({ post: true, index, type: restored.type }), index, JSON.stringify({ text: restored.caption ?? "", hashtags: restored.hashtags ?? "" }), made, made, t),
+        c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, index, task, key, `Restored: ${title}`.slice(0, 500), made, t),
+      ]);
+    }
+  }
+  await run(c.env.DB, "UPDATE month_versions SET label = ? WHERE id = ?", `Restored: ${title}`.slice(0, 80), v.id);
+  return c.json({ ok: true, index, slide: restored.group?.slide ?? null, of: restored.group?.of ?? null, title: restored.title });
+});
+
 /**
  * A card moved to another place in the month (27 Oct): the posts are numbered again in the new
  * order, and everything filed under a number (pictures, takes, comments, clips, preflights, the
@@ -1802,16 +1890,19 @@ async function removePostAt(env: Env, user: User, batchId: string, index: number
   if (busy) throw new StudioError("This post is being made: wait for it, then remove it.", 409);
   // The removed post's picture stays reachable under Earlier versions.
   const gone = await first<{ id: string; output: string | null }>(c.env.DB, "SELECT id, output FROM tasks WHERE batch = ? AND post = ?", b.id, d.index);
-  if (gone?.output) {
-    const title = plan.find((p) => p.index === d.index)?.title ?? `Post ${d.index}`;
+  // The removed post itself (its idea, words, style, layout and place in its carousel) is kept with
+  // its picture, so "Restore a removed post" brings it back as it was (28 Oct).
+  {
+    const removed = plan.find((p) => p.index === d.index)!;
     await run(
       c.env.DB,
-      "INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?)",
+      "INSERT INTO month_versions (id, batch, kind, label, plan, outputs, takes, created) VALUES (?, ?, 'snapshot', ?, ?, ?, ?, ?)",
       uuid(),
       b.id,
-      `Removed: ${title}`.slice(0, 80),
-      JSON.stringify({ [String(d.index)]: gone.output }),
-      JSON.stringify([{ post: d.index, key: gone.output, at: now() }]),
+      `Removed: ${removed.title || `Post ${d.index}`}`.slice(0, 80),
+      JSON.stringify([removed]),
+      JSON.stringify(gone?.output ? { [String(d.index)]: gone.output } : {}),
+      JSON.stringify(gone?.output ? [{ post: d.index, key: gone.output, at: now() }] : []),
       now(),
     );
   }

@@ -223,3 +223,64 @@ describe("Moving a card", () => {
     ]);
   });
 });
+
+describe("Removed posts come back (28 Oct)", () => {
+  it("keeps a removed slide whole and restores it to its carousel, picture included", async () => {
+    const env = await seed();
+    const t = Date.now();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    const g = { id: "car", kind: "carousel" as const };
+    cfg.plan = [
+      { ...cfg.plan[0], group: { ...g, slide: 1, of: 3 } },
+      { index: 2, type: "product", title: "Spicy hot chocolate · slide 2", brief: "x", caption: "c2", hashtags: "", product: "sakina", headline: "H2", group: { ...g, slide: 2, of: 3 } } as never,
+      { index: 3, type: "product", title: "Spicy hot chocolate · slide 3", brief: "x", caption: "c3", hashtags: "", product: "sakina", headline: "H3", group: { ...g, slide: 3, of: 3 } } as never,
+    ];
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    await env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, post, updated) VALUES ('t2', 'b1', 's1', 2, 'ready', 'u1/b1/output/t2/v.png', '', 2, ?)").bind(t).run();
+    // Slide 2 goes by mistake.
+    const gone = await app().request("/api/studio/posts/remove", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2 }) }, env);
+    expect(gone.status).toBe(200);
+    expect((await planOf(env)).map((p) => [p.title, p.group?.slide, p.group?.of])).toEqual([
+      ["فخارة شعيرية", 1, 2],
+      ["Spicy hot chocolate · slide 3", 2, 2],
+    ]);
+    const list = (await (await app().request("/api/studio/posts/removed?batch=b1", {}, env)).json()) as { removed: { id: string; title: string; key: string | null; exact: boolean; slide: boolean }[] };
+    expect(list.removed).toHaveLength(1);
+    expect(list.removed[0]).toMatchObject({ title: "Spicy hot chocolate · slide 2", key: "u1/b1/output/t2/v.png", exact: true, slide: true });
+    // And back, as the carousel's last slide, with its words and its picture.
+    const r = await app().request("/api/studio/posts/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", version: list.removed[0].id }) }, env);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ ok: true, index: 3, slide: 3, of: 3 });
+    const plan = await planOf(env);
+    expect(plan.map((p) => [p.index, p.title, p.group?.slide, p.group?.of])).toEqual([
+      [1, "فخارة شعيرية", 1, 3],
+      [2, "Spicy hot chocolate · slide 3", 2, 3],
+      [3, "Spicy hot chocolate · slide 3", 3, 3],
+    ]);
+    expect(plan[2].headline).toBe("H2");
+    expect(plan[2].caption).toBe("c2");
+    const rows = await tasksOf(env);
+    expect(rows.find((x) => x.post === 3)?.output).toBe("u1/b1/output/t2/v.png");
+    // Restored once: the list is empty now.
+    const again = (await (await app().request("/api/studio/posts/removed?batch=b1", {}, env)).json()) as { removed: unknown[] };
+    expect(again.removed).toHaveLength(0);
+  });
+  it("restores an older removal that kept only the picture, by its title, into the matching carousel", async () => {
+    const env = await seed();
+    const t = Date.now();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    const g = { id: "car", kind: "carousel" as const };
+    cfg.plan = [{ ...cfg.plan[0], title: "Spicy hot chocolate", group: { ...g, slide: 1, of: 2 } }, { index: 2, type: "product", title: "Spicy hot chocolate · slide 2", brief: "x", caption: "", hashtags: "", product: "sakina", group: { ...g, slide: 2, of: 2 } } as never];
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    await env.DB.prepare("INSERT INTO month_versions (id, batch, kind, label, outputs, takes, created) VALUES ('v-old', 'b1', 'snapshot', 'Removed: Spicy hot chocolate · slide 3', ?, '[]', ?)").bind(JSON.stringify({ "9": "u1/b1/output/old/x.png" }), t).run();
+    const r = await app().request("/api/studio/posts/restore", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", version: "v-old" }) }, env);
+    expect(r.status).toBe(200);
+    const plan = await planOf(env);
+    expect(plan.map((p) => [p.title, p.group?.slide, p.group?.of])).toEqual([
+      ["Spicy hot chocolate", 1, 3],
+      ["Spicy hot chocolate · slide 2", 2, 3],
+      ["Spicy hot chocolate · slide 3", 3, 3],
+    ]);
+    expect((await tasksOf(env)).find((x) => x.post === 3)?.output).toBe("u1/b1/output/old/x.png");
+  });
+});
