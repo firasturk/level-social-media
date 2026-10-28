@@ -43,3 +43,24 @@ describe("a post made in a style keeps its product's details", () => {
     expect(tee).toContain("FRONT PRINT");
   });
 });
+
+/**
+ * Post 10 of Abu Saleh (28 Oct): a card turned into a post, then given a style, kept coming out as
+ * a cork pedestal. Its title had been written from the wrong picture and fed back into the prompt;
+ * the preflight had left the style picture out, after which the product rule named "Image 1" as the
+ * product that never appears; and the idea lessons described the wrong picture to the engine.
+ */
+describe("a styled post is steered by its style alone", () => {
+  it("leaves the title out of the prompt: the shot is the picture", () => {
+    const prompt = buildPostPrompt({ ...base, title: "Cork Pedestal Spicy Warmth" } as typeof base);
+    expect(prompt).not.toContain("Cork Pedestal");
+    expect(prompt).toContain("in the picked style.\nTHE PHOTOGRAPH");
+  });
+  it("numbers the style picture only when it is attached", () => {
+    const attached = buildPostPrompt(base);
+    expect(attached).toContain("Image 2's product, packaging, logo and print never appear");
+    const dropped = buildPostPrompt({ ...base, noRefImage: true } as typeof base);
+    expect(dropped).not.toContain("Image 1's product");
+    expect(dropped).toContain("The picked style's own product, packaging, logo and print never appear");
+  });
+});

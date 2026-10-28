@@ -336,7 +336,9 @@ export function lessonLine(kind: FlagKind, text: string): string {
     case "staging":
       return `Staging: an earlier picture was ${strip(/^Not how it is served:\s*/i)}. Everything rests where it really would.`;
     case "idea":
-      return `The idea: an earlier picture drifted from its idea (${strip(/^Not like its idea:\s*/i)}). Every main element the idea names is in the picture, staged as the idea says.`;
+      // What the wrong picture showed is not repeated: an engine reads "the cup stands on a cork
+      // pedestal" as a request, whatever the sentence around it says (post 10 of Abu Saleh, 28 Oct).
+      return "The idea: an earlier picture drifted from its idea. Every main element the idea names is in the picture, staged as the idea says.";
     case "client":
       return `The client's preference: ${t}`;
     case "brand":
@@ -486,7 +488,7 @@ export interface Preflight {
   problems: string[];
   /** The scene paragraph written again without the problems ("" to keep it). */
   scene: string;
-  /** The attached style or tile image would be copied wrongly (its people, its words): leave it out. */
+  /** The attached style or tile image would be copied wrongly (its people; a tile's words): leave it out. */
   dropReference: boolean;
   note: string;
 }
@@ -521,8 +523,10 @@ export function preflightInstruction(r: {
     r.people.length ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.` : "NO PEOPLE are allowed (a hand at most).",
     r.reference && r.campaign
       ? `THE ATTACHED IMAGE is the designer's own reference picture for a campaign brief: the engine recreates it with the brand's product${r.campaign.ingredients?.trim() ? ` and the brief's ingredients (${r.campaign.ingredients.trim()}, wanted around or in the product, never foreign)` : ""}. It stays attached whatever words, prices, buttons or products it carries (the engine's own rules keep those out), so dropReference is always false. Its staging (a splash, a pool of the drink, an open cup, an ingredient in the air, an ingredient rain) is the designer's choice and never a problem. Any ingredient, fruit, garnish or drink the reference shows that is NOT in the brief's list is not wanted: name it in problems and write the scene again saying it is absent (the reference's chilies beside a mango drink are not in the picture; its lychees beside a strawberry drink become strawberries).`
+      : r.reference === "style"
+      ? "THE ATTACHED IMAGE is the style the designer picked from the library: another brand's photograph by design, and the scene is that style written for this product. The engine is told that the style's own product, packaging, logo and print never appear and only its staging is used, so the style's product, its cup or glass and the words printed on it are NOT problems and never a reason to leave the image out; dropReference is true only when it shows people the post does not allow (none allowed, or the wrong number, age or gender). The style's set, camera, surfaces, effects and ingredient props written as this product's own flavours (chocolate pieces and cocoa for a hot chocolate) are the designer's choice and stay; flag only what the product's photo contradicts (something added onto or into the product, its print covered or changed) and write the scene again keeping everything else."
       : r.reference
-      ? `THE ATTACHED IMAGE is the ${r.reference === "style" ? "style the designer picked" : r.reference === "tile" ? "grid tile this post recreates" : "whole feed grid the month follows (many posts side by side)"}; the engine sees it too and tends to copy everything in it: its people (their age and gender, how many), its words, its bags, its products.`
+      ? `THE ATTACHED IMAGE is the ${r.reference === "tile" ? "grid tile this post recreates" : "whole feed grid the month follows (many posts side by side)"}; the engine sees it too and tends to copy everything in it: its people (their age and gender, how many), its words, its bags, its products.`
       : r.campaign?.ingredients?.trim()
       ? `THIS POST FOLLOWS A CAMPAIGN BRIEF: its ingredients (${r.campaign.ingredients.trim()}) are wanted around or in the product and are never foreign; its staging is the designer's choice.`
       : "No style or tile image is attached.",
@@ -536,7 +540,11 @@ export function preflightInstruction(r: {
       r.campaign
         ? "- staging: whatever the reference shows is allowed (a splash, a pour, a cup open without its lid, an ingredient or the cup in the air); flag only a product doing what its material cannot do, and a bag or carrier;"
         : "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
-      r.campaign ? "- foreign: no food, drink, cup or glass the brand does not sell, except the brief's own ingredients, which stay exactly as the scene has them." : "- foreign: no food, drink, cup or glass the brand does not sell.",
+      r.campaign
+        ? "- foreign: no food, drink, cup or glass the brand does not sell, except the brief's own ingredients, which stay exactly as the scene has them."
+        : r.reference === "style"
+          ? "- foreign: no other food, drink, cup or glass the brand does not sell; the product's own ingredients and flavours set around it as props (the style's staging) stay."
+          : "- foreign: no food, drink, cup or glass the brand does not sell.",
       'Return JSON: ok (true when nothing is wrong); problems (one short sentence each, "" none); scene: when any problem lives in the words, THE SCENE WRITTEN AGAIN in full (same length and style, same set, camera and idea) with the problems removed, else ""; dropReference: true when the attached image itself would make the engine copy wrong people or words, else false; note: one sentence for the designer.',
     ].join("\n"),
     "Return ONLY the JSON.",

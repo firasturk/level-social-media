@@ -60,3 +60,21 @@ describe("input conflicts", () => {
     expect(precedenceLine("refs")).toContain("then the theme references; the references set only the light and palette");
   });
 });
+
+import { lessonLine, preflightInstruction } from "../shared/qa";
+
+describe("the preflight and the lessons around a picked style (post 10, 28 Oct)", () => {
+  it("keeps a style picture attached for its product and printed words", () => {
+    const text = preflightInstruction({ client: "Abu Saleh", scene: "Two piles of chocolate frame the cup.", products: ["Hot chocolate in a teal cup"], people: [], reference: "style", lessons: [] });
+    expect(text).toContain("never a reason to leave the image out");
+    expect(text).toContain("dropReference is true only when it shows people");
+    expect(text).toContain("the product's own ingredients and flavours set around it as props");
+    const tile = preflightInstruction({ client: "Abu Saleh", scene: "x", products: [], people: [], reference: "tile", lessons: [] });
+    expect(tile).toContain("tends to copy everything in it");
+  });
+  it("never describes the wrong picture in an idea lesson", () => {
+    const line = lessonLine("idea", "Not like its idea: the cup stands on a cork pedestal with cinnamon");
+    expect(line).not.toContain("cork");
+    expect(line).toContain("drifted from its idea.");
+  });
+});

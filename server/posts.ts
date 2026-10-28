@@ -5562,7 +5562,9 @@ async function writeStyleScenes(
           briefPeople: reference && BRIEF_PEOPLE.test(post.brief),
           sellsDrinks,
           service: sources.length ? undefined : client.service || undefined,
-          theme: reference ? undefined : config.gridRef ? config.gridNotes?.split("\n")[0] : theme ? [theme.goal, theme.description].filter(Boolean).join(" ") : undefined,
+          // The month's theme (its materials and props) stays out: the style is a whole look, and the
+          // theme's cork and wood found their way onto a styled post (post 10 of Abu Saleh, 28 Oct).
+          theme: reference ? undefined : config.gridRef ? config.gridNotes?.split("\n")[0] : undefined,
           lessons: styleLessons,
           onlyFood,
           reference,

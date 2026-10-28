@@ -577,8 +577,11 @@ export const STYLED_HANDLING_RULE =
   "SIZE AND COPIES: the product's scale, number of copies and placement follow the picked style or the grid tile (a stack, a giant product towering over a person, several copies on the floor or on pedestals, when the style shows that). Every copy is the same product, identical to its photo. When a person holds it, it is held the way a person really holds it: level, with the hand under or around it. A product is never put into a bag, a basket, a carrier, another box or any container that is not in its photo; a cup, glass or drink is never set inside a plate, bowl, saucer or tray as if it were food.";
 
 /** Every copy of the product in a styled picture is the photographed product, never the style's own. */
-export function styledProductRule(styleImage: number): string {
-  return `PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. Image ${styleImage}'s product, packaging, logo and print never appear; only its staging is used.`;
+export function styledProductRule(styleImage: number | null): string {
+  // When the style picture is not attached (the preflight left it out), nothing is numbered: the
+  // sentence used to name "Image 1" and tell the engine the product never appears (post 10, 28 Oct).
+  const whose = styleImage ? `Image ${styleImage}'s` : "The picked style's own";
+  return `PRODUCT: image 1 is the product. Every copy of it in the picture, giant or small, is reproduced exactly from image 1: identical shape, proportions, colours, materials, lid or no lid, toppings piled exactly as photographed, and the same printed logo in the same colour and lettering. ${whose} product, packaging, logo and print never appear; only its staging is used.`;
 }
 
 export const PRODUCT_TRUTH_RULE =
@@ -773,9 +776,11 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `TAKE ${b.take}: the designer rejected the earlier takes of this post. Make a clearly different picture of the same brief: another camera angle and distance, another arrangement of the set and props, another placement of the product, a different light direction; the subject, the product and the mood stay.`,
     );
   // A picked style replaces the post's own idea of the photograph: the style, written for this product, is the picture.
+  // The title stays out: it is written from the finished picture, so a wrong picture's title
+  // ("Cork Pedestal…") would steer the next take away from the style (post 10 of Abu Saleh, 28 Oct).
   if (b.styleKey && b.shot?.trim())
     parts.push(
-      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
+      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}) in the picked style.\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
@@ -888,7 +893,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     parts.push(
       "NO PRODUCT PHOTO: no product photo is attached to this post, so no packaged product, box, tin, tray of sweets, label or brand item appears anywhere; nothing is invented to stand in for one, and no product name or word is written on anything.",
     );
-  if (b.hasProduct && !extras.length) parts.push((b.styleKey || b.tileKey) && !b.refIsSource ? styledProductRule(n) : ONE_PRODUCT_RULE);
+  if (b.hasProduct && !extras.length) parts.push((b.styleKey || b.tileKey) && !b.refIsSource ? styledProductRule(b.noRefImage ? null : n) : ONE_PRODUCT_RULE);
   if (b.hasProduct && extras.length)
     parts.push(
       `PRODUCTS: the ${extras.length + 1} attached products are the only products in the picture, each shown once, whole, undistorted and recognisable; no invented extra cups, bottles or packs.`,
