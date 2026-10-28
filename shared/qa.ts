@@ -543,7 +543,7 @@ export function preflightInstruction(r: {
       r.campaign
         ? "- foreign: no food, drink, cup or glass the brand does not sell, except the brief's own ingredients, which stay exactly as the scene has them."
         : r.reference === "style"
-          ? "- foreign: no other food, drink, cup or glass the brand does not sell; the product's own ingredients and flavours set around it as props (the style's staging) stay."
+          ? "- foreign: no other food, drink, cup or glass the brand does not sell; the product's own ingredients and flavours set around it as props, and the style's own vessels caught mid-pour (a jug, a pitcher, an open cup pouring this product's own drink), are the style's staging and stay."
           : "- foreign: no food, drink, cup or glass the brand does not sell.",
       'Return JSON: ok (true when nothing is wrong); problems (one short sentence each, "" none); scene: when any problem lives in the words, THE SCENE WRITTEN AGAIN in full (same length and style, same set, camera and idea) with the problems removed, else ""; dropReference: true when the attached image itself would make the engine copy wrong people or words, else false; note: one sentence for the designer.',
     ].join("\n"),

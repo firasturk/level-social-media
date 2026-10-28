@@ -33,7 +33,8 @@ describe("style gallery", () => {
     expect(ins).toContain("pistachio kunafa nests");
     expect(ins).toContain("raspberries frozen in ice become pistachios frozen in ice");
     expect(ins).toContain("keep the style's own colours");
-    expect(ins).toContain("Where the style says 'the brand's main colour', write Royal blue #1f4fa0");
+    expect(ins).toContain("Where the style says 'the brand's main colour', write 'the same colour as the backdrop of the attached style picture");
+    expect(ins).not.toContain("#1f4fa0");
     expect(ins).not.toContain("The background is Royal blue");
     expect(ins).toContain("nobody appears");
     expect(ins).toContain("NEVER a drink");

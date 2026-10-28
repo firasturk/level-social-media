@@ -876,6 +876,10 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     );
   if (b.hasProduct) {
     parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
+  if (b.styleKey)
+    parts.push(
+      "THE PICKED STYLE'S STAGING: a vessel of the style caught mid-pour (a jug, a pitcher, an open cup), a block or pieces of the product's own ingredient, a splash or a ribbon of liquid are staging, not products: they stay as the shot describes them, pour or show this product's own drink or ingredient, carry no print, and the product itself still looks exactly as in its photo.",
+    );
     if (b.campaign && b.styleKey)
       parts.push(
         "THE REFERENCE'S CONTAINER IS NOT THIS PRODUCT: the cup, can, glass, bottle or box in the reference picture is only a stand-in for where the product goes. The product keeps the exact shape of its own photo (image 1): its height against its width, taper, rim, smooth or ribbed walls, material, transparency, fill and the print and logo in the same place, size and colour. A short smooth cup stays short and smooth even when the reference's is tall and ribbed. LID: when the shot shows the drink open (a splash out of it, a pour, fruit or ice piled into it), the cup is shown without its dome lid, open at the top with the drink visible; nothing else of the cup changes. Otherwise the lid stays as photographed.",

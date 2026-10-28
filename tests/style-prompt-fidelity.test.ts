@@ -64,3 +64,27 @@ describe("a styled post is steered by its style alone", () => {
     expect(dropped).toContain("The picked style's own product, packaging, logo and print never appear");
   });
 });
+
+import { adaptStyleInstruction } from "../shared/styles";
+
+describe("a style's own colours and staging (posts 10 and 11 of Abu Saleh, 28 Oct)", () => {
+  const req = {
+    style: { title: "Ledge Cocoa Burst", kind: "product" as const, prompt: "The background is a seamless soft gradient in the brand's main colour." },
+    product: "Hot chocolate in a teal cup",
+    post: { type: "Product", headline: "x", brief: "y" },
+    brand: { name: "Abu Saleh" },
+    palette: ["pale red #f3e9e8", "cyan #63c7c9"],
+    people: [],
+  };
+  it("never fills the style's colour placeholder with the brand's colour", () => {
+    const text = adaptStyleInstruction(req);
+    expect(text).not.toContain("#f3e9e8");
+    expect(text).toContain("the same colour as the backdrop of the attached style picture");
+    expect(text).toContain("Never add a lid, straw, sleeve");
+    expect(text).toContain("THE STYLE'S OWN STAGING STAYS");
+  });
+  it("tells the engine the style's pouring vessels are staging", () => {
+    expect(buildPostPrompt(base)).toContain("THE PICKED STYLE'S STAGING");
+    expect(buildPostPrompt({ ...base, styleKey: undefined, shot: undefined } as typeof base)).not.toContain("THE PICKED STYLE'S STAGING");
+  });
+});
