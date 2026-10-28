@@ -117,6 +117,8 @@ function magnificStub(opts: MagnificOptions = {}) {
         models: [
           { slug: "kling-v2-1-master", name: "Kling 2.1 Master", description: "Cinematic motion", durations: [5, 10], aspectRatios: ["16:9", "9:16", "1:1"], agentRecommendation: "Best for product reveals" },
           { slug: "minimax-hailuo-02", name: "Hailuo 02", durations: [6, 10], aspectRatios: [] },
+          // Cinematic Video (28 Oct): no start keyframe, the picture as a reference, a resolution required.
+          { slug: "cinematic-video", name: "Cinematic Video", tool: "video-generator", durations: [4, 5, 6], aspectRatios: ["16:9", "3:4", "9:16"], resolutions: ["1080p", "720p", "480p"], supportsStartFrame: false, supportsReferences: true, referenceTypes: ["image", "product", "audio"], agentRecommendation: { tier: "sota", rank: 1, summary: "Best overall video model." } },
         ],
       });
     if (name === "video_luts_list") return text(b.id, { luts: [{ id: "lut-teal", name: "Teal & Orange" }, { id: "lut-film", name: "Film 400" }] });
@@ -244,7 +246,8 @@ describe("Magnific: status, engines, a clip from the picture", () => {
     const stub = magnificStub();
     useMcpFetch(stub.fn);
     const m = (await json(await app().request("/api/studio/video/magnific/models", {}, env))) as { models: { slug: string; recommended: boolean; recommendation: string; durations: number[] }[] };
-    expect(m.models.map((x) => x.slug)).toEqual(["kling-v2-1-master", "minimax-hailuo-02"]);
+    expect(m.models.map((x) => x.slug)).toEqual(["kling-v2-1-master", "minimax-hailuo-02", "cinematic-video"]);
+    expect(m.models[2]).toMatchObject({ imageToVideo: false, referenceImage: true, resolutions: ["1080p", "720p", "480p"] });
     expect(m.models[0]).toMatchObject({ recommended: true, recommendation: "Best for product reveals", durations: [5, 10] });
     await app().request("/api/studio/video/magnific/models", {}, env);
     expect(stub.rpc.filter((x) => x.name === "video_models_list")).toHaveLength(1);
@@ -292,6 +295,30 @@ describe("Magnific: status, engines, a clip from the picture", () => {
     expect(genOps[0]).toMatchObject({ provider: "freepik", status: "done", estimate: 30, reported: 30, task_id: "cr_gen_1" });
   });
 
+  it("sends the picture as a reference with a resolution to an engine without a start keyframe (Cinematic Video, 28 Oct)", async () => {
+    const env = await seed();
+    await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
+    const stub = magnificStub();
+    useMcpFetch(stub.fn);
+    const ask = { batch: "b1", index: 1, slug: "cinematic-video", prompt: "A slow premium zoom", duration: 5, frame: "4:5", words: false };
+    const first = await postJson(app(), env, "/api/studio/video/magnific/generate", ask);
+    expect(first.status).toBe(409);
+    expect(await json(first)).toMatchObject({ needsConfirm: true, estimate: 30 });
+    const simArgs = stub.rpc.find((x) => x.name === "simulate_cost")!.args?.arguments as Record<string, unknown>;
+    expect(simArgs.keyframes).toBeUndefined();
+    expect((simArgs.references as { type: string; url: string }[])[0]).toMatchObject({ type: "image" });
+    expect(String((simArgs.references as { url: string }[])[0].url)).toMatch(/^https:\/\/studio\.test\/api\/public\/object\?k=/);
+    // 720p by default (a fraction of 1080p's credits); the frame falls back to the engine's portrait ratio.
+    expect(simArgs).toMatchObject({ resolution: "720p", aspectRatio: "3:4" });
+    const bad = await postJson(app(), env, "/api/studio/video/magnific/generate", { ...ask, resolution: "4K" });
+    expect(bad.status).toBe(400);
+    const go = (await json(await postJson(app(), env, "/api/studio/video/magnific/generate", { ...ask, resolution: "480p", confirm: true }))) as { video: Listed };
+    expect(go.video).toMatchObject({ status: "queued", label: "Magnific · Cinematic Video" });
+    const gen = stub.rpc.filter((x) => x.name === "video_generate");
+    expect(gen).toHaveLength(1);
+    expect(gen[0].args).toMatchObject({ slug: "cinematic-video", resolution: "480p", aspectRatio: "3:4" });
+    expect((gen[0].args as { references: unknown[] }).references).toHaveLength(1);
+  });
   it("blocks a clip whose cost cannot be simulated, and answers 503 while the Freepik switch is off", async () => {
     const env = await seed();
     await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);

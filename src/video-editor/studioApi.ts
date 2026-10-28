@@ -60,6 +60,7 @@ export interface MagnificVideoModel {
   recommended: boolean;
   recommendation: string;
   imageToVideo: boolean;
+  referenceImage?: boolean;
 }
 
 export interface MagnificStatus {

@@ -82,6 +82,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
   const [mgSlug, setMgSlug] = useState("");
   const [mgDuration, setMgDuration] = useState<number>(5);
   const [mgSfx, setMgSfx] = useState(false);
+  /** The clip's resolution for Magnific engines that offer one (720p by default: a fraction of 1080p's credits). */
+  const [mgResolution, setMgResolution] = useState<string>("");
   const [mgLoading, setMgLoading] = useState(false);
   const [mgError, setMgError] = useState("");
   const [mgCost, setMgCost] = useState<number | null>(null);
@@ -287,7 +289,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     setError("");
     try {
       const input = await framedInput(mgEngine.aspectRatios);
-      const r = await magnificGenerate({ batch: post.batch, index: post.index, slug: mgEngine.slug, prompt: idea.trim(), duration: mgDuration, aspectRatio: frameRoute(frameChoice.frame, mgEngine.aspectRatios).aspect, ...input, withSoundEffects: mgSfx || undefined, confirm });
+      const r = await magnificGenerate({ batch: post.batch, index: post.index, slug: mgEngine.slug, prompt: idea.trim(), duration: mgDuration, aspectRatio: frameRoute(frameChoice.frame, mgEngine.aspectRatios).aspect, resolution: mgResolution || undefined, ...input, withSoundEffects: mgSfx || undefined, confirm });
       setMgCost(null);
       await afterSubmit(r.video, "Magnific is making the video; it takes a minute or two.");
     } catch (e) {
@@ -459,7 +461,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           {mgReady && mgModels.length > 0 && (
             <div className="vs-engines">
               {(mgMore ? mgModels : mgModels.slice(0, ENGINES_SHOWN)).map((m) => (
-                <button key={m.slug} type="button" className={`vs-engine ${mgSlug === m.slug ? "on" : ""}`} title={m.recommendation || m.description || m.slug} onClick={() => { setMgSlug(m.slug); setMgDuration(m.durations.length ? (m.durations.includes(mgDuration) ? mgDuration : m.durations.includes(5) ? 5 : m.durations[0]) : mgDuration); resetCost(); }}>
+                <button key={m.slug} type="button" className={`vs-engine ${mgSlug === m.slug ? "on" : ""}`} title={m.recommendation || m.description || m.slug} onClick={() => { setMgSlug(m.slug); setMgDuration(m.durations.length ? (m.durations.includes(mgDuration) ? mgDuration : m.durations.includes(5) ? 5 : m.durations[0]) : mgDuration); setMgResolution(m.resolutions.length ? (m.resolutions.includes(mgResolution) ? mgResolution : m.resolutions.find((r) => /^720p$/i.test(r)) ?? m.resolutions[0]) : ""); resetCost(); }}>
                   {m.name}
                   {m.recommended ? " ★" : ""}
                 </button>
@@ -489,11 +491,24 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
                   <input type="number" min={1} max={60} value={mgDuration} onChange={(e) => { setMgDuration(Number(e.target.value) || 5); resetCost(); }} />
                 )}
               </label>
+              {mgEngine && mgEngine.resolutions.length > 0 && (
+                <label>
+                  <span>Resolution</span>
+                  <select value={mgResolution || mgEngine.resolutions[0]} onChange={(e) => { setMgResolution(e.target.value); resetCost(); }}>
+                    {mgEngine.resolutions.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="vs-check">
                 <input type="checkbox" checked={mgSfx} onChange={(e) => { setMgSfx(e.target.checked); resetCost(); }} /> With sound effects
               </label>
             </div>
           )}
+          {mgEngine && !mgEngine.imageToVideo && mgEngine.referenceImage && <p className="ts-hint">{mgEngine.name} takes the post's picture as a reference, not as the first frame: the clip follows it closely but does not start on it exactly.</p>}
         </>
       )}
 

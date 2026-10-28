@@ -72,6 +72,8 @@ export interface MagnificVideoModel {
   recommendation: string;
   /** The engine makes a clip from a picture (a start keyframe), as far as the answer says; unknown counts as yes. */
   imageToVideo: boolean;
+  /** The engine takes a picture as a reference (`references[].type: "image"`) instead of a start keyframe (Cinematic Video, 28 Oct). */
+  referenceImage: boolean;
 }
 
 const numbersOf = (v: unknown): number[] =>
@@ -101,6 +103,8 @@ export function parseVideoModels(r: McpCallResult): MagnificVideoModel[] {
     const recText = recBlock ? String(recBlock.summary ?? recBlock.tier ?? "") : typeof rec === "string" ? rec : "";
     const keyframes = o.keyframes && typeof o.keyframes === "object" ? (o.keyframes as Record<string, unknown>) : null;
     const startFrame = o.supportsStartFrame === true || !!keyframes?.start;
+    const refTypes = Array.isArray(o.referenceTypes) ? (o.referenceTypes as unknown[]).map(String) : Array.isArray(o.references) ? (o.references as unknown[]).map((r) => String((r as Record<string, unknown>)?.type ?? "")) : [];
+    const referenceImage = o.supportsReferences === true && (refTypes.includes("image") || refTypes.includes("product"));
     out.push({
       slug,
       name: String(o.name ?? o.title ?? o.displayName ?? slug).slice(0, 80),
@@ -111,6 +115,7 @@ export function parseVideoModels(r: McpCallResult): MagnificVideoModel[] {
       recommended: rec === true || !!recBlock || (typeof rec === "string" && rec.trim() !== "" && !/not recommended/i.test(rec)),
       recommendation: recText.slice(0, 300),
       imageToVideo: o.supportsStartFrame === false && !keyframes?.start ? false : startFrame || caps === '""' || /image|keyframe|start/.test(caps) || !/text[-_ ]?only/.test(caps),
+      referenceImage,
     });
   }
   return out;
@@ -271,9 +276,23 @@ export async function generateMagnificVideo(env: Env, user: User, d: MagnificGen
   if (d.aspectRatio && engine.aspectRatios.length && !engine.aspectRatios.includes(d.aspectRatio)) throw new StudioError(`${engine.name} offers these frames: ${engine.aspectRatios.join(", ")}.`);
   const posterKey = await posterFor(env, b, { id: t.id, output: t.output }, d);
   const url = await signObjectUrl(env, posterKey, 2 * 60 * 60 * 1000);
-  const args: Record<string, unknown> = { slug: d.slug, prompt: d.prompt.trim() || undefined, duration: d.duration, keyframes: { start: { type: "image", url } } };
+  // Cinematic Video (28 Oct) takes no start keyframe: the post's picture goes as an image reference,
+  // and it wants a resolution; an engine that offers resolutions gets one even when the page sent none.
+  const asReference = !engine.imageToVideo && engine.referenceImage;
+  if (!engine.imageToVideo && !engine.referenceImage) throw new StudioError(`${engine.name} makes clips from text alone: it takes no picture. Pick another engine.`, 400);
+  const args: Record<string, unknown> = {
+    slug: d.slug,
+    prompt: d.prompt.trim() || undefined,
+    duration: d.duration,
+    ...(asReference ? { references: [{ type: "image", url }] } : { keyframes: { start: { type: "image", url } } }),
+  };
   if (d.aspectRatio) args.aspectRatio = d.aspectRatio;
-  if (d.resolution) args.resolution = d.resolution;
+  else if (asReference && engine.aspectRatios.length) args.aspectRatio = engine.aspectRatios.find((a) => a === "3:4" || a === "4:5") ?? engine.aspectRatios.find((a) => a === "9:16") ?? engine.aspectRatios[0];
+  const resolution = d.resolution || (engine.resolutions.length ? (engine.resolutions.find((r) => /^720p$/i.test(r)) ?? engine.resolutions[0]) : undefined);
+  if (resolution) {
+    if (engine.resolutions.length && !engine.resolutions.includes(resolution)) throw new StudioError(`${engine.name} offers these resolutions: ${engine.resolutions.join(", ")}.`);
+    args.resolution = resolution;
+  }
   if (d.withSoundEffects !== undefined) args.withSoundEffects = d.withSoundEffects;
   const base = { provider: "freepik" as const, kind: "video.generate", user: user.id, batch: b.id, post: d.index };
   const estimate = await estimateOf(mcp, "video_generate", args);
@@ -282,11 +301,11 @@ export async function generateMagnificVideo(env: Env, user: User, d: MagnificGen
     throw new StudioError(`Cost not known: Magnific could not estimate a ${engine.name} clip, so it was not made. Every generation draws on the Magnific credit balance.`, 409, false, { blocked: true });
   }
   if (!d.confirm) throw new StudioError(`Confirm the clip: about ${estimate} credits from the Magnific balance.`, 409, false, { needsConfirm: true, estimate, credits: estimate });
-  const fingerprint = await sha256([MAGNIFIC_PROVIDER, d.slug, d.prompt.trim(), d.duration, d.aspectRatio ?? "", d.resolution ?? "", d.source, posterKey].join("\n"));
+  const fingerprint = await sha256([MAGNIFIC_PROVIDER, d.slug, d.prompt.trim(), d.duration, String(args.aspectRatio ?? ""), resolution ?? "", d.source, posterKey].join("\n"));
   if (!(await claimSubmission(env, `video:${b.id}:${d.index}:${fingerprint}`, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
   const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${engine.name} · ${d.duration}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${estimate} credits (Magnific)${d.note ? ` · ${d.note}` : ""}` });
   const id = uuid();
-  const settings = { slug: d.slug, engineName: engine.name, duration: d.duration, aspect: d.aspectRatio, resolution: d.resolution, ...frameSettings(d), estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
+  const settings = { slug: d.slug, engineName: engine.name, duration: d.duration, aspect: String(args.aspectRatio ?? "") || undefined, resolution, ...frameSettings(d), estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
   const row = { id, batch: b.id, post: d.index, task: t.id, owner: user.id, model: `magnific:${d.slug}`, prompt: d.prompt.trim(), provider: MAGNIFIC_PROVIDER, posterKey, source: d.source, opId };
   let r: McpCallResult;
   try {
