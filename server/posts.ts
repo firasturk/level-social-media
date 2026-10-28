@@ -3633,11 +3633,12 @@ postRoutes.post("/typography/switch", async (c) => {
   return c.json({ ok: true, plan: config.plan });
 });
 
-/** The team accepts a post as it is: the review's flags are cleared and the post counts as ready. */
-postRoutes.post("/accept", async (c) => {
-  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1) }));
-  const b = await ownedPlan(c.env, c.get("user"), d.batch);
-  const t = await first<{ id: string; qa: string | null }>(c.env.DB, "SELECT id, qa FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, d.index);
+/**
+ * The team accepts a post as it is: the review's flags are cleared and the post counts as ready.
+ * Also what an approved internal review (server/team.ts) does to the picture.
+ */
+export async function acceptPost(env: Env, who: User, b: { id: string }, index: number): Promise<void> {
+  const t = await first<{ id: string; qa: string | null }>(env.DB, "SELECT id, qa FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL", b.id, index);
   if (!t) throw new StudioError("That post has no picture.", 404);
   let qa: Record<string, unknown> = {};
   try {
@@ -3645,8 +3646,13 @@ postRoutes.post("/accept", async (c) => {
   } catch {
     qa = {};
   }
-  const who = c.get("user");
-  await run(c.env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: `Accepted by ${who.name || "the team"}.`, acceptedBy: who.name || who.email }), now(), t.id);
+  await run(env.DB, "UPDATE tasks SET status = 'ready', qa = ?, updated = ? WHERE id = ?", JSON.stringify({ ...qa, flags: [], productConcern: false, automated: true, notes: `Accepted by ${who.name || "the team"}.`, acceptedBy: who.name || who.email }), now(), t.id);
+}
+
+postRoutes.post("/accept", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  await acceptPost(c.env, c.get("user"), b, d.index);
   return c.json({ ok: true });
 });
 
