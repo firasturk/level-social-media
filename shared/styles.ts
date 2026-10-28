@@ -3,6 +3,8 @@
  * is written for any product; picking one for a post rewrites it for that post's real product,
  * its ingredients, the brand and the month's colours.
  */
+import { parseStyleDesign, STYLE_DESIGN_SCHEMA, type StyleDesign } from "./style-design";
+
 export const STYLE_KINDS = ["product", "people"] as const;
 export type StyleKind = (typeof STYLE_KINDS)[number];
 
@@ -68,7 +70,20 @@ export interface StyleItem {
   waiting?: boolean;
   /** In the collection of the client the list was asked for ("Add to Habibah's"). */
   saved?: boolean;
+  /**
+   * A designed post (shared/style-design.ts): typography set over the photo or an Instagram post
+   * mockup, drawn by the studio in the client's fonts and account; null for a plain photo.
+   */
+  design?: StyleDesign | null;
 }
+
+/**
+ * The design block of a style read, or null for a plain photograph. The nullable object is written
+ * as `type: ["object", "null"]`, the form the contract's own nested objects use; the Gemini path
+ * rewrites it to its `nullable` flag (server/vertex.ts), Claude reads the schema as text, and the
+ * OpenAI path takes no schema.
+ */
+export const STYLE_DESIGN_FIELD_SCHEMA = { ...STYLE_DESIGN_SCHEMA, type: ["object", "null"] };
 
 export const STYLE_SCHEMA = {
   type: "object",
@@ -80,16 +95,30 @@ export const STYLE_SCHEMA = {
     title: { type: "string" },
     tags: { type: "string" },
     prompt: { type: "string" },
+    design: STYLE_DESIGN_FIELD_SCHEMA,
   },
-  required: ["keep", "score", "kind", "category", "title", "tags", "prompt"],
+  required: ["keep", "score", "kind", "category", "title", "tags", "prompt", "design"],
 };
+
+/**
+ * The DESIGN section of the reader's instruction: a designed pin comes back with its typography
+ * and Instagram mockup as data (never as letters in the photo prompt).
+ */
+export const STYLE_DESIGN_INSTRUCTION = [
+  "DESIGN: some pins are designed posts, not only photographs: words set as typography over or along the product photo (a huge rotated word along a pour, a small vertical line, a tag inside a thin outlined oval), or an Instagram post mockup framing the product photo (a white panel across the picture with the heart, comment and share icons, a bookmark, a like count, the handle with a caption and hashtags, an avatar row with handle and name, a comments pill, a logo, a keychain or product on a plinth). The studio draws every letter and every piece of that UI itself, in the client's own fonts, colours, words and Instagram account; the engine never draws letters. So read the design into `design`, exactly in this shape, and keep the photograph apart from it.",
+  '`design` is null for a plain photograph with no words and no UI. Otherwise: `kind`: ["typography"] for words set on the photo, ["mockup"] for an Instagram post mockup, both when the pin has both. `texts`: one entry per text element, with `role` ("big": the hero word or two set huge; "line": a short second line; "label": a small tag or label, often outlined or in a pill; "caption": a longer sentence; "handle": the brand\'s Instagram handle), its box as fractions of the canvas (`x` and `w` of the width, `y` and `h` of the height, 0-1, measured on the whole picture), `rotate` in degrees clockwise (0 upright, -90 read bottom to top, 90 top to bottom), `weight` (heavy, regular, light), `case` (upper or none), `tone` ("light": light letters on a dark or mid ground; "dark": dark letters on a light ground), `align` (left, center, right), `decoration` (none, oval, pill, underline, box), `behind` (true when the letters sit behind the product or the pour, partly hidden by it) and `sample`: the words the pin itself shows, copied as they are (they are never drawn; they tell the studio the length and the language). For a mockup `mockup` holds `ui`: "instagram-post", `panel`: the box the UI sits in as fractions with its `radius` (0-1 of its height) and `tone` (light or dark), or null when the UI floats on the photo; `parts`: which parts the pin shows (actions: the heart, comment and share icons; likes: the like count; caption: the handle with a caption; hashtags; account: the avatar row with handle and name; comments: a comments count or pill; logo); and `logo`: where the logo sits (x, y, w as fractions) when the pin shows one, else null. `space`: one short English sentence on where the photograph must stay clean for the design (for example "the right third stays an even cream backdrop" or "the middle band behind the panel stays calm"). `accent`: what the lettering or panel takes: "brand" (the brand\'s main colour), "light" or "dark".',
+  "For a designed pin the `prompt` describes the PHOTOGRAPH ALONE: no letters, no words, no typography, no UI, no panel, no icons, no like count, no handle, no logo; and it says that the composition leaves that clean space for the design (for example \"the right third stays an even cream backdrop for typography\" or \"a calm band across the middle, where a panel will sit\"). The photograph's own product, pour, set, light and mood are described as for any style.",
+].join("\n\n");
+
+/** The sentence the instruction uses for the photo prompt of a designed pin (tests look for it). */
+export const PHOTOGRAPH_ALONE = "describes the PHOTOGRAPH ALONE";
 
 /** The vision model reads one pin into a reusable style (or a fresh variation of one). */
 export function describeStyleInstruction(note: string, previous?: { title: string; prompt: string }): string {
   return [
     "You are a senior product photographer building a library of photo styles that any brand's product can be shot in. The image is a pin from Pinterest.",
     note.trim() ? `The pin's own title and description (may hold a written prompt, in any language): ${note.trim().slice(0, 1500)}` : "",
-    "keep: true only when the image is one photograph (or one main photograph) of a product, or of a person with a product, in a style another product could be shot in (studio packshot, splash, levitation, ingredients, still life, lifestyle). keep is false for: collages of several photos, text-only cards, screenshots, charts, before/after, drawings; a picture with no product in it (only fabric, a backdrop or a shadow); a product inside a bag, net, basket, carrier or shopping trolley; alcohol; and any person in clothes unsuitable for a Middle Eastern family brand (bare shoulders, sleeveless or strapless tops, low necklines, crop tops, short skirts or shorts, swimwear) or making a silly or rude face (tongue out).",
+    "keep: true only when the image is one photograph (or one main photograph) of a product, or of a person with a product, in a style another product could be shot in (studio packshot, splash, levitation, ingredients, still life, lifestyle). keep is ALSO true for a designed post whose heart is a photograph of a product: typography set over or along the product photo (a word along a pour, a vertical line, an outlined label), or an Instagram post mockup framing a product photo (its UI panel across the picture); the design is read into `design` below and the photograph into `prompt`. keep is false for: collages of several photos, text-only cards (words with no product photo), plain screenshots with no product photo, charts, before/after, drawings; a picture with no product in it (only fabric, a backdrop or a shadow); a product inside a bag, net, basket, carrier or shopping trolley; alcohol; and any person in clothes unsuitable for a Middle Eastern family brand (bare shoulders, sleeveless or strapless tops, low necklines, crop tops, short skirts or shorts, swimwear) or making a silly or rude face (tongue out).",
     STYLE_BAR,
     "score: 1-10, how far this pin reaches the bar (9-10: as bold and original as the team's picks; 7-8: a strong concept; 4-6: a nice but ordinary product photo; 1-3: catalogue or stock).",
     'kind: "people" when a person, or hands and arms that are part of the style, hold, use or present the product; otherwise "product".',
@@ -97,20 +126,38 @@ export function describeStyleInstruction(note: string, previous?: { title: strin
     'title: 2-3 words naming the idea, like a product-shot preset ("Claw Machine Grab", "Cloud Swing", "Fridge Stash", "Balloon Lift", "Giant In The City").',
     "tags: 3-5 short words, comma separated (surface, effect, mood).",
     "prompt: a reusable photo prompt in English, 110-190 words, for ANY product, that keeps the pin's IDEA (the surprising scale, object or set piece) as its heart. Write 'the product' for the item. Describe: camera angle and distance; how the product sits, stands, floats or is held; the set and surface; the props and how they are arranged; effects (splash, condensation, frost, smoke, light beams); the light (direction, hardness, colour); the background (write 'the brand's main colour' where the pin uses a strong single colour); depth of field and lens; the mood. Where the pin shows a flavour or ingredient (raspberries, citrus slices, coffee beans), write 'the product's own key ingredients' (for example 'pieces of the product's own key ingredients frozen inside crystal-clear ice cubes'), never a specific fruit, food or brand. For a person write 'the brand ambassador' with pose, hands, framing and modest clothing, never a specific face. No text, logos or brand names in the picture. Use a written prompt on the pin as inspiration only; write your own.",
+    STYLE_DESIGN_INSTRUCTION,
     previous
-      ? `This style already exists as "${previous.title}": ${previous.prompt}\nWrite a FRESH variation of the same idea: keep what makes the style recognisable, change the camera angle, the arrangement or the set so it reads new. Keep the same kind.`
+      ? `This style already exists as "${previous.title}": ${previous.prompt}\nWrite a FRESH variation of the same idea: keep what makes the style recognisable, change the camera angle, the arrangement or the set so it reads new. Keep the same kind. Read the design again as the pin shows it (it does not vary).`
       : "",
-    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "category": "sweets", "title": "...", "tags": "...", "prompt": "..."}.',
+    'Return ONLY JSON: {"keep": true, "score": 8, "kind": "product", "category": "sweets", "title": "...", "tags": "...", "prompt": "...", "design": null} with `design` filled as above for a designed pin, for example {"kind": ["typography"], "texts": [{"role": "big", "x": 0.55, "y": 0.05, "w": 0.4, "h": 0.9, "rotate": -90, "weight": "heavy", "case": "upper", "tone": "light", "align": "center", "decoration": "none", "behind": true, "sample": "BRIGADEIRO"}], "mockup": null, "space": "the right third stays an even dark backdrop", "accent": "light"}.',
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
-export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: StyleKind; category: StyleCategory; title: string; tags: string; prompt: string } {
+export interface StyleReading {
+  keep: boolean;
+  score: number;
+  kind: StyleKind;
+  category: StyleCategory;
+  title: string;
+  tags: string;
+  prompt: string;
+  /** The pin's typography or Instagram mockup (shared/style-design.ts); null for a plain photo. */
+  design: StyleDesign | null;
+}
+
+export function parseStyle(raw: unknown): StyleReading {
   const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const prompt = String(d.prompt ?? "").trim().slice(0, 2000);
   const title = String(d.title ?? "").trim().replace(/^["']|["']$/g, "").slice(0, 60);
-  const score = Math.max(0, Math.min(10, Math.round(Number(d.score) || 0)));
+  const design = parseStyleDesign(d.design);
+  const read = Math.max(0, Math.min(10, Math.round(Number(d.score) || 0)));
+  // A designed post is a concept by itself (its typography or its Instagram frame is the idea), so
+  // a pin the reader keeps with a design passes the bar: its score is lifted to MIN_SCORE when it
+  // reads lower. A pin the reader drops (keep: false) keeps its own score, design or not.
+  const score = design && d.keep !== false ? Math.max(read, MIN_SCORE) : read;
   return {
     keep: d.keep !== false && prompt.length > 40 && !!title && score >= MIN_SCORE,
     score,
@@ -119,7 +166,23 @@ export function parseStyle(raw: unknown): { keep: boolean; score: number; kind: 
     title,
     tags: String(d.tags ?? "").trim().slice(0, 120),
     prompt,
+    design,
   };
+}
+
+/** A design as the styles table stores it (JSON text), or NULL for a plain photo. */
+export function designJson(design: StyleDesign | null | undefined): string | null {
+  return design ? JSON.stringify(design) : null;
+}
+
+/** A design back from the styles table (JSON text or NULL), made safe; null when there is none. */
+export function designFromJson(text: string | null | undefined): StyleDesign | null {
+  if (!text) return null;
+  try {
+    return parseStyleDesign(JSON.parse(text));
+  } catch {
+    return null;
+  }
 }
 
 /* ───────────── Grids: whole Instagram feeds a month follows ───────────── */

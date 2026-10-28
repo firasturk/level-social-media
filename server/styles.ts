@@ -13,8 +13,11 @@ import { getSetting, setSetting } from "./settings";
 import type { User } from "@shared/types";
 import { gridSummary, type GridRead } from "@shared/posts";
 import { GRID_READ_SCHEMA, gridReadInstruction, gridTiles } from "@shared/grid-preview";
+import { designLabel, type StyleDesign } from "@shared/style-design";
 import {
   describeStyleInstruction,
+  designFromJson,
+  designJson,
   GRID_STYLE_SCHEMA,
   gridStyleInstruction,
   parseGridStyle,
@@ -70,6 +73,8 @@ export interface StyleRow {
   client: string;
   /** How many product units the picture shows (0: not read yet; server/style-media.ts). */
   products: number;
+  /** The pin's typography or Instagram mockup as JSON (shared/style-design.ts), NULL for a plain photo. */
+  design: string | null;
 }
 
 function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = new Map()): StyleItem {
@@ -82,6 +87,7 @@ function toItem(r: StyleRow, admin: boolean, clientNames: Map<string, string> = 
     created: r.created,
     title: r.title,
     tags: r.tags,
+    design: designFromJson(r.design),
     ...(admin ? { prompt: r.prompt } : {}),
     position: r.position,
     updated: r.updated,
@@ -327,14 +333,25 @@ export async function storeBytes(env: Env, id: string, bytes: ArrayBuffer, mime:
   return { image, thumb, bytes, mime, w, h };
 }
 
-type Reading = { keep: boolean; score: number; kind: StyleKind; category: string; title: string; tags: string; prompt: string; tiles: number };
+export type Reading = {
+  keep: boolean;
+  score: number;
+  kind: StyleKind;
+  category: string;
+  title: string;
+  tags: string;
+  prompt: string;
+  tiles: number;
+  /** The pin's typography or Instagram mockup; null for a plain photo and for a grid. */
+  design: StyleDesign | null;
+};
 
 /** One picture read into a style: a photo style, or a whole feed for the Grids shelf. */
 export async function readPicture(env: Env, image: { bytes: ArrayBuffer; mime: string }, note: string, grid: boolean, previous?: { title: string; prompt: string }): Promise<Reading> {
   const clean = (t: string) => JSON.parse(t.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim()) as unknown;
   if (grid) {
     const g = parseGridStyle(clean(await askText(env, gridStyleInstruction(note, previous), GRID_STYLE_SCHEMA, [image])));
-    return { ...g, kind: "product", category: "grid" };
+    return { ...g, kind: "product", category: "grid", design: null };
   }
   const s = parseStyle(clean(await askText(env, describeStyleInstruction(note, previous), STYLE_SCHEMA, [image])));
   return { ...s, tiles: 0 };
@@ -355,7 +372,7 @@ async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> 
     }
     await run(
       env.DB,
-      "UPDATE styles SET status = 'review', kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
+      "UPDATE styles SET status = 'review', kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, design = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ? AND status = 'pool'",
       s.kind,
       s.category,
       s.score,
@@ -365,6 +382,7 @@ async function readPin(env: Env, row: StyleRow): Promise<"review" | "rejected"> 
       s.title,
       s.tags,
       s.prompt,
+      designJson(s.design),
       stored.image,
       stored.thumb,
       now(),
@@ -667,7 +685,7 @@ async function addOwnPin(env: Env, admin: boolean, pin: Pin, grid: boolean): Pro
   if (!st.prompt) return null;
   await run(
     env.DB,
-    "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
+    "UPDATE styles SET status = ?, position = -1, kind = ?, category = ?, score = ?, tiles = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, design = ?, image_key = ?, thumb_key = ?, created = ?, updated = ? WHERE id = ?",
     // The admin's own pins go straight in; anyone else's wait for the admin.
     admin ? "active" : "review",
     st.kind,
@@ -679,6 +697,7 @@ async function addOwnPin(env: Env, admin: boolean, pin: Pin, grid: boolean): Pro
     st.title || "Team pick",
     st.tags,
     st.prompt,
+    designJson(st.design),
     stored.image,
     stored.thumb,
     now(),
@@ -785,7 +804,7 @@ styleRoutes.post("/upload", async (c) => {
       const st = await readPicture(c.env, { bytes: stored.bytes, mime: stored.mime }, file.name.replace(/\.[a-z0-9]+$/i, ""), grid);
       await run(
         c.env.DB,
-        "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, source, note, image_key, thumb_key, position, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, -1, ?, ?)",
+        "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, design, source, note, image_key, thumb_key, position, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, -1, ?, ?)",
         id,
         st.kind,
         admin ? "active" : "review",
@@ -797,6 +816,7 @@ styleRoutes.post("/upload", async (c) => {
         st.title || (grid ? "Team grid" : "Team pick"),
         st.tags,
         st.prompt,
+        designJson(st.design),
         file.name.slice(0, 200),
         stored.image,
         stored.thumb,
@@ -917,7 +937,7 @@ styleRoutes.post("/recheck", async (c) => {
         } else
           await run(
             c.env.DB,
-            "UPDATE styles SET score = ?, category = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, kind = ?, updated = ? WHERE id = ?",
+            "UPDATE styles SET score = ?, category = ?, w = ?, h = ?, title = ?, tags = ?, prompt = ?, design = ?, kind = ?, updated = ? WHERE id = ?",
             s.score,
             s.category,
             w,
@@ -925,6 +945,7 @@ styleRoutes.post("/recheck", async (c) => {
             s.title || r.title,
             s.tags || r.tags,
             s.prompt || r.prompt,
+            designJson(s.design),
             s.kind,
             now(),
             r.id,
@@ -1021,11 +1042,48 @@ styleRoutes.post("/refresh", async (c) => {
         const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
         const s = await readPicture(c.env, image, r.note, r.category === "grid", { title: r.title, prompt: r.prompt });
         if (s.prompt)
-          await run(c.env.DB, "UPDATE styles SET title = ?, tags = ?, prompt = ?, updated = ? WHERE id = ?", s.title || r.title, s.tags || r.tags, s.prompt, now(), r.id);
+          await run(c.env.DB, "UPDATE styles SET title = ?, tags = ?, prompt = ?, design = ?, updated = ? WHERE id = ?", s.title || r.title, s.tags || r.tags, s.prompt, designJson(s.design), now(), r.id);
       } catch (e) {
         console.error("[styles] refresh failed", id, errorMessage(e));
       }
     }),
   );
   return c.json(await list(c.env, c.get("user"), listQuery(c)));
+});
+
+/**
+ * Admins, "Read again": one style's picture is read once more under the current instruction and
+ * its title, tags, prompt and design are written anew (status, position, client and category
+ * stay). This is how a pin already in the gallery gets its typography or Instagram mockup read
+ * after the reader learnt to see them. One vision call; the style never leaves, whatever the
+ * new read says about keeping it.
+ */
+styleRoutes.post("/:id/read-again", async (c) => {
+  if (c.get("user").role !== "admin") throw new StudioError("Admins only.", 403);
+  const r = await styleRow(c.env, c.req.param("id"));
+  if (!r || (r.status !== "active" && r.status !== "review")) throw new StudioError("Style not found.", 404);
+  const obj = r.image_key ? await c.env.BUCKET.get(r.image_key) : null;
+  if (!obj) throw new StudioError("This style's picture is gone; it cannot be read again.", 404);
+  const image = { bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/jpeg" };
+  const s = await readPicture(c.env, image, r.note, r.category === "grid");
+  if (!s.prompt) throw new StudioError("The reader returned nothing for this picture. Try again.", 502);
+  await run(
+    c.env.DB,
+    "UPDATE styles SET kind = ?, title = ?, tags = ?, prompt = ?, design = ?, updated = ? WHERE id = ?",
+    s.kind,
+    s.title || r.title,
+    s.tags || r.tags,
+    s.prompt,
+    designJson(s.design),
+    now(),
+    r.id,
+  );
+  const row = await styleRow(c.env, r.id);
+  const clientNames = new Map((await all<{ id: string; name: string }>(c.env.DB, "SELECT id, name FROM clients")).map((x) => [x.id, x.name]));
+  return c.json({
+    ...(await list(c.env, c.get("user"), listQuery(c))),
+    style: row ? toItem(row, true, clientNames) : null,
+    /** What the new read found: "Typography", "Instagram mockup", both, or "" for a plain photo. */
+    design: designLabel(s.design),
+  });
 });

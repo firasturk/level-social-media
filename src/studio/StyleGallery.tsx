@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
-import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, Maximize2, RefreshCw, Search, Sparkles, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Grid3x3, Link2, Maximize2, RefreshCw, Search, Sparkles, Type, Upload, X } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import { del, get, post, postForm } from "@/api";
 import { AnimatedLevelLogo } from "@/components/LevelLogo";
 import LessonsLearned from "./LessonsLearned";
 import { GRID_GENRES, STYLE_CATEGORIES, type StyleItem } from "@shared/styles";
+import { designLabel } from "@shared/style-design";
+
+/** What the gallery says about a designed style: who draws the words and the frame. */
+const DESIGN_NOTE = "The words and the Instagram frame are drawn by the studio in the client's fonts and account; the engine makes the photo.";
 
 type Page = {
   styles: StyleItem[];
@@ -269,6 +273,27 @@ export default function StyleScreen({
           : `${list.length} removed · ${r.added ?? 0} new idea${r.added === 1 ? "" : "s"} ${admin ? "waiting in To approve" : "sent to the admin for approval"}.`,
       );
       setSelected([]);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /**
+   * The admin's "Read again" on one style: its picture is read once more under the current rules
+   * (the words and the Instagram frame become its design); the preview shows the new reading.
+   */
+  async function readAgain(s: StyleItem) {
+    setBusy("read-again");
+    try {
+      const r = await post<Page & { style: StyleItem | null; design: string }>(`/api/studio/styles/${encodeURIComponent(s.id)}/read-again?${query()}`);
+      changed(r);
+      if (r.style) {
+        remember([r.style]);
+        setPreview(r.style);
+      }
+      toast.success(r.design ? `Read again: ${r.design}. ${DESIGN_NOTE}` : "Read again: a plain photograph, no words or frame to draw.");
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -629,6 +654,11 @@ export default function StyleScreen({
                 ) : (
                   fresh && <span className="style-tile-new">New</span>
                 )}
+                {s.design && (
+                  <span className="style-tile-design" title={DESIGN_NOTE}>
+                    <Type size={10} strokeWidth={2.5} /> {designLabel(s.design)}
+                  </span>
+                )}
                 <span className="style-tile-check" aria-hidden>
                   {on && <Check size={13} strokeWidth={3} />}
                 </span>
@@ -799,9 +829,23 @@ export default function StyleScreen({
                   );
                 })()
               ) : admin && preview.prompt ? (
-                <p>{preview.prompt}</p>
+                <>
+                  {preview.design && (
+                    <p className="style-design-note">
+                      <Type size={13} /> <b>{designLabel(preview.design)}.</b> {DESIGN_NOTE}
+                    </p>
+                  )}
+                  <p>{preview.prompt}</p>
+                </>
               ) : (
-                <p>Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
+                <>
+                  {preview.design && (
+                    <p className="style-design-note">
+                      <Type size={13} /> <b>{designLabel(preview.design)}.</b> {DESIGN_NOTE}
+                    </p>
+                  )}
+                  <p>Picked for a post, this style is written for that post's own product, its ingredients and the brand's colours.</p>
+                </>
               )}
               <div className="style-preview-actions">
                 <button
@@ -814,6 +858,17 @@ export default function StyleScreen({
                 >
                   <Check size={14} /> {ids.includes(preview.id) ? "Unselect" : "Select"}
                 </button>
+                {admin && preview.category !== "grid" && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy === "read-again"}
+                    onClick={() => void readAgain(preview)}
+                    title="Read this picture again under the current rules: its words and Instagram frame are read into the design (one vision call)"
+                  >
+                    {busy === "read-again" ? <Orb size={14} /> : <RefreshCw size={14} />} Read again
+                  </button>
+                )}
                 <button
                   type="button"
                   className="secondary"

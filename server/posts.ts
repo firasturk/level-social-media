@@ -36,7 +36,7 @@ import { framePostPicture, postPictureSizes, sizeLabel, type FrameOutcome } from
 import { hintsTool, INTENT_SCHEMA, intentInstruction, intentSummary, resolveIntent, validateIntent, videoCatalog, type PromptContext } from "@shared/promptbox";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
-import { ADAPT_SCHEMA, adaptStyleInstruction, gridPostCount } from "@shared/styles";
+import { ADAPT_SCHEMA, adaptStyleInstruction, designJson, gridPostCount } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { isMediaPost, olderIdea, planShape, postRevision } from "@shared/posts";
@@ -3900,18 +3900,20 @@ async function planCampaign(env: Env, user: User, b: BatchRow, form: FormData): 
     let title = "Brief reference";
     let kind = "product";
     let category = "lifestyle";
+    let design: string | null = null;
     try {
       const st = await readPicture(env, { bytes: stored.bytes, mime: stored.mime }, "brief reference", false);
       if (st.prompt.length > 40) prompt = st.prompt;
       if (st.title) title = st.title;
       kind = st.kind;
       category = st.category;
+      design = designJson(st.design);
     } catch (e) {
       console.error("[brief] reference read", errorMessage(e));
     }
     await run(
       env.DB,
-      "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, source, note, image_key, thumb_key, position, created, updated, client) VALUES (?, ?, 'brief', ?, 9, 0, ?, ?, ?, '', ?, ?, ?, ?, ?, -1, ?, ?, ?)",
+      "INSERT INTO styles (id, kind, status, category, score, tiles, w, h, title, tags, prompt, design, source, note, image_key, thumb_key, position, created, updated, client) VALUES (?, ?, 'brief', ?, 9, 0, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, -1, ?, ?, ?)",
       id,
       kind,
       category,
@@ -3919,6 +3921,7 @@ async function planCampaign(env: Env, user: User, b: BatchRow, form: FormData): 
       stored.h,
       title,
       prompt,
+      design,
       file.name.slice(0, 200),
       "brief reference",
       stored.image,

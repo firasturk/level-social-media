@@ -20662,3 +20662,35 @@ a.publish-pill.published:hover {
   .help-panel { left: 8px; right: 8px; bottom: 8px; width: auto; height: calc(100dvh - 16px); }
 }
 @media print { .help-fab, .help-panel { display: none; } }
+
+/* Designed styles (28 Oct): the words and the Instagram frame are the studio's, the photo the engine's. */
+.style-tile-design {
+  position: absolute;
+  left: 10px;
+  top: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  color: #111;
+  font-size: 10.5px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.15);
+  pointer-events: none;
+}
+.style-preview-text .style-design-note {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  color: var(--ink-700);
+}
+.style-preview-text .style-design-note svg {
+  flex: none;
+  position: relative;
+  top: 2px;
+}
