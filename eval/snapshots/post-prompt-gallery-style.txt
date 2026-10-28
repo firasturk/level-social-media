@@ -33,6 +33,8 @@ FULL FRAME: the photograph fills the entire canvas edge to edge in the requested
 
 PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.
 
+NO STUDIO GEAR IN THE PICTURE: no softbox, light panel, umbrella, reflector, flash head, light stand, tripod, camera, cable or any photographic equipment appears anywhere in the frame, not even at its edge or as a reflection; every light source is outside the picture, seen only by the light it gives.
+
 SHADOWS: one light source for the whole scene. Every object, the product included, casts exactly one shadow consistent in direction, length and softness with that light, with a soft contact shadow at its base; nothing floats, nothing has a second shadow or a shadow from a light that is not in the scene.
 
 PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.

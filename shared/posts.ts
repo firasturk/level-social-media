@@ -486,6 +486,22 @@ const LAYOUT_RULE =
  */
 const WORDS_SENTENCE =
   /\b(headline|headlines|caption|captions|lettering|typography|typeset|swipe|slogan|tagline|wordmark|subtitle|hashtag|call[- ]to[- ]action|cta)\b|\b(text|words?|title|copy)\s+(reads?|says?|is|are|sits|goes)\b|\b(reads?|says?)\s*["'“‘]/i;
+/**
+ * Lighting gear named in a shot ("a large softbox from the upper left") gets drawn: the engine
+ * paints the softbox itself in the corner (posts 10 and 11 of Abu Saleh, 28 Oct). The light is
+ * described by its quality and direction instead, and the gear is ruled out below.
+ */
+export function withoutLightingGear(text: string): string {
+  return text
+    .replace(/\b(?:a |an |one |the )?(?:large |big |huge |small |single |giant )?(?:soft ?box(?:es)?|beauty dish(?:es)?|octabox(?:es)?|strip ?light(?:s)?|ring ?light(?:s)?|studio strobe(?:s)?|studio flash(?:es)?|key light|fill light)\b/gi, "soft, broad light")
+    .replace(/\b(?:a |an |the )?(?:light stand(?:s)?|c-stand(?:s)?|reflector(?:s)?|photography umbrella(?:s)?|light umbrella(?:s)?|tripod(?:s)?)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;])/g, "$1");
+}
+
+export const NO_GEAR_RULE =
+  "NO STUDIO GEAR IN THE PICTURE: no softbox, light panel, umbrella, reflector, flash head, light stand, tripod, camera, cable or any photographic equipment appears anywhere in the frame, not even at its edge or as a reflection; every light source is outside the picture, seen only by the light it gives.";
+
 export function withoutWordsSentences(text: string): string {
   if (!text.trim()) return text;
   return text
@@ -787,14 +803,14 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   // ("Cork Pedestal…") would steer the next take away from the style (post 10 of Abu Saleh, 28 Oct).
   if (b.styleKey && b.shot?.trim())
     parts.push(
-      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}) in the picked style.\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
+      `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}) in the picked style.\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutLightingGear(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim())))}`,
     );
-  else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
+  else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutLightingGear(withoutWordsSentences(b.brief.trim())))}`);
   // The style's camera and where the product stands, word for word: the engine otherwise keeps the
   // product photo's own eye-level view and a flat surface (post 10 of Abu Saleh, 28 Oct).
   if (b.styleKey && b.shot?.trim() && b.styleCamera?.trim())
     parts.push(
-      `CAMERA AND COMPOSITION OF THE PICKED STYLE (mandatory; exactly as the attached style picture shows them): ${clean(b.styleCamera.trim())} The product is seen from this same camera height and angle, drawn from image 1's details at the style's viewpoint, never at the angle of its own photo; the surface it stands on and the frame's diagonal follow the style picture.`,
+      `CAMERA AND COMPOSITION OF THE PICKED STYLE (mandatory; exactly as the attached style picture shows them): ${clean(withoutLightingGear(b.styleCamera.trim()))} The product is seen from this same camera height and angle, drawn from image 1's details at the style's viewpoint, never at the angle of its own photo; the surface it stands on and the frame's diagonal follow the style picture.`,
     );
   // A designed style (typography, an Instagram mockup): the engine makes the photograph alone and
   // keeps the design's space clean; the studio draws the words and the frame as layers afterwards.
@@ -925,6 +941,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   parts.push(FULL_FRAME_RULE);
   parts.push(
     "PHOTOGRAPHY: a very realistic high-end commercial product photograph, as shot by a professional food and product photographer on a full-frame camera with a macro-capable lens: the product is the sharp hero with true-to-life texture, crumbs, sheen and printing; real materials, natural depth of field, honest colour and contrast; never a 3D render, CGI, illustration or AI-smooth look. The light has one clear source and direction and every object casts a shadow consistent with it.",
+    NO_GEAR_RULE,
   );
   parts.push(POST_SHADOW_RULE);
   parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
