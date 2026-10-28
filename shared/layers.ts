@@ -703,11 +703,16 @@ export function replaceInLayers<L extends Layer>(layers: L[], find: string, repl
   return { layers: out, count };
 }
 
-/** The headline and second line the plan keeps: the roled layers' words, else the first two layers'. */
+/**
+ * The headline and second line the plan keeps: the roled layers' words, else the first two
+ * ungrouped layers' (a grouped layer is a piece of a composition, a split vector or an Instagram
+ * mockup's chrome, never the post's words).
+ */
 export function wordsOf(design: TextDesign): { headline: string; subline: string } {
   const visible = design.layers.filter(isTextLayer).filter((l) => !l.hidden && l.text.trim());
-  const head = visible.find((l) => l.role === "headline") ?? visible[0];
-  const sub = visible.find((l) => l.role === "subline" && l !== head) ?? visible.find((l) => l !== head && !l.role);
+  const loose = visible.filter((l) => !l.group);
+  const head = visible.find((l) => l.role === "headline") ?? loose[0];
+  const sub = visible.find((l) => l.role === "subline" && l !== head) ?? loose.find((l) => l !== head && !l.role);
   const one = (t: string | undefined) => (t ?? "").replace(/\s*\n\s*/g, " ").trim();
   return { headline: one(head?.text), subline: one(sub?.text) };
 }

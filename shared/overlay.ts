@@ -189,6 +189,13 @@ export interface PostOverlayPatch {
   typoOff?: PostTypography;
   /** The words as editable layers (Text studio): drawn instead of the headline block when present. */
   design?: TextDesign;
+  /**
+   * The design was made by the studio from a designed gallery style (styles.id, shared/style-layers.ts):
+   * it is made again when the post's words change, and taken off with the style.
+   */
+  designFrom?: string;
+  /** The designer edited the layers of a designed style by hand: the studio never makes them again by itself. */
+  designHand?: true;
 }
 
 /** Text animation presets rendered in the browser for "Animate this text". */

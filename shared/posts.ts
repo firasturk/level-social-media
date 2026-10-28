@@ -268,6 +268,11 @@ export interface PostBrief {
   styleKey?: string;
   /** The picked style's own camera and composition sentences, sent word for word (styleCameraSentences). */
   styleCamera?: string;
+  /**
+   * The picked style is a designed post (shared/style-design.ts): where the photograph stays clean
+   * for the words and the Instagram frame the studio draws afterwards.
+   */
+  designSpace?: string;
   /** Grid months: this post's own tile, cut from the grid (R2 key), attached instead of the whole grid. */
   tileKey?: string;
   /** The outfit the post's people wear, from the month's wardrobe. */
@@ -790,6 +795,12 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
   if (b.styleKey && b.shot?.trim() && b.styleCamera?.trim())
     parts.push(
       `CAMERA AND COMPOSITION OF THE PICKED STYLE (mandatory; exactly as the attached style picture shows them): ${clean(b.styleCamera.trim())} The product is seen from this same camera height and angle, drawn from image 1's details at the style's viewpoint, never at the angle of its own photo; the surface it stands on and the frame's diagonal follow the style picture.`,
+    );
+  // A designed style (typography, an Instagram mockup): the engine makes the photograph alone and
+  // keeps the design's space clean; the studio draws the words and the frame as layers afterwards.
+  if (b.designSpace?.trim())
+    parts.push(
+      `CLEAN SPACE FOR THE DESIGN: ${clean(b.designSpace.trim())}. That area is plain backdrop or calm surface with no props, letters, panels, phone interface, icons or frames anywhere in the picture: the words and the Instagram frame are added afterwards by the designer.`,
     );
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
   if (edit.trim() && fresh && b.editRef && images.reference)

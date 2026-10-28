@@ -82,6 +82,9 @@
     "@shared/photo-presets": "./shared/photo-presets.ts",
     "@shared/help-guide": "./shared/help-guide.ts",
     "@shared/photo-tools": "./shared/photo-tools.ts",
+    "@shared/style-design": "./shared/style-design.ts",
+    "@shared/style-layers": "./shared/style-layers.ts",
+    "@shared/layouts": "./shared/layouts.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.
