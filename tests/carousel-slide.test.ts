@@ -412,3 +412,22 @@ describe("words typed on the card reach the design (post 1 of Abu Saleh, 28 Oct)
     expect((await planOf(env))[0].ov?.design?.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "جديد", "بتدفي القلب"]);
   });
 });
+
+describe("Swap pictures (28 Oct)", () => {
+  it("changes the two posts' pictures, takes and clips over and leaves the plan alone", async () => {
+    const env = await seed();
+    const t = Date.now();
+    await env.DB.prepare("INSERT INTO tasks (id, batch, source, card, status, output, prompt, post, updated) VALUES ('t2', 'b1', 's1', 2, 'ready', 'u1/b1/output/t2/two.png', '', 2, ?)").bind(t).run();
+    await env.DB.prepare("INSERT INTO videos (id, batch, post, task, owner, model, prompt, status, key, created, updated) VALUES ('v1', 'b1', 2, 't2', 'u1', 'upload', 'clip', 'done', 'u1/b1/v1.mp4', ?, ?)").bind(t, t).run();
+    const before = (await planOf(env)).map((p) => p.title);
+    const r = await app().request("/api/studio/posts/swap-pictures", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", a: 1, b: 2 }) }, env);
+    expect(r.status).toBe(200);
+    expect((await planOf(env)).map((p) => p.title)).toEqual(before);
+    const rows = await tasksOf(env);
+    expect(rows.find((x) => x.post === 1)?.output).toBe("u1/b1/output/t2/two.png");
+    expect(rows.find((x) => x.post === 2)?.output).toBe("u1/b1/output/t1/a.png");
+    expect((await env.DB.prepare("SELECT post FROM videos WHERE id = 'v1'").first<{ post: number }>())!.post).toBe(1);
+    const same = await app().request("/api/studio/posts/swap-pictures", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", a: 1, b: 1 }) }, env);
+    expect(same.status).toBe(400);
+  });
+});

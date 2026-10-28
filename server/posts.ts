@@ -1971,6 +1971,27 @@ async function movePostRows(env: Env, batchId: string, moves: { from: number; to
   }
 }
 
+/**
+ * The pictures of two posts swapped (28 Oct): everything filed under the two numbers (pictures,
+ * takes, clips, comments, preflights) changes places; the posts' ideas and words stay. For a month
+ * whose pictures slid a number away from their posts.
+ */
+postRoutes.post("/swap-pictures", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), a: z.number().int().min(1).max(MAX_POST_COUNT), b: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  if (d.a === d.b) throw new StudioError("Pick two different posts.");
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const plan = (JSON.parse(b.config) as Config).plan ?? [];
+  if (!plan.some((p) => p.index === d.a) || !plan.some((p) => p.index === d.b)) throw new StudioError("That post is not in the month.", 404);
+  const busy = await first(c.env.DB, "SELECT 1 AS x FROM tasks WHERE batch = ? AND post IN (?, ?) AND status IN ('queued','processing','finalizing') LIMIT 1", b.id, d.a, d.b);
+  if (busy) throw new StudioError("A picture is being made for one of them: wait for it first.", 409);
+  await movePostRows(c.env, b.id, [
+    { from: d.a, to: d.b },
+    { from: d.b, to: d.a },
+  ]);
+  // The review's notes and the words written from a picture belong to the picture: the posts are stamped so they are read again.
+  return c.json({ ok: true, a: d.a, b: d.b });
+});
+
 postRoutes.put("/plan", async (c) => {
   const d = await body(
     c,

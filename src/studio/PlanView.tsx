@@ -757,6 +757,20 @@ export default function PlanView({
       toast.error((e as Error).message);
     }
   }
+  /** The pictures of two posts swapped (28 Oct): for a month whose pictures slid a number away from their posts. */
+  async function swapPictures(index: number) {
+    if (!batchId) return;
+    const answer = window.prompt(`Swap the picture of post ${index} with the picture of post number:`);
+    const other = Number(answer);
+    if (!answer || !Number.isInteger(other) || other < 1 || other === index) return;
+    try {
+      await post("/api/studio/posts/swap-pictures", { batch: batchId, a: index, b: other });
+      await onRefresh?.();
+      toast.success(`The pictures of posts ${index} and ${other} changed places.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   /** A slide out of its carousel (28 Oct): a post of its own where it stands. */
   async function unslide(slide: Post) {
     if (!batchId) return;
@@ -1292,6 +1306,7 @@ export default function PlanView({
                             { label: "Take this slide out of the carousel", onClick: () => void unslide(p), disabled: !!busy || running, title: "The slide becomes a post of its own, in its place, with its picture and words; the carousel keeps the others" },
                           ]
                         : []),
+                      { label: "Swap picture with post…", onClick: () => void swapPictures(p.index), disabled: !!busy || running, title: "The pictures, clips and takes of the two posts change places; the ideas and words stay where they are" },
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                     ]
                   : [
@@ -1340,6 +1355,7 @@ export default function PlanView({
                             { label: "Take this slide out of the carousel", onClick: () => void unslide(p), disabled: !!busy || running, title: "The slide becomes a post of its own, in its place, with its picture and words; the carousel keeps the others" },
                           ]
                         : []),
+                      { label: "Swap picture with post…", onClick: () => void swapPictures(p.index), disabled: !!busy || running, title: "The pictures, clips and takes of the two posts change places; the ideas and words stay where they are" },
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                 ];
                 const chosenAt = chosenNow.indexOf(p.index);
