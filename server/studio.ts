@@ -73,6 +73,7 @@ import { campaignRoutes } from "./campaign";
 import { readAdminSettings } from "./admin";
 import { clientRoutes, listClients, requireActiveClient } from "./clients";
 import { describeUpload, postRoutes } from "./posts";
+import { monthAssignedTask } from "./team";
 import { videoRoutes } from "./video";
 import { videoRecheckRoutes } from "./video-recheck";
 import { videoAudioRoutes } from "./video-audio";
@@ -1540,9 +1541,12 @@ studioRoutes.post("/members", async (c) => {
   const want = [...new Set(d.users.filter((id) => id !== b.owner))];
   const known = await all<{ id: string }>(c.env.DB, `SELECT id FROM users WHERE disabled = 0${want.length ? ` AND id IN (${want.map(() => "?").join(",")})` : " AND 0"}`, ...want);
   const ids = known.map((u) => u.id);
+  const before = new Set((await all<{ user: string }>(c.env.DB, "SELECT user FROM batch_members WHERE batch = ?", b.id)).map((m) => m.user));
   await run(c.env.DB, "DELETE FROM batch_members WHERE batch = ?", b.id);
   const t = now();
   for (const id of ids) await run(c.env.DB, "INSERT INTO batch_members (batch, user, assigned_by, created) VALUES (?, ?, ?, ?)", b.id, id, user.id, t);
+  // Team: a newly assigned person gets the month as a task of their own.
+  for (const id of ids) if (!before.has(id)) await monthAssignedTask(c.env, b.id, id, user.id).catch((e) => console.error("[members] month task", errorMessage(e)));
   return c.json({ ok: true, users: ids });
 });
 

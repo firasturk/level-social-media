@@ -17,6 +17,7 @@ import { shareRoutes } from "./share";
 import { sendDueNotifications } from "./notify";
 import { publishDue } from "./publish";
 import { advanceCampaigns } from "./campaign-runner";
+import { teamRoutes, dueSoonNotifications } from "./team";
 
 type Variables = { user: User };
 
@@ -101,6 +102,15 @@ app.use("/api/studio/*", async (c, next) => {
 });
 app.route("/api/studio", studioRoutes);
 
+// Team: the employees' workspace, behind the same session (never a client link).
+app.use("/api/team/*", async (c, next) => {
+  const user = await currentUser(c.env, getCookie(c, SESSION_COOKIE));
+  if (!user) throw new StudioError("Sign in to use the studio.", 401);
+  c.set("user", user);
+  await next();
+});
+app.route("/api/team", teamRoutes);
+
 app.get("/licences", (c) => c.html(LICENCES_HTML));
 
 app.get("*", (c) => {
@@ -148,6 +158,8 @@ export default {
     ctx.waitUntil(sendDueNotifications(env).catch((e) => console.error("[notify]", errorMessage(e))));
     // Posts scheduled for Instagram go out when their time comes (a few per pass, each claimed first).
     ctx.waitUntil(publishDue(env).catch((e) => console.error("[publish]", errorMessage(e))));
+    // Team: assignees hear once a day about tasks due today or overdue (in-app only).
+    ctx.waitUntil(dueSoonNotifications(env).catch((e) => console.error("[team]", errorMessage(e))));
     const ids = await activeBatchIds(env);
     // Synchronous images run in the background of the cron pass (six at once, refilled as they
     // finish) instead of one after another.

@@ -30,6 +30,7 @@
     "@shared/zip-parts": "./shared/zip-parts.ts",
     "@shared/clients": "./shared/clients.ts",
     "@shared/posts": "./shared/posts.ts",
+    "@shared/team": "./shared/team.ts",
     "@shared/overlay": "./shared/overlay.ts",
     "@shared/brief": "./shared/brief.ts",
     "@shared/campaign": "./shared/campaign.ts",
