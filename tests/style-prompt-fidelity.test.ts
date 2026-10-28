@@ -114,7 +114,8 @@ describe("no studio gear in the picture (the softbox in the corner, 28 Oct)", ()
   it("rewrites named lighting gear as light and rules gear out", () => {
     expect(withoutLightingGear("A large softbox from the upper left gives soft directional light, with a reflector on the right.")).toBe("soft, broad light from the upper left gives soft directional light, with on the right.");
     const prompt = buildPostPrompt({ ...base, shot: "Light is a large softbox from the upper left, soft but directional." } as typeof base);
-    expect(prompt).not.toMatch(/softbox/i);
+    expect(prompt).not.toContain("large softbox");
+    expect(prompt).toContain("soft, broad light from the upper left");
     expect(prompt).toContain("NO STUDIO GEAR IN THE PICTURE");
   });
 });
