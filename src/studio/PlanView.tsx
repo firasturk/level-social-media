@@ -152,6 +152,7 @@ export default function PlanView({
   batchId = null,
   onRefresh,
   outputThumb,
+  onDiscuss,
   wordsRequest,
   monthLanguage,
   admin = false,
@@ -170,6 +171,8 @@ export default function PlanView({
   batchId?: string | null;
   /** The month read again after a card changed it on the server (a reference attached). */
   onRefresh?: () => Promise<void>;
+  /** Team: opens the card's Discuss thread (notes, versions, internal approvals) in the compact panel. */
+  onDiscuss?: (index: number) => void;
   client: Client;
   month: string;
   onMonth: (m: string) => void;
@@ -1235,8 +1238,10 @@ export default function PlanView({
                       },
                     }
                   : undefined;
+                const discuss = onDiscuss ? [{ label: "Discuss", onClick: () => onDiscuss(p.index), title: "Talk about this card with the team: notes, versions and internal approvals, in Team" }] : [];
                 const menu = mediaCard
                   ? [
+                      ...discuss,
                       p.style
                         ? { label: "Take the style off", onClick: () => void onSavePlan(draftRef.current.map((x) => (x.index === p.index ? { ...x, style: undefined } : x))), disabled: !!busy, title: "The picture stays as it is; only the saved style is taken off" }
                         : { label: "Pick a style", onClick: () => setStyleFor([p.index]), disabled: !!busy, title: "Saves a gallery style on this card; restyling the picture is a separate step you confirm, with its cost" },
@@ -1255,6 +1260,7 @@ export default function PlanView({
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
                     ]
                   : [
+                  ...discuss,
                   ...(t?.output && !primary
                     ? [{
                         label: "Make another version",

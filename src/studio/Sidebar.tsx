@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { BadgeCheck, Clapperboard, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sun } from "lucide-react";
+import { BadgeCheck, Clapperboard, FolderOpen, Images, KeyRound, LayoutGrid, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ShieldCheck, Sun, Users } from "lucide-react";
 import LevelLogo from "@/components/LevelLogo";
 import ClientCards from "./ClientCards";
 import { initials } from "@shared/clients";
 import type { Client, EngineModel, User } from "@shared/types";
 import type { EngineInfo } from "./ConnectionDialog";
 
-export type Page = "studio" | "batches" | "styles" | "approvals" | "admin" | "video-editor";
+export type Page = "studio" | "batches" | "styles" | "approvals" | "admin" | "video-editor" | "team";
 
 /** Left rail: brand, pages, the client list and the connection/user footer. */
 export default function Sidebar({
@@ -26,9 +26,12 @@ export default function Sidebar({
   onClient,
   onClientsChanged,
   pendingStyles = 0,
+  teamUnread = 0,
 }: {
   /** Styles waiting for the admin's approval. */
   pendingStyles?: number;
+  /** Team: unread messages and notifications. */
+  teamUnread?: number;
   page: Page;
   onPage: (p: Page) => void;
   user: User;
@@ -115,6 +118,15 @@ export default function Sidebar({
         <button className={page === "styles" ? "active" : ""} onClick={() => onPage("styles")}>
           <Images size={17} />
           <span className="sb-text">Styles</span>
+        </button>
+        <button className={page === "team" ? "active" : ""} onClick={() => onPage("team")} title="Team: messages, tasks and internal approvals">
+          <Users size={17} />
+          <span className="sb-text">Team</span>
+          {teamUnread > 0 && (
+            <span className="count waiting" title={`${teamUnread} unread`}>
+              {teamUnread > 99 ? "99+" : teamUnread}
+            </span>
+          )}
         </button>
         <button className={page === "video-editor" ? "active" : ""} onClick={() => onPage("video-editor")} title="Cut, colour and score clips from this computer; the export is saved as a file">
           <Clapperboard size={17} />

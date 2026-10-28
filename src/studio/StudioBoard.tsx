@@ -5,7 +5,7 @@
  * lists over the same plan. Everything the old toolbar did is one click away under More.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, UserPlus } from "lucide-react";
+import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, MessagesSquare, UserPlus } from "lucide-react";
 import { formatUsd } from "@shared/pricing";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -32,6 +32,7 @@ export default function StudioBoard({
   onExport,
   exporting,
   onClientLink,
+  onDiscuss,
   onAssign,
   onFeed,
   changes,
@@ -56,6 +57,8 @@ export default function StudioBoard({
   onExport: () => void;
   exporting: boolean;
   onClientLink: () => void;
+  /** Team: the month's conversation (the client's channel) opens in the compact panel. */
+  onDiscuss?: () => void;
   /** An admin assigns the month to team members (the copywriter) who then open it with full access. */
   onAssign?: () => void;
   /** The feed opens as its own screen; its tab is a door, not a view. */
@@ -113,6 +116,11 @@ export default function StudioBoard({
           {changes > 0 && (
             <button type="button" className="cta secondary" onClick={onClientChanges} disabled={clientChangesBusy} title="Shows what the client asked and what it will change in each post; nothing is saved until you apply">
               <MessageSquareReply size={14} /> Do client comments ({changes})
+            </button>
+          )}
+          {onDiscuss && (
+            <button type="button" className="cta secondary" onClick={onDiscuss} title="Talk about this month with the team: notes, tasks and internal approvals, in Team">
+              <MessagesSquare size={14} /> Discuss this month
             </button>
           )}
           <button type="button" className="cta secondary" onClick={onExport} disabled={!counts.made || exporting}>

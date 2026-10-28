@@ -74,6 +74,8 @@ const PhotoStudio = lazyScreen(() => import("./photo/PhotoStudio"));
 import type { PhotoPanel } from "./photo/types";
 import { clientHold, holdSubject } from "@shared/client-hold";
 import ClientChangesDialog, { type ClientChangePreview } from "./ClientChangesDialog";
+import { TeamProvider, useTeam } from "@/team/useTeam";
+import { TeamDock, TeamFab, TeamSurface } from "@/team/TeamSurface";
 
 const CLIENT_KEY = "lsm-client";
 /** The start journey shows once per browser session (a new tab or a new sign-in starts one). */
@@ -105,8 +107,11 @@ const atApprovals = () => window.location.pathname.replace(/\/$/, "") === APPROV
 /** The standalone video editor (footage from this computer, the export saved as a file) has its own address too. */
 const VIDEO_EDITOR_PATH = "/video-editor";
 const atVideoEditor = () => window.location.pathname.replace(/\/$/, "") === VIDEO_EDITOR_PATH;
-const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : p === "video-editor" ? VIDEO_EDITOR_PATH : "/");
-const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : atVideoEditor() ? "video-editor" : null);
+/** Team (messages, tasks, internal approvals) has its own address too, so a message link opens there. */
+const TEAM_PATH = "/team";
+const atTeam = () => window.location.pathname.replace(/\/$/, "") === TEAM_PATH;
+const pathOf = (p: Page) => (p === "styles" ? STYLES_PATH : p === "approvals" ? APPROVALS_PATH : p === "video-editor" ? VIDEO_EDITOR_PATH : p === "team" ? TEAM_PATH : "/");
+const pageAt = (): Page | null => (atStyles() ? "styles" : atApprovals() ? "approvals" : atVideoEditor() ? "video-editor" : atTeam() ? "team" : null);
 
 /** Which grid of a client's month was open last ("client|month" → batch id). */
 const GRID_PICK_KEY = "lsm-grid-pick";
@@ -135,8 +140,17 @@ function remember(key: string, value: string) {
   }
 }
 
+/** The studio inside the Team provider: Team's state (messages, unread, layout) lives around the studio, so opening it never unmounts a month. */
+export default function Workspace(props: { user: User; onSignedOut: () => void }) {
+  return (
+    <TeamProvider user={props.user}>
+      <StudioWorkspace {...props} />
+    </TeamProvider>
+  );
+}
+
 /** The studio: a client, a month, its plan of posts. */
-export default function Workspace({
+function StudioWorkspace({
   user,
   onSignedOut,
 }: {
@@ -144,13 +158,35 @@ export default function Workspace({
   onSignedOut: () => void;
 }) {
   const [page, setPage] = useState<Page>(() => pageAt() ?? "studio");
+  const team = useTeam();
+  // Team's layout and the page agree: the full workspace is the "team" page; the panel and the split pane sit over or beside whatever page is open.
+  const pageBeforeTeam = useRef<Page>("studio");
+  useEffect(() => {
+    if (team.layout === "full") {
+      if (team.open && page !== "team") {
+        pageBeforeTeam.current = page;
+        setPage("team");
+      } else if (!team.open && page === "team") setPage(pageBeforeTeam.current === "team" ? "studio" : pageBeforeTeam.current);
+    } else if (page === "team") setPage(pageBeforeTeam.current === "team" ? "studio" : pageBeforeTeam.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [team.layout, team.open]);
+  useEffect(() => {
+    if (page === "team") {
+      if (team.layout !== "full") team.setLayout("full");
+      if (!team.open) team.setOpen(true);
+    } else {
+      if (team.layout === "full" && team.open) team.setOpen(false);
+      pageBeforeTeam.current = page;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
   // The address follows the page (and Back returns from the styles), so /styles can be bookmarked.
   useEffect(() => {
     const want = pathOf(page);
     if (want !== (pageAt() ? pathOf(pageAt()!) : "/")) window.history.pushState(null, "", want);
   }, [page]);
   useEffect(() => {
-    const onPop = () => setPage((p) => pageAt() ?? (p === "styles" || p === "approvals" || p === "video-editor" ? "studio" : p));
+    const onPop = () => setPage((p) => pageAt() ?? (p === "styles" || p === "approvals" || p === "video-editor" || p === "team" ? "studio" : p));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -1477,6 +1513,75 @@ export default function Workspace({
     }
   }
 
+  /** Team asked for a creative: the month opens in the Studio, scrolled to the card, lit for a moment. */
+  const openCreative = useCallback(
+    (batchId: string, post: number) => {
+      const go = async () => {
+        if (batch?.id !== batchId) {
+          const b = batches.find((x) => x.id === batchId);
+          if (!b) {
+            toast.error("That month is not in your list.");
+            return;
+          }
+          setOpeningId(batchId);
+          try {
+            if (b.client) setClientId(b.client);
+            if (b.month) setMonth(b.month);
+            if (b.client && b.month) setGridPick((g) => ({ ...g, [`${b.client}|${b.month}`]: batchId }));
+            await open(batchId);
+          } catch (e) {
+            toast.error((e as Error).message);
+            return;
+          } finally {
+            setOpeningId(null);
+          }
+        }
+        setPage("studio");
+        if (team.layout === "full") team.setLayout("panel");
+        let tries = 0;
+        const scroll = () => {
+          const el = document.getElementById(post ? `post-card-${post}` : "month-posts");
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+            if (post) {
+              el.classList.add("post-card-focus");
+              setTimeout(() => el.classList.remove("post-card-focus"), 2400);
+            }
+          } else if (tries++ < 30) setTimeout(scroll, 150);
+        };
+        setTimeout(scroll, 250);
+      };
+      void go();
+    },
+    [batch?.id, batches, open, setGridPick, team],
+  );
+  useEffect(() => {
+    team.registerOpenCreative(openCreative);
+    return () => team.registerOpenCreative(null);
+  }, [team, openCreative]);
+
+  /** "Discuss" on a card: the card's thread in Team, with the creative on top; the current picture is the version an approval is about. */
+  const discussPost = useCallback(
+    (index: number) => {
+      if (!batch) return;
+      const t = tasks.find((x) => x.post === index && x.output);
+      if (team.layout === "full") team.setLayout("panel");
+      void team.discuss(batch.id, index, { version: t?.output ?? null });
+    },
+    [batch, tasks, team],
+  );
+  /** "Discuss this month": the client's channel in Team. */
+  const discussMonth = useCallback(() => {
+    const channel = team.channels.find((c) => c.kind === "client" && c.client === clientId) ?? team.channels.find((c) => c.kind === "general");
+    if (!channel) {
+      toast.message("Team is still loading.");
+      return;
+    }
+    if (team.layout === "full") team.setLayout("panel");
+    team.openChannel(channel.id);
+    team.setOpen(true);
+  }, [clientId, team]);
+
   async function deletePlanById(b: Batch) {
     if (!(await askConfirm(`Move "${b.name}" to the bin? You can bring it back from here for 30 days.`, { ok: "Move to the bin" }))) return;
     try {
@@ -1693,6 +1798,7 @@ export default function Workspace({
       <Sidebar
         page={page}
         pendingStyles={pendingStyles}
+        teamUnread={team.unread}
         onPage={setPage}
         user={user}
         batches={batches.length}
@@ -1775,6 +1881,10 @@ export default function Workspace({
               <VideoEditor open post={null} fileBase="video" onClose={() => setPage("studio")} />
             </Suspense>
           </>
+        ) : page === "team" ? (
+          <div className="tm-full">
+            <TeamSurface layout="full" onClose={() => team.setOpen(false)} />
+          </div>
         ) : page === "batches" ? (
           <>
             <div className="workspace-head">
@@ -1975,6 +2085,7 @@ export default function Workspace({
                   onExport={() => void exportMonth()}
                   exporting={exporting}
                   onClientLink={() => void shareMonth()}
+                  onDiscuss={batch ? discussMonth : undefined}
                   onAssign={user.role === "admin" ? () => setAssignOpen(true) : undefined}
                   onFeed={openFeed}
                   changes={changes}
@@ -2127,6 +2238,7 @@ export default function Workspace({
                 wordsRequest={wordsRequest}
                 batchId={batch?.id ?? null}
                 onRefresh={refresh}
+                onDiscuss={batch ? discussPost : undefined}
                 outputThumb={outputThumb}
                 onStyles={assignStyles}
                 client={client}
@@ -2207,6 +2319,8 @@ export default function Workspace({
           <span>Every post is reviewed by a designer before publishing.</span>
         </footer>
       </main>
+      <TeamDock />
+      {page !== "team" && <TeamFab />}
 
       <Radio className={journey ? (useFlow && !classic ? "in-flow" : "in-journey") : ""} />
       {journey && useFlow && !classic && stateReady && client && (
