@@ -266,6 +266,11 @@ export interface PostBrief {
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
   styleKey?: string;
+  /**
+   * The picked style is a designed post (shared/style-design.ts): where the photograph stays clean
+   * for the words and the Instagram frame the studio draws afterwards.
+   */
+  designSpace?: string;
   /** Grid months: this post's own tile, cut from the grid (R2 key), attached instead of the whole grid. */
   tileKey?: string;
   /** The outfit the post's people wear, from the month's wardrobe. */
@@ -783,6 +788,12 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}) in the picked style.\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
+  // A designed style (typography, an Instagram mockup): the engine makes the photograph alone and
+  // keeps the design's space clean; the studio draws the words and the frame as layers afterwards.
+  if (b.designSpace?.trim())
+    parts.push(
+      `CLEAN SPACE FOR THE DESIGN: ${clean(b.designSpace.trim())}. That area is plain backdrop or calm surface with no props, letters, panels, phone interface, icons or frames anywhere in the picture: the words and the Instagram frame are added afterwards by the designer.`,
+    );
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
   if (edit.trim() && fresh && b.editRef && images.reference)
     parts.push(`NEW TAKE: the designer asks for this post again with the attached reference. Make the picture again from the brief: ${edit.trim()}`);

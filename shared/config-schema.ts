@@ -62,6 +62,8 @@ export const postSchema = z.object({
         .optional(),
       typoFor: z.string().max(400).optional(),
       design: TEXT_DESIGN_SCHEMA.optional(),
+      designFrom: z.string().max(80).optional(),
+      designHand: z.literal(true).optional(),
       typoOff: z
         .object({
           style: z.enum(["behind", "overlap", "repeat", "outline"]),

@@ -47,7 +47,11 @@ import { campaignSizeSchema, postSchema } from "@shared/config-schema";
 import { HOSTED_FONTS, resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "@shared/overlay";
 import { parseTypography, TYPO_SCHEMA, TYPO_STYLES, typographyInstruction, type PostTypography, type SubjectMask } from "@shared/typography";
 import { BRIEF_STEPS, postConfig, type BriefNote, type BriefStep, type Config, type Approval } from "@shared/config";
-import { requireActiveClient } from "./clients";
+import { instagramAccount, requireActiveClient } from "./clients";
+import { parseStyleDesign, type StyleDesign } from "@shared/style-design";
+import { layersFromStyleDesign } from "@shared/style-layers";
+import type { LayoutBrand } from "@shared/layouts";
+import type { TextDesign } from "@shared/layers";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, foreignItemIn, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
@@ -208,6 +212,8 @@ interface ClientRow {
   overlay: string | null;
   /** R2 key of the primary logo. */
   logo_key?: string | null;
+  /** JSON {headline, body}: the brand kit's fonts. */
+  fonts?: string | null;
 }
 
 /** True when the client's overlay hides the second line, so no sublines are written. */
@@ -253,6 +259,81 @@ function paletteOf(c: ClientRow): string[] {
   } catch {
     return [];
   }
+}
+
+/* ───────────── Designed styles: the pin's design as the post's layers ───────────── */
+
+/** The design the vision reader found on a style's pin (styles.design, JSON); null for a plain photo style. */
+export function styleDesignOf(style: StyleRow | null | undefined): StyleDesign | null {
+  const raw = (style as (StyleRow & { design?: string | null }) | null | undefined)?.design;
+  if (!raw) return null;
+  try {
+    return parseStyleDesign(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/** Canvas height over width for a month's format. */
+const formatRatio = (format: Config["format"]) => (format === "9:16" ? 16 / 9 : format === "1:1" ? 1 : 1.25);
+
+/** An automatic design from a designed style: made again when the words change, taken off with the style. */
+const autoDesign = (ov: PostOverlayPatch | undefined) => !!ov?.designFrom && !ov.designHand;
+
+/**
+ * A maker of designed-style layers for one month: the client's fonts, colours and Instagram account
+ * are read once; each post's layers are then built from its own words as they are now
+ * (shared/style-layers.ts). Nothing is asked of a model.
+ */
+async function designMaker(env: Env, config: Config): Promise<(post: Post, design: StyleDesign) => TextDesign> {
+  const client = await clientRow(env, config.client);
+  const account = await instagramAccount(env, client.id);
+  const fontFiles = await all<{ id: string; name: string | null }>(env.DB, "SELECT id, name FROM brand_assets WHERE client = ? AND kind = 'font' ORDER BY created", client.id);
+  const json = <T>(raw: string | null | undefined, fallback: T): T => {
+    try {
+      return raw ? (JSON.parse(raw) as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const fonts = json<{ headline?: string; body?: string }>(client.fonts, {});
+  const brand: LayoutBrand = {
+    colors: parsePalette(json(client.colors, [])),
+    fonts: { headline: fonts.headline?.trim() || undefined, body: fonts.body?.trim() || undefined },
+    fontFiles: fontFiles.map((f) => ({ id: f.id, name: f.name ?? "Font" })),
+  };
+  const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
+  const palette = (config.palette?.length ? parsePalette(config.palette) : theme ? themePaletteOf(theme) : []).map((c) => c.hex);
+  const ratio = formatRatio(config.format);
+  return (post, design) =>
+    layersFromStyleDesign(design, {
+      headline: post.headline ?? "",
+      subline: post.subline ?? "",
+      caption: post.caption ?? "",
+      hashtags: post.hashtags ?? "",
+      handle: account.handle,
+      accountName: account.name,
+      avatarSrc: account.avatarSrc,
+      hasLogo: !!client.logo_key,
+      likes: account.likes,
+      comments: account.comments,
+      brand,
+      language: resolveLanguage(client.language, config.language, post.language),
+      palette,
+      ratio,
+    });
+}
+
+/**
+ * The post's automatic design made again from its words as they are now, when it comes from a
+ * designed style the designer has not edited by hand. The post itself otherwise.
+ */
+async function withFreshDesign(env: Env, config: Config, post: Post, make?: Awaited<ReturnType<typeof designMaker>>): Promise<Post> {
+  if (!autoDesign(post.ov) || post.group) return post;
+  const design = styleDesignOf(await styleRow(env, post.ov!.designFrom!));
+  if (!design) return post;
+  const maker = make ?? (await designMaker(env, config));
+  return { ...post, ov: { ...post.ov, design: maker(post, design) } };
 }
 
 interface ThemeRow {
@@ -1249,9 +1330,11 @@ async function rewritePostIdea(env: Env, b: BatchRow, config: Config, index: num
     next.product = next.offer.products[0];
     next.products = next.offer.products.slice(1);
   }
-  config.plan = withPortraits(plan.map((p) => (p.index === index ? next : p)), config, b.id);
+  // A designed style's layers follow the new words (unless the designer edited them by hand).
+  const made = await withFreshDesign(env, config, next);
+  config.plan = withPortraits(plan.map((p) => (p.index === index ? made : p)), config, b.id);
   await saveConfig(env, b, config);
-  return next;
+  return made;
 }
 
 postRoutes.post("/ideas", async (c) => {
@@ -1809,6 +1892,14 @@ export async function savePlan(env: Env, b: BatchRow, edited: Post[]): Promise<{
   for (const p of config.plan) {
     const old = before.get(p.index);
     if (old && (old.brief !== p.brief || (old.scene ?? "") !== (p.scene ?? ""))) p.ideaAt = now();
+  }
+  // A designed style's layers edited by hand (the Text studio) are the designer's: the studio
+  // never makes them again from the words by itself.
+  for (const p of config.plan) {
+    const old = before.get(p.index);
+    if (!p.ov?.designFrom || p.ov.designHand || !p.ov.design) continue;
+    if (old?.ov?.designFrom === p.ov.designFrom && JSON.stringify(old.ov.design ?? null) === JSON.stringify(p.ov.design)) continue;
+    p.ov = { ...p.ov, designHand: true };
   }
   // A caption edited by hand is the designer's: the post's task carries it, and a new image keeps it.
   for (const p of config.plan) {
@@ -2642,6 +2733,8 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       format: config.format ?? "4:5",
       ref: refId,
       styleKey: styled?.image_key ?? undefined,
+      // A designed style: the photograph keeps the design's space clean; the studio draws the words and the frame.
+      designSpace: styled ? styleDesignOf(styled)?.space || undefined : undefined,
       clientChange: post.clientNote?.note?.trim() || undefined,
       originalRef: post.reference?.key ?? styled?.image_key ?? undefined,
       // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
@@ -3095,14 +3188,21 @@ postRoutes.post("/captions", async (c) => {
   // The month is read again before saving: edits made while the captions were written stay.
   const fresh = await ownedPlan(c.env, c.get("user"), d.batch);
   const latest = JSON.parse(fresh.config) as Config;
-  for (const p of latest.plan ?? []) {
-    const w = written.get(p.index);
-    if (!w) continue;
-    p.caption = w.caption;
-    p.hashtags = w.hashtags;
-    p.captionFrom = w.from;
-    p.captionHand = undefined;
-  }
+  let make: Awaited<ReturnType<typeof designMaker>> | undefined;
+  latest.plan = await Promise.all(
+    (latest.plan ?? []).map(async (p) => {
+      const w = written.get(p.index);
+      if (!w) return p;
+      p.caption = w.caption;
+      p.hashtags = w.hashtags;
+      p.captionFrom = w.from;
+      p.captionHand = undefined;
+      // A designed style's mockup shows the caption: its layers follow the new one.
+      if (!autoDesign(p.ov) || p.group) return p;
+      make ??= await designMaker(c.env, latest);
+      return withFreshDesign(c.env, latest, p, make);
+    }),
+  );
   if (written.size) await saveConfig(c.env, fresh, latest);
   return c.json({ ok: true, plan: latest.plan ?? [], written: [...written.keys()], failed });
 });
@@ -5504,7 +5604,7 @@ async function writeStyleScenes(
   b: BatchRow,
   config: Config,
   assign: { index: number; style: string | null }[],
-): Promise<Map<number, { style?: string; scene?: string; brief?: string; people?: string[] }>> {
+): Promise<Map<number, { style?: string; scene?: string; brief?: string; people?: string[]; design?: StyleDesign }>> {
   const plan = config.plan ?? [];
   const client = await clientRow(env, config.client);
   const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
@@ -5518,7 +5618,7 @@ async function writeStyleScenes(
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const cast = await monthAmbassadors(env, config);
   const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
-  const scenes = new Map<number, { style?: string; scene?: string; brief?: string; people?: string[] }>();
+  const scenes = new Map<number, { style?: string; scene?: string; brief?: string; people?: string[]; design?: StyleDesign }>();
   await Promise.all(
     assign.map(async (a) => {
       const post = plan.find((p) => p.index === a.index);
@@ -5528,6 +5628,8 @@ async function writeStyleScenes(
       const style = await styleRow(env, a.style);
       if (!style || !style.prompt) throw new StudioError("That style is no longer in the gallery.", 404);
       const reference = style.status === "brief" || !!post.group;
+      // A designed pin (typography, an Instagram mockup): the shot is the photograph alone.
+      const design = styleDesignOf(style);
       const m = matchProduct(post.type === "offer" ? post.offer?.products[0] : post.product, names);
       const src = m ? sources.find((x) => productName(x) === m) : undefined;
       // A post with more products shows them all together: the style is written for the set.
@@ -5568,6 +5670,7 @@ async function writeStyleScenes(
           lessons: styleLessons,
           onlyFood,
           reference,
+          design: design ? { space: design.space, mockup: !!design.mockup } : undefined,
         }),
         ADAPT_SCHEMA,
       );
@@ -5577,7 +5680,7 @@ async function writeStyleScenes(
       // The post's idea becomes the style's own, so the old idea's staging never joins the picture.
       // A campaign post keeps the designer's brief: only its shot is written.
       const brief = reference ? "" : String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
-      scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}), ...(wantsPerson ? { people: castNames } : {}) });
+      scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}), ...(wantsPerson ? { people: castNames } : {}), ...(design ? { design } : {}) });
     }),
   );
   return scenes;
@@ -5613,6 +5716,8 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
   const scenes = await writeStyleScenes(env, b, JSON.parse(b.config) as Config, assign);
   const fresh = await ownedPlan(env, user, batchId);
   const cfg = JSON.parse(fresh.config) as Config;
+  // A designed style's layers (shared/style-layers.ts) are built once the client's account is read.
+  const make = [...scenes.values()].some((s) => s.design) ? await designMaker(env, cfg) : null;
   cfg.plan = (cfg.plan ?? []).map((p) => {
     const s = scenes.get(p.index);
     if (!s) return p;
@@ -5623,9 +5728,18 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
     // The tile's text layout (huge words at the centre…) goes with the tile: a styled post keeps
     // the plain layout, and gets the tile's back when the style is taken off.
     const typo = p.ov?.typo ? { typo: p.ov.typo, typoFor: p.ov.typoFor } : {};
-    if (s.style) return { ...rest, style: s.style, scene: s.scene, ov: Object.keys(typo).length ? typo : undefined, ...(s.people ? { people: s.people } : {}), ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
+    // Layers the designer made or edited by hand stay through a change of style; an automatic
+    // design (from an earlier designed style) goes with its style.
+    const hand = p.ov?.design && !autoDesign(p.ov) ? { design: p.ov.design, ...(p.ov.designHand ? { designHand: true as const } : {}) } : {};
+    if (s.style) {
+      // A designed pin: the post's words become its typography and the client's account its
+      // Instagram frame, as layers; the plain typography steps back. A campaign post keeps its own design.
+      const designed = s.design && make && !p.group ? { design: make({ ...rest, style: s.style, scene: s.scene }, s.design), designFrom: s.style } : null;
+      const ov: PostOverlayPatch | undefined = designed ? designed : Object.keys(typo).length || Object.keys(hand).length ? { ...typo, ...hand } : undefined;
+      return { ...rest, style: s.style, scene: s.scene, ov, ...(s.people ? { people: s.people } : {}), ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
+    }
     const tileOv = p.tileSpec ? overlayFromTile(p.tileSpec.text, p.tileSpec.kind) : {};
-    return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo }, ...(before ? { brief: before } : {}) };
+    return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo, ...hand }, ...(before ? { brief: before } : {}) };
   });
   await saveConfig(env, fresh, cfg);
   // The words follow the style: the headline and caption are written for the picture the style

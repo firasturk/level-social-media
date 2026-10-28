@@ -508,3 +508,80 @@ for (const mark of Object.keys(MARKS) as Mark[]) {
     });
   });
 }
+
+/* ───────────── The client's Instagram account, for a designed style's mockup ───────────── */
+
+/** What an Instagram post mockup shows of the client (shared/style-layers.ts). */
+export interface InstagramAccount {
+  /** The handle without "@": the one the team typed, else the one Meta read, else a slug of the name. */
+  handle: string;
+  name: string;
+  /** Where the browser loads the profile picture from: the same URL the cards use for the logo; null without one. */
+  avatarSrc: string | null;
+  /** Followers as Meta read them; null when the account was never read. */
+  followers: number | null;
+  /** Mockup figures: plausible, deterministic for the client, editable in the Text studio. */
+  likes: number;
+  comments: number;
+}
+
+/** A small stable hash of a string (FNV-1a), for figures that stay the same for one client. */
+function hashOf(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** A count rounded to a natural-looking figure (three significant digits at most). */
+function naturalFigure(n: number): number {
+  const v = Math.max(1, Math.round(n));
+  if (v < 1000) return v;
+  const digits = Math.floor(Math.log10(v)) + 1;
+  const step = Math.pow(10, Math.max(0, digits - 3));
+  return Math.round(v / step) * step;
+}
+
+/** The mockup's like and comment counts from the followers (about 3.5% like, 2% of those comment), or a fixed seed per client between 2,400 and 48,000. */
+export function mockupFigures(clientId: string, followers: number | null): { likes: number; comments: number } {
+  const seed = hashOf(clientId);
+  const likes = followers && followers > 0 ? naturalFigure(followers * 0.035 * (0.85 + (seed % 31) / 100)) : naturalFigure(2400 + (seed % 45601));
+  const comments = Math.max(3, naturalFigure(likes * 0.02 * (0.8 + ((seed >> 8) % 41) / 100)));
+  return { likes, comments };
+}
+
+/** The handle as typed ("@brand", "instagram.com/brand/") without its decoration. */
+export function cleanHandle(v: string): string {
+  return v
+    .trim()
+    .replace(/^@/, "")
+    .replace(/^(https?:\/\/)?(www\.)?instagram\.com\//i, "")
+    .split(/[/?#\s]/)[0]
+    .replace(/[^a-z0-9._]/gi, "")
+    .slice(0, 30);
+}
+
+/**
+ * The client's Instagram account for a mockup: the handle the team typed on the profile (else the
+ * one the Meta read found, else a slug of the client's name), the client's name, the logo as the
+ * profile picture (fillKitFromProfile copies the real profile picture into the logo when the kit
+ * has none), and the figures. Never a network call.
+ */
+export async function instagramAccount(env: Env, clientId: string): Promise<InstagramAccount> {
+  const row = await first<Pick<ClientRow, "id" | "name" | "logo_key" | "updated">>(env.DB, "SELECT id, name, logo_key, updated FROM clients WHERE id = ?", clientId);
+  if (!row) throw new StudioError("Client not found.", 404);
+  const profile = await first<{ instagram: string; sources: string | null }>(env.DB, "SELECT instagram, sources FROM client_profiles WHERE client = ?", clientId).catch(() => null);
+  const sources = parseJson<{ instagram?: { username?: string; followers?: number } } | null>(profile?.sources ?? "null", null);
+  const read = sources?.instagram;
+  const handle = cleanHandle(profile?.instagram ?? "") || cleanHandle(read?.username ?? "") || slugify(row.name).replace(/-/g, "_");
+  const followers = typeof read?.followers === "number" && read.followers > 0 ? Math.round(read.followers) : null;
+  return {
+    handle,
+    name: row.name,
+    avatarSrc: row.logo_key ? `/api/studio/clients/${row.id}/logo?v=${row.updated}` : null,
+    followers,
+    ...mockupFigures(row.id, followers),
+  };
+}
