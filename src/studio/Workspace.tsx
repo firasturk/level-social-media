@@ -940,9 +940,18 @@ function StudioWorkspace({
   async function savePlan(next: Post[]) {
     if (!batch) return;
     lastSave.current = next;
+    // Only the posts that differ from the server's copy travel (28 Oct): the rest of the month is
+    // never overwritten by this tab's older view of it.
+    const server = new Map(plan.map((p) => [p.index, JSON.stringify(p)]));
+    const only = next.filter((p) => !p.index || server.get(p.index) !== JSON.stringify(p)).map((p) => p.index).filter((i) => i > 0);
+    const fresh = next.filter((p) => !p.index).length;
+    if (!only.length && !fresh) {
+      setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
+      return;
+    }
     setSaveStatus((s) => saveReducer(s, { type: "start", at: Date.now() }));
     try {
-      await put("/api/studio/posts/plan", { batch: batch.id, plan: next });
+      await put("/api/studio/posts/plan", { batch: batch.id, plan: next, only });
       await refresh();
       setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
     } catch (e) {

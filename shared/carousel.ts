@@ -70,6 +70,40 @@ export function leaveCarousel<P extends Grouped & { title: string }>(plan: P[], 
   });
 }
 
+/**
+ * The slides of every group counted again (28 Oct): each keeps its place in the SLIDE order (slide
+ * number first, post number second), never the card order, so a refresh, a move or a removal
+ * elsewhere in the month leaves a carousel's order as the team set it. A group of one slide is
+ * a plain post again.
+ */
+export function recountSlides<P extends Grouped>(plan: P[]): P[] {
+  const groups = new Map<string, P[]>();
+  for (const p of plan) if (p.group?.id) groups.set(p.group.id, [...(groups.get(p.group.id) ?? []), p]);
+  const place = new Map<number, { slide: number; of: number }>();
+  for (const members of groups.values()) {
+    const ordered = [...members].sort((a, b) => a.group!.slide - b.group!.slide || a.index - b.index);
+    ordered.forEach((p, i) => place.set(p.index, { slide: i + 1, of: ordered.length }));
+  }
+  return plan.map((p) => {
+    if (!p.group) return p;
+    const at = place.get(p.index)!;
+    return at.of > 1 ? { ...p, group: { ...p.group, slide: at.slide, of: at.of } } : { ...p, group: undefined };
+  });
+}
+
+/** One slide moved to another place in its carousel (slide numbers only; the posts stay where they are). Null when it is not a slide or the place is out of range. */
+export function reorderSlide<P extends Grouped>(plan: P[], index: number, to: number): P[] | null {
+  const at = plan.find((p) => p.index === index);
+  if (!at?.group || at.group.kind !== "carousel") return null;
+  const id = at.group.id;
+  const members = plan.filter((p) => p.group?.id === id).sort((a, b) => a.group!.slide - b.group!.slide || a.index - b.index);
+  if (to < 1 || to > members.length) return null;
+  const rest = members.filter((p) => p.index !== index);
+  const ordered = [...rest.slice(0, to - 1), at, ...rest.slice(to - 1)];
+  const slideOf = new Map(ordered.map((p, i) => [p.index, i + 1]));
+  return plan.map((p) => (p.group?.id === id ? { ...p, group: { ...p.group!, slide: slideOf.get(p.index)!, of: ordered.length } } : p));
+}
+
 /** One answer for the whole carousel on the client's link: a change asked on any slide wins, approved only when every slide is. */
 export function carouselStatus(statuses: ("approved" | "changes" | null | undefined)[]): "approved" | "changes" | null {
   if (statuses.some((s) => s === "changes")) return "changes";

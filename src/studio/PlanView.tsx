@@ -741,32 +741,18 @@ export default function PlanView({
       toast.error((e as Error).message);
     }
   }
-  /** A slide moved inside its carousel (28 Oct): slides are numbered by card order, so this is a move of the post. */
+  /** A slide moved inside its carousel (28 Oct): slide numbers only, the posts stay where they are. */
   async function moveSlide(slide: Post, slides: Post[], to: "first" | "earlier" | "later") {
     if (!batchId || !slide.group) return;
     const i = slides.findIndex((x) => x.index === slide.index);
     if (i < 0) return;
-    const order = draftRef.current.map((p) => p.index);
-    let before: number | null;
-    let at: number;
-    if (to === "first") {
-      if (i === 0) return;
-      before = slides[0].index;
-      at = 1;
-    } else if (to === "earlier") {
-      if (i === 0) return;
-      before = slides[i - 1].index;
-      at = i;
-    } else {
-      if (i >= slides.length - 1) return;
-      before = i + 2 < slides.length ? slides[i + 2].index : (order[order.indexOf(slides[slides.length - 1].index) + 1] ?? null);
-      at = i + 2;
-    }
+    const target = to === "first" ? 1 : to === "earlier" ? i : i + 2;
+    if (target < 1 || target > slides.length || target === i + 1) return;
     try {
-      await post<{ index: number }>("/api/studio/posts/reorder", { batch: batchId, index: slide.index, before });
+      const r = await post<{ slide: number; of: number }>("/api/studio/posts/slide-order", { batch: batchId, index: slide.index, slide: target });
       await onRefresh?.();
-      setSlideAt((g) => ({ ...g, [slide.group!.id]: at }));
-      toast.success(`Now slide ${at} of ${slides.length}.`);
+      setSlideAt((g) => ({ ...g, [slide.group!.id]: r.slide }));
+      toast.success(`Now slide ${r.slide} of ${r.of}.`);
     } catch (e) {
       toast.error((e as Error).message);
     }

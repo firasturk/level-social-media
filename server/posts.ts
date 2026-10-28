@@ -12,7 +12,7 @@ import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
 import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { tryClaude } from "./anthropic";
-import { CAROUSEL_MAX, copyPost, joinCarousel, leaveCarousel, slideTitle, withSlide } from "@shared/carousel";
+import { CAROUSEL_MAX, copyPost, joinCarousel, leaveCarousel, recountSlides, reorderSlide, slideTitle, withSlide } from "@shared/carousel";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
@@ -1762,6 +1762,19 @@ async function clearStaleRows(env: Env, batchId: string, index: number): Promise
   await run(env.DB, "DELETE FROM post_takes WHERE batch = ? AND post = ?", batchId, index);
 }
 
+/** One slide moved to another place in its carousel (28 Oct): slide numbers only; no post moves. */
+postRoutes.post("/slide-order", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT), slide: z.number().int().min(1).max(CAROUSEL_MAX) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const next = reorderSlide(cfg.plan ?? [], d.index, d.slide);
+  if (!next) throw new StudioError("That post is not a carousel slide, or the place is not in its carousel.", 409);
+  cfg.plan = next;
+  await saveConfig(c.env, b, cfg);
+  const moved = next.find((p) => p.index === d.index)!;
+  return c.json({ ok: true, index: d.index, slide: moved.group!.slide, of: moved.group!.of });
+});
+
 /** A slide out of its carousel (28 Oct): it stays where it is as a post of its own, picture and words kept. */
 postRoutes.post("/unslide", async (c) => {
   const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
@@ -1885,17 +1898,8 @@ postRoutes.post("/reorder", async (c) => {
   const moves = ordered.map((p, i) => ({ from: p.index, to: i + 1 }));
   await movePostRows(c.env, b.id, moves);
   const renumbered = ordered.map((p, i) => ({ ...p, index: i + 1 }));
-  // A carousel or series counts its slides again, in the new order.
-  const groups = new Map<string, number>();
-  for (const p of renumbered) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
-  const seen = new Map<string, number>();
-  cfg.plan = renumbered.map((p) => {
-    if (!p.group) return p;
-    const slide = (seen.get(p.group.id) ?? 0) + 1;
-    seen.set(p.group.id, slide);
-    const of = groups.get(p.group.id) ?? 1;
-    return of > 1 ? { ...p, group: { ...p.group, slide, of } } : { ...p, group: undefined };
-  });
+  // A carousel keeps its slide order whatever the cards' order (28 Oct).
+  cfg.plan = recountSlides(renumbered);
   if (cfg.approvals) {
     const next: NonNullable<Config["approvals"]> = {};
     for (const m of moves) if (cfg.approvals[String(m.from)]) next[String(m.to)] = cfg.approvals[String(m.from)];
@@ -1946,17 +1950,8 @@ async function removePostAt(env: Env, user: User, batchId: string, index: number
   const fresh = await ownedPlan(c.env, user, d.batch);
   const cfg = JSON.parse(fresh.config) as Config;
   const kept = (cfg.plan ?? []).filter((p) => p.index !== d.index).map((p, i) => ({ ...p, index: i + 1 }));
-  // A carousel or series counts its slides again.
-  const groups = new Map<string, number>();
-  for (const p of kept) if (p.group) groups.set(p.group.id, (groups.get(p.group.id) ?? 0) + 1);
-  const seen = new Map<string, number>();
-  cfg.plan = kept.map((p) => {
-    if (!p.group) return p;
-    const slide = (seen.get(p.group.id) ?? 0) + 1;
-    seen.set(p.group.id, slide);
-    const of = groups.get(p.group.id) ?? 1;
-    return of > 1 ? { ...p, group: { ...p.group, slide, of } } : { ...p, group: undefined };
-  });
+  // A carousel keeps its slide order whatever the cards' order (28 Oct).
+  cfg.plan = recountSlides(kept);
   cfg.postCount = cfg.plan.length;
   await saveConfig(c.env, fresh, cfg);
   return cfg;
@@ -1979,10 +1974,15 @@ async function movePostRows(env: Env, batchId: string, moves: { from: number; to
 postRoutes.put("/plan", async (c) => {
   const d = await body(
     c,
-    z.object({ batch: z.string().min(1), plan: z.array(postSchema).max(MAX_POST_COUNT) }),
+    z.object({
+      batch: z.string().min(1),
+      plan: z.array(postSchema).max(MAX_POST_COUNT),
+      /** The posts the browser changed (28 Oct): only they are saved; the rest of the month stays as the server has it. */
+      only: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+    }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
-  return c.json({ ok: true, ...(await savePlan(c.env, b, d.plan)) });
+  return c.json({ ok: true, ...(await savePlan(c.env, b, d.plan, d.only)) });
 });
 
 /**
@@ -1990,10 +1990,19 @@ postRoutes.put("/plan", async (c) => {
  * kept, hand-edited ideas and captions stamped, memory and count refreshed. Nothing here touches a
  * picture or creates a task.
  */
-export async function savePlan(env: Env, b: BatchRow, edited: Post[]): Promise<{ plan: Post[]; postCount: number | undefined }> {
-  const d = { plan: edited };
+export async function savePlan(env: Env, b: BatchRow, edited: Post[], only?: number[]): Promise<{ plan: Post[]; postCount: number | undefined }> {
   const config = JSON.parse(b.config) as Config;
   const before = new Map((config.plan ?? []).map((p) => [p.index, p]));
+  // A browser saves only what it changed (28 Oct): a tab opened an hour ago, or a save retried
+  // later, used to write its whole old copy of the month over everything done since (carousels
+  // taken apart, slides put back where they were). With `only`, the server's month is the base
+  // and the named posts are laid over it; a post the browser does not have any more is not removed
+  // here (removing has its own route). Carousel membership (`group`) is never taken from a save:
+  // it changes only through the carousel routes.
+  const merged = only
+    ? [...(config.plan ?? []).map((sp) => (only.includes(sp.index) ? (edited.find((p) => p.index === sp.index) ?? sp) : sp)), ...edited.filter((p) => !p.index || (!before.has(p.index) && only.includes(p.index)))]
+    : edited;
+  const d = { plan: merged.map((p) => (p.index && before.has(p.index) ? { ...p, group: before.get(p.index)!.group } : p)) };
   // A post keeps its number: the pictures, comments and versions are filed under it. Moving a post
   // in the month is a change of its posting day, never a renumbering; a new post takes the next
   // free number.
