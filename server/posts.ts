@@ -1712,9 +1712,11 @@ postRoutes.post("/carousel-join", async (c) => {
   const from = plan.find((p) => p.index === d.index);
   const to = plan.find((p) => p.index === d.into);
   if (!from || !to) throw new StudioError("That post is not in the month.", 404);
-  if (from.group?.kind === "carousel") throw new StudioError("This card is already a slide of a carousel: take it out first.", 409);
   if (from.group?.kind === "series" || to.group?.kind === "series") throw new StudioError("A series part cannot join a carousel.", 409);
-  const r = joinCarousel(plan, d.index, d.into, () => uuid());
+  if (from.group?.kind === "carousel" && from.group.id === to.group?.id) throw new StudioError("That slide is already in this carousel.", 409);
+  // A slide dragged onto another post moves carousel (28 Oct): out of its own first, then in.
+  const freed = from.group?.kind === "carousel" ? (leaveCarousel(plan, d.index) ?? plan) : plan;
+  const r = joinCarousel(freed, d.index, d.into, () => uuid());
   if (!r) throw new StudioError(`A carousel holds at most ${CAROUSEL_MAX} slides.`, 409);
   cfg.plan = r.plan;
   await saveConfig(c.env, b, cfg);

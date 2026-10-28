@@ -312,3 +312,28 @@ describe("Removed posts come back (28 Oct)", () => {
     expect(no.status).toBe(409);
   });
 });
+
+describe("a slide dragged onto another post moves carousel (28 Oct)", () => {
+  it("leaves its carousel and joins the target's", async () => {
+    const env = await seed();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    const a = { id: "car-a", kind: "carousel" as const };
+    cfg.plan = [
+      { ...cfg.plan[0], group: { ...a, slide: 1, of: 2 } },
+      { index: 2, type: "product", title: "Spicy hot chocolate · slide 2", brief: "x", caption: "", hashtags: "", product: "sakina", group: { ...a, slide: 2, of: 2 } } as never,
+      { index: 3, type: "product", title: "Other", brief: "x", caption: "", hashtags: "", product: "sakina" } as never,
+    ];
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    const r = await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2, into: 3 }) }, env);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ slide: 2 });
+    const plan = await planOf(env);
+    expect(plan.map((p) => [p.index, p.group?.id ?? null, p.group?.slide ?? null, p.group?.of ?? null])).toEqual([
+      [1, null, null, null],
+      [2, plan[2].group!.id, 2, 2],
+      [3, plan[2].group!.id, 1, 2],
+    ]);
+    const same = await app().request("/api/studio/posts/carousel-join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2, into: 3 }) }, env);
+    expect(same.status).toBe(409);
+  });
+});
