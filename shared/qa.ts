@@ -539,7 +539,9 @@ export function preflightInstruction(r: {
       "- product: each product is staged as its photo shows it (a garment printed on the back is seen from behind; a box stays closed; nothing added, recoloured or invented; no plain item is described as a second product);",
       r.campaign
         ? "- staging: whatever the reference shows is allowed (a splash, a pour, a cup open without its lid, an ingredient or the cup in the air); flag only a product doing what its material cannot do, and a bag or carrier;"
-        : "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
+        : r.reference === "style"
+          ? "- staging: the product does something its material can do (clothes do not pour or float); when the style's hero is a pour from its own vessel, the product's open cup, glass or bottle is that vessel, tilted and pouring its own drink as the style shows, and that is not a problem; it is never in or next to a bag or carrier;"
+          : "- staging: the product does something its material can do (clothes do not pour or float; a drink stays in its cup); it is never in or next to a bag or carrier;",
       r.campaign
         ? "- foreign: no food, drink, cup or glass the brand does not sell, except the brief's own ingredients, which stay exactly as the scene has them."
         : r.reference === "style"

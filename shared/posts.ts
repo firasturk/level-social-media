@@ -913,7 +913,7 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     parts.push(PRODUCT_TRUTH_RULE, b.styleKey || b.tileKey ? STYLED_HANDLING_RULE : HANDLING_RULE);
   if (b.styleKey)
     parts.push(
-      "THE PICKED STYLE'S STAGING: a vessel of the style caught mid-pour (a jug, a pitcher, an open cup), a block or pieces of the product's own ingredient, a splash or a ribbon of liquid are staging, not products: they stay as the shot describes them, pour or show this product's own drink or ingredient, carry no print, and the product itself still looks exactly as in its photo.",
+      "THE PICKED STYLE'S STAGING: a vessel of the style caught mid-pour (a jug, a pitcher, an open cup), a block or pieces of the product's own ingredient, a splash or a ribbon of liquid are staging, not products: they stay as the shot describes them, pour or show this product's own drink or ingredient, carry no print, and the product itself still looks exactly as in its photo. When the style's hero is a pour from its own vessel, the product's open cup, glass or bottle is that vessel: held and tilted exactly as the style shows, its own drink streaming out, with its print and colours as photographed, and no second cup, jug or glass stands below or beside it unless the style shows one.",
     );
     if (b.campaign && b.styleKey)
       parts.push(

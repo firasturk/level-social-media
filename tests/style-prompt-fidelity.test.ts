@@ -119,3 +119,22 @@ describe("no studio gear in the picture (the softbox in the corner, 28 Oct)", ()
     expect(prompt).toContain("NO STUDIO GEAR IN THE PICTURE");
   });
 });
+
+import { preflightInstruction as preflightText } from "../shared/qa";
+
+describe("the product is the style's pouring vessel (post 13 of Abu Saleh, 28 Oct)", () => {
+  it("lets the product's own cup tilt and pour when the pour is the style's hero", () => {
+    const text = adaptStyleInstruction({
+      style: { title: "Endless Pour Stream", kind: "people", prompt: "A hand holds a small open cup tilted almost upside down; a stream pours out." },
+      product: "Hot chocolate in a teal cup",
+      post: { type: "Product", headline: "x", brief: "y" },
+      brand: { name: "Abu Saleh" },
+      palette: [],
+      people: ["Omar (a man)"],
+    });
+    expect(text).toContain("EXCEPT when the style's hero is a pour from its own vessel");
+    expect(text).toContain("no second cup, jug or glass is added");
+    expect(buildPostPrompt(base)).toContain("the product's open cup, glass or bottle is that vessel");
+    expect(preflightText({ client: "Abu Saleh", scene: "x", products: ["cup"], people: [], reference: "style", lessons: [] })).toContain("tilted and pouring its own drink as the style shows, and that is not a problem");
+  });
+});
