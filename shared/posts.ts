@@ -266,6 +266,8 @@ export interface PostBrief {
   draft?: "1K";
   /** The picked gallery style's picture (R2 key): attached as the style reference instead of a pin. */
   styleKey?: string;
+  /** The picked style's own camera and composition sentences, sent word for word (styleCameraSentences). */
+  styleCamera?: string;
   /** Grid months: this post's own tile, cut from the grid (R2 key), attached instead of the whole grid. */
   tileKey?: string;
   /** The outfit the post's people wear, from the month's wardrobe. */
@@ -783,6 +785,12 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
       `POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}) in the picked style.\nTHE PHOTOGRAPH (the picked style written for this product; follow it closely, every element of it): ${clean(withoutWordsSentences(chosen && !b.styleKey ? withoutColourWords(b.shot.trim()) : b.shot.trim()))}`,
     );
   else parts.push(`POST (${POST_TYPE_INFO[b.type]?.label ?? b.type}): ${clean(b.title)}\n${clean(withoutWordsSentences(b.brief.trim()))}`);
+  // The style's camera and where the product stands, word for word: the engine otherwise keeps the
+  // product photo's own eye-level view and a flat surface (post 10 of Abu Saleh, 28 Oct).
+  if (b.styleKey && b.shot?.trim() && b.styleCamera?.trim())
+    parts.push(
+      `CAMERA AND COMPOSITION OF THE PICKED STYLE (mandatory; exactly as the attached style picture shows them): ${clean(b.styleCamera.trim())} The product is seen from this same camera height and angle, drawn from image 1's details at the style's viewpoint, never at the angle of its own photo; the surface it stands on and the frame's diagonal follow the style picture.`,
+    );
   // A fresh take's findings come first, right after the brief: the engine weighs what it reads early.
   if (edit.trim() && fresh && b.editRef && images.reference)
     parts.push(`NEW TAKE: the designer asks for this post again with the attached reference. Make the picture again from the brief: ${edit.trim()}`);

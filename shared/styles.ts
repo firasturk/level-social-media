@@ -309,6 +309,31 @@ export function isClothing(text: string): boolean {
   return CLOTHING.test(text);
 }
 
+/** Words that make a sentence about the camera, the angle or where the product stands. */
+const CAMERA_WORDS = /\b(camera|angle|lens|shot|shooting|viewpoint|point of view|eye[- ]level|overhead|from above|from below|bird'?s|worm'?s|close[- ]up|macro|wide|telephoto|framed|framing|perspective|straight[- ]on|low|high)\b/i;
+const PLACE_WORDS = /\b(stands|sits|rests|lies|placed|set|edge|ledge|plinth|pedestal|diagonal|diagonally|centre|center|centred|centered|foreground|floats|levitat|hangs|suspended|frame)\w*\b/i;
+
+/**
+ * The style's own camera and composition, as its prompt opens (28 Oct): the shot writer kept
+ * dropping the first sentences of a style (the low heroic angle, the ledge slicing the frame),
+ * so they travel to the engine on their own, word for word. At most two sentences from the first
+ * three; empty when the style's opening says nothing about the camera or the product's place.
+ */
+export function styleCameraSentences(prompt: string): string {
+  const sentences = prompt
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  const picked: string[] = [];
+  for (const s of sentences) {
+    if (picked.length === 2) break;
+    if (CAMERA_WORDS.test(s) || (picked.length && PLACE_WORDS.test(s))) picked.push(s);
+  }
+  return picked.join(" ");
+}
+
 export function adaptStyleInstruction(r: AdaptRequest): string {
   return [
     `You are the photographer of ${r.brand.name}, shooting one post in a style picked from the library. Write the final shot for the image engine: 3-6 concrete sentences.`,

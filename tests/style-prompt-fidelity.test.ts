@@ -88,3 +88,22 @@ describe("a style's own colours and staging (posts 10 and 11 of Abu Saleh, 28 Oc
     expect(buildPostPrompt({ ...base, styleKey: undefined, shot: undefined } as typeof base)).not.toContain("THE PICKED STYLE'S STAGING");
   });
 });
+
+import { styleCameraSentences } from "../shared/styles";
+
+describe("the style's camera travels word for word (post 10 of Abu Saleh, 28 Oct)", () => {
+  const ledge =
+    "Low, heroic camera angle, almost at surface level, shooting slightly upward at the product so it looks monumental against the backdrop. The product stands at the edge of a smooth, matte cream-coloured ledge that slices diagonally across the bottom of the frame. Large chunky pieces of the product's own key ingredients are stacked in two loose piles. A burst of fine powder explodes upward.";
+  it("takes the camera and the product's place from the style's opening", () => {
+    expect(styleCameraSentences(ledge)).toBe(
+      "Low, heroic camera angle, almost at surface level, shooting slightly upward at the product so it looks monumental against the backdrop. The product stands at the edge of a smooth, matte cream-coloured ledge that slices diagonally across the bottom of the frame.",
+    );
+    expect(styleCameraSentences("Pieces of fruit fall. Water splashes. The mood is fresh.")).toBe("");
+  });
+  it("puts them in the engine prompt as a mandatory line", () => {
+    const prompt = buildPostPrompt({ ...base, styleCamera: styleCameraSentences(ledge) } as typeof base);
+    expect(prompt).toContain("CAMERA AND COMPOSITION OF THE PICKED STYLE (mandatory");
+    expect(prompt).toContain("slices diagonally across the bottom of the frame");
+    expect(buildPostPrompt(base)).not.toContain("CAMERA AND COMPOSITION");
+  });
+});

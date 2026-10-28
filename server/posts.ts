@@ -36,7 +36,7 @@ import { framePostPicture, postPictureSizes, sizeLabel, type FrameOutcome } from
 import { hintsTool, INTENT_SCHEMA, intentInstruction, intentSummary, resolveIntent, validateIntent, videoCatalog, type PromptContext } from "@shared/promptbox";
 import { ASSIST_ACTIONS, ASSIST_SCHEMA, assistInstruction, parseAssist } from "@shared/text-assist";
 import { earlierLines, seenBefore, type EarlierPost } from "@shared/memory";
-import { ADAPT_SCHEMA, adaptStyleInstruction, designJson, gridPostCount } from "@shared/styles";
+import { ADAPT_SCHEMA, adaptStyleInstruction, designJson, gridPostCount, styleCameraSentences } from "@shared/styles";
 import { profileBrief, type ClientProfile } from "@shared/profile";
 import { estimateCost, formatUsd, rateFor, testSize } from "@shared/pricing";
 import { isMediaPost, olderIdea, planShape, postRevision } from "@shared/posts";
@@ -2642,6 +2642,7 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       format: config.format ?? "4:5",
       ref: refId,
       styleKey: styled?.image_key ?? undefined,
+      styleCamera: styled?.prompt ? styleCameraSentences(styled.prompt) || undefined : undefined,
       clientChange: post.clientNote?.note?.trim() || undefined,
       originalRef: post.reference?.key ?? styled?.image_key ?? undefined,
       // A grid month: the post's own tile, cut from the grid, is its reference (the whole grid otherwise).
@@ -5575,8 +5576,12 @@ async function writeStyleScenes(
         ADAPT_SCHEMA,
       );
       const answer = parseJson<{ prompt?: unknown; brief?: unknown }>(text);
-      const scene = withoutProductNames(String(answer.prompt ?? "").trim(), names).slice(0, 1500);
+      let scene = withoutProductNames(String(answer.prompt ?? "").trim(), names).slice(0, 1500);
       if (!scene) throw new StudioError("The model returned no shot. Try again.", 502);
+      // The writer kept leaving the style's opening out (the low angle, the ledge): a scene that
+      // says nothing about the camera gets the style's own camera sentences in front (28 Oct).
+      const camera = reference ? "" : styleCameraSentences(style.prompt);
+      if (camera && !/\b(camera|angle|lens|shot|shooting|viewpoint|eye[- ]level|overhead|close[- ]up|macro|perspective)\b/i.test(scene)) scene = `${camera} ${scene}`.slice(0, 1600);
       // The post's idea becomes the style's own, so the old idea's staging never joins the picture.
       // A campaign post keeps the designer's brief: only its shot is written.
       const brief = reference ? "" : String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
