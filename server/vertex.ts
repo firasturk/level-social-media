@@ -253,6 +253,34 @@ export function thinkingFor(model: string): Record<string, unknown> {
   return {};
 }
 
+/**
+ * A JSON schema in the form Gemini's responseSchema takes: a nullable object written as
+ * `type: ["object", "null"]` or `anyOf: [X, {type: "null"}]` becomes `type: "object", nullable: true`
+ * (Gemini knows no type arrays), recursively through properties and items. Everything else passes
+ * through unchanged.
+ */
+export function geminiSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(geminiSchema);
+  if (!schema || typeof schema !== "object") return schema;
+  const s = { ...(schema as Record<string, unknown>) };
+  const anyOf = Array.isArray(s.anyOf) ? (s.anyOf as Record<string, unknown>[]) : null;
+  if (anyOf && anyOf.length === 2 && anyOf.some((x) => x?.type === "null")) {
+    const other = anyOf.find((x) => x?.type !== "null") ?? {};
+    const { anyOf: _drop, ...rest } = s;
+    void _drop;
+    return { ...(geminiSchema(other) as Record<string, unknown>), ...rest, nullable: true };
+  }
+  if (Array.isArray(s.type)) {
+    const types = (s.type as unknown[]).filter((t) => t !== "null");
+    if (types.length < (s.type as unknown[]).length) s.nullable = true;
+    s.type = types[0] ?? "string";
+  }
+  if (s.properties && typeof s.properties === "object")
+    s.properties = Object.fromEntries(Object.entries(s.properties as Record<string, unknown>).map(([k, v]) => [k, geminiSchema(v)]));
+  if (s.items) s.items = geminiSchema(s.items);
+  return s;
+}
+
 /** One JSON-schema-constrained text answer (vision or text), as the AI Studio path returns it. */
 export async function vertexText(
   creds: VertexCreds,
@@ -280,7 +308,7 @@ export async function vertexText(
           parts,
           {
             responseMimeType: "application/json",
-            responseSchema: schema,
+            responseSchema: geminiSchema(schema),
             temperature: 0.7,
             ...thinkingFor(model),
           },

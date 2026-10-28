@@ -48,6 +48,7 @@
     "@shared/brandMemory": "./shared/brandMemory.ts",
     "@shared/cast": "./shared/cast.ts",
     "@shared/styles": "./shared/styles.ts",
+    "@shared/style-design": "./shared/style-design.ts",
     "@shared/profile": "./shared/profile.ts",
     "@shared/typography": "./shared/typography.ts",
     "@shared/layers": "./shared/layers.ts",
