@@ -2617,6 +2617,11 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       // What the shot or the idea added to the product (a biscuit dipped in, syrup, rolls beside it): named so the engine leaves it out.
       notInPicture: (() => {
         if ((!product || exactProduct) && !campaign) return undefined;
+        // A picked style is written for this product with its own ingredients (chocolate squares
+        // and marshmallows around a hot chocolate): banning them cut the style's own sentences
+        // out of the shot and left a lone cup (post 10 of Abu Saleh, 28 Oct). The preflight still
+        // keeps foreign brands and drinks out.
+        if (styled && !campaign) return undefined;
         // A brief's reference brings its own ingredients (its chilies, its lychees): named so they stay out.
         const shotText = `${post.scene ?? ""} ${post.brief ?? ""} ${campaign && styled ? styled.prompt ?? "" : ""}`;
         const own = [...(product ? [product] : []), ...extraProducts.map((e) => productSources.find((s) => (s.reference_key || s.key) === e.key))]
