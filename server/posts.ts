@@ -51,7 +51,7 @@ import { instagramAccount, requireActiveClient } from "./clients";
 import { parseStyleDesign, type StyleDesign } from "@shared/style-design";
 import { layersFromStyleDesign } from "@shared/style-layers";
 import type { LayoutBrand } from "@shared/layouts";
-import type { TextDesign } from "@shared/layers";
+import { withWords, type TextDesign } from "@shared/layers";
 import { adaptShotsInstruction, BRIEF_SCHEMA, briefInstruction, briefLines, FOREIGN_ITEMS, foreignFood, foreignItemIn, parseBrief, SHOTS_SCHEMA, type ShotPost } from "@shared/brief";
 import { occasionsOf, pickedOccasions, withDates } from "@shared/occasions";
 import { stemKey, stemOf } from "@shared/naming";
@@ -2018,6 +2018,15 @@ export async function savePlan(env: Env, b: BatchRow, edited: Post[]): Promise<{
     if (!p.ov?.designFrom || p.ov.designHand || !p.ov.design) continue;
     if (old?.ov?.designFrom === p.ov.designFrom && JSON.stringify(old.ov.design ?? null) === JSON.stringify(p.ov.design)) continue;
     p.ov = { ...p.ov, designHand: true };
+  }
+  // Words edited on the card reach a design laid out in the Text studio: its headline and second
+  // line layers take them, so the card shows what was typed (post 1 of Abu Saleh, 28 Oct).
+  for (const p of config.plan) {
+    const old = before.get(p.index);
+    if (!p.ov?.design?.layers.length) continue;
+    const changed = !old || (old.headline ?? "") !== (p.headline ?? "") || (old.subline ?? "") !== (p.subline ?? "");
+    const design = withWords(p.ov.design, { headline: p.headline ?? "", subline: p.subline ?? "" }, { onlyEmpty: !changed });
+    if (design !== p.ov.design) p.ov = { ...p.ov, design };
   }
   // A caption edited by hand is the designer's: the post's task carries it, and a new image keeps it.
   for (const p of config.plan) {

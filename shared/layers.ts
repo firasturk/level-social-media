@@ -708,6 +708,29 @@ export function replaceInLayers<L extends Layer>(layers: L[], find: string, repl
  * ungrouped layers' (a grouped layer is a piece of a composition, a split vector or an Instagram
  * mockup's chrome, never the post's words).
  */
+/**
+ * The post's words written into its design (28 Oct): the headline goes to the layer with that role
+ * (else the one named Headline, else the first loose text layer), the second line to the subline's.
+ * With `onlyEmpty`, only layers without text take the words, so a layer typed in the Text studio
+ * stays as typed. The design comes back unchanged when nothing had to change.
+ */
+export function withWords(design: TextDesign, words: { headline?: string; subline?: string }, opts: { onlyEmpty?: boolean } = {}): TextDesign {
+  const texts = design.layers.filter(isTextLayer).filter((l) => !l.hidden && !l.group);
+  const named = (n: RegExp) => texts.find((l) => n.test(l.name ?? ""));
+  const head = texts.find((l) => l.role === "headline") ?? named(/^headline$/i) ?? texts[0];
+  const sub = texts.find((l) => l.role === "subline" && l !== head) ?? named(/^(subline|second line)$/i) ?? texts.find((l) => l !== head && !l.role);
+  const next = new Map<string, string>();
+  const put = (l: TextLayer | undefined, t: string | undefined) => {
+    if (!l || t === undefined) return;
+    if (opts.onlyEmpty && l.text.trim()) return;
+    if (l.text !== t) next.set(l.id, t);
+  };
+  put(head, words.headline);
+  put(sub, words.subline);
+  if (!next.size) return design;
+  return { ...design, layers: design.layers.map((l) => (isTextLayer(l) && next.has(l.id) ? { ...l, text: next.get(l.id)! } : l)) };
+}
+
 export function wordsOf(design: TextDesign): { headline: string; subline: string } {
   const visible = design.layers.filter(isTextLayer).filter((l) => !l.hidden && l.text.trim());
   const loose = visible.filter((l) => !l.group);

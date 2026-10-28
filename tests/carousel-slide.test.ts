@@ -337,3 +337,36 @@ describe("a slide dragged onto another post moves carousel (28 Oct)", () => {
     expect(same.status).toBe(409);
   });
 });
+
+import { withWords } from "../shared/layers";
+import type { TextDesign } from "../shared/layers";
+
+describe("words typed on the card reach the design (post 1 of Abu Saleh, 28 Oct)", () => {
+  const design: TextDesign = {
+    version: 1,
+    layers: [
+      { id: "logo", type: "logo", x: 0.4, y: 0.03, w: 0.16 },
+      { id: "h", type: "text", name: "Headline", text: "", x: 0.1, y: 0.15, w: 0.8, font: "Graphic School", weight: 700, size: 0.08, lineHeight: 1.1, align: "center", fill: { type: "solid", color: "#fff" } },
+      { id: "s", type: "text", text: "", x: 0.1, y: 0.25, w: 0.8, font: "Graphic School", weight: 400, size: 0.05, lineHeight: 1.1, align: "center", fill: { type: "solid", color: "#fff" } },
+    ],
+  };
+  it("fills empty layers, keeps typed ones unless the words changed", () => {
+    const filled = withWords(design, { headline: "حرّاقة", subline: "من أبو صالح" }, { onlyEmpty: true });
+    expect(filled.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "حرّاقة", "من أبو صالح"]);
+    expect(withWords(filled, { headline: "x" }, { onlyEmpty: true })).toBe(filled);
+    const changed = withWords(filled, { headline: "جديد" });
+    expect((changed.layers[1] as { text: string }).text).toBe("جديد");
+    expect((changed.layers[2] as { text: string }).text).toBe("من أبو صالح");
+  });
+  it("saves the words into the design when the card's headline changes", async () => {
+    const env = await seed();
+    const cfg = JSON.parse((await env.DB.prepare("SELECT config FROM batches WHERE id = 'b1'").first<{ config: string }>())!.config) as { plan: Post[] };
+    cfg.plan[0] = { ...cfg.plan[0], ov: { design } } as Post;
+    await env.DB.prepare("UPDATE batches SET config = ? WHERE id = 'b1'").bind(JSON.stringify(cfg)).run();
+    const edited = (await planOf(env)).map((p) => (p.index === 1 ? { ...p, headline: "فخارة شعيرية", subline: "بتدفي القلب" } : p));
+    const r = await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: edited }) }, env);
+    expect(r.status).toBe(200);
+    const saved = (await planOf(env))[0];
+    expect(saved.ov?.design?.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "فخارة شعيرية", "بتدفي القلب"]);
+  });
+});

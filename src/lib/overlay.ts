@@ -7,6 +7,7 @@ import { HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
 import { ARABIC, fontStack, loadFont } from "./fonts";
 import { drawBackdrop, drawBasePicture, drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
+import { withWords } from "@shared/layers";
 
 export interface OverlayText {
   headline?: string;
@@ -132,7 +133,8 @@ export async function drawOverlay(
   const margin = spec.margin * W;
   const scale = patch.scale ?? 1;
   const faceRects: Rect[] = (opts.faces ?? []).map((f) => ({ x: f[0] * W, y: f[1] * H, w: f[2] * W, h: f[3] * H }));
-  const design = patch.design && patch.design.layers.length ? patch.design : undefined;
+  // A design whose text layers were left empty still shows the post's words (28 Oct).
+  const design = patch.design && patch.design.layers.length ? withWords(patch.design, { headline, subline }, { onlyEmpty: true }) : undefined;
   // Typography: the picture as it is, kept to draw the product back over its letters.
   const typo = !anim && headline && !design ? patch.typo : undefined;
   const base = typo ? copyCanvas(ctx.canvas) : null;
