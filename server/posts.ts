@@ -12,7 +12,7 @@ import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
 import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
 import { tryClaude } from "./anthropic";
-import { CAROUSEL_MAX, copyPost, joinCarousel, slideTitle, withSlide } from "@shared/carousel";
+import { CAROUSEL_MAX, copyPost, joinCarousel, leaveCarousel, slideTitle, withSlide } from "@shared/carousel";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
 import type { ImageBytes } from "./openai";
 import { advanceBatch, makeGoogleClient, MAX_AUTO_TAKES } from "./engine";
@@ -1689,6 +1689,7 @@ postRoutes.post("/slide", async (c) => {
   cfg.plan = r.plan;
   cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
   await saveConfig(c.env, b, cfg);
+  await clearStaleRows(c.env, b.id, added.index);
   // The picture comes along: a task of its own on the same stored picture, with the review it had.
   const src = await first<{ source: string; output: string; qa: string | null; prompt: string | null; caption: string | null }>(c.env.DB, "SELECT source, output, qa, prompt, caption FROM tasks WHERE batch = ? AND post = ? AND output IS NOT NULL ORDER BY updated DESC LIMIT 1", b.id, from.index);
   if (src) {
@@ -1740,6 +1741,7 @@ postRoutes.post("/add-from-product", async (c) => {
   cfg.plan = [...plan, added];
   cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
   await saveConfig(c.env, b, cfg);
+  await clearStaleRows(c.env, b.id, index);
   const made = postRevision(added, cfg);
   const task = uuid();
   await c.env.DB.batch([
@@ -1747,6 +1749,27 @@ postRoutes.post("/add-from-product", async (c) => {
     c.env.DB.prepare("INSERT INTO post_takes (id, batch, post, task, status, key, cost, note, made_for, created) VALUES (?, ?, ?, ?, 'made', ?, 0, ?, ?, ?)").bind(uuid(), b.id, index, task, src.key, `The product's own photo (${name}), no spend`, made, t),
   ]);
   return c.json({ ok: true, index, product: name });
+});
+
+/**
+ * Rows filed under a post number the month no longer has (left behind by earlier removals) would be
+ * read as the new post's own: they go before a post takes that number (28 Oct).
+ */
+async function clearStaleRows(env: Env, batchId: string, index: number): Promise<void> {
+  await run(env.DB, "DELETE FROM tasks WHERE batch = ? AND post = ?", batchId, index);
+  await run(env.DB, "DELETE FROM post_takes WHERE batch = ? AND post = ?", batchId, index);
+}
+
+/** A slide out of its carousel (28 Oct): it stays where it is as a post of its own, picture and words kept. */
+postRoutes.post("/unslide", async (c) => {
+  const d = await body(c, z.object({ batch: z.string().min(1), index: z.number().int().min(1).max(MAX_POST_COUNT) }));
+  const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  const cfg = JSON.parse(b.config) as Config;
+  const next = leaveCarousel(cfg.plan ?? [], d.index);
+  if (!next) throw new StudioError("That post is not a carousel slide.", 409);
+  cfg.plan = next;
+  await saveConfig(c.env, b, cfg);
+  return c.json({ ok: true, index: d.index, title: next.find((p) => p.index === d.index)?.title ?? "" });
 });
 
 /** The posts removed from this month, newest first, each with its picture, for "Restore a removed post". */
@@ -1801,8 +1824,9 @@ postRoutes.post("/restore", async (c) => {
   const index = plan.reduce((m, p) => Math.max(m, p.index), 0) + 1;
   const t = now();
   const sources = await all<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? AND kind = 'product' ORDER BY created", b.id);
-  let lead = saved?.group?.kind === "carousel" ? plan.find((p) => p.group?.id === saved.group!.id && p.group!.slide === 1) : undefined;
-  if (!lead && /\s·\sslide \d+$/u.test(title)) lead = plan.find((p) => p.group?.kind === "carousel" && p.group.slide === 1 && p.title.replace(/(\s·\sslide \d+)+$/u, "").trim() === base);
+  // Only the slide's OWN carousel takes it back; a title is no proof (three carousels of one month
+  // were all called "Spicy hot chocolate", 28 Oct). Otherwise it comes back as a post of its own.
+  const lead = saved?.group?.kind === "carousel" ? plan.find((p) => p.group?.id === saved.group!.id && p.group!.slide === 1) : undefined;
   let restored: Post;
   if (lead) {
     const members = plan.filter((p) => p.group?.id === lead!.group!.id);
@@ -1812,7 +1836,7 @@ postRoutes.post("/restore", async (c) => {
     restored = { ...from, index, title: slideTitle(base, of), group: { id: lead.group!.id, kind: "carousel", slide: of, of } };
     cfg.plan = [...plan.map((p) => (p.group?.id === lead!.group!.id ? { ...p, group: { ...p.group!, of } } : p)), restored];
   } else {
-    const from: Post = saved ? { ...saved, group: undefined } : { index, type: "product", title: title.slice(0, 80), brief: "", caption: "", hashtags: "", ideaAt: t };
+    const from: Post = saved ? { ...saved, group: undefined, title: base.slice(0, 80) || saved.title } : { index, type: "product", title: base.slice(0, 80) || title.slice(0, 80), brief: "", caption: "", hashtags: "", ideaAt: t };
     if (!saved) {
       const m = matchProduct(title, sources.map(productName));
       if (m) from.product = m;
@@ -1822,6 +1846,7 @@ postRoutes.post("/restore", async (c) => {
   }
   cfg.postCount = Math.min(MAX_POST_COUNT, Math.max(cfg.postCount ?? plan.length, plan.length) + 1);
   await saveConfig(c.env, b, cfg);
+  await clearStaleRows(c.env, b.id, index);
   if (key) {
     const own = sources.find((s) => productName(s) === restored.product) ?? sources[0] ?? (await first<SourceRow>(c.env.DB, "SELECT id, name, stem, key, reference_key, kind, role, note, category FROM sources WHERE batch = ? ORDER BY created LIMIT 1", b.id));
     if (own) {

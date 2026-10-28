@@ -51,6 +51,25 @@ export function withSlide<P extends Grouped & { title: string; date?: string }>(
   return { plan: [...next, slide], index };
 }
 
+/**
+ * A slide taken out of its carousel (28 Oct): it stands as a post of its own where it is; the other
+ * slides are numbered again, and a carousel left with one slide becomes a plain post. Null when the
+ * post is not a carousel slide.
+ */
+export function leaveCarousel<P extends Grouped & { title: string }>(plan: P[], index: number): P[] | null {
+  const at = plan.find((p) => p.index === index);
+  if (!at?.group || at.group.kind !== "carousel") return null;
+  const id = at.group.id;
+  const rest = plan.filter((p) => p.group?.id === id && p.index !== index).sort((a, b) => a.group!.slide - b.group!.slide || a.index - b.index);
+  const of = rest.length;
+  return plan.map((p) => {
+    if (p.index === index) return { ...p, group: undefined, title: p.title.replace(/(\s·\sslide \d+)+$/u, "").trim() || p.title };
+    if (p.group?.id !== id) return p;
+    const slide = rest.findIndex((x) => x.index === p.index) + 1;
+    return of > 1 ? { ...p, group: { ...p.group, slide, of } } : { ...p, group: undefined };
+  });
+}
+
 /** One answer for the whole carousel on the client's link: a change asked on any slide wins, approved only when every slide is. */
 export function carouselStatus(statuses: ("approved" | "changes" | null | undefined)[]): "approved" | "changes" | null {
   if (statuses.some((s) => s === "changes")) return "changes";

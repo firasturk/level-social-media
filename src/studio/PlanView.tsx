@@ -771,6 +771,17 @@ export default function PlanView({
       toast.error((e as Error).message);
     }
   }
+  /** A slide out of its carousel (28 Oct): a post of its own where it stands. */
+  async function unslide(slide: Post) {
+    if (!batchId) return;
+    try {
+      const r = await post<{ index: number; title: string }>("/api/studio/posts/unslide", { batch: batchId, index: slide.index });
+      await onRefresh?.();
+      toast.success(`Post ${r.index} is on its own now: ${r.title}.`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
   /** A picture or clip from the computer dropped on a card: the card becomes the client's own file. */
   async function dropFileOnCard(index: number, file: File) {
     if (!batchId) return;
@@ -1292,6 +1303,7 @@ export default function PlanView({
                             { label: "Make this slide 1", onClick: () => void moveSlide(p, slides, "first"), disabled: !!busy || running || p.group.slide === 1, title: "This slide becomes the cover; the others keep their order after it" },
                             { label: "Move this slide earlier", onClick: () => void moveSlide(p, slides, "earlier"), disabled: !!busy || running || p.group.slide === 1 },
                             { label: "Move this slide later", onClick: () => void moveSlide(p, slides, "later"), disabled: !!busy || running || p.group.slide === slides.length },
+                            { label: "Take this slide out of the carousel", onClick: () => void unslide(p), disabled: !!busy || running, title: "The slide becomes a post of its own, in its place, with its picture and words; the carousel keeps the others" },
                           ]
                         : []),
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
@@ -1339,6 +1351,7 @@ export default function PlanView({
                             { label: "Make this slide 1", onClick: () => void moveSlide(p, slides, "first"), disabled: !!busy || running || p.group.slide === 1, title: "This slide becomes the cover; the others keep their order after it" },
                             { label: "Move this slide earlier", onClick: () => void moveSlide(p, slides, "earlier"), disabled: !!busy || running || p.group.slide === 1 },
                             { label: "Move this slide later", onClick: () => void moveSlide(p, slides, "later"), disabled: !!busy || running || p.group.slide === slides.length },
+                            { label: "Take this slide out of the carousel", onClick: () => void unslide(p), disabled: !!busy || running, title: "The slide becomes a post of its own, in its place, with its picture and words; the carousel keeps the others" },
                           ]
                         : []),
                       { label: slides ? "Remove this slide" : "Remove this post", onClick: () => void removePost(p.index), disabled: inFlight, danger: true },
