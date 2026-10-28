@@ -949,12 +949,23 @@ function StudioWorkspace({
       setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
       return;
     }
+    const base: Record<string, string> = {};
+    for (const i of only) if (server.has(i)) base[String(i)] = server.get(i)!;
     setSaveStatus((s) => saveReducer(s, { type: "start", at: Date.now() }));
     try {
-      await put("/api/studio/posts/plan", { batch: batch.id, plan: next, only });
+      await put("/api/studio/posts/plan", { batch: batch.id, plan: next, only, base });
       await refresh();
       setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
     } catch (e) {
+      // This tab's copy of the post is older than the server's: the page is brought up to date and
+      // the edit is not kept (it would land on the wrong post).
+      if ((e as { data?: { stale?: boolean } }).data?.stale) {
+        lastSave.current = null;
+        setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
+        toast.error((e as Error).message);
+        await refresh();
+        return;
+      }
       setSaveStatus((s) => saveReducer(s, { type: "fail", at: Date.now(), error: (e as Error).message }));
       toast.error(`Save failed: ${(e as Error).message}`, { action: { label: "Retry", onClick: () => void retrySave() } });
     }

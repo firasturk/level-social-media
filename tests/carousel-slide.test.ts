@@ -242,6 +242,12 @@ describe("Moving a card", () => {
     const partial = (await planOf(env)).map((p) => ({ ...p, headline: p.index === 1 ? "mine" : "stale" }));
     await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: partial, only: [1] }) }, env);
     expect((await planOf(env)).map((p) => p.headline ?? null)).toEqual(["mine", null, null]);
+    // An edit made on an older copy of a post (the numbers shifted under this tab) is refused, not written onto the wrong post.
+    const older = (await planOf(env)).map((p) => (p.index === 2 ? { ...p, headline: "typed on an old copy" } : p));
+    const refused = await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: older, only: [2], base: { "2": JSON.stringify({ ...older[1], headline: "what this tab thought post 2 was" }) } }) }, env);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ stale: true, posts: [2] });
+    expect((await planOf(env))[1].headline ?? null).toBeNull();
     const out = await app().request("/api/studio/posts/slide-order", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", index: 2, slide: 4 }) }, env);
     expect(out.status).toBe(409);
   });

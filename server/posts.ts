@@ -1979,9 +1979,18 @@ postRoutes.put("/plan", async (c) => {
       plan: z.array(postSchema).max(MAX_POST_COUNT),
       /** The posts the browser changed (28 Oct): only they are saved; the rest of the month stays as the server has it. */
       only: z.array(z.number().int().min(1).max(MAX_POST_COUNT)).max(MAX_POST_COUNT).optional(),
+      /** The server copy each changed post was edited from (its JSON, by number): an edit made on an older copy is refused. */
+      base: z.record(z.string(), z.string().max(200_000)).optional(),
     }),
   );
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
+  // A tab whose copy of a post is older than the server's (another tab moved or removed cards since;
+  // the numbers shifted) must not write its edit onto whatever post holds that number now (28 Oct).
+  if (d.only && d.base) {
+    const current = new Map(((JSON.parse(b.config) as Config).plan ?? []).map((p) => [p.index, JSON.stringify(p)]));
+    const stale = d.only.filter((i) => d.base![String(i)] !== undefined && current.has(i) && current.get(i) !== d.base![String(i)]);
+    if (stale.length) throw new StudioError(`Post ${stale[0]} changed since this page loaded (another tab, or a later action). Refresh the page, then make the edit again.`, 409, false, { stale: true, posts: stale });
+  }
   return c.json({ ok: true, ...(await savePlan(c.env, b, d.plan, d.only)) });
 });
 
