@@ -731,6 +731,16 @@ export function withWords(design: TextDesign, words: { headline?: string; sublin
   return { ...design, layers: design.layers.map((l) => (isTextLayer(l) && next.has(l.id) ? { ...l, text: next.get(l.id)! } : l)) };
 }
 
+/**
+ * A design that says something: a text layer with words, or a picture or shape layer. A design of
+ * a logo and empty text boxes (left behind by an opened and closed Text studio) is no design: the
+ * client's own layout draws the words instead (post 1 of Abu Saleh, 28 Oct).
+ */
+export function designHasContent(design: TextDesign | null | undefined): boolean {
+  if (!design?.layers.length) return false;
+  return design.layers.some((l) => (isTextLayer(l) ? !l.hidden && l.text.trim().length > 0 : l.type === "image" || l.type === "shape"));
+}
+
 export function wordsOf(design: TextDesign): { headline: string; subline: string } {
   const visible = design.layers.filter(isTextLayer).filter((l) => !l.hidden && l.text.trim());
   const loose = visible.filter((l) => !l.group);

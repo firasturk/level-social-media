@@ -338,7 +338,7 @@ describe("a slide dragged onto another post moves carousel (28 Oct)", () => {
   });
 });
 
-import { withWords } from "../shared/layers";
+import { designHasContent, withWords } from "../shared/layers";
 import type { TextDesign } from "../shared/layers";
 
 describe("words typed on the card reach the design (post 1 of Abu Saleh, 28 Oct)", () => {
@@ -350,6 +350,10 @@ describe("words typed on the card reach the design (post 1 of Abu Saleh, 28 Oct)
       { id: "s", type: "text", text: "", x: 0.1, y: 0.25, w: 0.8, font: "Graphic School", weight: 400, size: 0.05, lineHeight: 1.1, align: "center", fill: { type: "solid", color: "#fff" } },
     ],
   };
+  it("knows an empty design from a real one", () => {
+    expect(designHasContent(design)).toBe(false);
+    expect(designHasContent(withWords(design, { headline: "x" }))).toBe(true);
+  });
   it("fills empty layers, keeps typed ones unless the words changed", () => {
     const filled = withWords(design, { headline: "حرّاقة", subline: "من أبو صالح" }, { onlyEmpty: true });
     expect(filled.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "حرّاقة", "من أبو صالح"]);
@@ -366,7 +370,16 @@ describe("words typed on the card reach the design (post 1 of Abu Saleh, 28 Oct)
     const edited = (await planOf(env)).map((p) => (p.index === 1 ? { ...p, headline: "فخارة شعيرية", subline: "بتدفي القلب" } : p));
     const r = await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: edited }) }, env);
     expect(r.status).toBe(200);
+    // A design of empty boxes is dropped: the client's own layout draws the words.
     const saved = (await planOf(env))[0];
-    expect(saved.ov?.design?.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "فخارة شعيرية", "بتدفي القلب"]);
+    expect(saved.ov?.design).toBeUndefined();
+    expect(saved.headline).toBe("فخارة شعيرية");
+    // A design with words of its own takes the new words when they change.
+    const typed = { ...design, layers: design.layers.map((l) => (l.type === "text" && l.id === "h" ? { ...l, text: "old" } : l)) } as TextDesign;
+    const again = (await planOf(env)).map((p) => (p.index === 1 ? { ...p, ov: { design: typed }, headline: "فخارة شعيرية" } : p));
+    await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: again }) }, env);
+    const edited2 = (await planOf(env)).map((p) => (p.index === 1 ? { ...p, headline: "جديد" } : p));
+    await app().request("/api/studio/posts/plan", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ batch: "b1", plan: edited2 }) }, env);
+    expect((await planOf(env))[0].ov?.design?.layers.map((l) => (l.type === "text" ? l.text : l.type))).toEqual(["logo", "جديد", "بتدفي القلب"]);
   });
 });
