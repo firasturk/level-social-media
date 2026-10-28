@@ -165,13 +165,13 @@ interface BatchRow extends Batch {
   last_error: string | null;
 }
 
-/** A member's own months; an admin opens every month of the team (the maker stays its owner). */
+/** A member's own months and the months assigned to them; an admin opens every month of the team (the maker stays its owner). */
 async function ownedBatch(env: Env, user: User, id: string | undefined): Promise<BatchRow> {
   if (!id) throw new StudioError("Batch id is required.");
   const b =
     user.role === "admin"
       ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND deleted IS NULL", id)
-      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ? AND deleted IS NULL", id, user.id);
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND (owner = ? OR id IN (SELECT batch FROM batch_members WHERE user = ?)) AND deleted IS NULL", id, user.id, user.id);
   if (!b) throw new StudioError("Batch not found.", 404);
   return b;
 }
@@ -232,8 +232,8 @@ studioRoutes.get("/state", async (c) => {
        SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
        SUM(CASE WHEN t.status IN ('queued','processing','finalizing') THEN 1 ELSE 0 END) AS queued
      FROM batches b LEFT JOIN tasks t ON t.batch = b.id LEFT JOIN users u ON u.id = b.owner
-     WHERE b.deleted IS NULL AND ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
-    ...(user.role === "admin" ? [] : [user.id]),
+     WHERE b.deleted IS NULL AND ${user.role === "admin" ? "1 = 1" : "(b.owner = ? OR b.id IN (SELECT batch FROM batch_members WHERE user = ?))"} GROUP BY b.id ORDER BY b.created DESC LIMIT 200`,
+    ...(user.role === "admin" ? [] : [user.id, user.id]),
   );
   // The bin: deleted months that can still come back (purged after TRASH_DAYS).
   const trash = await all<Batch>(
@@ -246,9 +246,9 @@ studioRoutes.get("/state", async (c) => {
     c.env.DB,
     `SELECT batch, id FROM (
        SELECT t.batch, t.id, ROW_NUMBER() OVER (PARTITION BY t.batch ORDER BY t.updated DESC) AS rn
-       FROM tasks t JOIN batches b ON b.id = t.batch WHERE ${user.role === "admin" ? "1 = 1" : "b.owner = ?"} AND t.output IS NOT NULL
+       FROM tasks t JOIN batches b ON b.id = t.batch WHERE ${user.role === "admin" ? "1 = 1" : "(b.owner = ? OR b.id IN (SELECT batch FROM batch_members WHERE user = ?))"} AND t.output IS NOT NULL
      ) WHERE rn <= 3`,
-    ...(user.role === "admin" ? [] : [user.id]),
+    ...(user.role === "admin" ? [] : [user.id, user.id]),
   );
   const thumbsByBatch = new Map<string, string[]>();
   for (const r of thumbRows)
@@ -1521,6 +1521,29 @@ studioRoutes.post("/start", async (c) => {
     }).catch((e) => console.error("[start] first pass failed", e)),
   );
   return c.json(await batchPayload(c.env, await ownedBatch(c.env, c.get("user"), b.id), c.get("user")));
+});
+
+/** Who a month is assigned to besides its owner (any member who can open it may look; admins assign). */
+studioRoutes.get("/members", async (c) => {
+  const b = await ownedBatch(c.env, c.get("user"), c.req.query("batch"));
+  const rows = await all<{ id: string; name: string; email: string; created: number }>(c.env.DB, "SELECT u.id, u.name, u.email, m.created FROM batch_members m JOIN users u ON u.id = m.user WHERE m.batch = ? ORDER BY m.created", b.id);
+  const team = c.get("user").role === "admin" ? await all<{ id: string; name: string; email: string; role: string }>(c.env.DB, "SELECT id, name, email, role FROM users WHERE disabled = 0 AND id <> ? ORDER BY name", b.owner) : [];
+  return c.json({ ok: true, owner: b.owner, members: rows, team });
+});
+
+/** The month assigned to these team members (the whole list, so taking one off is the same call). */
+studioRoutes.post("/members", async (c) => {
+  const user = c.get("user");
+  if (user.role !== "admin") throw new StudioError("Only an admin assigns a month.", 403);
+  const d = await body(c, z.object({ batch: z.string().min(1), users: z.array(z.string().min(1)).max(50) }));
+  const b = await ownedBatch(c.env, user, d.batch);
+  const want = [...new Set(d.users.filter((id) => id !== b.owner))];
+  const known = await all<{ id: string }>(c.env.DB, `SELECT id FROM users WHERE disabled = 0${want.length ? ` AND id IN (${want.map(() => "?").join(",")})` : " AND 0"}`, ...want);
+  const ids = known.map((u) => u.id);
+  await run(c.env.DB, "DELETE FROM batch_members WHERE batch = ?", b.id);
+  const t = now();
+  for (const id of ids) await run(c.env.DB, "INSERT INTO batch_members (batch, user, assigned_by, created) VALUES (?, ?, ?, ?)", b.id, id, user.id, t);
+  return c.json({ ok: true, users: ids });
 });
 
 studioRoutes.post("/pause", async (c) => {

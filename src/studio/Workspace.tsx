@@ -47,6 +47,7 @@ import type { JourneyPost } from "./JourneyResults";
 import Radio, { stopRadio } from "./Radio";
 import BriefCard from "./BriefCard";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
+import AssignDialog from "./AssignDialog";
 import { NotifyBadge } from "./Notify";
 import IdeasChat from "./IdeasChat";
 import OcrPanel from "./OcrPanel";
@@ -173,6 +174,8 @@ export default function Workspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
+  /** "Assign": the month given to team members (admins only). */
+  const [assignOpen, setAssignOpen] = useState(false);
   // Back from the Higgsfield, Magnific or Pinterest sign-in (`?higgsfield=connected|error`, `?magnific=…`, `?pinterest=…`): say so, open Connection, clean the address.
   useEffect(() => {
     const returns = [
@@ -1960,6 +1963,8 @@ export default function Workspace({
                 setJourney(true);
               };
               return (
+                <>
+                {assignOpen && batch && <AssignDialog batchId={batch.id} onClose={() => setAssignOpen(false)} />}
                 <StudioBoard
                   tab={studioTab}
                   onTab={setStudioTab}
@@ -1970,6 +1975,7 @@ export default function Workspace({
                   onExport={() => void exportMonth()}
                   exporting={exporting}
                   onClientLink={() => void shareMonth()}
+                  onAssign={user.role === "admin" ? () => setAssignOpen(true) : undefined}
                   onFeed={openFeed}
                   changes={changes}
                   onClientChanges={() => void doClientChanges()}
@@ -2036,6 +2042,7 @@ export default function Workspace({
                     />
                   ) : null}
                 </StudioBoard>
+                </>
               );
             })()}
             {scheduleApproved && batch && (

@@ -76,15 +76,14 @@ afterEach(() => {
 });
 
 describe("what reaches a prompt", () => {
-  it("carries only approved, active items and never a pending or rejected one", async () => {
+  it("carries a finding at once (in use the day it is found), never a rejected or deactivated one", async () => {
     const env = await seed();
     const { lessonsFor, rememberLesson } = await import("../server/lessons");
     await rememberLesson(env, "c1", "b1", "text", 'Writing in the picture: "Swipe"', "review");
-    expect(await lessonsFor(env, "c1")).toEqual([]);
     const a = await app();
     const [pending] = await rows(env);
-    expect(pending.status).toBe("pending");
-    expect((await send(a, env, "PUT", `/api/studio/lessons/${pending.id}`, { status: "approved" })).status).toBe(200);
+    // 28 Oct: a finding is a rule at once; the team rejects the wrong ones instead of approving each.
+    expect(pending.status).toBe("approved");
     expect(await lessonsFor(env, "c1")).toEqual(['No writing: an earlier picture carried "Swipe". Nothing is written, lettered or drawn as a word, arrow or sign anywhere in the picture.']);
     await send(a, env, "PUT", `/api/studio/lessons/${pending.id}`, { status: "rejected" });
     expect(await lessonsFor(env, "c1")).toEqual([]);
@@ -147,7 +146,7 @@ describe("how lessons are proposed", () => {
     const { rememberLessons } = await import("../server/lessons");
     await rememberLessons(env, "c1", "b1", [{ kind: "text", text: 'Writing in the picture: "Swipe"' }, { kind: "bag", text: "The product sits in a paper bag." }]);
     const before = await rows(env);
-    expect(before.map((r) => r.status)).toEqual(["pending", "pending"]);
+    expect(before.map((r) => r.status)).toEqual(["approved", "approved"]);
     const a = await app();
     const r = await send(a, env, "POST", "/api/studio/posts/accept", { batch: "b1", index: 1 });
     expect(r.status).toBe(200);
@@ -163,7 +162,8 @@ describe("how lessons are proposed", () => {
     await rememberLessons(env, "c1", "b1", [{ kind: "people", text: "The post shows a young boy instead of a 6-year-old girl." }]);
     const all = await rows(env);
     expect(all).toHaveLength(1);
-    expect(all[0]).toMatchObject({ text: "The post shows a young boy instead of a 6-year-old girl.", status: "pending", category: "lesson", scope: "", source: "review", revision: 1, approver: null, approved_at: null });
+    // A finding is in use at once (28 Oct): the team rejects the wrong ones instead of approving each.
+    expect(all[0]).toMatchObject({ text: "The post shows a young boy instead of a 6-year-old girl.", status: "approved", category: "lesson", scope: "", source: "review", revision: 1, approver: null, approved_at: null });
     // Seen again: counted on the same item, still pending.
     await rememberLessons(env, "c1", "b1", [{ kind: "people", text: "The post shows a young boy instead of a 6-year-old girl." }]);
     const again = await rows(env);
@@ -174,9 +174,9 @@ describe("how lessons are proposed", () => {
     await rememberLesson(env, "c1", "b1", "idea", "Post 2 drifted from its idea and was made again from its original reference: the sign was missing", "retry");
     const three = await rows(env);
     expect(three.map((r) => [r.status, r.category, r.source])).toEqual([
-      ["pending", "lesson", "review"],
-      ["pending", "lesson", "client"],
-      ["pending", "lesson", "retry"],
+      ["approved", "lesson", "review"],
+      ["approved", "lesson", "client"],
+      ["approved", "lesson", "retry"],
     ]);
     expect(three.some((r) => r.category === "brand_rule")).toBe(false);
     // The run's own notes are not lessons.
@@ -200,9 +200,10 @@ describe("how lessons are proposed", () => {
     const after = new Map((await rows(env)).map((r) => [r.id, r]));
     expect(after.get(x.id)).toMatchObject({ status: "rejected", approver: "Firas" });
     expect(after.get(y.id)).toMatchObject({ status: "approved", approver: "Firas" });
-    expect(after.get(z.id)).toMatchObject({ status: "pending", approver: null, approved_at: null });
-    const list = (await json(await send(a, env, "GET", "/api/studio/lessons?client=c1&status=pending"))) as unknown as MemoryItem[];
-    expect(list.map((i) => i.id)).toEqual([z.id]);
+    // Untouched findings stay in use as found (28 Oct), with no approver recorded.
+    expect(after.get(z.id)).toMatchObject({ status: "approved", approver: null, approved_at: null });
+    const list = (await json(await send(a, env, "GET", "/api/studio/lessons?client=c1&status=rejected"))) as unknown as MemoryItem[];
+    expect(list.map((i) => i.id)).toEqual([x.id]);
     const lessons = (await json(await send(a, env, "GET", "/api/studio/lessons?client=c1&category=lesson&active=1"))) as unknown as MemoryItem[];
     expect(lessons).toHaveLength(3);
   });

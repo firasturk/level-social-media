@@ -826,7 +826,7 @@ export async function ownedPlan(env: Env, user: User, id: string | undefined): P
   const b =
     user.role === "admin"
       ? await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND deleted IS NULL", id)
-      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND owner = ? AND deleted IS NULL", id, user.id);
+      : await first<BatchRow>(env.DB, "SELECT * FROM batches WHERE id = ? AND (owner = ? OR id IN (SELECT batch FROM batch_members WHERE user = ?)) AND deleted IS NULL", id, user.id, user.id);
   if (!b) throw new StudioError("Plan not found.", 404);
   const config = JSON.parse(b.config) as Config;
   if (config.mode !== "post") throw new StudioError("This is not a month of posts.", 409);
@@ -5493,7 +5493,7 @@ async function writeStyleScenes(
   b: BatchRow,
   config: Config,
   assign: { index: number; style: string | null }[],
-): Promise<Map<number, { style?: string; scene?: string; brief?: string }>> {
+): Promise<Map<number, { style?: string; scene?: string; brief?: string; people?: string[] }>> {
   const plan = config.plan ?? [];
   const client = await clientRow(env, config.client);
   const theme = config.theme ? await first<ThemeRow>(env.DB, "SELECT * FROM skills WHERE id = ?", config.theme) : null;
@@ -5507,7 +5507,7 @@ async function writeStyleScenes(
   const sellsDrinks = sources.some((s) => FOREIGN_ITEMS.test(`${s.note ?? ""} ${s.category ?? ""}`));
   const cast = await monthAmbassadors(env, config);
   const palette = monthPalette(config, theme).length ? monthPalette(config, theme) : paletteOf(client);
-  const scenes = new Map<number, { style?: string; scene?: string; brief?: string }>();
+  const scenes = new Map<number, { style?: string; scene?: string; brief?: string; people?: string[] }>();
   await Promise.all(
     assign.map(async (a) => {
       const post = plan.find((p) => p.index === a.index);
@@ -5530,6 +5530,11 @@ async function writeStyleScenes(
       if (!productText.length && post.ingredients?.trim()) productText.push(`ONLY THE INGREDIENTS of the brand's product, on their own, no cup, glass or packaging: ${post.ingredients.trim()}`);
       // A campaign's slides share its ingredients: nothing else edible joins the product on any slide.
       const onlyFood = post.ingredients?.trim() || (post.group ? plan.find((x) => x.group?.id === post.group?.id && x.ingredients?.trim())?.ingredients?.trim() : undefined);
+      // A style built around a person (the brand ambassador) casts one of the month's ambassadors
+      // when the post names nobody: the team picked the style for that person, and the preflight
+      // would otherwise take them out again (post 10 of Abu Saleh, 28 Oct).
+      const wantsPerson = !reference && !(post.people ?? []).length && cast.length > 0 && (style.kind === "people" || /brand ambassador|\b(person|woman|man|hand)\b/i.test(style.prompt));
+      const castNames = wantsPerson ? [cast[0].name] : (post.people ?? []);
       const text = await askText(
         env,
         adaptStyleInstruction({
@@ -5539,7 +5544,7 @@ async function writeStyleScenes(
           post: { type: POST_TYPE_INFO[post.type]?.label ?? post.type, headline: post.headline ?? "", brief: withoutProductNames(post.brief, names).slice(0, 500) },
           brand: { name: client.name, style: client.style, always: photoRules(client.dos), never: photoRules(client.donts) },
           palette: reference ? (config.campaign?.colours?.map((x) => `${x.name} ${x.hex}`.trim()) ?? []) : palette,
-          people: (post.people ?? [])
+          people: castNames
             .map((n) => cast.find((x) => x.name.toLowerCase() === n.toLowerCase()))
             .filter((x): x is AmbassadorRow => !!x)
             .map((x) => `${x.name} (${x.description})`),
@@ -5559,7 +5564,7 @@ async function writeStyleScenes(
       // The post's idea becomes the style's own, so the old idea's staging never joins the picture.
       // A campaign post keeps the designer's brief: only its shot is written.
       const brief = reference ? "" : String(answer.brief ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
-      scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}) });
+      scenes.set(a.index, { style: style.id, scene, ...(brief ? { brief } : {}), ...(wantsPerson ? { people: castNames } : {}) });
     }),
   );
   return scenes;
@@ -5605,7 +5610,7 @@ export async function assignStyles(env: Env, user: User, batchId: string, assign
     // The tile's text layout (huge words at the centre…) goes with the tile: a styled post keeps
     // the plain layout, and gets the tile's back when the style is taken off.
     const typo = p.ov?.typo ? { typo: p.ov.typo, typoFor: p.ov.typoFor } : {};
-    if (s.style) return { ...rest, style: s.style, scene: s.scene, ov: Object.keys(typo).length ? typo : undefined, ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
+    if (s.style) return { ...rest, style: s.style, scene: s.scene, ov: Object.keys(typo).length ? typo : undefined, ...(s.people ? { people: s.people } : {}), ...(s.brief ? { brief: s.brief, briefBeforeStyle: before ?? p.brief } : before ? { briefBeforeStyle: before } : {}) };
     const tileOv = p.tileSpec ? overlayFromTile(p.tileSpec.text, p.tileSpec.kind) : {};
     return { ...rest, ...tileOv, ov: { ...(tileOv.ov ?? {}), ...typo }, ...(before ? { brief: before } : {}) };
   });

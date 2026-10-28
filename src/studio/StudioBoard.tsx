@@ -5,7 +5,7 @@
  * lists over the same plan. Everything the old toolbar did is one click away under More.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText } from "lucide-react";
+import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, UserPlus } from "lucide-react";
 import { formatUsd } from "@shared/pricing";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
@@ -32,6 +32,7 @@ export default function StudioBoard({
   onExport,
   exporting,
   onClientLink,
+  onAssign,
   onFeed,
   changes,
   onClientChanges,
@@ -55,6 +56,8 @@ export default function StudioBoard({
   onExport: () => void;
   exporting: boolean;
   onClientLink: () => void;
+  /** An admin assigns the month to team members (the copywriter) who then open it with full access. */
+  onAssign?: () => void;
   /** The feed opens as its own screen; its tab is a door, not a view. */
   onFeed: () => void;
   changes: number;
@@ -118,6 +121,11 @@ export default function StudioBoard({
           <button type="button" className="cta secondary" onClick={onClientLink} title="Copy a link the client opens to approve the posts">
             <Link2 size={14} /> Client link
           </button>
+          {onAssign && (
+            <button type="button" className="cta secondary" onClick={onAssign} title="Assign this month to team members: they open it with full access to fix the words and pictures">
+              <UserPlus size={14} /> Assign
+            </button>
+          )}
           {makeCount > 0 ? (
             <button type="button" className="cta primary" onClick={onMake} disabled={loading} title={`The ${makeCount} picture${makeCount === 1 ? "" : "s"} still to make this month (never made, failed, or made for an older idea). Opens the Plan, where the cost is shown and confirmed; pictures already made stay.`}>
               Make {makeCount} remaining · about {formatUsd(makeCost)}

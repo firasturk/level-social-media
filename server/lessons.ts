@@ -93,7 +93,8 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
   }
   await run(
     env.DB,
-    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source, category, scope, revision) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'pending', ?, 'lesson', '', 1)",
+    // A finding is a rule at once (28 Oct): the team rejects the wrong ones instead of approving each.
+    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source, category, scope, revision) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'approved', ?, 'lesson', '', 1)",
     uuid(),
     client,
     kind,
