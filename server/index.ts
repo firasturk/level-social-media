@@ -85,6 +85,30 @@ app.post("/api/hooks/engine", async (c) => {
 // The client's approval link: no session, the secret token in the path is the access.
 app.route("/api/share", shareRoutes);
 
+// A presentation shared with a client by an unguessable link (2 Nov): static files kept in the
+// bucket under decks/<token>/, served as they are. No session; the token in the path is the access.
+const DECK_TYPES: Record<string, string> = { html: "text/html; charset=utf-8", css: "text/css", js: "text/javascript", json: "application/json", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", svg: "image/svg+xml", mp4: "video/mp4", woff2: "font/woff2", woff: "font/woff" };
+app.get("/d/:token/*", async (c) => {
+  const token = c.req.param("token");
+  if (!/^[a-z0-9]{16,40}$/.test(token)) return c.text("Not found.", 404);
+  const rest = decodeURIComponent(c.req.path.slice(`/d/${token}/`.length)) || "index.html";
+  if (rest.includes("..") || rest.startsWith("/")) return c.text("Not found.", 404);
+  const obj = await c.env.BUCKET.get(`decks/${token}/${rest}`);
+  if (!obj) return c.text("Not found.", 404);
+  const ext = rest.split(".").pop()?.toLowerCase() ?? "";
+  const type = obj.httpMetadata?.contentType || DECK_TYPES[ext] || "application/octet-stream";
+  return new Response(obj.body, {
+    headers: {
+      "Content-Type": type,
+      "Content-Length": String(obj.size),
+      "Cache-Control": ext === "html" ? "public, max-age=120" : "public, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
+      "X-Robots-Tag": "noindex",
+    },
+  });
+});
+app.get("/d/:token", (c) => c.redirect(`/d/${c.req.param("token")}/`, 302));
+
 app.use("/api/admin/*", async (c, next) => {
   const user = await currentUser(c.env, getCookie(c, SESSION_COOKIE));
   if (!user) throw new StudioError("Sign in to use the studio.", 401);
