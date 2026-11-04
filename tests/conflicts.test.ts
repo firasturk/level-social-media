@@ -9,6 +9,19 @@ describe("input conflicts", () => {
     expect(presentIn("A woman's hand holds the cup against a yellow wall.")).toEqual(["people", "hands"]);
     expect(presentIn("The cup on a kerb, no people, hard shadow.")).toEqual([]);
   });
+  it("a rule that narrows how people appear is not a ban on people (United Insurance, 4 Nov)", () => {
+    // The brand kit bans "people staring at the camera" and wants families seen from behind.
+    const donts = "No posed stock smiles, no AI-looking faces, no people staring at the camera unless they are an advisor in the branch\nNo fear: no accidents";
+    expect(constraintsOf(donts)).toEqual([]);
+    expect(constraintsOf("A family on the sofa seen from behind. Nobody faces the camera, and the moment feels unposed.")).toEqual([]);
+    expect(constraintsOf("No one looking at the lens; no models wearing black.")).toEqual([]);
+    // A plain ban still reads as one, before or after a narrowed line.
+    expect(constraintsOf("No people staring at the camera. No people in any picture.")).toEqual(["people"]);
+    expect(constraintsOf("Nobody in the frame.")).toEqual(["people"]);
+    expect(constraintsOf("no people, hands or other food appear")).toEqual(["people"]);
+    const c = detectConflicts({ brand: { donts }, post: { brief: "A family of four on a sofa, seen from behind. Nobody faces the camera." }, theme: { shots: ["A couple wrapped in a blanket on a terrace."] } });
+    expect(blockingConflicts(c)).toEqual([]);
+  });
   it("a style that brings a hand into a no-people brief is a conflict, not a quiet fix", () => {
     const c = detectConflicts({ campaign: brief, post: { brief: "The mango cup in the bike-lane sign.", scene: "" }, style: { title: "Held up", prompt: "A hand holds the cup up against the sky, soft light." } });
     expect(c).toEqual([{ kind: "people", source: "style", against: "brief", allowed: false, text: "The style brings in a hand; the brief asks for no people." }]);

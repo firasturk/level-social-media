@@ -108,10 +108,20 @@ export function precedenceLine(lead: LeadInput, has: { grid?: boolean; theme?: b
   return `On one post ${chain}; ${words}, and brand rules apply on top of all of them.`;
 }
 
+/**
+ * A people rule that bans a manner, not people: "no people staring at the camera", "nobody faces
+ * the camera", "no models wearing black". United Insurance's brand kit (4 Nov) asked for people
+ * seen from behind and banned only "people staring at the camera"; read as a blanket "no people",
+ * it blocked all eight posts of a month whose brief asks for families.
+ */
+const NARROWED_PEOPLE =
+  /\b(?:no|without|never|not?\s+any|zero)\s+(?:people|persons?|humans?|models?|faces?|anyone|someone|men|women|kids|children|staff|customers?)\s+(?:staring|looking|facing|gazing|posing|smiling|laughing|wearing|dressed|holding|carrying|standing|sitting|walking|running|leaning|touching|talking|eating|drinking|pointing|turned|who|whose|that|which|with|except|other than|older|younger|closer|bigger|larger|under|over|above|below|behind|beside|near)\b|\b(?:nobody|no one)\s+(?:faces|looks|stares|gazes|poses|smiles|turns|is\s+(?:looking|facing|staring|posing|smiling)|who|that|except|other than|older|younger|closer|under|over|behind|beside|near|with|holding|wearing|looking|facing|staring)\b/gi;
+
 /** The constraints a text states (what it asks to leave out). */
 export function constraintsOf(text: string | null | undefined): ConflictKind[] {
   if (!text) return [];
-  return NEGATIVE.filter((n) => n.re.test(text)).map((n) => n.kind);
+  const plain = text.replace(NARROWED_PEOPLE, " ");
+  return NEGATIVE.filter((n) => n.re.test(n.kind === "people" ? plain : text)).map((n) => n.kind);
 }
 
 /** The elements a text brings in. */
