@@ -2680,8 +2680,9 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
       // after its picture is made again without being asked. A picture with unknown lineage (made
       // before it was kept) stays as it is until the designer asks.
       const changed = olderIdea(existing, post, config);
-      // A smaller test image is made again at the month's size with the rest.
-      if (!d.regenerate && !changed && existing.status !== "failed" && !(isDraft(existing) && !d.test)) {
+      // A smaller test image is made again at the month's size with the rest. A picture still queued
+      // (a retake waiting for budget, say) is not made yet: the run counts it and approves it.
+      if (!d.regenerate && !changed && existing.status !== "failed" && existing.status !== "queued" && !(isDraft(existing) && !d.test)) {
         outcomes.push({ index: post.index, title: post.title, status: "made" });
         continue;
       }
