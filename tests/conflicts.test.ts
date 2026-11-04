@@ -101,3 +101,27 @@ describe("amounts hidden from members", () => {
     expect(withoutAmounts(null)).toBeNull();
   });
 });
+
+describe("the idea's own people (United Insurance, 4 Nov)", () => {
+  it("a review lesson that quotes 'nobody' is an observation, not a ban", () => {
+    const rule = "People: an earlier picture went wrong this way: A man, a woman and a child sit on the bench seen from behind, although the idea asks for an empty terrace with nobody there. The people are exactly the ambassadors described, with correct hands and faces.";
+    const c = detectConflicts({ rules: [rule], post: { brief: "A family of four on a sofa, seen from behind." }, theme: { shots: ["A couple wrapped in a blanket on a terrace."] } });
+    expect(blockingConflicts(c)).toEqual([]);
+    const team = detectConflicts({ rules: ["The team's rule: no people in any picture."], post: { brief: "x" }, theme: { shots: ["A couple on a terrace."] } });
+    expect(blockingConflicts(team).map((x) => [x.kind, x.against])).toEqual([["people", "rule"]]);
+  });
+  it("the prompt, the preflight and the review allow the people the idea describes", async () => {
+    const { buildPostPrompt, IDEA_PEOPLE_RULE, NO_PEOPLE_RULE } = await import("../shared/posts");
+    const { postReviewInstruction, preflightInstruction } = await import("../shared/qa");
+    const base: Parameters<typeof buildPostPrompt>[0] = { post: true, index: 5, type: "lifestyle", title: "Indoor Winter Lifestyle", brief: "A doctor and a patient talk across a desk.", palette: [], style: "", theme: "", format: "4:5", ref: "", refIsSource: false, hasProduct: false };
+    expect(buildPostPrompt({ ...base, ideaPeople: true })).toContain(IDEA_PEOPLE_RULE);
+    expect(buildPostPrompt({ ...base, ideaPeople: true })).not.toContain(NO_PEOPLE_RULE);
+    expect(buildPostPrompt(base)).toContain(NO_PEOPLE_RULE);
+    const review = postReviewInstruction({ products: 0, productNotes: [], type: "lifestyle", people: [], ideaPeople: true, idea: base.brief });
+    expect(review).toContain("People who match the idea are never a problem");
+    expect(review).not.toContain("this post shows nobody");
+    const pf = preflightInstruction({ client: "United Insurance", scene: base.brief, products: [], people: [], ideaPeople: true, reference: "", lessons: [] });
+    expect(pf).toContain("THE PEOPLE are the ones the scene itself describes");
+    expect(pf).not.toContain("NO PEOPLE are allowed");
+  });
+});

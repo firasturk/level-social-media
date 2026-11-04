@@ -360,6 +360,13 @@ export interface PostBrief {
   extraProducts?: { name: string; note?: string; key: string }[];
   /** Brand ambassadors in this post, attached after the products: name, look and portrait key. */
   ambassadors?: { name: string; description: string; key: string }[];
+  /**
+   * No ambassador is cast, but the idea itself describes people (a family seen from behind, a
+   * doctor and a patient): they are the picture's people, as the idea says, and no one else.
+   * United Insurance (4 Nov): every picture of a month of families was flagged as "people when
+   * none are allowed", retaken on each flag and the budget went on the retakes.
+   */
+  ideaPeople?: boolean;
   /** Grid mode: what the reference grid looks like and which tile this post follows. */
   grid?: string;
   tile?: string;
@@ -585,6 +592,10 @@ export const POST_PEOPLE_RULE =
 /** No ambassador in the post: nobody appears; a hand is the most the picture may show. */
 export const NO_PEOPLE_RULE =
   "PEOPLE: none. No person, model, face, body, crowd or silhouette appears, whatever the style reference shows. At most one natural hand holding or placing the product, and only when the post asks for it.";
+
+/** No ambassador, but the idea describes people: they appear as the idea says, and no one else. */
+export const IDEA_PEOPLE_RULE =
+  "PEOPLE: exactly the people the post's idea describes, as it describes them (how many, their age and gender, how they are framed, seen from behind or in profile when it says so), and no one else: no extra friends, crowd, staff or passers-by, whatever the style reference shows. Each has one head, two arms, two hands with five fingers and two legs, a natural face and expression, modest everyday clothes; no posed stock smiles, no one staring at the camera.";
 
 /** Ambassadors in the post: only them, from their portraits. */
 export const ONLY_AMBASSADORS_RULE =
@@ -944,8 +955,8 @@ export function buildPostPrompt(raw: PostBrief, rawEdit = "", images: PromptImag
     NO_GEAR_RULE,
   );
   parts.push(POST_SHADOW_RULE);
-  parts.push(people.length ? ONLY_AMBASSADORS_RULE : NO_PEOPLE_RULE);
-  if (people.length) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
+  parts.push(people.length ? ONLY_AMBASSADORS_RULE : b.ideaPeople ? IDEA_PEOPLE_RULE : NO_PEOPLE_RULE);
+  if (people.length || b.ideaPeople) parts.push(REAL_PEOPLE_RULE, SAFE_WORDING_RULE);
   if (people.length && b.hasProduct && sellsClothing([productText, ...extras.map((e) => e.note ?? "")]))
     parts.push(
       `DRESSED IN THE BRAND: ${people.length === 1 ? "the ambassador wears" : `the ${people.length} ambassadors each wear one of`} the attached product garment${extras.length ? "s" : ""}, exactly as photographed (print, colours, cut), with the printed side in view; nobody wears a plain tee or another garment in its place, and the attached products are never shown only held or laid aside while a person wears something else. THE PRINT IS COPIED, NEVER REDESIGNED: the graphic on the garment is the one in its photo, with the same motif, the same colours (a red stays red, an orange stays orange), the same size and the same place on the body; no new flowers, no extra motifs, no recolouring, and a flat printed graphic stays flat (never turned into embroidery or stitching). ${people.length > extras.length + 1 ? `There are more people than garments: the ${extras.length + 1 === 1 ? "one garment" : `${extras.length + 1} garments`} go to ${extras.length + 1 === 1 ? "one ambassador" : "the first ambassadors"} and the other${people.length - extras.length - 1 > 1 ? "s" : ""} wear plain unprinted clothes in the month's colours.` : ""}`,

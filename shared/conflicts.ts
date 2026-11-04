@@ -204,7 +204,9 @@ export function detectConflicts(g: GuideInput): Conflict[] {
   for (const k of constraintsOf(styleWritten ? p.brief : `${p.brief} ${p.scene ?? ""}`)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "post" });
   for (const k of constraintsOf(g.brand?.donts)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "brand kit" });
   for (const k of constraintsOf(g.brand?.rules)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "brand kit" });
-  for (const r of g.rules ?? []) for (const k of constraintsOf(r)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "rule" });
+  // A review lesson quotes the wrong picture ("…although the idea asks for a terrace with nobody
+  // there"): an observation, not a ban. Only the team's and the brand's own rules constrain.
+  for (const r of (g.rules ?? []).filter((x) => !/an earlier picture/i.test(x))) for (const k of constraintsOf(r)) if (!wants.some((w) => w.kind === k)) wants.push({ kind: k, against: "rule" });
   // A post that names people wants people: "no people" from the month does not apply to it.
   const peopleWanted = (p.people?.length ?? 0) > 0;
   const sources: { source: Conflict["source"]; text: string }[] = [];

@@ -28,7 +28,7 @@ import { readPicture, storeBytes, styleRow, type StyleRow } from "./styles";
 import { instagramPostSlides } from "./meta";
 import { BRIEF_PLAN_SCHEMA, briefMonth, briefPlanInstruction, parseBriefPlan } from "@shared/campaign";
 import { draftDiff, type DraftDiff, type DraftKind, type DraftMode, type DraftStatus, type PlanDraft } from "@shared/draft";
-import { blockingConflicts, detectConflicts, guideFor, type Conflict, type GuideLayer } from "@shared/conflicts";
+import { blockingConflicts, detectConflicts, guideFor, presentIn, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { traceEvent } from "./trace";
 import { CLIENT_CHANGES_SCHEMA, clientChangesInstruction, parseClientChanges, plansRemake, type ClientAsk } from "@shared/client-changes";
 import { IDEAS_CHAT_SCHEMA, ideasChatInstruction, parseIdeasChat, type ChatFrame, type ChatMake, type ChatRemove } from "@shared/ideas-chat";
@@ -2961,6 +2961,17 @@ async function preparePlan(env: Env, user: User, b: BatchRow, config: Config, d:
     };
     // The real-people photo only goes with a post that shows the brand's people.
     if (!brief.ambassadors?.length) delete brief.realRef;
+    // No ambassador cast, but the idea describes people (a family from behind, a doctor and a
+    // patient): they are the picture's people. The prompt, the preflight and the review allow them
+    // as described, and the review's earlier "people when none are allowed" lessons do not apply.
+    if (!brief.ambassadors?.length && !portraitDay && presentIn(`${brief.brief} ${brief.shot ?? ""}`).includes("people")) {
+      brief.ideaPeople = true;
+      if (brief.lessons?.length) {
+        brief.lessons = brief.lessons.filter((l) => !/^People: an earlier picture/.test(l));
+        if (!brief.lessons.length) delete brief.lessons;
+      }
+      changes.push("The idea describes people: they appear as the idea says (no ambassador is cast).");
+    }
     // With ambassadors in the picture, a reference that shows people is described, not attached:
     // the engine copies a reference's people (their age, their gender) over the portraits.
     if (brief.ambassadors?.length && ((styled?.kind === "people" && brief.styleKey) || ((brief.tileKey || (brief.ref && brief.grid)) && post.tileSpec?.kind === "person"))) {

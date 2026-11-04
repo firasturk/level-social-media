@@ -212,6 +212,8 @@ export interface ReviewContext {
   type: string;
   /** The people the post may show, with their look; empty means nobody (a hand at most). */
   people: { name: string; description: string }[];
+  /** No ambassador, but the idea describes people: they are allowed as the idea says. */
+  ideaPeople?: boolean;
   /** The client sells drinks: cups and glasses are then allowed. */
   sellsDrinks?: boolean;
   /** Coffee Day may show coffee. */
@@ -259,11 +261,13 @@ export function postReviewInstruction(r: ReviewContext): string {
       : "foreign: list every drink, cup, mug, glass, bottle, straw or food that is not the brand's product (\"a glass of juice\", \"a coffee cup\"), else []. Only drinks, their vessels and food count: leaves, flowers, fabric, candles and other props never do, and neither do the product's own ingredients (its nuts, syrup, cream, fruit or pieces of the product itself, as its photo and description show).",
     r.people.length
       ? `people: the post may show only ${r.people.map((p) => `${p.name} (${p.description})`).join("; ")}. Describe in one sentence any problem: more people than these, a man in a headscarf, hijab or dress, clothes that break the look (bare shoulders, a low neckline or short skirt when the look says modest; a hijab missing or added against the look), or broken hands, fingers or faces. Else "".`
+      : r.ideaPeople
+      ? 'people: the post\'s idea (below) describes people, and they may appear as it says: the number, age and gender it describes, framed as it describes them (from behind, in profile, small in the scene). Describe in one sentence only people the idea does not ask for, a man in a headscarf, hijab or dress, immodest clothes (bare shoulders, a low neckline, a short skirt), posed stock smiles, or broken hands, fingers or faces. People who match the idea are never a problem. Else "".'
       : 'people: this post shows nobody, but one or two hands holding, touching or dipping the product or its ingredient are allowed and never a problem. Describe only a face, a body or more than two hands, or hands with broken or extra fingers. Else "".',
     r.tile
       ? `tile: this post recreates one tile of a reference feed grid: "${r.tile.slice(0, 500)}". Describe in one sentence how the post drifts from that tile's role and staging (a drink tile showing a box, a close-up shot from far away, a place tile with no room), else "". Colours, products and people are the client's own and never count as drift.`
       : 'tile: "".',
-    r.people.length ? AI_LOOK_CHECK : 'aiLook: "".',
+    r.people.length || r.ideaPeople ? AI_LOOK_CHECK : 'aiLook: "".',
     (r.campaignStaging
       ? 'staging: this post stages the designer\'s own reference, so a splash out of the cup, the cup open without its lid, a floating ingredient, crushed ice or a cup in the air are allowed and never a problem. Describe in one short sentence only a cup set inside a plate or bowl as if it were food, or a product doing what its material cannot do. Else "".'
       : 'staging: describe in one short sentence any staging that would not happen in real life: a cup, glass or drink set inside a plate, bowl or saucer as if it were food; a product floating, hanging or balanced where nothing holds it; a tray or box standing on its edge. Else "".') +
@@ -501,6 +505,8 @@ export function preflightInstruction(r: {
   products: string[];
   /** The people the picture may show, with their look ("" for nobody). */
   people: string[];
+  /** No ambassador, but the scene itself describes people: they are the picture's people. */
+  ideaPeople?: boolean;
   /** A style or tile image is attached: the engine will copy what it sees in it. */
   reference: "style" | "tile" | "grid" | "";
   /** The client's lessons: what went wrong before. */
@@ -520,7 +526,11 @@ export function preflightInstruction(r: {
       : r.products.length
         ? `THE PRODUCTS (as photographed; they are reproduced exactly):\n${r.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}`
         : "THE POST HAS NO PRODUCT PHOTO.",
-    r.people.length ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.` : "NO PEOPLE are allowed (a hand at most).",
+    r.people.length
+      ? `THE ONLY PEOPLE ALLOWED (their portraits are attached to the engine): ${r.people.join("; ")}.`
+      : r.ideaPeople
+        ? "THE PEOPLE are the ones the scene itself describes, as it describes them (how many, age, gender, how they are framed); no one else. People who match the scene are never a problem; only a reference's different people (a crowd, adults for children, the wrong number) are."
+        : "NO PEOPLE are allowed (a hand at most).",
     r.reference && r.campaign
       ? `THE ATTACHED IMAGE is the designer's own reference picture for a campaign brief: the engine recreates it with the brand's product${r.campaign.ingredients?.trim() ? ` and the brief's ingredients (${r.campaign.ingredients.trim()}, wanted around or in the product, never foreign)` : ""}. It stays attached whatever words, prices, buttons or products it carries (the engine's own rules keep those out), so dropReference is always false. Its staging (a splash, a pool of the drink, an open cup, an ingredient in the air, an ingredient rain) is the designer's choice and never a problem. Any ingredient, fruit, garnish or drink the reference shows that is NOT in the brief's list is not wanted: name it in problems and write the scene again saying it is absent (the reference's chilies beside a mango drink are not in the picture; its lychees beside a strawberry drink become strawberries).`
       : r.reference === "style"

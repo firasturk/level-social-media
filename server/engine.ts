@@ -1934,6 +1934,7 @@ export function preflightInputs(pb: PostBrief): string {
     product: pb.product ?? "",
     extra: (pb.extraProducts ?? []).map((e) => e.name),
     people: (pb.ambassadors ?? []).map((a) => a.name),
+    ideaPeople: !!pb.ideaPeople,
     style: pb.styleKey ?? "",
     tile: pb.tileKey ?? "",
     ref: pb.ref ?? "",
@@ -1979,6 +1980,7 @@ export async function preflightBrief(env: Env, batch: BatchRow, pb: PostBrief): 
             scene: pb.grid && pb.tile ? `${scene}\nTILE OF THE GRID THIS POST FOLLOWS: ${tileForPeople(pb.tile, (pb.ambassadors ?? []).length)}` : scene,
             products,
             people: (pb.ambassadors ?? []).map((a) => `${a.name} (${a.description})`),
+            ideaPeople: pb.ideaPeople,
             reference,
             // In exact mode the product is a photo set in afterwards: lessons about drawing it do not apply.
             lessons: (pb.lessons ?? []).filter((l) => !pb.exact || !/^(Product truth|True size|No writing)/.test(l)),
@@ -2328,6 +2330,7 @@ async function reviewPostImage(env: Env, task: TaskRow, result: ImageBytes): Pro
     productNotes: notes,
     type: pb.type,
     people: (pb.ambassadors ?? []).map((a) => ({ name: a.name, description: a.description })),
+    ideaPeople: pb.ideaPeople,
     sellsDrinks: pb.sellsDrinks,
     ingredients: pb.ingredients,
     allowedFood: pb.campaign?.ingredients,
