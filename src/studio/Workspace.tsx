@@ -1160,8 +1160,13 @@ function StudioWorkspace({
   }, [batch, active, tasks, client?.name, month]);
 
   /** Restart a paused month: queued posts carry on, failed ones get a fresh prompt. */
+  /** The month stopped because its approved budget ran out: a plain resume would stop again at once. */
+  const budgetPaused = !!batch && batch.state === "paused" && /approved budget/i.test(batch.last_error ?? "");
+
   async function resumeMonth() {
     if (!batch) return;
+    // Out of budget: the posts still waiting go through Generate, whose approval adds to the month's budget.
+    if (budgetPaused) return generatePosts(undefined, false, false);
     setBusy("resume");
     try {
       await action("retry");
@@ -2327,6 +2332,7 @@ function StudioWorkspace({
                   return !!t && t.updated > (config?.plannedAt ?? 0);
                 })()}
                 onResume={() => void resumeMonth()}
+                resumeLabel={budgetPaused ? "Approve and continue" : "Resume"}
                 approvals={config?.approvals}
                 monthOccasions={config?.occasions}
                 onRewrite={(i, next) => void rewritePost(i, next)}

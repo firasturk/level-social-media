@@ -141,6 +141,7 @@ export default function PlanView({
   perPicture = 0,
   paused,
   onResume,
+  resumeLabel,
   themeChanged,
   approvals = {},
   onRewrite,
@@ -225,6 +226,8 @@ export default function PlanView({
   /** Why generation stopped (the engine's message), when the month is paused. */
   paused: string | null;
   onResume: () => void;
+  /** The banner's button: "Resume", or "Approve and continue" when the month ran out of approved budget. */
+  resumeLabel?: string;
   onUploadProducts: (files: File[]) => void;
   onGenerateIdeas: (notes: string) => void;
   /** A fresh idea for one post, then that post is generated again. */
@@ -1113,7 +1116,7 @@ export default function PlanView({
             <strong>Generation stopped.</strong> {paused}
           </div>
           <button type="button" className="primary" onClick={onResume} disabled={!!busy}>
-            Resume
+            {resumeLabel ?? "Resume"}
           </button>
         </div>
       )}

@@ -273,7 +273,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - "Not connected" / "No image engine is connected": an admin connects one in Connection.
 - "Blocked" on the Plan: read the reason; usually a missing product photo ("Choose a product image") or an offer missing products, price or contents.
 - "Older idea": "Make it again" or edit the picture. "Needs review": "Edit this picture" (paid) or "Accept" (free).
-- "Generation stopped.": click "Resume". "The theme changed after these ideas were written.": "Regenerate ideas" if posts should follow it.
+- "Generation stopped.": click "Resume" (or "Approve and continue" when the approved budget ran out: it approves the waiting posts and carries on). "The theme changed after these ideas were written.": "Regenerate ideas" if posts should follow it.
 - Can't find a colleague's month: members see only their own months; ask an admin.
 - The client still sees the old picture: they answered that post; click "Send it for review" on the card.
 - A render stopped: "Render again" and keep the tab open.

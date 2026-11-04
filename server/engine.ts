@@ -1060,8 +1060,8 @@ async function submitNext(
     const reserved = await reserveSpend(env, batch.id, attemptCost);
     if (!reserved.ok) {
       const why = reserved.status.approved
-        ? `The month's approved budget ($${reserved.status.approved.toFixed(2)}) is used up ($${reserved.status.reserved.toFixed(2)} reserved). Press Generate to approve more.`
-        : "This month has no approved budget yet. Press Generate to approve its pictures.";
+        ? `The month's approved budget ($${reserved.status.approved.toFixed(2)}) is used up ($${reserved.status.reserved.toFixed(2)} reserved). Press Approve and continue to add to it.`
+        : "This month has no approved budget yet. Press Approve and continue to approve its pictures.";
       await run(
         env.DB,
         "UPDATE tasks SET status = 'queued', lease = NULL, leased_at = NULL, attempts = MAX(0, attempts - 1), error = ?, updated = ? WHERE id = ? AND lease = ?",
