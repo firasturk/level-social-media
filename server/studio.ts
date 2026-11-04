@@ -65,6 +65,7 @@ import { configSchema } from "@shared/config-schema";
 import { purgeBatch } from "./batchfiles";
 import { resizedPicture, thumbWidth } from "./thumbs";
 import { buildPrompt } from "@shared/prompts";
+import { withoutAmounts } from "@shared/pricing";
 import { stemOf, stemKey, isValidSourceName, relativeUploadName } from "@shared/naming";
 import type { Batch, LookInfo, ModeOverride, Preset, Source, Task, User, PersonSpend } from "@shared/types";
 import type { EditorialBrief } from "./editorial";
@@ -207,13 +208,17 @@ async function batchPayload(env: Env, b: BatchRow, user?: User) {
   ]);
   // 'finalizing' is an internal step; the UI treats it as processing.
   for (const t of tasks) if (t.status === ("finalizing" as string)) t.status = "processing";
+  const hidePrices = user?.role !== "admin" && (await readAdminSettings(env)).pricing === "admins";
   if (user?.role !== "admin")
     for (const t of tasks) {
       t.prompt = null as unknown as Task["prompt"];
       t.brief = null as unknown as Task["brief"];
+      // The engine's pause and failure messages name amounts: a member who is not shown prices reads them without.
+      if (hidePrices) t.error = withoutAmounts(t.error);
     }
   const { owner: _owner, ...batch } = b;
   void _owner;
+  if (hidePrices) batch.last_error = withoutAmounts(batch.last_error);
   // The month's spending ledger: what was approved for it and what its attempts have reserved.
   const spend = await spendStatus(env, b.id);
   return { batch, sources, tasks, spend };
@@ -270,6 +275,7 @@ studioRoutes.get("/state", async (c) => {
       : undefined;
   const engineKey = await resolveEngineKey(c.env);
   const adminSettings = await readAdminSettings(c.env);
+  if (adminSettings.pricing === "admins" && user.role !== "admin") for (const b of batches) b.last_error = withoutAmounts(b.last_error ?? null);
   return c.json({
     user,
     batches,

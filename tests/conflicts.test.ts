@@ -91,3 +91,13 @@ describe("the preflight and the lessons around a picked style (post 10, 28 Oct)"
     expect(line).toContain("drifted from its idea.");
   });
 });
+
+describe("amounts hidden from members", () => {
+  it("takes the amounts out of the engine's pause message", async () => {
+    const { withoutAmounts } = await import("../shared/pricing");
+    expect(withoutAmounts("The month's approved budget ($2.81) is used up ($2.75 reserved). Press Generate to approve more.")).toBe("The month's approved budget is used up. Press Generate to approve more.");
+    expect(withoutAmounts("8 images ≈ $0.80, above the $5 limit.")).toBe("8 images ≈ (cost shown to admins), above the (cost shown to admins) limit.");
+    expect(withoutAmounts("This month has no approved budget yet.")).toBe("This month has no approved budget yet.");
+    expect(withoutAmounts(null)).toBeNull();
+  });
+});

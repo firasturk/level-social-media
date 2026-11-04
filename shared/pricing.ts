@@ -101,6 +101,23 @@ export function setPricesHidden(hidden: boolean): void {
 }
 export const HIDDEN_PRICE = "(cost shown to admins)";
 
+/**
+ * A message with its amounts taken out, for a member who is not shown prices: "The month's
+ * approved budget ($2.81) is used up ($2.75 reserved)." reads "The month's approved budget is
+ * used up." A parenthesis that holds an amount goes whole; an amount in the running text becomes
+ * the hidden-price words.
+ */
+export function withoutAmounts(text: string): string;
+export function withoutAmounts(text: string | null): string | null;
+export function withoutAmounts(text: string | null): string | null {
+  if (!text) return text;
+  return text
+    .replace(/\s*\((?:[^()]*?)\$\d[\d,]*(?:\.\d+)?[^()]*\)/g, "")
+    .replace(/\$\d[\d,]*(?:\.\d+)?/g, HIDDEN_PRICE)
+    .replace(/\s+([.,;:])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 export function formatUsd(n: number): string {
   if (pricesHidden) return HIDDEN_PRICE;
   if (n >= 100) return `$${Math.round(n)}`;
