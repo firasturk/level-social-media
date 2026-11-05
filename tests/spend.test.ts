@@ -3,20 +3,21 @@ import { approveSpend, releaseSpend, reserveSpend, spendFits, spendStatus } from
 import { fakeEnv } from "./support/fakes";
 
 describe("the spending ledger", () => {
-  it("reserves only what the approved allowance still covers, and never on a scope with no approval", async () => {
+  it("records every reservation and refuses none: there is no cap (Firas, 5 Nov)", async () => {
     const env = fakeEnv();
-    expect((await reserveSpend(env, "m1", 0.1)).ok).toBe(false);
+    // A scope with no approval still takes the reservation: the ledger is a record, not a gate.
+    expect((await reserveSpend(env, "m1", 0.1)).ok).toBe(true);
     await approveSpend(env, "m1", 0.3);
     expect((await reserveSpend(env, "m1", 0.134)).ok).toBe(true);
     expect((await reserveSpend(env, "m1", 0.134)).ok).toBe(true);
     const third = await reserveSpend(env, "m1", 0.134);
-    expect(third.ok).toBe(false);
-    expect(third.status).toEqual({ approved: 0.3, reserved: 0.268, remaining: 0.032, uncertain: 0 });
+    expect(third.ok).toBe(true);
+    expect(third.status).toEqual({ approved: 0.3, reserved: 0.502, remaining: 0, uncertain: 0 });
     expect((await spendFits(env, "m1", 0.03)).ok).toBe(true);
-    expect((await spendFits(env, "m1", 0.04)).ok).toBe(false);
+    expect((await spendFits(env, "m1", 100)).ok).toBe(true);
   });
 
-  it("lets two concurrent reservations take the same remaining allowance only once", async () => {
+  it("three concurrent reservations are all recorded", async () => {
     const env = fakeEnv();
     await approveSpend(env, "m2", 0.2);
     const results = await Promise.all([
@@ -24,8 +25,8 @@ describe("the spending ledger", () => {
       reserveSpend(env, "m2", 0.134),
       reserveSpend(env, "m2", 0.134),
     ]);
-    expect(results.filter((r) => r.ok)).toHaveLength(1);
-    expect((await spendStatus(env, "m2")).reserved).toBe(0.134);
+    expect(results.filter((r) => r.ok)).toHaveLength(3);
+    expect((await spendStatus(env, "m2")).reserved).toBe(0.402);
   });
 
   it("adds approvals atomically and releases a reservation that produced nothing", async () => {

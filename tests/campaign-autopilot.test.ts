@@ -230,26 +230,20 @@ describe("Campaign Autopilot: approval and production", () => {
     expect(p.steps.every((s) => s.status === "done")).toBe(true);
   });
 
-  it("pauses when the approved allowance runs out, and goes on after more is approved", async () => {
+  it("goes on when the approved allowance runs out: there is no cap (Firas, 5 Nov), and the ledger records the spend", async () => {
     const env = await seed();
     const c = await create(env);
     await approve(env, c);
-    // Something else used most of the dollars meanwhile: only one picture still fits.
+    // Something else used most of the dollars meanwhile: the production still goes through.
     const usd = `campaign:${c.id}:usd`;
     const perImage = c.proposal.costs.totals.usd.estimate / c.proposal.costs.totals.usd.steps;
     await env.DB.prepare("UPDATE spend SET approved = ? WHERE scope = ?").bind(perImage * 1.5, usd).run();
     const p = await tickUntilQuiet(env, c.id);
-    expect(p.status).toBe("paused");
-    expect(p.pauseReason).toMatch(/approved allowance is not enough/);
-    const paused = p.steps.filter((s) => s.status === "paused");
-    expect(paused.length).toBeGreaterThan(0);
+    expect(p.status).not.toBe("paused");
+    expect(p.steps.filter((s) => s.status === "paused")).toHaveLength(0);
+    expect(p.steps.filter((s) => s.kind !== "render").every((s) => s.status === "done")).toBe(true);
     const reserved = (await spendRows(env)).find((x) => x.scope === usd)!;
-    expect(reserved.reserved).toBeLessThanOrEqual(reserved.approved + 1e-6);
-    // The admin approves the rest; resume carries on from where it stopped.
-    await env.DB.prepare("UPDATE spend SET approved = approved + 100 WHERE scope = ?").bind(usd).run();
-    await call(env, "POST", `/${c.id}/resume`);
-    const q = await tickUntilQuiet(env, c.id);
-    expect(q.steps.filter((s) => s.kind !== "render").every((s) => s.status === "done")).toBe(true);
+    expect(reserved.reserved).toBeGreaterThan(reserved.approved);
   });
 
   it("a material edit after approval pauses that Reel; approving it again re-makes only the changed shot", async () => {

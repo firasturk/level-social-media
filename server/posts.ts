@@ -10,7 +10,7 @@ import { StudioError, errorMessage } from "./errors";
 import { sanitizeSvg, SvgRefused } from "@shared/svg-sanitize";
 import { all, first, run, now, uuid } from "./db";
 import { resizedPicture } from "./thumbs";
-import { getSetting, resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey, SPEND_THRESHOLD_SETTING } from "./settings";
+import { resolveAnthropicKey, resolveEngineModel, resolveGoogleAuth, resolveOpenAIKey } from "./settings";
 import { tryClaude } from "./anthropic";
 import { CAROUSEL_MAX, copyPost, joinCarousel, leaveCarousel, recountSlides, reorderSlide, slideTitle, withSlide } from "@shared/carousel";
 import { askVisionGoogle, askVisionOpenAI } from "./editorial";
@@ -3064,34 +3064,17 @@ export async function generateRun(env: Env, user: User, d: GenerateBody, waitUnt
       false,
       { blocked },
     );
-  // The spend limit: every run's estimate (one automatic retake per picture included, and the
-  // exact-mode cut-out and harmonising calls) is approved into the month's ledger when it starts;
-  // a run above the limit waits for the designer's one approval. Every engine attempt, automatic
-  // retakes included, then reserves its own cost against that ledger (see reserveSpend).
-  const threshold = Number((await getSetting(c.env, SPEND_THRESHOLD_SETTING)) ?? 20);
+  // No spend limit and no approval step (Firas, 5 Nov): the run starts at once. Its estimate
+  // (one automatic retake per picture included, and the exact-mode cut-out and harmonising calls)
+  // still goes to the month's ledger, for the reports.
   const model = config.model || (await resolveEngineModel(c.env));
   const estimate = estimateCost({ ...config, model, size: draft ?? config.size }, paid);
   const exactExtras = exactPlanned * exactCallsCost();
   const perRun = estimate.total + exactExtras;
-  // The automatic retake is the designer's choice: off, the approval covers the pictures alone and
-  // the engine never retakes by itself this month.
+  // The automatic retake is the designer's choice: off, the engine never retakes by itself this month.
   if (d.retakes !== undefined) config.autoRetakes = d.retakes;
   const retakes = config.autoRetakes === false ? 0 : MAX_AUTO_TAKES;
   const budget = perRun * (1 + retakes);
-  if (threshold > 0 && estimate.known && budget > threshold && !d.approve)
-    return {
-      status: 409,
-      body: {
-        error: `${paid} image${paid === 1 ? "" : "s"} ≈ ${formatUsd(perRun)}${retakes ? `, at most ${formatUsd(budget)} with one automatic retake each` : ""}, above the $${threshold} limit. Press Generate on the month to approve this run.`,
-        needsApproval: true,
-        images: paid,
-        estimate: perRun,
-        maximum: budget,
-        perImage: estimate.perImage,
-        known: estimate.known,
-        threshold,
-      },
-    };
   await approveSpend(c.env, b.id, budget, d.run);
   if (d.test) config.testPost = d.indexes![0];
   statements.push(

@@ -246,20 +246,16 @@ describe("the request each engine path builds", () => {
     expect((await spendStatus(env2, "b1")).reserved).toBeCloseTo(0.134 + 0.15, 3);
   });
 
-  it("sends nothing when the month has no approved budget left, and says so", async () => {
+  it("sends the request even when the month's approved amount is used up: there is no cap (Firas, 5 Nov)", async () => {
     const env = await seed("fal/bytedance/seedream/v5/pro/edit");
     await env.DB.prepare("UPDATE spend SET approved = 0.01 WHERE scope = 'b1'").run();
     await advanceBatch(env, "b1", {});
-    expect(calls.filter((c) => c.url.startsWith("https://queue.fal.run/"))).toHaveLength(0);
-    const batch = await env.DB.prepare(
-      "SELECT state, last_error FROM batches WHERE id = 'b1'",
-    ).first<{ state: string; last_error: string }>();
-    expect(batch?.state).toBe("paused");
-    expect(batch?.last_error).toMatch(/approved budget/);
-    const task = await env.DB.prepare("SELECT status, attempts FROM tasks WHERE id = 't1'").first<{
-      status: string;
-      attempts: number;
-    }>();
-    expect(task).toEqual({ status: "queued", attempts: 0 });
+    expect(calls.filter((c) => c.url.startsWith("https://queue.fal.run/")).length).toBeGreaterThan(0);
+    const batch = await env.DB.prepare("SELECT state, last_error FROM batches WHERE id = 'b1'").first<{ state: string; last_error: string | null }>();
+    expect(batch?.state).not.toBe("paused");
+    expect(batch?.last_error ?? "").not.toMatch(/approved budget/);
+    // The attempt is still recorded in the ledger.
+    const row = await env.DB.prepare("SELECT reserved FROM spend WHERE scope = 'b1'").first<{ reserved: number }>();
+    expect(row!.reserved).toBeGreaterThan(0.01);
   });
 });

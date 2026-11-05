@@ -48,16 +48,17 @@ export async function reserveSpend(
   scope: string,
   amount: number,
 ): Promise<{ ok: boolean; status: SpendStatus }> {
+  // No cap (Firas, 5 Nov: "remove the budget, don't ask about it, no limitation"): every
+  // attempt is recorded against its scope and none is refused. The ledger stays for the reports.
   const a = cents(Math.max(0, amount));
-  const changed = await run(
+  await run(
     env.DB,
-    "UPDATE spend SET reserved = reserved + ?, updated = ? WHERE scope = ? AND reserved + ? <= approved + 0.0005",
-    a,
-    now(),
+    "INSERT INTO spend (scope, approved, reserved, updated) VALUES (?, 0, ?, ?) ON CONFLICT(scope) DO UPDATE SET reserved = reserved + excluded.reserved, updated = excluded.updated",
     scope,
     a,
+    now(),
   );
-  return { ok: changed === 1, status: await spendStatus(env, scope) };
+  return { ok: true, status: await spendStatus(env, scope) };
 }
 
 /** Gives a reservation back: an attempt that produced nothing and is known not to be billed. */
@@ -87,13 +88,10 @@ export async function spendStatus(env: Env, scope: string): Promise<SpendStatus>
 }
 
 /** Would a reservation of `amount` fit right now? A read, not a reservation: the submit reserves. */
-export async function spendFits(
-  env: Env,
-  scope: string,
-  amount: number,
-): Promise<{ ok: boolean; status: SpendStatus }> {
-  const status = await spendStatus(env, scope);
-  return { ok: cents(amount) <= status.remaining + 0.0005, status };
+export async function spendFits(env: Env, scope: string, amount: number): Promise<{ ok: boolean; status: SpendStatus }> {
+  // No cap: see reserveSpend. The amount is not read; the status is returned for the reports.
+  void amount;
+  return { ok: true, status: await spendStatus(env, scope) };
 }
 
 /** The scope a client's own paid work (portraits) is approved under. */
