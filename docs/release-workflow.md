@@ -31,7 +31,12 @@ git push origin main
    `0053_spend_ledger`, `0054_task_lineage`, `0055_spend_reconciliation`, `0056_grid_reads`, `0057_post_takes`,
    `0058_plan_preflights`.
    `npx wrangler d1 migrations apply DB --remote` (production config `wrangler.jsonc`).
-2. Deploy: `pnpm run deploy` (vite build, embed assets, `wrangler deploy --config wrangler.deploy.json`).
+2. Deploy: `npm run release` (15 Nov 2026). It runs the type check, the linter, every unit test, the
+   build and two browser tests on the built app (`scripts/start-direct-smoke.mjs`: the four gates on
+   Start, image and video intake, the Studio cards; `scripts/export-smoke.mjs`: the month's Export),
+   and deploys production and then the preview only when all of them pass. `npm run release:check`
+   runs the checks without deploying. `pnpm run deploy` still exists and skips the checks: do not use
+   it for a normal release.
 3. Flags, in Admin, after the deploy:
    - "Four-stage workflow": OFF at first. Everyone keeps the journey; the new server code (ledger, lineage,
      takes, preview) is live underneath and changes nothing visible.

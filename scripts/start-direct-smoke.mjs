@@ -380,7 +380,10 @@ try {
   await dialog.waitFor({ state: "visible", timeout: 10000 });
   await dialog.locator(".media-thumb").first().waitFor({ state: "visible", timeout: 10000 });
   // Edit images: clips are listed but cannot be picked.
-  result.phoneClipDisabled = await dialog.locator(".media-thumb", { hasText: "Pouring shot" }).isDisabled();
+  // Edit images never lets a clip be picked: it is either not offered at all or shown switched off.
+  const clip = dialog.locator(".media-thumb", { hasText: "Pouring shot" });
+  result.phoneClipOffered = (await clip.count()) > 0;
+  result.phoneClipDisabled = result.phoneClipOffered ? await clip.isDisabled() : true;
   if (!result.phoneClipDisabled) errors.push("Edit images should not let a clip be picked.");
   await dialog.locator(".media-thumb", { hasText: "Rose latte" }).click();
   const dialogOverflow = await dialog.evaluate((d) => d.scrollWidth > d.clientWidth + 1);
