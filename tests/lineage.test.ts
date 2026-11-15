@@ -53,3 +53,19 @@ describe("a picture's lineage", () => {
     expect(planShape([])).toBe("");
   });
 });
+
+describe("automatic retakes", () => {
+  it("never retakes a picture by itself for a judgment call: the idea, the brand's look, staging", async () => {
+    const { selfFixable } = await import("../server/engine");
+    const flag = (kind: string) => ({ kind, text: `${kind} finding` });
+    const qa = (kinds: string[]) => ({ automated: true, found: true, count: 1, box: [], productConcern: false, notes: "", flags: kinds.map(flag) });
+    expect(selfFixable(qa(["idea", "brand", "staging", "tile", "ailook"]) as never)).toEqual([]);
+    expect(selfFixable(qa(["idea", "product", "text"]) as never).map((f) => f.kind)).toEqual(["product", "text"]);
+  });
+
+  it("has no paid retake for a drifted idea left in the engine", async () => {
+    const { readFileSync } = await import("node:fs");
+    const engine = readFileSync(new URL("../server/engine.ts", import.meta.url), "utf8");
+    expect(engine).not.toContain("retry from original reference queued");
+  });
+});

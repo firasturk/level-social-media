@@ -15,8 +15,8 @@ import { facesIn, fixNote, parsePostReview, parsePreflight, POST_REVIEW_SCHEMA, 
 
 /**
  * Findings a second take fixes by itself: hard faults only (a wrong product, writing, an invented
- * item, a bag, foreign food). Judgment calls (grid tile, staging, size, the brand's look, a look-alike,
- * a face that looks generated) stay review notes: on a grid month they fired on most pictures and
+ * item, a bag, foreign food). Judgment calls (the idea, grid tile, staging, size, the brand's look, a
+ * look-alike, a face that looks generated) stay review notes: on a grid month they fired on most pictures and
  * doubled the cost. One automatic take per post per month, whatever the team regenerates by hand.
  */
 const SELF_FIX = new Set<FlagKind>(["product", "text", "invented", "bag", "foreign"]);
@@ -54,7 +54,7 @@ async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string
 }
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
-import { rememberLesson, rememberLessons } from "./lessons";
+import { rememberLessons } from "./lessons";
 import { hashDistance, pictureHash, resizedPicture } from "./thumbs";
 import {
   StudioError,
@@ -574,37 +574,12 @@ async function storeResultBytes(
       qa = manualQA(`Automatic review unavailable (${errorMessage(e)}). Check manually.`);
     }
     void traceEvent(env, { kind: "review", traceId: batch.id, spanId: task.id, name: "review", input: { picture: key }, output: { automated: qa.automated, notes: qa.notes, flags: qa.flags ?? [] }, metadata: { client: batch.client, post: task.post, revision: task.making_for, engine: taskConfig(config, task).model ?? null, attempt: task.attempts } });
-    // A take that drifted from its idea (the sign is missing, the cup stands alone) is made again once,
-    // from the post's original reference with the idea as the note; the drift stays as a lesson.
+    // A take that drifted from its idea is a note for the team, never a paid retake by itself: "not
+    // like its idea" is a judgment call, and on real months it fired on most pictures (74 flags in
+    // two weeks, November 2026). The team reads the note and presses Fix it when they agree.
     const pb = postBrief(task);
     // An automatic retake spends money: it stays inside the month's approved budget.
     const budget = await autoTakeAllowed(env, batch, config, task);
-    const drifted = qa.automated && (qa.flags ?? []).some((f) => f.kind === "idea");
-    if (drifted && pb.originalRef && !pb.retried && (task.auto_retries ?? 0) < MAX_AUTO_TAKES && budget.ok) {
-      const retry: PostBrief = {
-        ...pb,
-        retried: true,
-        styleKey: undefined,
-        noRefImage: undefined,
-        editRef: {
-          key: pb.originalRef,
-          note: `Recreate this exact idea, element by element, with the brand's product in it: ${pb.brief.slice(0, 700)}${pb.clientChange ? ` The client asked: "${pb.clientChange.slice(0, 200)}".` : ""} Nothing written appears anywhere.`,
-        },
-      };
-      const done = await run(
-        env.DB,
-        "UPDATE tasks SET status = 'queued', prompt = ?, brief = ?, qa = ?, edit = NULL, recenter = 0, attempts = 0, request_id = NULL, lease = NULL, leased_at = NULL, error = NULL, auto_retries = auto_retries + 1, updated = ? WHERE id = ? AND status = 'review' AND output = ?",
-        buildPostPrompt(retry),
-        JSON.stringify(retry),
-        JSON.stringify({ ...qa, notes: "Drifted from its idea: being made again from the original reference." }),
-        now(),
-        task.id,
-        key,
-      );
-      console.log(`[idea] task ${task.id} post ${pb.index} drifted; retry from original reference queued`, done);
-      if (done) await rememberLesson(env, batch.client, batch.id, "idea", `Post ${pb.index} drifted from its idea and was made again from its original reference: ${(qa.flags ?? []).find((f) => f.kind === "idea")?.text ?? ""}`, "retry").catch(() => undefined);
-      return;
-    }
     // Any other mistake the review can name (a wrong product, writing, a bag, foreign food, staging)
     // is fixed once by itself: a fresh take with the findings as the note, as "Fix it" would send it.
     const fixable = selfFixable(qa);
