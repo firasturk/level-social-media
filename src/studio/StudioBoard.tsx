@@ -1,8 +1,8 @@
 /**
  * The Studio board, as designed: one row of tabs (Posts, Feed, Words, Client approval, Versions)
  * with the month in numbers beside them, and one action bar (Export, Client link, Make N planned,
- * More). The posts themselves are the cards below; the Words and Client approval tabs are simple
- * lists over the same plan. Everything the old toolbar did is one click away under More.
+ * More). The posts themselves are the cards below; the Feed (FeedView.tsx), Words and Client approval
+ * tabs are simple views over the same plan. Everything the old toolbar did is one click away under More.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, MessagesSquare, RotateCcw, UserPlus } from "lucide-react";
@@ -17,7 +17,7 @@ import type { SaveStatus as SaveState } from "@shared/save-status";
 import SaveStatus from "./SaveStatus";
 import { doneCommentsOf } from "./ClientChangesDialog";
 
-export type StudioTab = "posts" | "words" | "approval" | "versions";
+export type StudioTab = "posts" | "feed" | "words" | "approval" | "versions";
 
 /** The month in numbers, from the shared count helper (the Plan and the Start screen use the same). */
 export type StudioCounts = MonthCounts;
@@ -37,7 +37,6 @@ export default function StudioBoard({
   onDiscuss,
   onAssign,
   onRestore,
-  onFeed,
   changes,
   onClientChanges,
   clientChangesBusy,
@@ -69,8 +68,6 @@ export default function StudioBoard({
   onAssign?: () => void;
   /** Opens the removed posts of this month, to bring one back. */
   onRestore?: () => void;
-  /** The feed opens as its own screen; its tab is a door, not a view. */
-  onFeed: () => void;
   changes: number;
   onClientChanges: () => void;
   clientChangesBusy: boolean;
@@ -100,7 +97,7 @@ export default function StudioBoard({
     window.addEventListener("mousedown", close);
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
-  const tabs: { key: StudioTab | "feed"; label: string }[] = [
+  const tabs: { key: StudioTab; label: string }[] = [
     { key: "posts", label: "Posts" },
     { key: "feed", label: "Feed" },
     { key: "words", label: "Words" },
@@ -112,7 +109,7 @@ export default function StudioBoard({
       <div className="studio-board-head">
         <div className="studio-tabs" role="tablist" aria-label="Views">
           {tabs.map((t) => (
-            <button key={t.key} type="button" role="tab" aria-selected={t.key === tab} className={t.key === tab ? "on" : ""} onClick={() => (t.key === "feed" ? onFeed() : onTab(t.key))}>
+            <button key={t.key} type="button" role="tab" aria-selected={t.key === tab} className={t.key === tab ? "on" : ""} onClick={() => onTab(t.key)}>
               {t.label}
             </button>
           ))}

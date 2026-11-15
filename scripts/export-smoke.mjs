@@ -208,7 +208,6 @@ page.on("request", (r) => {
 await page.addInitScript(() => {
   try {
     localStorage.setItem("lsm-client", "c1");
-    localStorage.setItem("lsm-journey-step", JSON.stringify({ client: "c1", month: "2026-12", step: 11 }));
   } catch {
     /* storage blocked */
   }
