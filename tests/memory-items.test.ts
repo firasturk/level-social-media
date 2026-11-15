@@ -84,12 +84,33 @@ describe("what reaches a prompt", () => {
     const [pending] = await rows(env);
     // 28 Oct: a finding is a rule at once; the team rejects the wrong ones instead of approving each.
     expect(pending.status).toBe("approved");
-    expect(await lessonsFor(env, "c1")).toEqual(['No writing: an earlier picture carried "Swipe". Nothing is written, lettered or drawn as a word, arrow or sign anywhere in the picture.']);
-    await send(a, env, "PUT", `/api/studio/lessons/${pending.id}`, { status: "rejected" });
+    // 15 Nov: the finding is in use for the rest of its own month, and for no other month.
+    const line = ['No writing: an earlier picture carried "Swipe". Nothing is written, lettered or drawn as a word, arrow or sign anywhere in the picture.'];
+    expect(await lessonsFor(env, "c1", { batch: "b1" })).toEqual(line);
+    expect(await lessonsFor(env, "c1", { batch: "another-month" })).toEqual([]);
     expect(await lessonsFor(env, "c1")).toEqual([]);
+    await send(a, env, "PUT", `/api/studio/lessons/${pending.id}`, { status: "rejected" });
+    expect(await lessonsFor(env, "c1", { batch: "b1" })).toEqual([]);
     await send(a, env, "PUT", `/api/studio/lessons/${pending.id}`, { status: "approved" });
     await send(a, env, "POST", `/api/studio/lessons/${pending.id}/deactivate`);
-    expect(await lessonsFor(env, "c1")).toEqual([]);
+    expect(await lessonsFor(env, "c1", { batch: "b1" })).toEqual([]);
+  });
+
+  it("keeps a review's finding in its own month until the same finding comes back in another month", async () => {
+    const env = await seed();
+    const { lessonsFor, rememberLesson } = await import("../server/lessons");
+    await rememberLesson(env, "c1", "b1", "people", "The post shows people; the idea asked for none.", "review");
+    // Seen again in the same month: still that month's only.
+    await rememberLesson(env, "c1", "b1", "people", "The post shows people; the idea asked for none.", "review");
+    expect((await rows(env))[0]).toMatchObject({ seen: 2, scope: JSON.stringify({ batch: "b1" }) });
+    expect(await lessonsFor(env, "c1", { batch: "b2" })).toEqual([]);
+    // The same finding in a second month: it applies to the brand from now on.
+    await rememberLesson(env, "c1", "b2", "people", "The post shows people; the idea asked for none.", "review");
+    expect((await rows(env))[0]).toMatchObject({ seen: 3, scope: "" });
+    expect(await lessonsFor(env, "c1", { batch: "b3" })).toHaveLength(1);
+    // What the client asks for is about the brand at once.
+    await rememberLesson(env, "c1", "b1", "client", "The client prefers the cup on the left.", "client");
+    expect((await rows(env)).find((r) => r.source === "client")?.scope).toBe("");
   });
 
   it("filters by scope: brand-wide always, a month's only for that month, a post's only for that post", async () => {
@@ -156,14 +177,14 @@ describe("how lessons are proposed", () => {
     expect(task?.status).toBe("ready");
   });
 
-  it("a review flag creates one pending lesson with its exact text, scoped to the brand but never a brand rule", async () => {
+  it("a review flag creates one lesson with its exact text, kept to its own month and never a brand rule", async () => {
     const env = await seed();
     const { rememberLessons, rememberLesson } = await import("../server/lessons");
     await rememberLessons(env, "c1", "b1", [{ kind: "people", text: "The post shows a young boy instead of a 6-year-old girl." }]);
     const all = await rows(env);
     expect(all).toHaveLength(1);
     // A finding is in use at once (28 Oct): the team rejects the wrong ones instead of approving each.
-    expect(all[0]).toMatchObject({ text: "The post shows a young boy instead of a 6-year-old girl.", status: "approved", category: "lesson", scope: "", source: "review", revision: 1, approver: null, approved_at: null });
+    expect(all[0]).toMatchObject({ text: "The post shows a young boy instead of a 6-year-old girl.", status: "approved", category: "lesson", scope: JSON.stringify({ batch: "b1" }), source: "review", revision: 1, approver: null, approved_at: null });
     // Seen again: counted on the same item, still pending.
     await rememberLessons(env, "c1", "b1", [{ kind: "people", text: "The post shows a young boy instead of a 6-year-old girl." }]);
     const again = await rows(env);

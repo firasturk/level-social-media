@@ -2,12 +2,13 @@
  * The client's approval link: a month's feed behind a secret token, no sign-in. The client sees
  * each post as it will be published, approves it or asks for a change with a note.
  */
+import { writeMonth } from "./month-save";
 import { feedOrder } from "@shared/testgrid";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "./env";
 import { StudioError } from "./errors";
-import { all, first, now, run } from "./db";
+import { all, first, now } from "./db";
 import { resizedPicture, thumbWidth } from "./thumbs";
 import { recordClientAnswer } from "./notify";
 import { serveObject } from "./range";
@@ -432,7 +433,8 @@ shareRoutes.post("/:token/review", async (c) => {
   const mine: ReviewAnswer = { rid, status: parsed.data.status, note: parsed.data.note || undefined, by: parsed.data.by || undefined, at: now(), version: parsed.data.version };
   const answers = [...(cfg.approvals?.[key]?.answers ?? []).filter((a) => a.rid !== rid), mine];
   cfg.approvals = { ...(cfg.approvals ?? {}), [key]: effectiveApproval(answers)! };
-  await run(c.env.DB, "UPDATE batches SET config = ?, updated = ? WHERE id = ?", JSON.stringify(cfg), now(), b.id);
+  // Merged into the month as it is at this instant: the client's answer never erases an edit the team is saving, and the reverse.
+  await writeMonth(c.env, { id: b.id, config: fresh?.config ?? b.config }, cfg);
   await recordClientAnswer(c.env, { id: b.id, client: config.client ?? b.client }, { index: parsed.data.index, ...mine }).catch((e) => console.error("[notify]", e));
   // The reviewer gets their own answer back, never the others'.
   return c.json({ ok: true, approval: mine });

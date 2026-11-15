@@ -931,13 +931,8 @@ async function submitNext(
   const usable = await connectedModel(env, config.model);
   if (usable && usable !== config.model) {
     config.model = usable;
-    await run(
-      env.DB,
-      "UPDATE batches SET config = ?, updated = ? WHERE id = ?",
-      JSON.stringify(config),
-      now(),
-      batch.id,
-    );
+    // Only the model changes, in place: the rest of the month is whatever was saved last.
+    await run(env.DB, "UPDATE batches SET config = json_set(config, '$.model', ?), updated = ? WHERE id = ?", usable, now(), batch.id);
   }
   // The preview never pays an image engine: the month pauses and says so before anything is reserved.
   if (previewNoImages(env)) {

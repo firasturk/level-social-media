@@ -85,6 +85,7 @@
     "@shared/style-design": "./shared/style-design.ts",
     "@shared/style-layers": "./shared/style-layers.ts",
     "@shared/layouts": "./shared/layouts.ts",
+    "@shared/month-merge": "./shared/month-merge.ts",
   },
   "triggers": { "crons": ["* * * * *"] },
   // Run near the US-hosted engines; Gemini refuses requests from some regions.

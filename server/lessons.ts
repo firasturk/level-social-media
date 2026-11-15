@@ -5,8 +5,9 @@
  * - brand_rule: an approved requirement of the brand, for every picture of the client;
  * - campaign_instruction: an instruction for one month (scope {batch});
  * - post_instruction: an instruction for one post of one month (scope {batch, post});
- * - lesson: a mistake the review found, a change the client asked for or a retry's drift. It is
- *   proposed as pending and waits for the admin; only an approved lesson shapes a prompt.
+ * - lesson: a mistake the review found, a change the client asked for or a retry's drift. A
+ *   review's or a retry's finding applies to its own month only until it repeats in another month;
+ *   only an approved lesson shapes a prompt.
  *
  * Only approved, active (not deactivated) items whose scope fits the post reach a prompt. A
  * revision keeps the old row (deactivated, linked by `replaces`) so the history stays readable.
@@ -76,10 +77,17 @@ export async function rememberLessons(env: Env, client: string | null, batch: st
   for (const f of flags) await rememberLesson(env, client, batch, f.kind, f.text, source);
 }
 
+/** The review and a retry judge one month's picture against that month's idea, cast and palette. */
+const MONTH_SOURCES = new Set<LessonSource>(["review", "retry"]);
+
 /**
- * One proposed lesson, with the finding's exact words. It waits as pending for the admin; a finding
- * seen before is counted once more on its existing item (a rejected one stays rejected). It never
- * becomes a brand rule by itself.
+ * One finding, with its exact words. What the review (or a retry) finds on a picture is true of
+ * that month: it is kept for the rest of that month only (scope {batch}) and never shapes another
+ * month by itself. It becomes brand-wide when the same finding comes back in a different month, or
+ * when an admin makes it a brand rule in Memory. (Before 15 Nov 2026 every finding was brand-wide
+ * at once: 693 of them in six weeks, 97% seen once, and "no people" from one month blocked the
+ * next.) A client's own request and the team's items keep their own scope. A finding seen before
+ * is counted once more on its existing item; a rejected one stays rejected.
  */
 export async function rememberLesson(env: Env, client: string | null, batch: string | null, kind: string, rawText: string, source: LessonSource): Promise<void> {
   if (!client) return;
@@ -88,13 +96,16 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
   const t = now();
   const existing = await first<LessonRow>(env.DB, "SELECT * FROM lessons WHERE client = ? AND text = ? AND deactivated IS NULL ORDER BY revision DESC LIMIT 1", client, text);
   if (existing) {
-    await run(env.DB, "UPDATE lessons SET seen = seen + 1, last = ?, batch = COALESCE(?, batch) WHERE id = ?", t, batch, existing.id);
+    // The same finding in another month is no longer one month's accident: it applies to the brand.
+    const home = parseScope(existing.scope).batch;
+    const widen = (existing.category ?? "lesson") === "lesson" && !!home && !!batch && home !== batch;
+    await run(env.DB, `UPDATE lessons SET seen = seen + 1, last = ?, batch = COALESCE(?, batch)${widen ? ", scope = ''" : ""} WHERE id = ?`, t, batch, existing.id);
     return;
   }
+  const scope = MONTH_SOURCES.has(source) && batch ? scopeString({ batch }) : "";
   await run(
     env.DB,
-    // A finding is a rule at once (28 Oct): the team rejects the wrong ones instead of approving each.
-    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source, category, scope, revision) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'approved', ?, 'lesson', '', 1)",
+    "INSERT INTO lessons (id, client, kind, text, seen, first, last, batch, status, source, category, scope, revision) VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'approved', ?, 'lesson', ?, 1)",
     uuid(),
     client,
     kind,
@@ -103,6 +114,7 @@ export async function rememberLesson(env: Env, client: string | null, batch: str
     t,
     batch,
     source,
+    scope,
   );
   // The oldest rarely-seen proposals make room; decided items (approved or rejected) are kept.
   await run(

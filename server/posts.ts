@@ -2,6 +2,8 @@
  * Level Social Media: themes per client, the month's plan of posts (ideas), generation of the
  * posts through the batch engine, captions and reference imports (Pinterest pins).
  */
+import { mergeKeys, samePost } from "@shared/month-merge";
+import { writeMonth } from "./month-save";
 import { Hono } from "hono";
 import { z } from "zod";
 import { PREVIEW_MESSAGE, previewNoImages, type Env } from "./env";
@@ -1016,24 +1018,7 @@ export async function saveConfig(env: Env, b: BatchRow, config: Config): Promise
     post.brief = g.brief;
     if (g.scene !== undefined) post.scene = g.scene;
   }
-  // The month is written as one block: a writer holding an older copy (a long engine pass) would drop
-  // the cards added since it read (Campaign Autopilot's cards, 24 Oct). Those are kept: a card made
-  // after this copy was read is never removed by it. A card removed on purpose was read first.
-  if (typeof b.updated === "number") {
-    const current = await first<{ config: string }>(env.DB, "SELECT config FROM batches WHERE id = ?", b.id);
-    const now_ = current ? ((JSON.parse(current.config) as Config).plan ?? []) : [];
-    const mine = new Set((config.plan ?? []).map((p) => p.index));
-    const added = now_.filter((p) => !mine.has(p.index) && typeof p.ideaAt === "number" && p.ideaAt > b.updated!);
-    if (added.length) config.plan = [...(config.plan ?? []), ...added].sort((x, y) => x.index - y.index);
-  }
-  await run(
-    env.DB,
-    "UPDATE batches SET config = ?, theme = ?, updated = ? WHERE id = ?",
-    JSON.stringify(config),
-    config.theme ?? null,
-    now(),
-    b.id,
-  );
+  await writeMonth(env, b, config);
 }
 
 /** "Generate ideas": the text model plans the month from the brand kit, the theme and the products. */
@@ -2007,12 +1992,34 @@ postRoutes.put("/plan", async (c) => {
   const b = await ownedPlan(c.env, c.get("user"), d.batch);
   // A tab whose copy of a post is older than the server's (another tab moved or removed cards since;
   // the numbers shifted) must not write its edit onto whatever post holds that number now (28 Oct).
+  let edited = d.plan;
   if (d.only && d.base) {
-    const current = new Map(((JSON.parse(b.config) as Config).plan ?? []).map((p) => [p.index, JSON.stringify(p)]));
-    const stale = d.only.filter((i) => d.base![String(i)] !== undefined && current.has(i) && current.get(i) !== d.base![String(i)]);
-    if (stale.length) throw new StudioError(`Post ${stale[0]} changed since this page loaded (another tab, or a later action). Refresh the page, then make the edit again.`, 409, false, { stale: true, posts: stale });
+    const current = new Map(((JSON.parse(b.config) as Config).plan ?? []).map((p) => [p.index, p]));
+    const stale: number[] = [];
+    edited = d.plan.map((p) => {
+      const baseText = d.base![String(p.index)];
+      const now_ = current.get(p.index);
+      if (!d.only!.includes(p.index) || baseText === undefined || !now_ || JSON.stringify(now_) === baseText) return p;
+      let from: Post;
+      try {
+        from = JSON.parse(baseText) as Post;
+      } catch {
+        stale.push(p.index);
+        return p;
+      }
+      // A different post holds this number now: the edit is refused, as before.
+      if (!samePost(from, now_)) {
+        stale.push(p.index);
+        return p;
+      }
+      // The same post, changed on the server since (a caption written by the studio, a stamp, a
+      // colleague's edit): what this page changed is laid over it field by field (15 Nov). It used
+      // to be refused with "changed since this page loaded" and the typed edit was lost.
+      return mergeKeys(from as typeof p, p, now_ as unknown as typeof p);
+    });
+    if (stale.length) throw new StudioError(`Post ${stale[0]} was moved or replaced since this page loaded. Refresh the page, then make the edit again.`, 409, false, { stale: true, posts: stale });
   }
-  return c.json({ ok: true, ...(await savePlan(c.env, b, d.plan, d.only)) });
+  return c.json({ ok: true, ...(await savePlan(c.env, b, edited, d.only)) });
 });
 
 /**
@@ -3077,9 +3084,8 @@ export async function generateRun(env: Env, user: User, d: GenerateBody, waitUnt
   const budget = perRun * (1 + retakes);
   await approveSpend(c.env, b.id, budget, d.run);
   if (d.test) config.testPost = d.indexes![0];
-  statements.push(
-    c.env.DB.prepare("UPDATE batches SET config = ? WHERE id = ?").bind(JSON.stringify(config), b.id),
-  );
+  // Merged with whatever was saved while this request ran (a caption, the client's answer), never laid over it.
+  await writeMonth(c.env, b, config);
   statements.push(
     c.env.DB
       .prepare(
