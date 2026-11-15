@@ -35,6 +35,7 @@ vi.mock("../src/lib/fonts", () => ({
   ensureFont: async () => undefined,
   loadFont: async () => undefined,
   fontsSettled: async () => undefined,
+  faceLoaded: async () => undefined,
   fontStack: (f: string) => `"${f}", sans-serif`,
   ARABIC: /[؀-ۿ]/,
 }));

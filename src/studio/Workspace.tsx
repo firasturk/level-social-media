@@ -459,10 +459,32 @@ function StudioWorkspace({
     if (!b?.client || !b.month) return;
     setGridPick((g) => ({ ...g, [`${b.client}|${b.month}`]: id }));
   }, [batches, setGridPick]);
+  /** The month that failed to open: the board says so with a way to try again, instead of counting for ever. */
+  const [openFailed, setOpenFailed] = useState<string | null>(null);
+  const wantedPlan = useRef<string | null>(null);
+  const openMonth = useCallback(
+    (id: string) => {
+      // Asked for a month the screen has left since (a late "Try again"): nothing to open.
+      if (wantedPlan.current !== id) return;
+      setOpenFailed(null);
+      open(id).then(
+        () => toast.dismiss("month-open"),
+        () => {
+          // An older month's failure must not close the month opened since.
+          if (wantedPlan.current !== id) return;
+          close();
+          setOpenFailed(id);
+          toast.error("This month could not be opened. Check the connection and try again.", { id: "month-open", action: { label: "Try again", onClick: () => openMonth(id) } });
+        },
+      );
+    },
+    [open, close],
+  );
   // The open plan follows the client and the month.
   useEffect(() => {
     const plan = planOf(clientId, month);
-    if (plan && batch?.id !== plan.id) void open(plan.id).catch(() => close());
+    wantedPlan.current = plan?.id ?? null;
+    if (plan && batch?.id !== plan.id) openMonth(plan.id);
     else if (!plan && batch) close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId, month, planOf]);
@@ -718,14 +740,18 @@ function StudioWorkspace({
     setBusy("reidea");
     try {
       const r = await post<{ post: Post }>("/api/studio/posts/reidea", { batch: batch.id, index });
-      // Its shot is written again for the new idea (when the theme has pins to borrow from).
-      await post("/api/studio/posts/shots", { batch: batch.id, indexes: [index] }).catch(() => {});
+      // Its shot is written again for the new idea (when the theme has pins to borrow from: the
+      // server's 409 says it has none, which is no failure). A real failure is said, not hidden:
+      // the idea is saved and the picture is still made from it.
+      const shotError = await post("/api/studio/posts/shots", { batch: batch.id, indexes: [index] }).then(
+        () => "",
+        (e) => ((e as ApiError).status === 409 ? "" : (e as Error).message || "no answer"),
+      );
       await refresh();
-      toast.success(`New idea for post ${index}: "${r.post.title}". Generating it.`);
-      if (engineConnected) {
-        await post("/api/studio/posts/generate", { batch: batch.id, indexes: [index], regenerate: true });
-        await refresh();
-      }
+      toast.success(`New idea for post ${index}: "${r.post.title}".`);
+      if (shotError) toast.warning(`Post ${index}: its scene could not be written again (${shotError.replace(/\.$/, "")}). The picture is made from the new idea as written.`, { duration: 12000 });
+      // Generate says itself what happened: the picture is being made, or why it is not (a product photo missing, a conflict).
+      if (engineConnected) await generatePosts([index], true, false);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -939,8 +965,9 @@ function StudioWorkspace({
   /** The plan's autosave, as every board shows it: saving, saved, or failed with the edit kept for a retry. */
   const [saveStatus, setSaveStatus] = useState<SaveState>(SAVE_IDLE);
   const lastSave = useRef<Post[] | null>(null);
-  async function savePlan(next: Post[]) {
-    if (!batch) return;
+  /** True when the server has the plan; false when it does not (the reason was shown), so a caller keeps what was typed. */
+  async function savePlan(next: Post[]): Promise<boolean> {
+    if (!batch) return false;
     lastSave.current = next;
     // Only the posts that differ from the server's copy travel (28 Oct): the rest of the month is
     // never overwritten by this tab's older view of it.
@@ -949,7 +976,7 @@ function StudioWorkspace({
     const fresh = next.filter((p) => !p.index).length;
     if (!only.length && !fresh) {
       setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
-      return;
+      return true;
     }
     const base: Record<string, string> = {};
     for (const i of only) if (server.has(i)) base[String(i)] = server.get(i)!;
@@ -958,6 +985,7 @@ function StudioWorkspace({
       await put("/api/studio/posts/plan", { batch: batch.id, plan: next, only, base });
       await refresh();
       setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
+      return true;
     } catch (e) {
       // This tab's copy of the post is older than the server's: the page is brought up to date and
       // the edit is not kept (it would land on the wrong post).
@@ -966,10 +994,11 @@ function StudioWorkspace({
         setSaveStatus((s) => saveReducer(s, { type: "done", at: Date.now() }));
         toast.error((e as Error).message);
         await refresh();
-        return;
+        return false;
       }
       setSaveStatus((s) => saveReducer(s, { type: "fail", at: Date.now(), error: (e as Error).message }));
       toast.error(`Save failed: ${(e as Error).message}`, { action: { label: "Retry", onClick: () => void retrySave() } });
+      return false;
     }
   }
   /** Sends the last edit again after a failed save. */
@@ -1180,21 +1209,28 @@ function StudioWorkspace({
     }
   }
 
-  async function revise(edit: string) {
-    if (!selected) return;
+  /** True when the edit was queued; false when it was not (the reason was shown), so the dialog keeps the instruction. */
+  async function revise(edit: string): Promise<boolean> {
+    if (!selected) return false;
     setActing(true);
     try {
       await action("revise", { id: selected.id, edit });
       toast.info("Revision queued. The current image stays until the new one arrives.");
+      return true;
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(`The edit was not started: ${(e as Error).message}`);
+      return false;
     } finally {
       setActing(false);
     }
   }
 
   async function exportMonth() {
-    if (!batch || !client || exporting) return;
+    if (exporting) return;
+    if (!batch || !client) {
+      toast.error("Open a client's month first, then export.");
+      return;
+    }
     // Only posts of the current plan: a plan cut from 12 to 6 leaves the old images behind.
     const ready = tasks
       .filter((t) => !!t.output && t.post && plan.some((p) => p.index === t.post))
@@ -1255,7 +1291,11 @@ function StudioWorkspace({
 
   /** One long PDF page: cover, Instagram-style feed of the month, a note per post, thank-you. */
   async function exportFeedPdf() {
-    if (!batch || !client || exporting) return;
+    if (exporting) return;
+    if (!batch || !client) {
+      toast.error("Open a client's month first, then export.");
+      return;
+    }
     // Only posts of the current plan: a plan cut from 12 to 6 leaves the old images behind.
     const ready = tasks
       .filter((t) => !!t.output && t.post && plan.some((p) => p.index === t.post))
@@ -1265,9 +1305,11 @@ function StudioWorkspace({
       return;
     }
     setExporting(true);
+    setExportNote(`PDF 0 of ${ready.length}`);
     try {
       const posts: FeedPost[] = [];
       for (const t of ready) {
+        setExportNote(`PDF ${ready.indexOf(t) + 1} of ${ready.length}`);
         const p = plan.find((x) => x.index === t.post);
         if (!p) continue;
         const withText =
@@ -1287,6 +1329,7 @@ function StudioWorkspace({
           : await loadImage(outputUrl(t));
         posts.push({ post: p, image });
       }
+      setExportNote("Building the PDF…");
       const theme = themes.find((t) => t.id === themeId);
       // The client's real Instagram account, when its profile was analysed: the feed page shows that handle, not a made-up one.
       const instagram = await get<{ profile?: { sources?: { instagram?: { username: string; followers: number } | null } | null } }>(`/api/studio/profile/${client.id}`)
@@ -1303,9 +1346,10 @@ function StudioWorkspace({
       saveBlob(blob, `${client.slug}_${month}_feed.pdf`);
       toast.success("Feed PDF downloaded.");
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(`The PDF stopped: ${((e as Error).message || "something went wrong").replace(/\.$/, "")}. Nothing was changed; press Feed PDF again.`, { duration: 15000 });
     } finally {
       setExporting(false);
+      setExportNote("");
     }
   }
 
@@ -2096,7 +2140,10 @@ function StudioWorkspace({
               // Pictures still to make: never made, failed, or made for an older idea; text tiles are free.
               const makeCount = counts.remaining;
               const perPicture = rateFor(shownSettings.model)?.[shownSettings.size] ?? 0;
-              const monthLoading = !!planOf(clientId, month) && !batch;
+              const wanted = planOf(clientId, month);
+              // A month that failed to open is not "still opening": the board offers to try again.
+              const monthFailed = !!wanted && !batch && openFailed === wanted.id;
+              const monthLoading = !!wanted && !batch && !monthFailed;
               const changes = Object.values(config?.approvals ?? {}).filter((a) => a.status === "changes").length;
               const toPlan = () => {
                 // The month's own plan and cost: a one-post way in remembered by the workflow is not what this button means.
@@ -2129,6 +2176,7 @@ function StudioWorkspace({
                   clientChangesBusy={busy === "client"}
                   badge={batch ? <NotifyBadge batch={batch.id} stamp={Object.values(config?.approvals ?? {}).reduce((m, a) => Math.max(m, a.at), 0)} onOpen={() => setStudioTab("approval")} /> : null}
                   loading={monthLoading}
+                  onRetryOpen={monthFailed && wanted ? () => openMonth(wanted.id) : undefined}
                   saveStatus={saveStatus}
                   onRetrySave={() => void retrySave()}
                   onPrompt={() => setPromptOpen((o) => !o)}
@@ -2141,7 +2189,7 @@ function StudioWorkspace({
                       <button type="button" onClick={() => void whatsAppMonth()} disabled={!counts.existing}>
                         Send the client link on WhatsApp
                       </button>
-                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.existing || exporting}>
+                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.existing || exporting} title={!counts.existing ? "Nothing to export yet: this month has no pictures" : exporting ? "Wait: an export is running" : "One long PDF page of the month, to send to the client"}>
                         Feed PDF
                       </button>
                       <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.existing}>
@@ -2567,7 +2615,7 @@ function StudioWorkspace({
               closeEditor();
               setRequested({ kind: "video-studio", index: i, at: Date.now() });
             }}
-            onRevise={revise}
+            onRevise={async (text) => void (await revise(text))}
             onRemake={() => {
               const i = selected.post!;
               try {

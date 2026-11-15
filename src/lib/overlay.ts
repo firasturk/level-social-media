@@ -5,7 +5,7 @@
 import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } from "@shared/overlay";
 import { HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
-import { ARABIC, fontStack, fontsSettled, loadFont } from "./fonts";
+import { ARABIC, faceLoaded, fontStack, fontsSettled, loadFont } from "./fonts";
 import { drawBackdrop, drawBasePicture, drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
 import { designHasContent } from "@shared/layers";
 
@@ -156,13 +156,14 @@ export async function drawOverlay(
   // A web font only downloads once something asks for it; a canvas never does on its own, so
   // without this the text silently falls back to the default face. Ask for the exact faces,
   // with the text itself so the right (Arabic or Latin) subset is fetched.
+  // The wait is bounded: a font file that never answers leaves the fallback face to draw.
   await Promise.all([
-    document.fonts.load(`${spec.headline.weight} 48px ${fontStack(spec.headline.font)}`, headline || "حب Ab"),
-    document.fonts.load(
+    faceLoaded(`${spec.headline.weight} 48px ${fontStack(spec.headline.font)}`, headline || "حب Ab"),
+    faceLoaded(
       `${spec.subline.weight} 32px ${fontStack(spec.subline.font || spec.headline.font)}`,
       subline || "حب Ab",
     ),
-  ]).catch(() => []);
+  ]);
   await fontsSettled();
 
   // Scrim behind the text block.
@@ -432,7 +433,7 @@ function subjectMatte(url: string, W: number, H: number): Promise<{ matte: HTMLC
   if (!p) {
     p = (async () => {
       const r = await fetch(url, { credentials: "same-origin" });
-      if (!r.ok) return null;
+      if (!r.ok) throw new Error("no outline");
       const masks = (await r.json()) as SubjectMask[];
       if (!Array.isArray(masks) || !masks.length) return null;
       const matte = document.createElement("canvas");
@@ -478,7 +479,13 @@ function subjectMatte(url: string, W: number, H: number): Promise<{ matte: HTMLC
       // No subject, or one filling the whole picture: no outline to work with.
       if (x1 < 0 || (x1 - x0) * (y1 - y0) > W * H * 0.92) return null;
       return { matte, box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
-    })().catch(() => null);
+    })().catch(() => {
+      // A failed read (the server, the connection, a mask picture) is forgotten after a moment, so
+      // a later render asks again without a request on every redraw; a picture that truly has no
+      // outline stays remembered above.
+      setTimeout(() => mattes.delete(key), 2000);
+      return null;
+    });
     mattes.set(key, p);
   }
   return p;
@@ -548,7 +555,7 @@ async function drawTypography(
   const word = typo.word.trim() || headline;
   const weight = typoWeight(typo.font);
   const family = fontStack(typo.font);
-  await document.fonts.load(`${weight} 64px ${family}`, word).catch(() => []);
+  await faceLoaded(`${weight} 64px ${family}`, word);
   await fontsSettled();
   const subject = typo.subject ? await subjectMatte(typo.subject, W, H) : null;
   const style = typo.style;

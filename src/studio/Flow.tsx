@@ -219,7 +219,7 @@ export interface FlowProps {
   onAddPosts: (n: number) => Promise<void>;
   onGenerateIdeas: (force?: boolean, notes?: string, append?: boolean) => Promise<boolean>;
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
-  onSavePlan: (plan: Post[]) => void | Promise<void>;
+  onSavePlan: (plan: Post[]) => void | Promise<unknown>;
   /** Makes the ready pictures; `retakes` false turns the automatic retake off for the month. */
   onGenerate: (retakes: boolean) => Promise<void>;
   onTest: (index: number) => Promise<void>;
