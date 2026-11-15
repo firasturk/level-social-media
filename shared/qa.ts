@@ -457,7 +457,7 @@ export const VIDEO_IDEA_SCHEMA = {
   required: ["idea", "reason"],
 };
 
-export function videoIdeaInstruction(r: { client: string; type: string; title: string; brief: string; headline?: string; product?: string; people?: string[] }): string {
+export function videoIdeaInstruction(r: { client: string; type: string; title: string; brief: string; headline?: string; product?: string; people?: string[]; /** The client's brand block for a video (shared/brandMemory.ts), when the kit has one. */ brand?: string }): string {
   return [
     `You are the motion director of the brand "${r.client}". The attached image is a finished Instagram post (${r.type}: ${r.title}) that will become a ${VIDEO_SECONDS}-second ad clip with an image-to-video model: the picture is the first frame and everything in it starts to move.`,
     `THE POST'S IDEA: ${r.brief}${r.headline ? `\nHEADLINE (drawn on later, not part of the picture): ${r.headline}` : ""}${r.product ? `\nTHE PRODUCT: ${r.product}` : ""}${r.people?.length ? `\nPEOPLE: ${r.people.join(", ")} (the brand's ambassadors)` : ""}`,
@@ -468,8 +468,12 @@ export function videoIdeaInstruction(r: { client: string; type: string; title: s
       "- the frame stays the same composition and light; no cuts, no text, no logos, no new people;",
       "- gentle and premium, never frantic.",
     ].join("\n"),
+    // The clip is sent with these rules after the idea: an idea that asks for what they forbid would contradict them.
+    r.brand?.trim() ? `THE CLIENT'S OWN RULES (the idea stays inside them and never asks for anything they forbid; do not repeat them in the idea):\n${r.brand.trim()}` : "",
     'Return ONLY JSON: {"idea": "...", "reason": "a few words"}.',
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 

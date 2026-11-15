@@ -123,6 +123,7 @@ import {
 } from "@shared/posts";
 import type { Theme, User } from "@shared/types";
 import { lessonsFor, rememberLesson } from "./lessons";
+import { clientBrandBlock } from "./brand-block";
 
 type Variables = { user: User };
 export const postRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -4685,7 +4686,7 @@ postRoutes.post("/video/idea", async (c) => {
     const raw = parseJson<{ idea?: unknown }>(
       await askText(
         c.env,
-        videoIdeaInstruction({ client: client.name, type: POST_TYPE_INFO[post.type]?.label ?? post.type, title: post.title, brief: post.brief, headline: post.headline, product: product ? `${productName(product)}${product.note ? ` (${product.note})` : ""}` : post.product, people: post.people }),
+        videoIdeaInstruction({ client: client.name, type: POST_TYPE_INFO[post.type]?.label ?? post.type, title: post.title, brief: post.brief, headline: post.headline, product: product ? `${productName(product)}${product.note ? ` (${product.note})` : ""}` : post.product, people: post.people, brand: await clientBrandBlock(c.env, client.id, "video", { batch: b.id }) }),
         VIDEO_IDEA_SCHEMA,
         [{ bytes: await obj.arrayBuffer(), mime: obj.httpMetadata?.contentType || "image/png" }],
       ),

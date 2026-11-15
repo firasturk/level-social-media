@@ -31,6 +31,7 @@ import type { Config } from "../shared/config";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
+import { withBrandOnInputs, withMonthBrand } from "./brand-block";
 import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, switchedOffMessage } from "./integrations";
 import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost } from "./higgsfield-mcp";
 /** The Higgsfield picture tools and styles run on the same sign-in as the videos. */
@@ -546,7 +547,9 @@ photoPresetRoutes.get("/:id", async (c) => {
   return c.json({ ok: true, preset: detail, readinessError, admin: teamMayRun(user, "higgsfield") });
 });
 
-const inputValue = z.union([z.string().max(5000), z.number(), z.boolean()]);
+/** The longest words a preset input carries: what the route accepts. The typed words and the brand limits share it. */
+const PRESET_WORDS_MAX = 5000;
+const inputValue = z.union([z.string().max(PRESET_WORDS_MAX), z.number(), z.boolean()]);
 const runSchema = z.object({
   batch: z.string().min(1),
   index: z.number().int().min(1).max(200),
@@ -577,7 +580,9 @@ export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): P
   await mcp.requireTool("execute_preset");
   const detail = await fetchDetail(mcp, d.presetId, d.source);
   if (!detail.runnable) throw new StudioError(`"${detail.title}" cannot be run from here${detail.available === false ? " (Higgsfield says it is not available)" : ""}.`, 409, false, { notRunnable: true });
-  const inputs: Record<string, unknown> = { ...d.inputs };
+  // The words typed into the preset, then the client's brand limits (a preset makes a new picture, so the limits cover all of it).
+  const branded = await withBrandOnInputs(env, b, d.inputs, "edit", PRESET_WORDS_MAX, { keepRest: false });
+  const inputs: Record<string, unknown> = { ...branded.inputs };
   const field = imageInputOf(detail.inputSchema);
   // A "Product image" input gets the clean product photo when the post has one (the post's whole
   // picture would bring its scene along); "the post's picture" when asked, or when there is none.
@@ -614,6 +619,7 @@ export async function runPhotoPreset(env: Env, user: User, d: PhotoPresetRun): P
     tool: `preset:${d.presetId}`,
     label: `Preset · ${detail.title}`,
     options,
+    brand: branded.block,
     estimate: credits,
     balanceBefore: bal.credits,
     opId,
@@ -655,7 +661,9 @@ async function runStudioV2Photo(env: Env, user: User, d: PhotoPresetRun): Promis
   const sent = clean?.key ?? t.output;
   const mediaId = await mediaFor(env, mcp, sent, "image");
   const words = Object.values(d.inputs).filter((v): v is string => typeof v === "string").join("\n");
-  const params = studioV2ImageParams(card, mediaId, words);
+  // Only the types that read notes are sent words; the client's brand limits follow them.
+  const branded = card.type === "ads" || card.type === "marketplace" ? await withMonthBrand(env, b, words.trim(), "edit", PRESET_WORDS_MAX, { keepRest: false }) : { text: words, block: "" };
+  const params = studioV2ImageParams(card, mediaId, branded.text);
   const quote = await mcp.call("generate_image", { params: { ...params, get_cost: true } });
   const credits = quote.isError ? null : parseCost(quote);
   const bal = await balanceOf(mcp).catch(() => ({ credits: null as number | null }));
@@ -682,6 +690,7 @@ async function runStudioV2Photo(env: Env, user: User, d: PhotoPresetRun): Promis
     tool: `preset:${d.presetId}`,
     label: `Preset · ${card.title}`,
     options: words.trim() ? { notes: words.trim().slice(0, 500) } : {},
+    brand: branded.block,
     estimate: credits,
     balanceBefore: bal.credits,
     opId,

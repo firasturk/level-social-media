@@ -13,6 +13,7 @@ import { guardFetch } from "./support/paid-guard";
 import { postConfig, type Config } from "../shared/config";
 import { checkVideoSettings, DEFAULT_VIDEO_MODEL, VIDEO_MODELS, videoModel, videoRequestInput } from "../shared/video-models";
 import type { User } from "../shared/types";
+import { blocksIn, BRAND_RULE, COLOUR, giveBrandRule, giveKit, NEVER, VIDEO_LABEL } from "./support/brand-kit";
 
 // The governance stub is observed: ops recorded, claims answered as the test says.
 const ops = vi.hoisted(() => ({
@@ -520,5 +521,131 @@ describe("the lightweight preview rendition", () => {
     expect((await attach(a, "v-q", { preview: sampleBytes() })).status).toBe(409);
     // Nothing reached the network: no provider, no generation.
     expect((globalThis.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
+  });
+});
+
+describe("the client's brand rules on a clip", () => {
+  const KLING = "kling-video/v3.0/std/image-to-video";
+  const IDEA = "The steam rises and the cup turns slowly";
+  const sentTo = (calls: { url: string; init?: RequestInit }[], model = SEEDANCE) => calls.filter((c) => c.url === `https://higgsfield.test/${model}`).map((c) => JSON.parse(String(c.init?.body)) as { prompt?: string });
+
+  async function withKit() {
+    const env = await seed();
+    await giveKit(env);
+    await giveBrandRule(env);
+    return env;
+  }
+
+  it("sends the idea as typed, then a never-rule, the brand colours, how people look, the approved rule and the photography direction; the version keeps the idea and the rules apart", async () => {
+    const env = await withKit();
+    const { calls } = provider();
+    const r = await submit(await app(), env, {});
+    expect(r.status).toBe(200);
+    const d = (await r.json()) as { video: { id: string; prompt: string; brand: string } };
+    const [body] = sentTo(calls);
+    expect(body.prompt).toBe(
+      [
+        IDEA,
+        "",
+        `${VIDEO_LABEL} (for everything that moves, enters or changes in the clip; none of this is shown as words):`,
+        "- Colours of anything that enters or changes stay within: deep blue #0042aa, cream #f5e9d0.",
+        "- NEVER: No plastic cups.",
+        "- People: Women wear modest clothing with long sleeves.",
+        `- Brand rule: ${BRAND_RULE}.`,
+        "- Every box keeps its printed lid.",
+        "- Camera and light: 50mm, eye level, soft window light.",
+      ].join("\n"),
+    );
+    expect(body.prompt).toContain(NEVER);
+    expect(body.prompt).toContain(COLOUR);
+    // The estimate was asked with the same words.
+    const estimate = calls.find((c) => c.url.startsWith("https://higgsfield.test/estimate/"))!;
+    expect(JSON.parse(String(estimate.init?.body)).prompt).toBe(body.prompt);
+    // The row keeps the idea as typed (the dialog offers it again); the rules are beside it and in the ledger's note.
+    expect(d.video.prompt).toBe(IDEA);
+    expect(d.video.brand).toBe(body.prompt!.slice(IDEA.length).trim());
+    const row = await env.DB.prepare("SELECT prompt, settings FROM videos WHERE id = ?").bind(d.video.id).first<{ prompt: string; settings: string }>();
+    expect(row!.prompt).toBe(IDEA);
+    expect(JSON.parse(row!.settings).brand).toBe(d.video.brand);
+    expect(ops.record).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ kind: "video", note: expect.stringContaining(`the client's brand rules sent after the idea (${d.video.brand.length} characters)`) }));
+  });
+
+  it("names the client's language only when the idea asks for words or a voice", async () => {
+    const env = await withKit();
+    const { calls } = provider();
+    await submit(await app(), env, {});
+    await submit(await app(), env, { prompt: "She lifts the cup and says welcome to the camera" });
+    const [silent, spoken] = sentTo(calls);
+    expect(silent.prompt).not.toContain("Arabic");
+    expect(spoken.prompt).toContain("- Any words on screen or spoken are in Arabic.");
+  });
+
+  it("adds the rules once on a retry of a failed clip, and once when the words already carry a block", async () => {
+    const env = await withKit();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/estimate/")) return new Response(JSON.stringify({ usd: "0.1" }), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify({ detail: "model_disabled" }), { status: 400, headers: { "content-type": "application/json" } });
+      }),
+    );
+    expect((await submit(await app(), env, {})).status).toBe(502);
+    const failed = (await list(await app(), env)).videos[0];
+    expect(failed.prompt).toBe(IDEA);
+    const { calls } = provider();
+    const retry = await (await app()).request("/api/studio/posts/video/retry", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: "b1", id: failed.id }) }, env);
+    expect(retry.status).toBe(200);
+    const [again] = sentTo(calls);
+    expect(blocksIn(again.prompt)).toBe(1);
+    expect(again.prompt!.startsWith(`${IDEA}\n\n${VIDEO_LABEL}`)).toBe(true);
+    // The whole sent text typed back in as the idea: still one block, the same text.
+    await submit(await app(), env, { prompt: again.prompt });
+    const resent = sentTo(calls)[1];
+    expect(resent.prompt).toBe(again.prompt);
+    expect(blocksIn(resent.prompt)).toBe(1);
+  });
+
+  it("keeps the idea whole at the engine's prompt length: the rules lose lines, then go", async () => {
+    const env = await withKit();
+    const { calls } = provider();
+    expect(videoModel(KLING)!.promptMax).toBe(2500);
+    const long = `${"The cup turns slowly while the steam rises. ".repeat(52)}End.`;
+    expect(long.length).toBeGreaterThan(2200);
+    expect(long.length).toBeLessThan(2400);
+    expect((await submit(await app(), env, { model: KLING, prompt: long })).status).toBe(200);
+    const full = "d".repeat(2500);
+    expect((await submit(await app(), env, { model: KLING, prompt: full })).status).toBe(200);
+    const [tight, alone] = sentTo(calls, KLING);
+    expect(tight.prompt!.startsWith(`${long}\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(tight.prompt!.length).toBeLessThanOrEqual(2500);
+    expect(tight.prompt).toContain(COLOUR);
+    expect(tight.prompt).not.toContain("50mm");
+    expect(tight.prompt!.endsWith(".")).toBe(true);
+    expect(alone.prompt).toBe(full);
+  });
+
+  it("adds nothing for an empty kit, and invents no words for a clip asked without an idea", async () => {
+    const empty = await seed();
+    const first = provider();
+    const r = await submit(await app(), empty, {});
+    expect(sentTo(first.calls)[0].prompt).toBe(IDEA);
+    expect(((await r.json()) as { video: { brand: string } }).video.brand).toBe("");
+    const env = await withKit();
+    const second = provider();
+    expect((await submit(await app(), env, { prompt: "" })).status).toBe(200);
+    expect(sentTo(second.calls)[0].prompt).toBeUndefined();
+  });
+
+  it("the Prompt Box's clip goes the same way", async () => {
+    const env = await withKit();
+    const { calls } = provider();
+    const { promptboxTools } = await import("../server/promptbox-tools");
+    const r = await promptboxTools.videoGenerate(env, { id: "u1", email: "x@y", name: "X", role: "admin" } as User, { batch: "b1", index: 1, model: KLING, prompt: "Animate the cup gently; the product stays exactly as pictured.", duration: 5, aspect: "", source: "picture" });
+    expect(r.ok).toBe(true);
+    const [body] = sentTo(calls, KLING);
+    expect(body.prompt!.startsWith(`Animate the cup gently; the product stays exactly as pictured.\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(body.prompt).toContain(NEVER);
+    expect(body.prompt).toContain(COLOUR);
   });
 });

@@ -26,6 +26,7 @@ import { makeClient } from "./engine";
 import { signObjectUrl } from "./signed";
 import { getSetting } from "./settings";
 import { ownedPlan } from "./posts";
+import { withMonthBrand, type BrandMonth } from "./brand-block";
 import { serveObject } from "./range";
 import { readMp4 } from "./mp4";
 import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, integrationEstimate, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
@@ -99,6 +100,8 @@ interface StoredSettings extends Partial<VideoSettings> {
   previewBytes?: number;
   /** A small JPEG/WebP/PNG still of the clip's own first frame (the browser made it), the poster when present. */
   stillKey?: string;
+  /** The client's brand rules sent after the idea (the row's `prompt` keeps the idea as typed). */
+  brand?: string;
 }
 
 /** The frame fields a submit body may carry: `frame` (one of the four), `fill` (crop | blur), `words` (the words drawn in). */
@@ -124,6 +127,10 @@ const MAX_ARTWORK = 12 * 1024 * 1024;
 export const GIVE_UP_MS = 30 * 60 * 1000;
 /** The same clip (post, prompt, settings, source) is not submitted twice within this window. */
 const CLAIM_TTL_MS = 10 * 60 * 1000;
+/** The longest idea the video routes accept; the typed idea and the brand rules share it where the engine names no length of its own. */
+export const VIDEO_PROMPT_MAX = 5000;
+/** The ledger's words for a clip that carried the client's brand rules. */
+export const brandNote = (block: string) => (block ? ` · the client's brand rules sent after the idea (${block.length} characters)` : "");
 /** How many in-flight clips one list call asks the provider about. */
 const POLL_LIMIT = 6;
 
@@ -141,7 +148,10 @@ export interface VideoItem {
   model: string;
   provider: string;
   source: VideoSource;
+  /** The idea as typed. */
   prompt: string;
+  /** The client's brand rules that were sent after the idea ("" when none were). */
+  brand: string;
   status: VideoStatus;
   error: string | null;
   created: number;
@@ -198,6 +208,7 @@ export function videoItem(v: VideoRow, version: number, audioNames?: Map<string,
     provider: v.provider,
     source: v.source,
     prompt: v.prompt,
+    brand: typeof s.brand === "string" ? s.brand : "",
     status: v.status,
     error: v.error,
     created: v.created,
@@ -400,11 +411,15 @@ interface ClipAsk {
  * submission the provider rejects is kept as a failed version with its message; nothing retries
  * by itself.
  */
-async function submitClip(env: Env, user: User, b: { id: string; owner: string }, task: { id: string }, index: number, ask: ClipAsk): Promise<VideoRow> {
+async function submitClip(env: Env, user: User, b: { id: string; owner: string } & BrandMonth, task: { id: string }, index: number, ask: ClipAsk): Promise<VideoRow> {
   if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
   const engine = await makeClient(env);
   const imageUrl = await signObjectUrl(env, ask.posterKey, 6 * 60 * 60 * 1000);
-  const input = videoRequestInput(ask.model, ask.prompt, imageUrl, ask.settings);
+  // The idea as typed, then the client's brand rules (15 Nov 2026: a clip used to know nothing about
+  // the client), inside the engine's own prompt length. The row keeps the idea as typed, so the
+  // dialog can offer it again and a retry adds the rules once.
+  const branded = await withMonthBrand(env, b, ask.prompt, "video", ask.model.promptMax ?? VIDEO_PROMPT_MAX);
+  const input = videoRequestInput(ask.model, branded.text, imageUrl, ask.settings);
   // The estimate is asked with the same body the generation gets, minus the signed picture link.
   const estimate = await clipEstimate(env, engine, ask.model, { ...input, image_url: "https://example.com/input.jpg" });
   if (estimate.usd === null && estimate.credits === null && !ask.confirm)
@@ -424,6 +439,7 @@ async function submitClip(env: Env, user: User, b: { id: string; owner: string }
     credits: estimate.credits,
     estimateSource: estimate.source ?? "confirmed",
     note: ask.note,
+    ...(branded.block ? { brand: branded.block } : {}),
   };
   const opId = await recordIntegrationOp(env, {
     provider: "higgsfield",
@@ -433,7 +449,7 @@ async function submitClip(env: Env, user: User, b: { id: string; owner: string }
     post: index,
     estimate: estimateUsd,
     status: "confirmed",
-    note: `${ask.model.name} · ${ask.settings.duration}s · ${ask.source}${ask.frame?.frame ? ` · frame ${ask.frame.frame}${ask.frame.frameFill ? ` (${ask.frame.frameFill})` : ""}` : ""}${estimate.source ? ` · estimate from ${estimate.source}` : " · cost unknown, confirmed"}`,
+    note: `${ask.model.name} · ${ask.settings.duration}s · ${ask.source}${ask.frame?.frame ? ` · frame ${ask.frame.frame}${ask.frame.frameFill ? ` (${ask.frame.frameFill})` : ""}` : ""}${estimate.source ? ` · estimate from ${estimate.source}` : " · cost unknown, confirmed"}${brandNote(branded.block)}`,
   });
   const t = now();
   const insert = (status: VideoStatus, requestId: string | null, error: string | null) =>

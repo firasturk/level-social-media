@@ -30,12 +30,13 @@ import { first, now, run, uuid } from "./db";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
+import { withMonthBrand } from "./brand-block";
 import { signObjectUrl } from "./signed";
 import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { creditsIn, MagnificMcp, magnificFetcher, MCP_NOT_CONNECTED, tokenSource } from "./freepik-mcp";
 import { posterFor } from "./higgsfield-mcp";
 import { findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
-import { finishedVersion, frameFields, frameSettings, GIVE_UP_MS, insertVideoRow, parseSettings, patchVideoSettings, registerPendingSettler, sha256, storeFinishedClip, versionItem, type VideoItem, type VideoRow } from "./video";
+import { brandNote, finishedVersion, frameFields, frameSettings, GIVE_UP_MS, insertVideoRow, parseSettings, patchVideoSettings, registerPendingSettler, sha256, storeFinishedClip, versionItem, VIDEO_PROMPT_MAX, type VideoItem, type VideoRow } from "./video";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -280,9 +281,11 @@ export async function generateMagnificVideo(env: Env, user: User, d: MagnificGen
   // and it wants a resolution; an engine that offers resolutions gets one even when the page sent none.
   const asReference = !engine.imageToVideo && engine.referenceImage;
   if (!engine.imageToVideo && !engine.referenceImage) throw new StudioError(`${engine.name} makes clips from text alone: it takes no picture. Pick another engine.`, 400);
+  // The idea as typed, then the client's brand rules; the row keeps the idea as typed.
+  const branded = await withMonthBrand(env, b, d.prompt.trim(), "video", VIDEO_PROMPT_MAX);
   const args: Record<string, unknown> = {
     slug: d.slug,
-    prompt: d.prompt.trim() || undefined,
+    prompt: branded.text || undefined,
     duration: d.duration,
     ...(asReference ? { references: [{ type: "image", url }] } : { keyframes: { start: { type: "image", url } } }),
   };
@@ -303,9 +306,9 @@ export async function generateMagnificVideo(env: Env, user: User, d: MagnificGen
   if (!d.confirm) throw new StudioError(`Confirm the clip: about ${estimate} credits from the Magnific balance.`, 409, false, { needsConfirm: true, estimate, credits: estimate });
   const fingerprint = await sha256([MAGNIFIC_PROVIDER, d.slug, d.prompt.trim(), d.duration, String(args.aspectRatio ?? ""), resolution ?? "", d.source, posterKey].join("\n"));
   if (!(await claimSubmission(env, `video:${b.id}:${d.index}:${fingerprint}`, CLAIM_TTL_MS))) throw new StudioError("This exact clip was asked for a moment ago. Wait for it, or change the idea or the settings.", 409);
-  const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${engine.name} · ${d.duration}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${estimate} credits (Magnific)${d.note ? ` · ${d.note}` : ""}` });
+  const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${engine.name} · ${d.duration}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${estimate} credits (Magnific)${d.note ? ` · ${d.note}` : ""}${brandNote(branded.block)}` });
   const id = uuid();
-  const settings = { slug: d.slug, engineName: engine.name, duration: d.duration, aspect: String(args.aspectRatio ?? "") || undefined, resolution, ...frameSettings(d), estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
+  const settings = { ...(branded.block ? { brand: branded.block } : {}), slug: d.slug, engineName: engine.name, duration: d.duration, aspect: String(args.aspectRatio ?? "") || undefined, resolution, ...frameSettings(d), estimate, credits: estimate, estimateSource: "provider", unit: "credits", label: `Magnific · ${engine.name}`, withSoundEffects: d.withSoundEffects ?? null, note: d.note, identifiers: [] as string[] };
   const row = { id, batch: b.id, post: d.index, task: t.id, owner: user.id, model: `magnific:${d.slug}`, prompt: d.prompt.trim(), provider: MAGNIFIC_PROVIDER, posterKey, source: d.source, opId };
   let r: McpCallResult;
   try {
@@ -391,6 +394,8 @@ const enhanceSchema = z.object({
 export type MagnificEnhanceInput = z.infer<typeof enhanceSchema>;
 
 const RESERVED_ARGS = new Set(["creationIdentifier", "videoUrl", "url", "creation_identifier", "video_url"]);
+/** An Enhance argument longer than this was already left out; the typed words and the brand limits share it. */
+const ENHANCE_WORDS_MAX = 3900;
 
 export async function enhanceMagnificVideo(env: Env, user: User, d: MagnificEnhanceInput): Promise<VideoItem> {
   if (previewNoImages(env)) throw new StudioError(PREVIEW_MESSAGE, 403);
@@ -403,6 +408,10 @@ export async function enhanceMagnificVideo(env: Env, user: User, d: MagnificEnha
   if (!tools.has(d.tool)) throw new StudioError(`Magnific lists no tool named "${d.tool}" today; nothing was run.`, 502, false, { missingTool: d.tool });
   const args: Record<string, unknown> = Object.fromEntries(Object.entries(d.arguments).filter(([k, val]) => !RESERVED_ARGS.has(k) && val !== undefined && val !== null && val !== "" && JSON.stringify(val).length < 4000));
   const params = tools.get(d.tool) ?? [];
+  // The relight's words are followed by the client's brand limits (no colour list, which would tint the light).
+  // The words of the music and the sound effects describe sound: picture rules have no place there.
+  const branded = d.tool === "video_relight" && typeof args.prompt === "string" ? await withMonthBrand(env, b, args.prompt.trim(), "edit", ENHANCE_WORDS_MAX, { colours: false }) : { text: "", block: "" };
+  if (branded.block) args.prompt = branded.text;
   // A tool that takes a link gets a signed link to our file; the others get the clip uploaded as a creation.
   if (params.includes("videoUrl") && !params.includes("creationIdentifier")) args.videoUrl = await signObjectUrl(env, v.key!, 2 * 60 * 60 * 1000);
   else args.creationIdentifier = await creationFor(env, mcp, v, tools);
@@ -418,7 +427,7 @@ export async function enhanceMagnificVideo(env: Env, user: User, d: MagnificEnha
   const opId = await recordIntegrationOp(env, { ...base, estimate, status: "confirmed", note: `${meta.label} (${d.tool}) of version ${v.id.slice(0, 8)} · ${estimate} credits (Magnific) · ${JSON.stringify(d.arguments).slice(0, 200)}` });
   const id = uuid();
   const from = parseSettings(v);
-  const settings = { enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: d.arguments }, label: `${meta.label} (Magnific) of an earlier version`, estimate, credits: estimate, estimateSource: "provider", unit: "credits", duration: from.duration, aspect: from.aspect, frame: from.frame, frameFill: from.frameFill, words: from.words, identifiers: [] as string[] };
+  const settings = { ...(branded.block ? { brand: branded.block } : {}), enhance: { tool: d.tool, label: meta.label, from: v.id, arguments: d.arguments }, label: `${meta.label} (Magnific) of an earlier version`, estimate, credits: estimate, estimateSource: "provider", unit: "credits", duration: from.duration, aspect: from.aspect, frame: from.frame, frameFill: from.frameFill, words: from.words, identifiers: [] as string[] };
   const row = { id, batch: b.id, post: v.post, task: v.task, owner: user.id, model: `magnific:${d.tool}`, prompt: v.prompt, provider: MAGNIFIC_PROVIDER, posterKey: v.poster_key, source: v.source, opId };
   let r: McpCallResult;
   try {

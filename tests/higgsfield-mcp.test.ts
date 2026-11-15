@@ -24,6 +24,8 @@ import { CALLBACK_PATH, engineList, HIGGSFIELD_MCP_URL, HIGGSFIELD_RESOURCE_META
 import { CLOUD_CHOSEN, CREDITS_CHOSEN } from "../server/higgsfield-billing";
 import { getSetting, setSetting, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "../server/settings";
 import * as integrations from "../server/integrations";
+import { clipPrompt } from "../server/campaign-runner";
+import { blocksIn, BRAND_RULE, COLOUR, giveBrandRule, giveKit, NEVER, VIDEO_LABEL } from "./support/brand-kit";
 
 vi.mock("../server/integrations", async (orig) => {
   const m = (await orig()) as typeof integrations;
@@ -632,5 +634,100 @@ describe("the engine list the dialog shows", () => {
       m("draw_to_video", "Draw To Video"),
     ]);
     expect(list.map((x) => x.id)).toEqual(["seedance_2_5", "kling3_0", "minimax_h3", "wan_2_6", "cinema_studio_4"]);
+  });
+});
+
+describe("the client's brand rules on a subscription clip", () => {
+  const costWords = (stub: ReturnType<typeof higgsfieldStub>) => stub.rpc.filter((x) => x.name === "generate_video").map((x) => (x.args as { params: { prompt?: string } }).params.prompt);
+  const runWords = (stub: ReturnType<typeof higgsfieldStub>) => stub.rpc.filter((x) => x.name === "generate_video_batch").map((x) => (x.args as { requests: { params: { prompt?: string } }[] }).requests[0].params.prompt);
+
+  async function withKit() {
+    const env = await seed();
+    await giveKit(env);
+    await giveBrandRule(env);
+    await signedIn(env);
+    await setSetting(env, HIGGSFIELD_BILLING_SETTING, "credits");
+    return env;
+  }
+
+  it("asks the cost and runs the job with the idea as typed, then a never-rule, the approved rule and the brand colours; the version keeps the idea and the rules apart", async () => {
+    const env = await withKit();
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    const r = await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true });
+    expect(r.status).toBe(200);
+    const d = (await json(r)) as { video: { id: string; prompt: string; brand: string } };
+    const [sent] = runWords(stub);
+    expect(sent!.startsWith(`${ask.prompt}\n\n${VIDEO_LABEL} (for everything that moves, enters or changes in the clip; none of this is shown as words):\n`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).toContain(COLOUR);
+    expect(sent).toContain(`- Brand rule: ${BRAND_RULE}.`);
+    expect(sent).toContain("- Camera and light: 50mm, eye level, soft window light.");
+    expect(blocksIn(sent)).toBe(1);
+    // The price was asked for the same words.
+    expect(costWords(stub).at(-1)).toBe(sent);
+    expect(d.video.prompt).toBe(ask.prompt);
+    expect(d.video.brand).toBe(sent!.slice(ask.prompt.length).trim());
+    const row = await env.DB.prepare("SELECT prompt, settings FROM videos WHERE id = ?").bind(d.video.id).first<{ prompt: string; settings: string }>();
+    expect(row!.prompt).toBe(ask.prompt);
+    expect(JSON.parse(row!.settings).brand).toBe(d.video.brand);
+    expect(ops().find((o) => o.kind === "video")!.note).toContain(`the client's brand rules sent after the idea (${d.video.brand.length} characters)`);
+    expect(reached).toEqual([]);
+  });
+
+  it("never adds the rules twice, keeps the idea whole at the 5000-character limit, and invents no words for a clip asked without an idea", async () => {
+    const env = await withKit();
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true });
+    const [first] = runWords(stub);
+    // The sent text typed back in as the idea.
+    await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, prompt: first, confirm: true });
+    expect(runWords(stub)[1]).toBe(first);
+    const long = `${"The cup turns slowly while the steam rises. ".repeat(108)}End.`;
+    expect(long.length).toBeGreaterThan(4700);
+    await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, prompt: long, confirm: true });
+    const tight = runWords(stub)[2]!;
+    expect(tight.startsWith(`${long}\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(tight.length).toBeLessThanOrEqual(5000);
+    expect(tight).toContain(COLOUR);
+    expect(tight).not.toContain("50mm");
+    const full = "e".repeat(5000);
+    await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, prompt: full, confirm: true });
+    expect(runWords(stub)[3]).toBe(full);
+    await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, prompt: "", confirm: true });
+    expect(runWords(stub)[4]).toBeUndefined();
+    expect(reached).toEqual([]);
+  });
+
+  it("a campaign's clip prompt gets the rules after it, once, and its 'No text appears' does not call for the language line", async () => {
+    const env = await withKit();
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    const shot = { key: "s1", seconds: 5, action: "The cup turns on the counter while steam rises", framing: "close-up", camera: "slow push-in", reference: null, source: "start-image" as const, asset: null, text: "" };
+    const prompt = clipPrompt({ concept: "A warm cup", frame: "9:16", product: { name: "Sakina", id: "p1", from: "library" }, shots: [shot] } as never, shot as never);
+    expect(prompt).toContain("No text appears; no new objects or people.");
+    const r = await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, prompt, confirm: true });
+    expect(r.status).toBe(200);
+    const [sent] = runWords(stub);
+    expect(sent!.startsWith(`${prompt}\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).toContain(COLOUR);
+    expect(sent).not.toContain("Arabic");
+    expect(blocksIn(sent)).toBe(1);
+    expect(reached).toEqual([]);
+  });
+
+  it("adds nothing for a client with an empty kit", async () => {
+    const env = await seed();
+    await signedIn(env);
+    await setSetting(env, HIGGSFIELD_BILLING_SETTING, "credits");
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    const d = (await json(await postJson(app(), env, "/api/studio/higgsfield/mcp/generate", { ...ask, confirm: true }))) as { video: { brand: string } };
+    expect(runWords(stub)).toEqual([ask.prompt]);
+    expect(d.video.brand).toBe("");
+    expect(ops().find((o) => o.kind === "video")!.note).not.toContain("brand rules");
+    expect(reached).toEqual([]);
   });
 });

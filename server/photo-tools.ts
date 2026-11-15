@@ -39,6 +39,8 @@ import { imageSize } from "./ocr";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan, saveConfig } from "./posts";
+import { withMonthBrand, type BrandMonth } from "./brand-block";
+import { BRAND_BLOCK_LABEL } from "@shared/brandMemory";
 import { signObjectUrl } from "./signed";
 import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, noRetry, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp, type IntegrationProvider } from "./integrations";
 import { balanceOf, fetcher as higgsfieldFetcher, HiggsfieldMcp, higgsfieldSignIn, mediaFor, parseCost, parseJobs, unlimChoiceIn, type ToolShape } from "./higgsfield-mcp";
@@ -120,6 +122,8 @@ interface JobSettings {
   mcpTool?: string;
   args?: Record<string, unknown>;
   notes?: string[];
+  /** The client's brand limits sent after the typed words (`options` keeps the words as typed). */
+  brand?: string;
   jobIds?: string[];
   outcomeUnknown?: boolean;
   /** The posts the result was added as ("Add as new posts"), so a second press adds nothing. */
@@ -145,6 +149,7 @@ export function jobJson(j: PhotoJobRow): PhotoToolJob {
     tool: j.tool,
     label: j.label,
     options: parseJson<Record<string, string>>(j.options, {}),
+    brand: parseJson<JobSettings>(j.settings, {}).brand ?? "",
     status: j.status,
     estimate: j.estimate,
     reported: j.reported === null ? null : Math.round(j.reported * 100) / 100,
@@ -651,6 +656,28 @@ export function withPostFrame(tool: ToolDef, options: Record<string, string>, b:
   return { ...options, aspect: frame };
 }
 
+/** The longest words a tool is sent: what the route accepts for an option. The typed words and the brand limits share it. */
+export const TOOL_PROMPT_MAX = 2000;
+/** A new picture made from this one: "keep everything else" does not hold, the limits still do. */
+const REMAKE_TOOLS = new Set(["hf-generate", "mg-reimagine"]);
+/** Their words describe light: a list of brand colours would tint it. */
+const RELIGHT_TOOLS = new Set(["hf-relight", "mg-relight"]);
+
+/**
+ * The options as the provider gets them: the typed words, then the client's brand limits (15 Nov
+ * 2026: an AI edit used to know nothing about the client). A tool with no words, or words left
+ * empty, is sent as before: no prompt is invented for it.
+ */
+export async function brandedOptions(env: Env, b: BrandMonth, tool: ToolDef, options: Record<string, string>): Promise<{ options: Record<string, string>; brand: string }> {
+  const typed = options.prompt?.trim();
+  if (!typed || !tool.options.some((o) => o.id === "prompt")) return { options, brand: "" };
+  const sent = await withMonthBrand(env, b, typed, "edit", TOOL_PROMPT_MAX, { keepRest: !REMAKE_TOOLS.has(tool.id), colours: !RELIGHT_TOOLS.has(tool.id) });
+  return { options: { ...options, prompt: sent.text }, brand: sent.block };
+}
+
+/** The limits count as sent only when the tool's own arguments carry them (a live schema may list no prompt at all). */
+const brandSent = (args: Record<string, unknown>, brand: string) => (brand && JSON.stringify(args).includes(BRAND_BLOCK_LABEL.edit) ? brand : "");
+
 function requireOptions(tool: ToolDef, options: Record<string, string>): void {
   for (const o of tool.options) if (o.required && !options[o.id]?.trim()) throw new StudioError(`${o.label} is needed for ${tool.label}.`);
 }
@@ -661,7 +688,9 @@ export async function estimatePhotoTool(env: Env, user: User, d: PhotoToolAsk): 
   if (!tool) throw new StudioError("Unknown tool.");
   requireOptions(tool, d.options);
   const { b, t } = await postPicture(env, user, d.batch, d.index);
-  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, withPostFrame(tool, d.options, b, d.index));
+  // The estimate prices the very call the run makes, brand limits included.
+  const { options } = await brandedOptions(env, b, tool, d.options);
+  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, options) : await prepareMagnific(env, tool, t, withPostFrame(tool, options, b, d.index));
   // Higgsfield's picture tools take no `get_cost`: when the provider names no price, the credits the
   // last finished run of the same tool reported (balance before → after) stand as the estimate, said so.
   if (p.credits === null && tool.provider === "higgsfield") {
@@ -719,6 +748,8 @@ export interface StartJob {
   tool: string;
   label: string;
   options: Record<string, string>;
+  /** The client's brand limits the arguments carry after the typed words, when any. */
+  brand?: string;
   estimate: number | null;
   balanceBefore: number | null;
   opId: string;
@@ -738,7 +769,7 @@ export interface StartJob {
 export async function startPhotoJob(env: Env, s: StartJob): Promise<PhotoJobRow> {
   const id = uuid();
   const ts = now();
-  const settings: JobSettings = { balanceBefore: s.balanceBefore, mcpTool: s.mcpTool, args: redactArgs(s.args) as Record<string, unknown>, notes: s.notes, jobIds: [] };
+  const settings: JobSettings = { balanceBefore: s.balanceBefore, mcpTool: s.mcpTool, args: redactArgs(s.args) as Record<string, unknown>, notes: s.notes, ...(s.brand ? { brand: s.brand } : {}), jobIds: [] };
   await run(
     env.DB,
     "INSERT INTO photo_tool_jobs (id, batch, post, task, owner, provider, tool, label, options, input_key, status, estimate, op_id, settings, created, updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)",
@@ -819,7 +850,9 @@ export async function runPhotoTool(env: Env, user: User, d: PhotoToolRun): Promi
   requireOptions(tool, d.options);
   const { b, t } = await postPicture(env, user, d.batch, d.index);
   const provider = ledgerProvider(tool.provider);
-  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, d.options) : await prepareMagnific(env, tool, t, withPostFrame(tool, d.options, b, d.index));
+  const branded = await brandedOptions(env, b, tool, d.options);
+  const p = tool.provider === "higgsfield" ? await prepareHiggsfield(env, tool, t, branded.options) : await prepareMagnific(env, tool, t, withPostFrame(tool, branded.options, b, d.index));
+  const brand = brandSent(p.args, branded.brand);
   const label = `${tool.label} (${TOOL_PROVIDER_LABELS[tool.provider]})`;
   const base = { provider, kind: "image.tool", user: user.id, batch: b.id, post: d.index };
   if (p.credits === null) {
@@ -836,7 +869,7 @@ export async function runPhotoTool(env: Env, user: User, d: PhotoToolRun): Promi
     ...base,
     estimate: p.credits,
     status: "confirmed",
-    note: `${label} · ${p.mcpTool} · ${p.credits ?? "unknown"} credits${p.credits === null ? " · cost unknown, confirmed" : ""}${p.balance !== null ? ` · balance before ${p.balance}` : ""}${p.notes.length ? ` · ${p.notes.join("; ")}` : ""}`,
+    note: `${label} · ${p.mcpTool} · ${p.credits ?? "unknown"} credits${p.credits === null ? " · cost unknown, confirmed" : ""}${p.balance !== null ? ` · balance before ${p.balance}` : ""}${brand ? ` · the client's brand limits sent after the typed words (${brand.length} characters)` : ""}${p.notes.length ? ` · ${p.notes.join("; ")}` : ""}`,
   });
   const row = await startPhotoJob(env, {
     b,
@@ -847,6 +880,7 @@ export async function runPhotoTool(env: Env, user: User, d: PhotoToolRun): Promi
     tool: tool.id,
     label,
     options: d.options,
+    brand,
     estimate: p.credits,
     balanceBefore: p.balance,
     opId,

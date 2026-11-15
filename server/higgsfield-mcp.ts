@@ -34,9 +34,10 @@ import { OAuthSignIn, readJsonSetting } from "./oauth-signin";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { signObjectUrl } from "./signed";
 import { ownedPlan } from "./posts";
+import { withMonthBrand } from "./brand-block";
 import { assertIntegrationEnabled, claimSubmission, releaseSubmission, integrationAccess, recordIntegrationOp, requireIntegrationAdmin, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { McpClient, findNumber, findString, findValue, firstUrl, jsonOf, objectsWith, resultText, type McpCallResult, type McpTool } from "./mcp-client";
-import { dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, startFrameKey, storeFinishedClip, versionNumbers, videoItem, type StartFrame, type VideoItem, type VideoRow, type VideoStatus } from "./video";
+import { brandNote, dataUrlBytes, frameFields, frameSettings, GIVE_UP_MS, parseSettings, postRows, registerPendingSettler, sha256, startFrameKey, storeFinishedClip, versionNumbers, videoItem, VIDEO_PROMPT_MAX, type StartFrame, type VideoItem, type VideoRow, type VideoStatus } from "./video";
 import type { User } from "@shared/types";
 
 export const HIGGSFIELD_MCP_URL = "https://mcp.higgsfield.ai/mcp";
@@ -542,6 +543,8 @@ export interface McpEstimate {
   engine: McpVideoModel;
   mediaId: string;
   params: Record<string, unknown>;
+  /** The client's brand rules the params carry after the typed idea ("" when none). */
+  brand: string;
   text: string;
 }
 
@@ -560,7 +563,10 @@ export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record =
   // a catalog stored before it listed the roles is read again once.
   if (opts.references?.length && !engine.roles) engine.roles = (await mcpModels(env, mcp, true)).models.find((m) => m.id === engine.id)?.roles ?? [];
   const refIds = !tpl && takesReferences(engine) ? await Promise.all((opts.references ?? []).slice(0, 4).map((k) => mediaFor(env, mcp, k))) : [];
-  const params = tpl ? templateParams(tpl, d, mediaId, aspect) : videoParams(engine, d, mediaId, duration, aspect, refIds);
+  // The idea as typed, then the client's brand rules: the estimate and the run are asked with the same words.
+  const branded = await withMonthBrand(env, b, d.prompt.trim(), "video", VIDEO_PROMPT_MAX);
+  const sent = { ...d, prompt: branded.text };
+  const params = tpl ? templateParams(tpl, sent, mediaId, aspect) : videoParams(engine, sent, mediaId, duration, aspect, refIds);
   const r = await mcp.call("generate_video", { params: { ...params, get_cost: true } });
   const unlimChoice = unlimChoiceIn(r);
   const credits = r.isError ? null : parseCost(r);
@@ -577,7 +583,7 @@ export async function estimateMcpVideo(env: Env, user: User, d: McpAsk, record =
     status: credits === null && !unlimChoice ? "refused" : "done",
     note: `${credits ?? "?"} credits · ${engine.name} · ${duration ?? "default"}s · ${d.source}${unlimChoice ? " · unlimited-allowance question" : ""}${credits === null ? ` · answer: ${resultText(r).slice(0, 200)}` : ""}`,
   });
-  return { credits, balance: bal.credits, plan: bal.plan, unlimChoice, engine, mediaId, params, text: resultText(r) };
+  return { credits, balance: bal.credits, plan: bal.plan, unlimChoice, engine, mediaId, params, brand: branded.block, text: resultText(r) };
 }
 
 const isTimeout = (e: unknown) => e instanceof Error && (/TimeoutError|AbortError/.test(e.name) || /timed? ?out/i.test(e.message));
@@ -618,10 +624,10 @@ export async function submitMcpVideo(env: Env, user: User, d: McpGenerateInput, 
     post: d.index,
     estimate: est.credits,
     status: "confirmed",
-    note: `${engine.name} · ${duration ?? "default"}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${est.credits ?? "unknown"} credits (subscription, MCP)${d.useUnlim ? " · unlimited allowance" : ""}${before !== null ? ` · balance before ${before}` : ""}${d.note ? ` · ${d.note}` : ""}`,
+    note: `${engine.name} · ${duration ?? "default"}s · ${d.source}${d.frame ? ` · frame ${d.frame}${d.fill ? ` (${d.fill})` : ""}` : ""} · ${est.credits ?? "unknown"} credits (subscription, MCP)${d.useUnlim ? " · unlimited allowance" : ""}${before !== null ? ` · balance before ${before}` : ""}${d.note ? ` · ${d.note}` : ""}${brandNote(est.brand)}`,
   });
   const id = uuid();
-  const stored = { duration, aspect, ...frameSettings(d), estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", mcpModel: engine.id, engineName: engine.name, useUnlim: d.useUnlim ?? null, balanceBefore: before, plan: est.plan, note: d.note, outcomeUnknown: false };
+  const stored = { ...(est.brand ? { brand: est.brand } : {}), duration, aspect, ...frameSettings(d), estimate: est.credits, credits: est.credits, estimateSource: est.credits === null ? "confirmed" : "provider", unit: "credits", mcpModel: engine.id, engineName: engine.name, useUnlim: d.useUnlim ?? null, balanceBefore: before, plan: est.plan, note: d.note, outcomeUnknown: false };
   const ts = now();
   const insert = (status: VideoStatus, requestId: string | null, error: string | null, extra: Record<string, unknown> = {}) =>
     run(
