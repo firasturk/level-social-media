@@ -231,7 +231,7 @@ export function PresetsGallery({ s, ps }: { s: StudioShared; ps: PresetsState })
         </header>
         {ps.list && !ps.list.signedIn && (
           <p className="vs-note warn">
-            <TriangleAlert size={13} /> {ps.list.reason || "Not signed in: Connection → Higgsfield → Sign in to Higgsfield."}
+            <TriangleAlert size={13} /> {ps.list.reason || "Not signed in to Higgsfield: an admin signs in under Connection → Higgsfield."}
           </p>
         )}
         {ps.list && ps.list.signedIn && ps.list.reason && (

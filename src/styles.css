@@ -4313,6 +4313,13 @@ h1 {
 .sidebar-connection:hover {
   border-color: var(--line-strong);
 }
+/* A member's connection status: text to read, not a control. */
+.sidebar-connection.status,
+.sidebar-connection.status:hover {
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
 .sidebar-user {
   display: flex;
   align-items: center;

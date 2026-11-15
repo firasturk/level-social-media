@@ -53,7 +53,7 @@ interface Props {
   /** The AI edit from an instruction: the same server call as the post editor. */
   /** Resolves to false when the edit was not started (the request failed). */
   onRevise: (edit: string) => Promise<boolean | void>;
-  /** A fresh picture from the saved idea (asked first); absent when the post cannot be remade. */
+  /** A fresh picture from the saved idea (made at once; the current one stays under Versions); absent when the post cannot be remade. */
   onRemake?: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -301,9 +301,7 @@ export default function PhotoStudio(p: Props) {
   const revise = useCallback(
     async (text: string) => {
       if (!text) return;
-      const slide = post.group ? ` (slide ${post.group.slide} of ${post.group.of})` : "";
-      const ok = await askConfirm(`Edit post ${index}'s picture${slide}: one paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Edit this picture${cost}`, danger: false, cancel: "Not now" });
-      if (!ok) return;
+      // Not asked about first: only this post changes and the current picture stays under Versions (the month's message says so).
       // The instruction is also the note on the attached reference, so the engine does with it exactly what was asked.
       if (editor.batchId && post.reference && edit.trim()) {
         const form = new FormData();
@@ -318,18 +316,17 @@ export default function PhotoStudio(p: Props) {
       setArea(null);
       setMarking(false);
     },
-    [cost, edit, editor.batchId, index, onRevise, post.group, post.reference],
+    [edit, editor.batchId, index, onRevise, post.reference],
   );
+  /** "Make another version", not asked about first: only this post changes and the current picture stays under Versions (the month's message says so). */
   const remake = useMemo(
     () =>
       p.onRemake
         ? async () => {
-            const slide = post.group ? ` (slide ${post.group.slide} of ${post.group.of})` : "";
-            const ok = await askConfirm(`Make another version of post ${index}${slide}? A fresh picture is made from the saved idea and shot, not from the current picture. One paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Make another version${cost}`, danger: false, cancel: "Not now" });
-            if (ok) p.onRemake!();
+            p.onRemake!();
           }
         : undefined,
-    [p.onRemake, post.group, index, cost],
+    [p.onRemake],
   );
   const openPanel = useCallback((id: PhotoPanel) => {
     setPanel(id);

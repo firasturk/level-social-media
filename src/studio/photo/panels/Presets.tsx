@@ -213,7 +213,7 @@ export function PresetsGallery({ ctx }: { ctx: StudioCtx }) {
         </header>
         {ps.list && (!ps.list.signedIn || ps.list.reason) && (
           <p className="ps-note warn">
-            <TriangleAlert size={13} /> {ps.list.reason || `Not signed in: Connection → ${who}.`}
+            <TriangleAlert size={13} /> {ps.list.reason || `Not signed in: an admin signs in under Connection → ${who}.`}
           </p>
         )}
         {ps.error && (

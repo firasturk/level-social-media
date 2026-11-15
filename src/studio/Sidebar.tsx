@@ -152,16 +152,27 @@ export default function Sidebar({
         />
       </div>
       <div className="sidebar-foot">
-        <button
-          className={`sidebar-connection ${connected ? "connected" : ""}`}
-          onClick={onConnection}
-        >
-          <KeyRound size={15} />
-          <span>
-            {connected ? "Connected" : "Not connected"}
-            <small>{modelName || "Choose an engine"}</small>
-          </span>
-        </button>
+        {user.role === "admin" ? (
+          <button
+            className={`sidebar-connection ${connected ? "connected" : ""}`}
+            onClick={onConnection}
+          >
+            <KeyRound size={15} />
+            <span>
+              {connected ? "Connected" : "Not connected"}
+              <small>{modelName || "Choose an engine"}</small>
+            </span>
+          </button>
+        ) : (
+          /* A member reads the status; connecting an engine is an admin's step, so this is not a button and names no engine. */
+          <div className={`sidebar-connection status ${connected ? "connected" : ""}`} role="status" title={connected ? "The image engine is connected" : "The image engine is not connected. Ask an admin to connect it."}>
+            <KeyRound size={15} />
+            <span>
+              {connected ? "Connected" : "Not connected"}
+              <small>{connected ? "Pictures can be made" : "Ask an admin to connect it"}</small>
+            </span>
+          </div>
+        )}
         <div className="sidebar-user">
           <span className="sidebar-avatar" aria-hidden="true">
             {initials(user.name)}

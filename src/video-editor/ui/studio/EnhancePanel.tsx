@@ -119,7 +119,7 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
       </div>
       <span className="ts-group-title">Higgsfield</span>
       {hf && !hf.signedIn && <p className="ts-hint warn">{hf.reason}</p>}
-      {hf && hf.signedIn && hf.billing !== "credits" && <p className="ts-hint warn">Videos are set to the Cloud API key; these tools run on the subscription credits. Switch the billing under Connection → Higgsfield.</p>}
+      {hf && hf.signedIn && hf.billing !== "credits" && <p className="ts-hint warn">Videos are set to the Cloud API key; these tools run on the subscription credits. An admin switches the billing under Connection → Higgsfield.</p>}
       <div className="vs-cards">
         {tools
           .filter((t) => t.provider === "higgsfield")

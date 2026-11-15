@@ -2,13 +2,12 @@
  * The campaign's size on the Start board: three numbers that are always told apart (posts,
  * designs, images still to generate), the shape behind them (single pictures, carousels of N
  * slides, separators), and the format. Editable; on a month that already has posts the saved plan
- * is what the numbers show, and a bigger size only ever adds posts after an explicit confirm.
+ * is what the numbers show, and a bigger size only ever adds posts (its button says how many).
  * Nothing here removes or rewrites a post.
  */
 import { useEffect, useState } from "react";
 import { Check, ImagePlus, Settings2 } from "lucide-react";
 import { toast } from "sonner";
-import { askConfirm } from "@/lib/confirm";
 import { Orb } from "@/components/Orb";
 import { FORMAT_INFO, FORMATS, MAX_POST_COUNT, type Format, type Post } from "@shared/posts";
 import { MAX_SLIDES, monthNumbers, normalizeSize, sizeChange, sizeCounts, sizeLine, sizeOfPlan, type CampaignSize } from "@shared/campaign-size";
@@ -73,8 +72,7 @@ export default function CampaignSizeCard(p: CampaignSizeCardProps) {
       const shape = normalizeSize({ ...draft, posts: p.plan.length });
       await p.onSave(shape, format);
       if (change?.kind === "add") {
-        const ok = await askConfirm(`${change.text} Each new post is written as an idea in the month's world; its picture is made from the Plan, where the cost is shown first.`, { ok: `Add ${plural(change.count, "post")}`, danger: false, cancel: "Keep the month as it is" });
-        if (!ok) return;
+        // Not asked about again: the button said "Save and add N posts", the saved posts stay, and no picture is made here (the month's message says what was written).
         await p.onAddPosts(change.count);
       } else toast.success(`Saved: the next posts follow ${sizeLine(shape, format)}; the ${plural(numbers.posts, "saved post")} stay as they are.`);
       setEditing(false);

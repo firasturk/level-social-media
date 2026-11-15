@@ -22,7 +22,7 @@ import { currentMonth, isMediaPost, lineageUnknown, monthLabel, olderIdea, postF
 import { monthCounts } from "@shared/counts";
 import { confirmScope } from "@shared/scope";
 import { SAVE_IDLE, saveReducer, type SaveStatus as SaveState } from "@shared/save-status";
-import { formatUsd, rateFor, setPricesHidden } from "@shared/pricing";
+import { rateFor, setPricesHidden } from "@shared/pricing";
 import { FEATURES } from "@shared/features";
 import type {
   Ambassador,
@@ -207,6 +207,13 @@ function StudioWorkspace({
     review: false,
   });
   const [connection, setConnection] = useState(false);
+  /** Technical settings and spending controls are the admins': a member never sees them. */
+  const isAdmin = user.role === "admin";
+  /** No engine is connected: an admin gets the Connection dialog; a member is told who can connect it. */
+  const askForEngine = () => {
+    if (isAdmin) setConnection(true);
+    else toast.error("The image engine is not connected. Ask an admin to connect it.");
+  };
   /** "Assign": the month given to team members (admins only). */
   const [assignOpen, setAssignOpen] = useState(false);
   const [removedOpen, setRemovedOpen] = useState(false);
@@ -708,7 +715,7 @@ function StudioWorkspace({
   async function newIdea(index: number) {
     if (!batch) return;
     if (!googleReady && engine.openai === "none") {
-      setConnection(true);
+      askForEngine();
       return;
     }
     setBusy("reidea");
@@ -793,7 +800,7 @@ function StudioWorkspace({
   }, [batch?.id, tasks]);
   async function generateIdeas(notes: string, force = false, append = false): Promise<boolean> {
     if (!googleReady && engine.openai === "none") {
-      setConnection(true);
+      askForEngine();
       return false;
     }
     setBusy("ideas");
@@ -810,7 +817,16 @@ function StudioWorkspace({
         append: append || undefined,
       });
       await refresh();
-      toast.success(append ? `${r.plan.length} posts now: the new ones are written, the rest stay as they are. Generate makes the new pictures.` : `${r.plan.length} ideas ready. Edit anything, then generate the posts.`);
+      // A month written again is not asked about first: the message says where the earlier plan is kept.
+      const again = force && !append && plan.length > 0;
+      toast.success(
+        append
+          ? `${r.plan.length} posts now: the new ones are written, the rest stay as they are. Generate makes the new pictures.`
+          : again
+            ? `${r.plan.length} ideas written again. The earlier plan, its words and its pictures are under Versions; pictures already made are not remade until you ask.`
+            : `${r.plan.length} ideas ready. Edit anything, then generate the posts.`,
+        again ? { duration: 10000 } : undefined,
+      );
       if (config?.gridRef && !append) await fillProducts(id);
       return true;
     } catch (e) {
@@ -842,7 +858,7 @@ function StudioWorkspace({
    */
   async function gridIdeas(refId: string, notes: string, force = false, count?: number) {
     if (!googleReady && engine.openai === "none") {
-      setConnection(true);
+      askForEngine();
       return;
     }
     setBusy("grid");
@@ -856,7 +872,9 @@ function StudioWorkspace({
         force: force || undefined,
       });
       await refresh();
-      toast.success(`${r.plan.length} posts planned from the reference grid.`);
+      // Posts planned again over the grid are not asked about first: the message says where the earlier plan is kept.
+      const again = force && plan.length > 0;
+      toast.success(`${r.plan.length} posts planned from the reference grid.${again ? " The earlier plan is under Versions; pictures already made stay until they are made again." : ""}`, again ? { duration: 10000 } : undefined);
       await fillProducts(id);
     } catch (e) {
       toast.error((e as Error).message);
@@ -964,10 +982,13 @@ function StudioWorkspace({
     if (lastSave.current) await savePlan(lastSave.current);
   }
 
-  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, approve = false, retakes?: boolean, run = crypto.randomUUID()): Promise<void> {
+  async function generatePosts(indexes?: number[], regenerate?: boolean, askFirst = true, test = false, retake = false, retakes?: boolean, run = crypto.randomUUID()): Promise<void> {
     if (!batch) return;
+    // One post alone is not asked about first: the message says what is being made and where the current picture stays.
+    const one = indexes?.length === 1 ? indexes[0] : null;
+    const kept = one !== null && tasks.some((t) => t.post === one && !!t.output);
     if (!engineConnected) {
-      setConnection(true);
+      askForEngine();
       return;
     }
     if (regenerate && !indexes && askFirst) {
@@ -978,19 +999,19 @@ function StudioWorkspace({
     askNotifications();
     setBusy("generate");
     try {
-      const r = await post<{ planned: number; skipped?: number[]; missingProduct?: { index: number; product: string }[]; blocked?: { index: number; why: string }[]; draft?: boolean }>("/api/studio/posts/generate", {
+      const r = await post<{ planned: number; paid?: number; skipped?: number[]; missingProduct?: { index: number; product: string }[]; blocked?: { index: number; why: string }[]; draft?: boolean }>("/api/studio/posts/generate", {
         batch: batch.id,
         indexes,
         regenerate,
         test: test || undefined,
         retake: retake || undefined,
-        approve: approve || undefined,
         retakes,
         run,
       });
       await refresh();
       if (test && r.planned)
         toast.success(`Test post ${indexes![0]} generating${r.draft ? " at 1K" : ""}. It is checked automatically when it arrives.`);
+      else if (r.planned && one !== null && r.paid !== 0) toast.success(`Post ${one}: one paid picture is being made.${kept ? " The current picture stays under Versions." : ""}`);
       else if (r.planned) toast.success(`${r.planned} post${r.planned > 1 ? "s" : ""} generating.`);
       if (r.missingProduct?.length)
         toast.warning(
@@ -1003,19 +1024,7 @@ function StudioWorkspace({
       if (r.blocked?.length)
         toast.warning(`Not generated: ${r.blocked.map((x) => `post ${x.index} (${x.why})`).join(" · ")}`, { duration: 15000 });
     } catch (e) {
-      // Above the spend limit: the server started nothing; one approval here starts the same run.
-      const err = e as ApiError;
-      const d = (err.data ?? {}) as { needsApproval?: boolean; images?: number; estimate?: number; maximum?: number; threshold?: number };
-      if (err.status === 409 && d.needsApproval && !approve) {
-        setBusy("");
-        const ok = await askConfirm(
-          `${d.images} picture${d.images === 1 ? "" : "s"}: about ${formatUsd(d.estimate ?? 0)}, at most ${formatUsd(d.maximum ?? d.estimate ?? 0)} if each is retaken once by itself after the review (list prices, an estimate). This is above the $${d.threshold} limit set in Admin.`,
-          { ok: `Approve and generate · up to ${formatUsd(d.maximum ?? d.estimate ?? 0)}`, danger: false, cancel: "Not now" },
-        );
-        if (ok) return generatePosts(indexes, regenerate, false, test, retake, true, retakes, run);
-        return;
-      }
-      toast.error(err.message);
+      toast.error((e as Error).message);
     } finally {
       setBusy("");
     }
@@ -1066,7 +1075,8 @@ function StudioWorkspace({
     setActing(true);
     try {
       await action("revise", { id: selected.id, edit });
-      toast.info("Revision queued. The current image stays until the new one arrives.");
+      // Not asked about first: one post, and the picture it replaces is kept.
+      toast.info(`${selected.post ? `Post ${selected.post}: one` : "One"} paid picture is being made from your edit. The current picture stays under Versions.`);
       return true;
     } catch (e) {
       toast.error(`The edit was not started: ${(e as Error).message}`);
@@ -1257,7 +1267,7 @@ function StudioWorkspace({
   const fixPost = async (index: number, edit: string) => {
     if (!batch) return;
     if (!engineConnected) {
-      setConnection(true);
+      askForEngine();
       return;
     }
     // The brief is built again from the plan as it is now (its people, products, idea and lessons),
@@ -1374,13 +1384,14 @@ function StudioWorkspace({
     }
   }
 
+  /** The open month to the bin, not asked about first: it waits there for 30 days and the message brings it back. */
   async function deletePlan() {
     if (!batch || active) return;
-    if (!(await askConfirm(`Move ${client?.name ?? ""} · ${month} to the bin? Its posts and pictures stay there and you can bring the month back from the Months page for 30 days.`, { ok: "Move to the bin" }))) return;
+    const b = batch;
     try {
       await remove();
       await loadState();
-      toast.success("Month moved to the bin. Restore it from the Months page.");
+      toast.success(`${b.name} moved to the bin. It stays there for 30 days: restore it here or from the Months page.`, { duration: 12000, action: { label: "Undo", onClick: () => void restorePlan(b) } });
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1494,12 +1505,13 @@ function StudioWorkspace({
     team.setOpen(true);
   }, [clientId, team]);
 
+  /** A month to the bin from the Months page, not asked about first: it waits in the Bin on that page for 30 days. */
   async function deletePlanById(b: Batch) {
-    if (!(await askConfirm(`Move "${b.name}" to the bin? You can bring it back from here for 30 days.`, { ok: "Move to the bin" }))) return;
     try {
       if (batch?.id === b.id) await remove();
       else await del(`/api/studio/batch?batch=${encodeURIComponent(b.id)}`);
       await loadState();
+      toast.success(`${b.name} moved to the bin. It stays there for 30 days: restore it from the Bin on this page.`, { duration: 12000, action: { label: "Undo", onClick: () => void restorePlan(b) } });
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -1704,7 +1716,7 @@ function StudioWorkspace({
       <BootScreen done={bootTimedOut || stateReady} />
       {previewMode && (
         <div className="preview-strip" role="status">
-          Preview: image and video generation is blocked at the server. With no key connected, planning and analysis answer from demo fixtures (free); if you add a Google or OpenAI key in Connection, those text calls are billed by that provider.
+          Preview: image and video generation is blocked at the server. With no key connected, planning and analysis answer from demo fixtures (free){isAdmin ? "; if you add a Google or OpenAI key in Connection, those text calls are billed by that provider." : "."}
         </div>
       )}
       <Sidebar
@@ -1866,7 +1878,7 @@ function StudioWorkspace({
               const monthLoading = !!wanted && !batch && !monthFailed;
               const changes = Object.values(config?.approvals ?? {}).filter((a) => a.status === "changes").length;
               const toPlan = () => {
-                // The month's own plan and cost: a one-post way in remembered by the workflow is not what this button means.
+                // The month's own plan and cost: a way in remembered by the workflow (a direct route, say) is not what this button means.
                 forgetFlowWay(batch?.id);
                 setFlowStage(2);
                 setJourney(true);
@@ -2001,6 +2013,7 @@ function StudioWorkspace({
                 onAmbassadorsChanged={setAmbassadors}
                 cast={castIds}
                 onCast={(ids) => void updateSettings({ ambassadors: ids })}
+                isAdmin={isAdmin}
               />
               </div>
               ) : (
@@ -2066,10 +2079,8 @@ function StudioWorkspace({
                 showOverlay={showOverlay}
                 onShowOverlay={setShowOverlay}
                 themeRefs={themeRefs}
-                gridRef={config?.gridRef ?? null}
                 revision={config ?? null}
                 requested={requested}
-                onGridIdeas={(ref, notes) => void gridIdeas(ref, notes)}
                 fileBase={`${client.slug}_${month}`}
                 palette={themes.find((x) => x.id === themeId)?.palette ?? []}
                 onClientsChanged={setClients}
@@ -2132,9 +2143,6 @@ function StudioWorkspace({
           previewMode={previewMode}
           theme={theme}
           onToggleTheme={toggleTheme}
-          onNewGrid={async () => {
-            await newGrid();
-          }}
           clients={clients.filter((c) => c.status === "active").map((c) => ({ id: c.id, name: c.name }))}
           onClient={setClientId}
           onMonth={setMonth}
@@ -2156,7 +2164,6 @@ function StudioWorkspace({
             await updateSettings({ postCount: plan.length + n });
             await generateIdeas("", false, true);
           }}
-          onGenerateOne={(index) => generatePosts([index], !!tasks.find((t) => t.post === index)?.output, false)}
           reloadThemes={() => loadThemes(clientId)}
           user={user}
           client={client}
@@ -2190,7 +2197,7 @@ function StudioWorkspace({
           saveStatus={saveStatus}
           onRetrySave={() => void retrySave()}
           loadingMonth={!!planOf(clientId, month) && !batch}
-          onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, false, retakes)}
+          onGenerate={(retakes) => generatePosts(undefined, false, false, false, false, retakes)}
           onTest={testOnePost}
           engineReady={engineConnected}
           onDone={finishJourney}
@@ -2219,15 +2226,17 @@ function StudioWorkspace({
             outputUrl={outputUrl}
           />
         )}
-        <ConnectionDialog
-          open={connection}
-          engine={engine}
-          onClose={() => setConnection(false)}
-          onChanged={async () => {
-            await loadState();
-            await loadModels();
-          }}
-        />
+        {isAdmin && (
+          <ConnectionDialog
+            open={connection}
+            engine={engine}
+            onClose={() => setConnection(false)}
+            onChanged={async () => {
+              await loadState();
+              await loadModels();
+            }}
+          />
+        )}
         {photoStudio && selected?.output && selected.post && editor && (
           <PhotoStudio
             open

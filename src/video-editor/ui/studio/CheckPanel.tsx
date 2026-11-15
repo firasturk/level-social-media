@@ -85,7 +85,7 @@ export default function CheckPanel({ s }: { s: StudioShared }) {
         </div>
       )}
       {tools && !tools.signedIn && <p className="ts-hint warn">{tools.reason}</p>}
-      {tools && tools.signedIn && tools.billing !== "credits" && <p className="ts-hint warn">Videos are set to the Cloud API key: the checks run on the subscription credits. Switch the billing under Connection → Higgsfield.</p>}
+      {tools && tools.signedIn && tools.billing !== "credits" && <p className="ts-hint warn">Videos are set to the Cloud API key: the checks run on the subscription credits. An admin switches the billing under Connection → Higgsfield.</p>}
       {!shown && <p className="ts-hint">Make or pick a finished clip first: the check reads one version.</p>}
       {!tools && !error && (
         <p className="ts-hint">

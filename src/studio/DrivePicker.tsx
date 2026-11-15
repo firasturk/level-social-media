@@ -505,7 +505,7 @@ export default function DrivePicker({
                     </button>
                   </span>
                 ) : (
-                  <span> connect the Google Cloud service account in Connection first.</span>
+                  <span> an admin connects the Google Cloud service account in Connection first.</span>
                 )}
               </li>
               <li>

@@ -446,7 +446,7 @@ export default function VideoDialog({
                 </label>
                 {mcp && !mcp.signedIn ? (
                   <p className="video-error">
-                    <TriangleAlert size={14} /> Not signed in: Connection → Higgsfield → Sign in. Videos on the subscription credits run on that sign-in (or switch the billing to the Cloud API there).
+                    <TriangleAlert size={14} /> Not signed in to Higgsfield: an admin signs in under Connection → Higgsfield. Videos on the subscription credits run on that sign-in (or the admin switches the billing to the Cloud API there).
                   </p>
                 ) : mcpModels.length ? (
                   <div className="engine-chips">
@@ -619,7 +619,7 @@ export default function VideoDialog({
             {error && (
               <p className="video-error">
                 <TriangleAlert size={14} /> {costSafe(error)}
-                {!credits && /not connected/i.test(error) && <span> Add the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu.</span>}
+                {!credits && /not connected/i.test(error) && <span> An admin adds the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu.</span>}
               </p>
             )}
             {needsConfirm && admin && !credits && !hidden && (
@@ -627,7 +627,7 @@ export default function VideoDialog({
                 <button type="button" className="secondary" disabled={making} onClick={() => (needsConfirm.retryOf ? void retry(needsConfirm.retryOf, true) : void make(true))}>
                   Make it anyway, cost unknown
                 </button>
-                <small>Or set the price of {m.name} in Connection → Higgsfield first.</small>
+                <small>Or an admin sets the price of {m.name} in Connection → Higgsfield first.</small>
               </div>
             )}
             <div className="footer-actions">
@@ -637,7 +637,7 @@ export default function VideoDialog({
                     {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
                   </button>
                 ) : !cost ? (
-                  <button type="button" className="primary" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "Sign in under Connection → Higgsfield first" : undefined}>
+                  <button type="button" className="primary" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "An admin signs in under Connection → Higgsfield first" : undefined}>
                     {costing ? <Orb size={14} /> : <Coins size={14} />} Get the cost
                   </button>
                 ) : cost.credits !== null ? (
