@@ -2,7 +2,9 @@
  * Photo lab: Freepik's four real-photo tools as cards, the picture source (this post's picture, the
  * client's Drive photos, an earlier result), the estimate and the confirm, the result compared on
  * the canvas, "Use as the post's picture" / "Save as a product photo". The logic is `usePhotoLab`,
- * shared with the post editor's panel. Admins only for now: a member sees the note and no controls.
+ * shared with the post editor's panel. The whole team runs it; the note replaces the controls only
+ * while an admin has switched Freepik off. Amounts go through formatUsd, so a member who is not
+ * shown prices reads "(cost shown to admins)" and still confirms the run.
  */
 import { useEffect } from "react";
 import { Check, Download, ImagePlus, Lock, Play, Wand2 } from "lucide-react";

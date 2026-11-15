@@ -10,6 +10,7 @@ import { Orb } from "@/components/Orb";
 import { askInput } from "@/lib/confirm";
 import { COST_UNKNOWN, intentRunnable, type IntentAsset, type ToolIntent } from "@shared/promptbox";
 import { DEFAULT_FRAME, frameLabel } from "@shared/video-frame";
+import { pricesAreHidden } from "@shared/pricing";
 
 export interface ResultAsset extends IntentAsset {
   type?: string;
@@ -20,7 +21,7 @@ export interface Card {
   id: string;
   at: number;
   intent: ToolIntent;
-  /** The server's answer: the viewer may run provider tools (admins only for now). */
+  /** The server's answer: the viewer may run this provider's tools (the whole team, since 24 Oct). */
   canRun: boolean;
   /** An admin's own estimate when the catalog has none; sent with the run. */
   estimate?: number;
@@ -63,6 +64,7 @@ export default function IntentCard({
   card: Card;
   posts: { index: number; title: string; group?: { kind: string; slide: number; of: number } | null }[];
   campaign: string;
+  /** The viewer is an admin: only an admin types a cost the catalog does not have. Running a card is the whole team's. */
   admin: boolean;
   selectedAsset: IntentAsset | null;
   onChange: (next: Card) => void;
@@ -74,12 +76,15 @@ export default function IntentCard({
   const i = card.intent;
   const estimate = card.estimate ?? i.estimate;
   const shown: ToolIntent = { ...i, estimate };
-  const runnable = intentRunnable(shown);
-  const canRun = admin && card.canRun && runnable.ok && !card.running && !card.done;
+  /** A member who is not shown prices: no amount on the card, and a cost the catalog does not have does not hold the card back (the tool's own run asks and records it). */
+  const hidden = pricesAreHidden();
+  const memberUnknown = !admin && estimate === null;
+  const runnable = intentRunnable(shown, { unknownCostOk: !admin });
+  const canRun = card.canRun && runnable.ok && !card.running && !card.done;
   const target = posts.find((p) => p.index === i.target.post);
   const targetLine = [campaign, i.target.post === null ? "no post yet" : `post ${i.target.post}${target ? ` · ${target.title}` : ""}`, i.target.slide ? `slide ${i.target.slide}` : target?.group ? `slide ${target.group.slide} of ${target.group.of}` : ""].filter(Boolean).join(" · ");
   const costLine = estimate === null ? `${COST_UNKNOWN} · blocked until clarified` : estimate === 0 ? `Free · ${i.estimateNote}` : `About ${estimate} credits${card.estimate !== undefined ? " · set by you" : ""}`;
-  const runLabel = card.running ? "Running" : card.done ? "Done" : estimate === null ? "Run" : estimate === 0 ? "Run · free" : `Run · about ${estimate} credits`;
+  const runLabel = card.running ? "Running" : card.done ? "Done" : estimate === null || (hidden && estimate > 0) ? "Run" : estimate === 0 ? "Run · free" : `Run · about ${estimate} credits`;
   function retarget(post: number) {
     onChange({ ...card, intent: { ...i, target: { ...i.target, post }, questions: i.questions.filter((q) => !/^(Which post|There is no post|Choose a post)/.test(q)) } });
     setPicking(false);
@@ -133,18 +138,22 @@ export default function IntentCard({
             </span>
           ))}
         </dd>
-        <dt>Credit estimate</dt>
-        <dd className={estimate === null ? "intent-blocked" : ""}>
-          {costLine}
-          {estimate === null && admin && !card.done ? (
-            <button type="button" className="text-button" onClick={() => void setCost()}>
-              Set the cost
-            </button>
-          ) : null}
-        </dd>
+        {hidden || memberUnknown ? null : (
+          <>
+            <dt>Credit estimate</dt>
+            <dd className={estimate === null ? "intent-blocked" : ""}>
+              {costLine}
+              {estimate === null && admin && !card.done ? (
+                <button type="button" className="text-button" onClick={() => void setCost()}>
+                  Set the cost
+                </button>
+              ) : null}
+            </dd>
+          </>
+        )}
       </dl>
       {i.questions[0] ? <p className="intent-question">{i.questions[0]}</p> : null}
-      {!admin || !card.canRun ? <p className="intent-note">Admins only for now: {PROVIDER[i.provider]} is restricted until wider access is approved.</p> : null}
+      {!card.canRun ? <p className="intent-note">Admins only for now: {PROVIDER[i.provider]} is restricted until wider access is approved.</p> : null}
       {card.error ? <p className="intent-error">{card.error}</p> : null}
       {card.done ? (
         <p className="intent-done">
@@ -153,7 +162,7 @@ export default function IntentCard({
         </p>
       ) : null}
       <div className="intent-actions">
-        <button type="button" className="primary" disabled={!canRun} title={!admin || !card.canRun ? "Admins only for now" : runnable.ok ? (i.needsConfirmation ? "Runs this card now; nothing ran from the sentence" : "Browsing is free; nothing is made") : runnable.why} onClick={() => onRun({ ...card, intent: shown })}>
+        <button type="button" className="primary" disabled={!canRun} title={!card.canRun ? "Admins only for now" : runnable.ok ? (i.needsConfirmation ? "Runs this card now; nothing ran from the sentence" : "Browsing is free; nothing is made") : runnable.why} onClick={() => onRun({ ...card, intent: shown })}>
           {card.running ? <Orb size={13} /> : <Play size={13} />} {runLabel}
         </button>
         {!card.done && i.tool !== "freepik.search" ? (
@@ -182,10 +191,10 @@ export default function IntentCard({
                   {r.premium ? <small> · premium</small> : null}
                 </span>
                 <span className="intent-result-actions">
-                  <button type="button" className="text-button" disabled={!admin} onClick={() => onUseAsset(card, r, "reference")}>
+                  <button type="button" className="text-button" disabled={!card.canRun} onClick={() => onUseAsset(card, r, "reference")}>
                     Use as reference
                   </button>
-                  <button type="button" className="text-button" disabled={!admin} onClick={() => onUseAsset(card, r, "design")}>
+                  <button type="button" className="text-button" disabled={!card.canRun} onClick={() => onUseAsset(card, r, "design")}>
                     Add to design
                   </button>
                 </span>

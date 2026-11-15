@@ -2,7 +2,7 @@
 export const HELP_GUIDE = `
 # Level Studio: how-to guide
 
-Level Studio is Level MENA's social-media post studio. For each client it plans a month of Instagram posts, makes the pictures with AI (or takes the client's own pictures and clips), puts the words and logo on them, makes videos, sends the month to the client for approval, delivers it to the client's Drive and publishes to Instagram. The screens are in English; labels below are written exactly as they appear.
+Level Studio is Level MENA's social-media post studio. For each client it plans a month of Instagram posts, makes the pictures with AI (or takes the client's own pictures and clips), puts the words and logo on them, makes videos, sends the month to the client for approval and exports it. The screens are in English; labels below are written exactly as they appear.
 
 Golden rules: nothing that costs money or credits runs without a confirmation saying what it touches and what it costs. Earlier pictures are never thrown away: they stay under Versions.
 
@@ -31,10 +31,10 @@ Months page: every month you can open, with progress; filter by client. A delete
 ## 3. Admins and members
 
 - Members see only the months they created; admins see all months.
-- Members can: plan, write and edit ideas and words, make pictures with the image engine (cost confirmed), "Edit this picture" with AI, Adjust, the Text studio, Versions, checks, browse presets and styles, use the client's Drive photos, send the client link, export, deliver to Drive, publish to Instagram (once an admin connected it), add clients.
-- Admins only for now: Connection settings, the Admin and Approvals pages, the Photo studio's "AI tools" and running "Presets", the "Photo lab", Freepik stock ("Add from Freepik", Stock assets), adding an AI tools result as posts or a carousel, making/enhancing/checking videos, saving and rendering in the video editor, uploading clips, "Combine into one video", choosing which video the client sees, archiving clients and renaming / re-ordering / changing the logo of clients.
-- Admins-only controls say "Admins only for now". A member should ask an admin (Firas).
-- If an admin set "Who sees prices" to admins only, members see "cost shown to admins"; the confirmations still appear.
+- Members can: plan, write and edit ideas and words, make pictures with the image engine (confirmed first), "Edit this picture" with AI, Adjust, the Text studio, Versions, checks, presets and styles (browse and run), the Photo studio's "AI tools", the "Photo lab", Freepik stock, adding an AI tools result as posts or a carousel, making, enhancing and checking videos, the video editor (save, render, upload clips), "Combine into one video", Prompt box tool cards, the client's Drive photos, the client link, export, add clients.
+- Admins only: Connection (sign-ins, keys, the billing choice), the Admin and Approvals pages, Campaign Autopilot, archiving clients and renaming / re-ordering / changing the logo of clients.
+- A control that says "Admins only for now" or "Switched off" was closed by an admin (Admin → "Integrations"): ask an admin (Firas).
+- If an admin set "Who sees prices" to admins only, members see no amounts: "cost shown to admins" on pictures, and in the video and AI tools no credits, no balance and no "Get the cost" step (the button reads "Make the video" / "Run …"). The confirmations still appear and every run is recorded for the admins.
 
 ## 4. Starting a month (Start)
 
@@ -58,7 +58,7 @@ The first two go through Direction and Plan; the direct ones go straight to the 
 
 ### Edit images / Create or edit video
 1. "Choose from Drive" or "Upload files" (both can be combined). The dialog has the "Client's Drive" tab (approved folders, by role, searchable) and this computer; picks go into one numbered tray (x removes).
-2. Pictures: PNG, JPEG or WebP up to 20 MB. Clips (MP4 up to 60 MB) are admins only; "Edit images" cannot take clips.
+2. Pictures: PNG, JPEG or WebP up to 20 MB. Clips: MP4 up to 60 MB; "Edit images" cannot take clips.
 3. "Create N and open the Studio": one card per file after the month's posts. Nothing is generated or paid. The new cards arrive already chosen for the next step (section 8: style, Text studio, combine into a video).
 
 ### Also on Start
@@ -70,7 +70,7 @@ The first two go through Direction and Plan; the direct ones go straight to the 
 
 "What will shape the pictures". Nothing here spends the picture budget.
 - "Leads this month" with "Start another way" / "Edit the brief" / "Change the grid".
-- "Supporting inputs": pictures pinned to posts ("Pin on the plan" / "Manage"; "Add from Freepik", admins), "Theme references" ("Add" / "Manage"; "Analyse the pins" reads them into shots and a palette, a text and vision call), "Grid" ("Add a grid" / "Change"), "Product images" (section 6), "Models" ("Choose models" / "Change models" / "Add a model": tick "In this month" on up to 3, "Done").
+- "Supporting inputs": pictures pinned to posts ("Pin on the plan" / "Manage"; "Add from Freepik"), "Theme references" ("Add" / "Manage"; "Analyse the pins" reads them into shots and a palette, a text and vision call), "Grid" ("Add a grid" / "Change"), "Product images" (section 6), "Models" ("Choose models" / "Change models" / "Add a model": tick "In this month" on up to 3, "Done").
 - "When inputs meet on one post, this wins": 1 Product photo › 2 Picture pinned to the post › 3 Applied style › 4 Grid tile › 5 Theme reference. Brand rules and the month's colours apply on top.
 - "Rules that apply this month" with "Open the brand memory".
 - "Colours": "Client's brand colours", "The followed grid's colours", "Both" or "Set by you"; "Edit colours" → "Save colours" / "Keep as they are". The first colour is every post's background; a month's colours never change the theme.
@@ -110,17 +110,17 @@ Making the pictures (the paid step), in the footer:
 - When pictures arrive the studio chimes; each picture is reviewed automatically.
 
 ### Talk to the planner / Prompt
-On the Plan "Talk to the planner"; on the Studio board the "Prompt" button ("Prompt box"). Write or dictate like to a colleague: "Post 3 on the kiwi mojito instead, same idea", "Move the Christmas post to the 24th and make it a greeting", "All the captions in Jordanian Arabic, playful", "Add a Mother's Day post", "Remove post 5", "Crop all the photos to 4:5" (or "make post 2 square", "story size"). Enter sends; Shift+Enter is a new line. A size change is free: the planner knows each picture's size, cuts the middle of the picture to the new frame (the old picture stays under Versions), and says which posts were already in that frame. It never makes new pictures to change a size; to add picture around the edges instead of cutting, use Edit picture → AI tools → Expand or Outpaint (admins, credits).
+On the Plan "Talk to the planner"; on the Studio board the "Prompt" button ("Prompt box"). Write or dictate like to a colleague: "Post 3 on the kiwi mojito instead, same idea", "Move the Christmas post to the 24th and make it a greeting", "All the captions in Jordanian Arabic, playful", "Add a Mother's Day post", "Remove post 5", "Crop all the photos to 4:5" (or "make post 2 square", "story size"). Enter sends; Shift+Enter is a new line. A size change is free: the planner knows each picture's size, cuts the middle of the picture to the new frame (the old picture stays under Versions), and says which posts were already in that frame. It never makes new pictures to change a size; to add picture around the edges instead of cutting, use Edit picture → AI tools → Expand or Outpaint (credits).
 - It changes a post's title, idea, shot, headline, second line, caption, hashtags, date, product and type; adds and removes posts; sets standing rules for the words.
 - Making pictures asks "Generate now" (paid) or "Keep the changes, generate later".
-- Tool requests ("Find a minimal background from Freepik for post 3", "Animate this post using Kling through Higgsfield", "Remove the background of post 2") become a card to confirm; running tool cards is admins only.
+- Tool requests ("Find a minimal background from Freepik for post 3", "Animate this post using Kling through Higgsfield", "Remove the background of post 2") become a card to confirm, then "Run". When the catalog has no price for a tool, an admin's card waits for "Set the cost"; a member's card runs and the cost is recorded for the admins.
 - It cannot make carousels (section 9).
 
 ## 8. The Studio board
 
 Header: tabs "Posts", "Feed", "Words", "Client approval", "Versions"; the counts ("12 posts · 16 designs · 6 made · 2 need a look · 9 remaining"); "Client answered · N new"; buttons "Do client comments (N)" (when the client asked changes), "Export", "Client link", "Make N remaining · about $X" / "Open the plan", "Prompt", "⋯" (More).
 
-More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Deliver to the client's Drive…", "Schedule the approved posts…", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Classic journey", "Delete this month" (goes to the Bin).
+More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Classic journey", "Delete this month" (goes to the Bin).
 
 Month tools bar: "Month", "Grid" (several grids), "New grid", "Posts", "Upload products", "Generate ideas"/"Regenerate ideas", "From reference grid", "Generate N posts"/"Regenerate all" (these make pictures: paid), "Overlay" (show/hide words on cards), "Export", typography ("AI picks for each post", "Behind the product", "Crossing the product", "Repeated", "Big outline"…: a paid AI reading), "Feed PDF".
 
@@ -139,33 +139,33 @@ States: "Idea" (no picture), "Queued", "Generating…", "Paused", "Made", "Ready
 - A clip on the card shows "the client sees this" or "not the client's version".
 Under the picture: title, the client's answer ("Client approved · <name>" / "Client asks a change · <name>"), product, "Style: <name>".
 Buttons: "Make the picture · about $X" (no picture yet; asks first, only this post), "Edit picture" (Photo studio) or "Edit the idea" (no picture), "Words & caption" (post editor, free), "Restyle · about $X" (client's own picture with a saved style), and "⋯":
-- planned post: "Make another version" (paid), "Write a new idea" (a new idea, then the picture is made again at once: paid), "Pick a style" / "Change the style" / "Take the style off", "Enhance (higher quality)" (paid AI edit), "Open the Text studio", "Animate the text", "Video from this picture", "Publish to Instagram…", "Previous picture", "Reference picture and versions", "Remove this post".
-- client's own picture: "Pick a style" / "Take the style off", "Open the Text studio", "Video from this picture", "Publish to Instagram…", "Previous picture", "Versions", "Remove this post".
+- planned post: "Make another version" (paid), "Write a new idea" (a new idea, then the picture is made again at once: paid), "Pick a style" / "Change the style" / "Take the style off", "Enhance (higher quality)" (paid AI edit), "Open the Text studio", "Animate the text", "Video from this picture", "Previous picture", "Reference picture and versions", "Remove this post".
+- client's own picture: "Pick a style" / "Take the style off", "Open the Text studio", "Video from this picture", "Previous picture", "Versions", "Remove this post".
 "Remove this post" acts at once (its picture is kept with the month's earlier versions). A carousel is one card that slides (arrows, dots, "+" after the dots; chip "Carousel 2/3"): every slide is a post of its own and the card's buttons act on the slide shown. "+" or "Add a slide" (menu) adds a copy of slide 1, picture and words, as the next slide (ten at most, nothing paid); "Make it a carousel" on a single post makes it slide 1 and adds slide 2 as its copy; "Remove this slide" removes one. On the client's link a carousel is one post that swipes: "Approve the carousel" approves every slide, a change is asked on the slide on screen. "Unsaved edits kept: …" on a card offers "Open to finish" or "Discard". Clicking the picture opens the post editor ("Idea", "Image", "Words & design", "Versions").
 
 ### Choosing several cards
-"Choose cards", tick cards (numbered in order). Bar: "Apply a style to N chosen" (pick one style for all the cards, or several, one card each in turn; a client's own picture is then made again in the style for real: its photo becomes a product of the month and is set in exactly, or, when the style shows several products, other products of the month join it so none repeats; confirmed with the price, one picture each; a planned post only gets the style saved, nothing paid), "Open in Text studio (1 of N)", "Combine into one video" (admins, 2+ cards), "Clear", x to stop.
+"Choose cards", tick cards (numbered in order). Bar: "Apply a style to N chosen" (pick one style for all the cards, or several, one card each in turn; a client's own picture is then made again in the style for real: its photo becomes a product of the month and is set in exactly, or, when the style shows several products, other products of the month join it so none repeats; confirmed with the price, one picture each; a planned post only gets the style saved, nothing paid), "Open in Text studio (1 of N)", "Combine into one video" (2+ cards), "Clear", x to stop.
 
 ## 9. Carousels
 
-A carousel is a group of posts with slide numbers; it publishes as one Instagram post (2 to 15 slides, each needs a picture). Ways to make one:
+A carousel is a group of posts with slide numbers; it is one Instagram post (2 to 15 slides, each needs a picture). Ways to make one:
 1. Brief: write it ("a carousel of 5 slides that reveals the new cup") or set "Carousels" and "Slides per carousel" in "Campaign size", then "Plan it" and apply the draft.
 2. Grid: carousels in the grid's reading are planned as carousels.
-3. From an existing post with the Photo studio's AI tools (admins): card → "Edit picture" → "AI tools" → pick a tool (e.g. "Variations", "Restyle", "Reimagine", "Change camera") → "Run …" and confirm the credits → under the result click "Add as a carousel". The post becomes slide 1 and the result the next slide(s); this step is free. "Variations" adds its nine pictures; other tools add one, so run more tools to add more slides. A carousel holds at most 15; a series post cannot become a carousel. The alternative is "Add as a new post" ("Add each picture as a new post" for Variations): new single posts after the month's posts, copying the idea and words.
+3. From an existing post with the Photo studio's AI tools: card → "Edit picture" → "AI tools" → pick a tool (e.g. "Variations", "Restyle", "Reimagine", "Change camera") → "Run …" and confirm → under the result click "Add as a carousel". The post becomes slide 1 and the result the next slide(s); this step is free. "Variations" adds its nine pictures; other tools add one, so run more tools to add more slides. A carousel holds at most 15; a series post cannot become a carousel. The alternative is "Add as a new post" ("Add each picture as a new post" for Variations): new single posts after the month's posts, copying the idea and words.
 Each slide is its own card with its own picture, words and versions.
 
 ## 10. The Photo studio
 
 Open it from a card's "Edit picture" or aperture icon, "Open the Photo studio" in the post editor, or "Photo studio" in the Text/Video studio. It needs a picture.
 Top bar: post and title, state, "Adjustments not applied", the client-hold note, undo/redo, "Versions · N", "Text studio", "Video studio", "Save & return", x (asks "Save & return" or "Keep for later"). Keys: [ ] previous/next post, Z fit/100%, hold C for the product photo, Esc.
-Rail: "Presets", "AI tools", "Edit", "Adjust", "Photo lab", "Assets", "Versions", "Check" (a lock marks admins-only tools; on a phone Presets and AI tools share "AI").
+Rail: "Presets", "AI tools", "Edit", "Adjust", "Photo lab", "Assets", "Versions", "Check" (a lock marks a tool an admin switched off; on a phone Presets and AI tools share "AI").
 
 - "Edit" (Edit with AI): views "Compare", "AI result", "Original"; instruction box with "Dictate the change"; "Mark an area" (guides the instruction, not a mask); "Quick instructions" ("Background", "Lighting", "Composition", "Remove an object", "Product correction", "Blend with scene", "More brand colour", "Cleaner background", "Leave headline space", "Match product", "Remove text", "Brighter", "Closer"); "Attach a reference for this edit" ("Change" / "Take off"); "Edit this picture · about $X" (one paid picture, confirmed; old picture under Versions); "Or start over": "Make another version · about $X". Open to anyone on the month.
 - "Adjust" ("Free · drawn here"): "Crop" (Free, 1:1, 4:5, 9:16), turn, flip, "Straighten", "Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows", "Sharpen", "Vignette"; "Hold for before", "Reset"; "Apply as the post's picture" (free).
-- "Presets": gallery with sample pictures: "Styles", "Product shots", "Magnific looks", "Recipes"; "Search presets". Browsing is free for everyone. A card shows "Needs:", "Cost:", "Ready?", "Learn more". "Use this style" / "Use this look" / "Use these words" fill AI tools. Product shots: "Use this preset", then under "Run it here" an admin checks "The product (sent first, so the engine keeps it)" (pre-filled; correct it), fills any fields, "Run this preset · N credits" (or "· cost not known") and confirms. The product picture sent is the post's clean product photo (its name is shown, "Product picture: …"), so the preset's own scene, people and background are used; tick the box to send the post's whole picture instead (its scene may come along). The words box takes only what to change (e.g. "a man instead of a woman"). The post needs a picture first. The result appears in AI tools, where "Add as a new post" and "Add as a carousel" keep the original post as it is.
-- "AI tools" (admins only; credits): tabs "Higgsfield" ("Upscale", "Remove background", "Outpaint", "Relight", "Generate with a style") and "Magnific" ("Upscale", "Relight", "Remove background", "Replace background", "Retouch", "Skin enhancer", "Expand", "Restyle", "Reimagine", "Change camera", "Variations" = nine variations). Steps: pick a tool, fill options ("Needed first: …"), "Get the cost" ("About N credits · balance M" or "Cost not known"; nothing is made), "Run <tool> · N credits", confirm ("Run · N credits"; Higgsfield unknown cost: "Run it anyway, cost unknown"; Magnific unknown cost is blocked). A tool marked "not listed" is refused before anything is sent. The result shows before/after on the canvas; then "Use as the post's picture", "Save as a product photo", "Download", "Add as a new post" / "Add each picture as a new post", "Add as a carousel" (after adding: "Added as post N"). Variations has no "Use as the post's picture". A failed run: "Check again" (free status read; collects the picture if the provider finished). "Earlier results (N)" lists past runs.
-- "Photo lab" (admins only; Freepik, dollars): "Remove background", "Replace background", "Relight", "Upscale" on "This post's picture" or "Client's Drive photos"; "Run … · about $X", then "Use as the post's picture", "Save as a product photo", "Download". "Demo · not connected" = no Freepik key.
-- "Assets": "Stock" (Freepik, admins: "Add as layer", "Set as background", "Use as reference", "Save to library"; layers open the Text studio, free) and "Client's Drive" (pin a photo as the reference for the next AI edit).
+- "Presets": gallery with sample pictures: "Styles", "Product shots", "Magnific looks", "Recipes"; "Search presets". Browsing is free for everyone. A card shows "Needs:", "Cost:", "Ready?", "Learn more". "Use this style" / "Use this look" / "Use these words" fill AI tools. Product shots: "Use this preset", then under "Run it here" check "The product (sent first, so the engine keeps it)" (pre-filled; correct it), fills any fields, "Run this preset · N credits" (or "· cost not known") and confirms. The product picture sent is the post's clean product photo (its name is shown, "Product picture: …"), so the preset's own scene, people and background are used; tick the box to send the post's whole picture instead (its scene may come along). The words box takes only what to change (e.g. "a man instead of a woman"). The post needs a picture first. The result appears in AI tools, where "Add as a new post" and "Add as a carousel" keep the original post as it is.
+- "AI tools" (credits): tabs "Higgsfield" ("Upscale", "Remove background", "Outpaint", "Relight", "Generate with a style") and "Magnific" ("Upscale", "Relight", "Remove background", "Replace background", "Retouch", "Skin enhancer", "Expand", "Restyle", "Reimagine", "Change camera", "Variations" = nine variations). Steps: pick a tool, fill options ("Needed first: …"), "Get the cost" ("About N credits · balance M" or "Cost not known"; nothing is made), "Run <tool> · N credits", confirm ("Run · N credits"; Higgsfield unknown cost: "Run it anyway, cost unknown"; Magnific unknown cost is blocked). A tool marked "not listed" is refused before anything is sent. The result shows before/after on the canvas; then "Use as the post's picture", "Save as a product photo", "Download", "Add as a new post" / "Add each picture as a new post", "Add as a carousel" (after adding: "Added as post N"). Variations has no "Use as the post's picture". A failed run: "Check again" (free status read; collects the picture if the provider finished). "Earlier results (N)" lists past runs.
+- "Photo lab" (Freepik, dollars): "Remove background", "Replace background", "Relight", "Upscale" on "This post's picture" or "Client's Drive photos"; "Run … · about $X", then "Use as the post's picture", "Save as a product photo", "Download". "Demo · not connected" = no Freepik key.
+- "Assets": "Stock" (Freepik: "Add as layer", "Set as background", "Use as reference", "Save to library"; layers open the Text studio, free) and "Client's Drive" (pin a photo as the reference for the next AI edit).
 - "Versions": every take ("Current picture" / "Earlier take" / "Failed", date, cost, note): "Compare", "Edit this version", "Use this picture", "Previous picture", video versions, "The month's earlier versions".
 - "Check": "Automatic review" ("Edit this picture" paid / "Accept as it is" free) and "Writing check (OCR)": "Check the raw picture", "Check the final artwork" (a Vision reading; demo when not connected).
 
@@ -181,7 +181,7 @@ Rail: "Presets", "AI tools", "Edit", "Adjust", "Photo lab", "Assets", "Versions"
 Open with the card's T icon, "Open the Text studio", or from the Photo/Video studio. Needs a picture and "Text on the image" on.
 - Top bar: save state ("Saved", "Saving…", "Unsaved changes"; on a post the client answered: "Draft: not on the client's link yet"), undo/redo, "Apply this style to all posts", "Preview", "Photo studio", "Video studio", "Export" ("JPG · high quality", "Text only · transparent PNG", "PDF", "Back to the automatic layout"), "Save & return".
 - Left: "Layers" ("Add": "Text" (T), "Logo", "Image…", "Rectangle", "Ellipse", "Line", product photos, brand assets), "Layouts" ("Preview", "Apply", "All designs…"), "Styles" (the look of one layer), "Brand" (brand fonts and colours, upload a font).
-- Right: "Properties", "Assistant" ("Rewrite", "Shorten", "Expand", "Headline ideas", "Call-to-action ideas", "Fix spelling", "Translate…", "Brand tone", "Judge the layout"; suggestions only), "Assets" (Freepik, admins).
+- Right: "Properties", "Assistant" ("Rewrite", "Shorten", "Expand", "Headline ideas", "Call-to-action ideas", "Fix spelling", "Translate…", "Brand tone", "Judge the layout"; suggestions only), "Assets" (Freepik).
 - Toolbar: size, weight, bold/italic/underline, alignment, direction "Auto"/"RTL"/"LTR", spacing, opacity; safe zones; shortcuts (?). SVG layers: "Split into layers", "Remove background", "Merge back".
 - "Animate the text" (card menu): a short video of the words moving over the picture, exported from the browser; free.
 
@@ -201,21 +201,21 @@ When the client answered a post (approved it or asked a change), the link keeps 
 
 ### Video studio
 Open with the card's clapperboard, the card menu "Video from this picture", or "Video studio" in the Photo/Text studio. Rail: "Presets", "Generate", "Edit", "Enhance", "Audio", "Versions", "Check".
-- "Presets": Higgsfield presets with reference videos ("Popular", "Paid Ads", "Motion Design", "Marketing", "Production", "Faceless", "Effects", "Genjutsu", "Recipes"); browsing free; "Use this preset" fills Generate; "Run this preset · N credits" admins.
-- "Generate" (admins): a clip from the post's picture: the motion idea (write, generate from the picture or dictate), "Higgsfield" or "Magnific", engine, length, frame (Reel 9:16 default; Portrait 4:5, Square 1:1, Landscape 16:9), "Include the words and logo in the video input", "Get the cost", "Make the video · N credits".
-- "Enhance" (admins): Magnific "Upscale", "Colour grade", "Music", "Sound effects", "Relight", "HDR"; Higgsfield "Upscale", "Reframe", "Remove the background". Cost asked first; the result is a new version.
-- "Audio": each version's sound (admins change). "Check" (admins): "Virality check", "Video analysis".
-- "Versions": "Show"/"Compare", "Select for client review" (admins), "The client sees this", "Show the picture instead", "Edit", download, "Check again" on a failed clip. The first finished clip becomes the client's version by itself if the client has not answered the post.
+- "Presets": Higgsfield presets with reference videos ("Popular", "Paid Ads", "Motion Design", "Marketing", "Production", "Faceless", "Effects", "Genjutsu", "Recipes"); browsing free; "Use this preset" fills Generate; "Run this preset · N credits" runs it here after a confirm.
+- "Generate": a clip from the post's picture: the motion idea (write, generate from the picture or dictate), "Higgsfield" or "Magnific", engine, length, frame (Reel 9:16 default; Portrait 4:5, Square 1:1, Landscape 16:9), "Include the words and logo in the video input", "Get the cost", "Make the video · N credits" (a member who is not shown prices has one button, "Make the video").
+- "Enhance": Magnific "Upscale", "Colour grade", "Music", "Sound effects", "Relight", "HDR"; Higgsfield "Upscale", "Reframe", "Remove the background". Confirmed first; the result is a new version.
+- "Audio": each version's sound. "Check": "Virality check", "Video analysis" (confirmed first).
+- "Versions": "Show"/"Compare", "Select for client review", "The client sees this", "Show the picture instead", "Edit", download, "Check again" on a failed clip. The first finished clip becomes the client's version by itself if the client has not answered the post.
 
 ### Video editor
-"Edit" in the Video studio, or the left menu "Video editor" alone (footage from this computer, saved as a file). Tabs "Media", "Text", "Logo", "Music", "Colour", "Auto edit", "Render". It runs in the browser; nothing is paid. Saving and rendering are admins only for now.
+"Edit" in the Video studio, or the left menu "Video editor" alone (footage from this computer, saved as a file). Tabs "Media", "Text", "Logo", "Music", "Colour", "Auto edit", "Render". It runs in the browser; nothing is paid.
 - "Media": templates ("Use the template"), footage (add to timeline; MP4/MOV up to 60 MB), trim, speed, sound, joins. "Text": words over the video. "Logo": logo or picture, "From the asset library".
-- "Music": "Browse the music library" ("Catalog", "<Client> tracks", moods, genre, length, tempo, "Use in this video"; licence and credit per track) or a track from the computer; "Align cuts to beats"; "Voice-over".
+- "Music": "Pick a track" from the computer (mp3, m4a, wav, or the sound of a video file; use music you have the rights to), "Use this reel's sound" (an Instagram link), "Align cuts to beats", "Voice-over".
 - "Colour": presets, corrections, LUT, "Match colour to a reference".
 - "Auto edit": "Purpose" ("Product launch", "Promo", "Story"), "Length", pace ("Calm", "Balanced", "Energetic"), words on hook and end card, "Build the cut" (undo brings the old cut back). "Edit like this video": give a video, Pinterest pin or clip; your footage is cut the same way.
 - "Render": frame, quality, "Render & update card" ("Render to a file" when standalone). Keep the tab open until it finishes. "Save draft" keeps the project. If the client answered the version they see: "Send for review (make it the client's version)". The software licences page is /licences ("Open-source licences").
 
-### Combine cards into one video (admins)
+### Combine cards into one video
 "Choose cards" → tick 2+ → "Combine into one video" → order them, "Save the project on" ("A new card" or a post) → "Combine N and open the editor". Pictures join as 3-second clips. Nothing generated or paid.
 
 ## 14. Clients and the brand kit
@@ -239,13 +239,10 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - Studio "Versions" tab / side panel "Earlier versions": whole earlier plans; "Use this version in the studio" (the current month is kept as a version) or "Use for post N".
 - Undo/redo exist in the Photo studio (adjustments), Text studio and video editor. Typed fields save when you leave them (no undo; retype). Deleted months: Bin, 30 days.
 
-## 17. Export, Drive delivery, publishing
+## 17. Export
 
 - "Export": a ZIP of every made post as JPG with words and logo, a "clean" folder without words, and a captions CSV. "Feed PDF": the month as one feed PDF. Both free.
-- "Deliver to the client's Drive…": final JPGs and captions.txt into a month folder in the client's approved "Outputs" folder; "Approved posts only" or "All made posts"; delivering again updates the same files. Needs the Outputs folder shared with the studio's account as Editor and approved. Free.
-- "Publish to Instagram…" (card menu): account, "Now" or "On its date at 10:00" (or a time), preview, "Publish" / "Schedule". A carousel publishes as one post. 9:16 story pictures are refused by Instagram's feed. The card shows "Scheduled …", "Publishing…", "Published ↗" or "Publish failed" ("Retry", "Cancel the schedule").
-- "Schedule the approved posts…" (More): queues every client-approved post on its date at 10:00.
-- Instagram must be connected by an admin (Connection → "Instagram") with the publishing permission; otherwise "Not connected".
+- Posting to Instagram and putting the files in the client's Drive are done by hand from the export (section 21).
 
 ## 18. Costs and safety
 
@@ -253,7 +250,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - Text/vision calls (ideas, drafts, shots, captions, readings, reviews, checks, the planner, the "Ask Firas" assistant): small per-call charges by the text provider, outside the picture budget.
 - Credits (Higgsfield/Magnific): AI tools, preset runs, video generate/enhance/check. The provider is asked the cost first.
 - Freepik Photo lab: dollars, shown before the run.
-- Free: Adjust, Text studio, layouts, typed words, Versions and restoring, export, Feed PDF, client link, Drive delivery, publishing, the video editor, combining cards, animating text, adding AI results as posts or a carousel, browsing presets and styles.
+- Free: Adjust, Text studio, layouts, typed words, Versions and restoring, export, Feed PDF, client link, the video editor, combining cards, animating text, adding AI results as posts or a carousel, browsing presets and styles.
 - Spending limit: Admin → "Ask before spending more than ($)"; above it a second approval ("Approve and generate · up to $X").
 - Untick the Plan's automatic retake to avoid its extra cost. A double click never sends a run twice; a failed paid run is not retried by itself.
 - Preview site: the strip "Preview: image and video generation is blocked at the server." and "Sample data (fictional)": no pictures or videos can be made there.
@@ -267,9 +264,9 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 ## 20. Common problems
 
 - "The app was updated" / a "Reload" button, or a blank screen after an update: click "Reload" (the page also reloads itself once). Work is saved on the server.
-- An AI tools run failed but credits were taken: an admin clicks "Check again" on the result (free). For clips: Video studio → "Versions" → "Check again".
+- An AI tools run failed but credits were taken: click "Check again" on the result (free). For clips: Video studio → "Versions" → "Check again".
 - A preset or AI tool says the post has no picture: make the picture first ("Make the picture").
-- "Admins only for now": ask an admin (Firas).
+- "Admins only for now" or "Switched off": an admin closed that tool; ask an admin (Firas).
 - "Not connected" / "No image engine is connected": an admin connects one in Connection.
 - "Blocked" on the Plan: read the reason; usually a missing product photo ("Choose a product image") or an offer missing products, price or contents.
 - "Older idea": "Make it again" or edit the picture. "Needs review": "Edit this picture" (paid) or "Accept" (free).
@@ -283,8 +280,8 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 
 ## 21. Not possible in the studio today
 
-- Publishing videos, Reels or Stories to Instagram (pictures and carousels only), or publishing to TikTok, Facebook or other platforms.
-- Instagram's music library in a video (add it in the Instagram app when posting).
+- Publishing or scheduling to Instagram, TikTok, Facebook or any platform from the studio, and delivering to the client's Drive: these are switched off (nobody used them); export the month and post by hand. An admin can bring them back.
+- A music library, the radio button and AI influencers: switched off too. Instagram's own music is added in the Instagram app when posting.
 - A precise mask or pixel-locked AI edit ("Mark an area" only guides; the whole picture is redrawn).
 - Making carousels by talking to the planner, or carousels over 15 slides.
 - Automatic translation of captions or headlines.
@@ -292,7 +289,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - Expiring, password-protecting or renewing the client link.
 - Changing or resetting a password in the studio (ask an admin).
 - Rendering videos on the server (the browser tab must stay open).
-- Members running AI tools, presets, the Photo lab, Freepik stock or video generation.
+- Members connecting accounts or keys, changing the billing, or opening the Admin page.
 - A member seeing another member's months.
 - Recovering a month after 30 days in the Bin or after "Delete for good".
 - An Arabic studio interface (screens are English; the "Ask Firas" assistant answers in Arabic).

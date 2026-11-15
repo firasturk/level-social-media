@@ -204,17 +204,39 @@ describe("execute", () => {
     expect(r.status).toBe(428);
     expect((await json(r)).error as string).toMatch(/Confirm the card first/);
   });
-  it("lets a member run a card under the same rules: confirm first, and no estimate of their own", async () => {
+  it("lets a member run a card: confirm first, no estimate of their own, and a cost the catalog lacks does not hold it back (15 Nov)", async () => {
     const env = await seed();
     const admin = await app();
     const member = await app("member");
-    const { intent } = (await json(await chat(admin, env, "Find a minimal background from Freepik for post 3"))) as { intent: ToolIntent };
-    expect((await execute(member, env, { intent })).status).toBe(428);
-    const kling = ((await json(await chat(member, env, "Animate this post using Kling through Higgsfield", { post: 1 }))) as { intent: ToolIntent }).intent;
-    const r = await execute(member, env, { intent: kling, confirm: true, estimate: 10 });
-    expect(r.status).toBe(409);
-    expect((await json(r)).error as string).toMatch(/^Cost not known yet/);
-    expect(await videos(env)).toBe(0);
+    const tools = await import("../server/promptbox-tools");
+    const generate = vi.fn(async () => ({ ok: true as const, video: { id: "v1", status: "queued" }, note: "queued" }));
+    const restore = tools.setPromptboxTools({ videoGenerate: generate });
+    const integrations = await import("../server/integrations");
+    const record = vi.spyOn(integrations, "recordIntegrationOp");
+    try {
+      const { intent } = (await json(await chat(admin, env, "Find a minimal background from Freepik for post 3"))) as { intent: ToolIntent };
+      expect((await execute(member, env, { intent })).status).toBe(428);
+      const kling = ((await json(await chat(member, env, "Animate this post using Kling through Higgsfield", { post: 1 }))) as { intent: ToolIntent }).intent;
+      expect(kling.estimate).toBeNull();
+      // Still no run from the sentence alone.
+      expect((await execute(member, env, { intent: kling })).status).toBe(428);
+      expect(generate).not.toHaveBeenCalled();
+      // The member confirms: the card runs. Their own figure is ignored; the box's row says no estimate was on the card.
+      const r = await execute(member, env, { intent: kling, confirm: true, estimate: 10 });
+      expect(r.status).toBe(200);
+      const d = await json(r);
+      expect(d.kind).toBe("done");
+      expect((d.intent as ToolIntent).estimate).toBeNull();
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(generate).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ role: "member" }), expect.objectContaining({ batch: "b1", index: 1, model: KLING, source: "picture" }));
+      expect(record).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ provider: "higgsfield", kind: "video.generate", user: "u1", status: "confirmed", estimate: null, post: 1, note: expect.stringMatching(/Run by a member with no estimate on the card/) }));
+      // An open question still refuses a member's card.
+      const vague = ((await json(await chat(member, env, "Animate the mojito post with Kling"))) as { intent: ToolIntent }).intent;
+      expect((await execute(member, env, { intent: vague, confirm: true })).status).toBe(409);
+      expect(generate).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
   });
   it("blocks an unknown cost until an admin sets the estimate", async () => {
     const env = await seed();

@@ -14,6 +14,7 @@ import { Orb } from "@/components/Orb";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { NO_MAGNIFIC_SAMPLE, PHOTO_PRESET_CATEGORIES, presetPrompt, wordsFieldOf, type PhotoPresetCard, type PhotoPresetCategoryId, type PhotoPresetDetail } from "@shared/photo-presets";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import { listPhotoPresets, photoPresetDetail, presetProduct, runPhotoPreset, type ConfirmAsk, type PhotoPresetList } from "../photoApi";
 import type { StudioCtx } from "../types";
 
@@ -133,7 +134,7 @@ export function PresetCardView({ card, selected, onSelect, onUse, children }: { 
             <ImageOff size={16} /> {card.provider === "magnific" ? NO_MAGNIFIC_SAMPLE : "No sample picture"}
           </span>
         )}
-        {card.price !== null && <span className="ps-preset-price">{card.price} credits</span>}
+        {card.price !== null && !pricesAreHidden() && <span className="ps-preset-price">{card.price} credits</span>}
       </button>
       <div className="ps-preset-text">
         <b>{card.title}</b>
@@ -320,7 +321,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
           </span>
         </div>
         <PanelSwitch ctx={ctx} />
-        <p className="ts-hint">Pick a card to see its sample picture, what it does and what it needs. “Use this style” fills the AI tools with it; a product-shot preset can be run from here by an admin, on the subscription credits.</p>
+        <p className="ts-hint">Pick a card to see its sample picture, what it does and what it needs. “Use this style” fills the AI tools with it; a product-shot preset can be run from here, on the subscription credits.</p>
         <p className="ts-hint">Pictures only: the clips and their presets live in the Video studio.</p>
       </div>
     );
@@ -344,14 +345,17 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
       const err = e as ApiError;
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && (d.needsConfirm || d.needsEstimate)) {
-        const ok = await askConfirm(d.needsEstimate ? `Run “${card.title}” on this post's picture: Higgsfield names no price for it. Run it at an unknown cost from the subscription credits?` : `Run “${card.title}” on this post's picture: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result is shown first; the post's picture changes only when you use it.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run · ${d.credits} credits`, danger: false, cancel: "Not now" });
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Run “${card.title}” on this post's picture? The result is shown first; the post's picture changes only when you use it.`, { ok: "Run", danger: false, cancel: "Not now" })
+          : await askConfirm(d.needsEstimate ? `Run “${card.title}” on this post's picture: Higgsfield names no price for it. Run it at an unknown cost from the subscription credits?` : `Run “${card.title}” on this post's picture: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result is shown first; the post's picture changes only when you use it.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run${creditsTag(d.credits)}`, danger: false, cancel: "Not now" });
         if (ok) return run(true);
-      } else setError(err.message);
+      } else setError(costSafe(err.message));
     } finally {
       setRunning(false);
     }
   }
   const canRun = !!post && !!detail?.runnable && admin && !!ctx.task.output;
+  const hidden = pricesAreHidden();
   const useIt = () => {
     if (!card.use) return;
     ctx.tools.prefill(card.use, card);
@@ -394,7 +398,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
           <b>Needs:</b> {card.needs.join(", ")}.{ctx.task.output && card.needs.some((n) => /picture/.test(n)) ? " This post's picture is used." : ""}
         </p>
       )}
-      {detail && card.kind === "preset" && (
+      {detail && card.kind === "preset" && !hidden && (
         <p className="ts-hint">
           <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : card.source === "marketing_studio_v2" ? "Higgsfield is asked for the price when you press Run; you confirm it before anything is made." : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
         </p>
@@ -467,7 +471,7 @@ export function PresetDetailPanel({ ctx }: { ctx: StudioCtx }) {
               ))}
               {!ctx.task.output && <p className="ts-hint warn">This post has no picture yet; the preset needs one.</p>}
               <button type="button" className="ts-btn primary ps-cta" disabled={!canRun || running} onClick={() => void run()}>
-                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
+                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{hidden ? "" : detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
               </button>
               {error && (
                 <p className="ts-hint warn">

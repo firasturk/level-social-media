@@ -3,6 +3,7 @@ import { get, post, postForm } from "@/api";
 import type { VideoModel } from "@shared/video-models";
 import { audioChoiceLine, type AudioChoice } from "@shared/video-audio";
 import { frameLabel, type FrameFill, type FrameId } from "@shared/video-frame";
+import { pricesAreHidden } from "@shared/pricing";
 
 export type VideoStatus = "queued" | "generating" | "done" | "failed";
 
@@ -168,6 +169,8 @@ export function engineLabel(v: VideoItem, cloudName: (slug: string) => string | 
 
 /** The clip's estimate as the list shows it: "12 credits" on the subscription, "$0.094" on the Cloud API, "" when none. */
 export function costLabel(v: VideoItem): string {
+  // A member who is not shown prices ("Who sees prices": admins only) reads no amount on a version.
+  if (pricesAreHidden()) return "";
   if (v.estimate === null || v.estimate <= 0) return "";
   if (v.provider === MCP_PROVIDER || v.provider === MAGNIFIC_PROVIDER) return `${v.estimate} credits`;
   return `$${v.estimate.toFixed(v.estimate < 1 ? 3 : 2)}`;

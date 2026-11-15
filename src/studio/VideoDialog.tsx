@@ -13,6 +13,7 @@ import { audioLine, chooseAudio, costLabel, engineLabel, frameLine, inFlight, in
 import VideoAudio from "./VideoAudio";
 import FrameControl, { useFrameChoice } from "./FrameControl";
 import { composeFrame } from "@/video-editor/frame";
+import { costSafe, pricesAreHidden } from "@shared/pricing";
 
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
@@ -364,6 +365,8 @@ export default function VideoDialog({
   const ideaTooLong = !credits && m.promptMax !== null && idea.length > m.promptMax;
   const canMake = !making && !writing && !pending && admin && (credits || !m.promptRequired || idea.trim().length >= 5) && !ideaTooLong;
   const canAskCost = canMake && !costing && !!mcp?.signedIn && !!engine;
+  /** A member who is not shown prices: no amount and no "Get the cost" step; the press on Make is the confirmation (the server asks and records the cost). */
+  const hidden = pricesAreHidden();
   const cloudName = (slug: string) => videoModel(slug)?.name;
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -572,7 +575,7 @@ export default function VideoDialog({
             <VideoAudio batchId={batchId} index={p.index} engineSound={credits ? false : m.audio !== null} engineName={credits ? (engine?.name ?? "the engine") : m.name} admin={admin} version={latest && !inFlight(latest) ? latest : null} choice={audioChoice} audioId={audioId} onChange={(c, id) => void pickAudio(c, id)} />
             {credits ? (
               <div className="hf-cost">
-                {cost ? (
+                {hidden ? null : cost ? (
                   <small className="field-hint">
                     {cost.credits !== null ? (
                       <>
@@ -597,13 +600,13 @@ export default function VideoDialog({
                         Use the unlimited allowance
                       </button>
                       <button type="button" className="secondary" disabled={making} onClick={() => void makeCredits(false)}>
-                        Pay credits{cost?.credits !== null && cost?.credits !== undefined ? ` (${cost.credits})` : ""}
+                        Pay credits{!hidden && cost?.credits !== null && cost?.credits !== undefined ? ` (${cost.credits})` : ""}
                       </button>
                     </div>
                   </div>
                 )}
               </div>
-            ) : (
+            ) : hidden ? null : (
               <small className="field-hint">
                 {price !== null ? (
                   <>About {usd(price)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.</>
@@ -615,11 +618,11 @@ export default function VideoDialog({
             {!admin && <small className="field-hint warn">Admins only for now: Higgsfield video is restricted until wider access is approved.</small>}
             {error && (
               <p className="video-error">
-                <TriangleAlert size={14} /> {error}
+                <TriangleAlert size={14} /> {costSafe(error)}
                 {!credits && /not connected/i.test(error) && <span> Add the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu.</span>}
               </p>
             )}
-            {needsConfirm && admin && !credits && (
+            {needsConfirm && admin && !credits && !hidden && (
               <div className="video-confirm">
                 <button type="button" className="secondary" disabled={making} onClick={() => (needsConfirm.retryOf ? void retry(needsConfirm.retryOf, true) : void make(true))}>
                   Make it anyway, cost unknown
@@ -629,7 +632,11 @@ export default function VideoDialog({
             )}
             <div className="footer-actions">
               {credits ? (
-                !cost ? (
+                hidden ? (
+                  <button type="button" className="primary" onClick={() => void makeCredits()} disabled={!canAskCost || unlim != null} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "An admin signs in under Connection → Higgsfield first" : unlim != null ? "Answer Higgsfield's question above first" : undefined}>
+                    {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
+                  </button>
+                ) : !cost ? (
                   <button type="button" className="primary" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "Sign in under Connection → Higgsfield first" : undefined}>
                     {costing ? <Orb size={14} /> : <Coins size={14} />} Get the cost
                   </button>
@@ -643,12 +650,12 @@ export default function VideoDialog({
                   </button>
                 )
               ) : (
-                <button type="button" className="primary" onClick={() => void make()} disabled={!canMake} title={!admin ? "Admins only for now" : undefined}>
+                <button type="button" className="primary" onClick={() => void make(hidden)} disabled={!canMake} title={!admin ? "Admins only for now" : undefined}>
                   {making ? <Orb size={14} /> : <Clapperboard size={14} />} Make the video
                 </button>
               )}
               {latest?.status === "failed" && admin && latest.provider === "higgsfield" && !credits && (
-                <button type="button" className="secondary" disabled={making || pending} onClick={() => void retry(latest.id)} title="The same idea and settings submitted again as a new job">
+                <button type="button" className="secondary" disabled={making || pending} onClick={() => void retry(latest.id, hidden)} title="The same idea and settings submitted again as a new job">
                   <RefreshCw size={14} /> Try again
                 </button>
               )}

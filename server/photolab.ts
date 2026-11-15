@@ -368,11 +368,11 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
   return parsed.data;
 }
 
-/** Open to every signed-in user: it says whether the viewer may run the lab (admins, switch on). */
+/** Open to every signed-in user: it says whether the viewer may run the lab (the team, switch on) and whether they keep its key (admins). */
 photoLabRoutes.get("/status", async (c) => {
   const r = await resolvePhotoLab(c.env, fetcher());
   const access = await integrationAccess(c.env, c.get("user"), "freepik");
-  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true, access });
+  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true, access, accountAdmin: c.get("user").role === "admin" });
 });
 
 /** The key is kept only after Freepik accepted it on a no-cost call. Admins, switch on. */

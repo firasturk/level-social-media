@@ -122,7 +122,7 @@ export default function IntegrationsPanel() {
         <Plug size={18} />
         <h2>Integrations</h2>
         <span className="quality-note" style={{ marginLeft: "auto" }}>
-          Admins only for now. Every paid run is confirmed first and written below; nothing is retried or sent elsewhere.
+          The whole team runs these; a switch turned off closes that provider for everyone. Every paid run is confirmed first and written below with who ran it; nothing is retried or sent elsewhere.
         </span>
       </div>
       {!data ? (

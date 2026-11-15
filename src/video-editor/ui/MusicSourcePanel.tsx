@@ -6,9 +6,14 @@
  * button), and what is known about Content ID. Picking a track is an edit of the cut;
  * browsing and previewing are open to everyone. Importing a client's track stays in the library
  * (with the licence form). The whole team does all of this (24 Oct).
+ *
+ * 15 Nov: the library's entry is hidden while FEATURES.music is off (shared/features.ts): nobody
+ * used it. A track from the computer, a reel's sound and the voice-over (Panels.tsx, MusicMix.tsx)
+ * are untouched, and a project that already carries a library track still shows its rights.
  */
 import { useState } from "react";
 import { Check, Copy, ExternalLink, Library } from "lucide-react";
+import { FEATURES } from "@shared/features";
 import { MUSIC_MOODS } from "@shared/music";
 import type { MusicRights } from "@shared/video-project";
 import { templateOf } from "@shared/video-templates";
@@ -99,6 +104,8 @@ export default function MusicSourcePanel({ ctx }: { ctx: PanelCtx }) {
   const fromLibrary = src && (src.kind === "catalog" || src.kind === "library") ? src : null;
   const [browse, setBrowse] = useState(!m);
   const tpl = templateOf(ctx.project.template?.id);
+  // The library is hidden (shared/features.ts): a track already picked from it keeps its rights block, and nothing else is drawn.
+  if (!FEATURES.music && !fromLibrary && !tpl) return null;
   return (
     <div className="ve-fields vl-library">
       {fromLibrary && <RightsBlock name={fromLibrary.name} rights={fromLibrary.rights} />}
@@ -108,10 +115,12 @@ export default function MusicSourcePanel({ ctx }: { ctx: PanelCtx }) {
           {tpl.music.bpm ? `, ${tpl.music.bpm[0]}–${tpl.music.bpm[1]} BPM` : ""}. {tpl.music.note}
         </p>
       )}
-      <button type="button" className="ts-btn" onClick={() => setBrowse((b) => !b)} aria-expanded={browse}>
-        <Library size={14} /> {browse ? "Hide the music library" : m ? "Change track from the music library" : "Browse the music library"}
-      </button>
-      {browse && (
+      {FEATURES.music && (
+        <button type="button" className="ts-btn" onClick={() => setBrowse((b) => !b)} aria-expanded={browse}>
+          <Library size={14} /> {browse ? "Hide the music library" : m ? "Change track from the music library" : "Browse the music library"}
+        </button>
+      )}
+      {FEATURES.music && browse && (
         <MusicLibrary
           client={ctx.looks.client?.id ?? null}
           clientName={ctx.looks.client?.name}

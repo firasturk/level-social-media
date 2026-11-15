@@ -3,8 +3,9 @@
  * balances), the picked tool and its options, the estimate ("About N credits · balance M" or "cost
  * not known"), the confirm and the run, the post's jobs polled while one is pending, the result on
  * the canvas, "Use as the post's picture" / "Save as a product photo", and the prefill a preset
- * card sends ("Use this style"). Members see the list and "Admins only for now": `locked` is true
- * per provider and no run is possible.
+ * card sends ("Use this style"). The whole team runs the tools (24 Oct); `locked` is true per
+ * provider only where the server says the viewer may not run it, or its switch is off. A member who
+ * is not shown prices confirms a run without its amount (the server asks and records the cost).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +14,7 @@ import { askConfirm } from "@/lib/confirm";
 import { PHOTO_TOOLS, photoTool, TOOL_PROVIDER_LABELS, type PhotoToolJob, type ToolCatalog, type ToolChoice, type ToolDef, type ToolOption, type ToolProvider } from "@shared/photo-tools";
 import type { PhotoPresetCard, PresetUse } from "@shared/photo-presets";
 import { heldMessage } from "@shared/client-hold";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import { patchSession } from "../editing-session";
 import { addResultAsPosts, applyToolResult, listPhotoPresets, recheckToolJob, toolCatalog, toolEstimate, toolJobs, toolRun, type ConfirmAsk } from "./photoApi";
 
@@ -196,19 +198,21 @@ export function usePhotoTools({ batchId, post, hasPicture, onChanged, active }: 
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && (d.needsConfirm || d.needsEstimate)) {
         const who = TOOL_PROVIDER_LABELS[tool.provider];
-        const ok = await askConfirm(
-          d.needsEstimate ? `${tool.label} on post ${post}'s picture: ${who} names no price for it. Run it at an unknown cost from the ${who} credits?` : `${tool.label} on post ${post}'s picture: about ${d.credits} credits from the ${who} balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result is shown first; the post's picture changes only when you use it.`,
-          { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run · ${d.credits} credits`, danger: false, cancel: "Not now" },
-        );
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Run ${tool.label.toLowerCase()} on post ${post}'s picture? The result is shown first; the post's picture changes only when you use it.`, { ok: "Run", danger: false, cancel: "Not now" })
+          : await askConfirm(
+              d.needsEstimate ? `${tool.label} on post ${post}'s picture: ${who} names no price for it. Run it at an unknown cost from the ${who} credits?` : `${tool.label} on post ${post}'s picture: about ${d.credits} credits from the ${who} balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result is shown first; the post's picture changes only when you use it.`,
+              { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run${creditsTag(d.credits)}`, danger: false, cancel: "Not now" },
+            );
         if (ok) return runTool(true);
         return;
       }
       if (err.status === 504 && d.outcomeUnknown) {
-        toast.error(err.message);
+        toast.error(costSafe(err.message));
         await loadJobs();
         return;
       }
-      toast.error(err.message);
+      toast.error(costSafe(err.message));
     } finally {
       setRunning(false);
     }

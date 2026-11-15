@@ -2,14 +2,16 @@
  * AI tools: provider tools on the post's picture, in two groups (Higgsfield, Magnific), each tool
  * with its few options, the estimate ("About N credits · balance M" or "cost not known"), the
  * confirm, the run, the result before / after on the canvas, then "Use as the post's picture",
- * "Save as a product photo" or Download. Members see the list and "Admins only for now". The logic
- * is `usePhotoTools`; the Photo lab (Freepik's API, in dollars) stays its own panel.
+ * "Save as a product photo" or Download. The whole team runs them; a member who is not shown
+ * prices sees no amount and no "Get the cost" (the run is still confirmed). The logic is
+ * `usePhotoTools`; the Photo lab (Freepik's API, in dollars) stays its own panel.
  */
 import { useEffect } from "react";
 import { Check, Download, GalleryHorizontalEnd, ImagePlus, Lock, Play, RefreshCw, Sparkles, SquarePlus, TriangleAlert, Wallet } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import VoiceInput from "@/components/VoiceInput";
 import { TOOL_PROVIDER_LABELS, type ToolProvider } from "@shared/photo-tools";
+import { creditsTag, pricesAreHidden } from "@shared/pricing";
 import { PanelSwitch } from "./Presets";
 import type { StudioCtx } from "../types";
 
@@ -27,7 +29,8 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
     if (job?.status === "done" && job.output) setView({ kind: "compare", before: job.input, after: job.output, beforeLabel: "Before", afterLabel: job.label });
   }, [job, setView]);
 
-  const estimateLine = t.estimate ? (t.estimate.credits !== null ? `About ${t.estimate.credits} credits${t.estimate.balance !== null ? ` · balance ${t.estimate.balance}` : ""}` : "Cost not known") : null;
+  const hidden = pricesAreHidden();
+  const estimateLine = hidden ? null : t.estimate ? (t.estimate.credits !== null ? `About ${t.estimate.credits} credits${t.estimate.balance !== null ? ` · balance ${t.estimate.balance}` : ""}` : "Cost not known") : null;
   const styleName = t.options.styleId ? t.styleNames[t.options.styleId] : "";
 
   return (
@@ -43,7 +46,7 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
         )}
       </div>
       <PanelSwitch ctx={ctx} current="tools" />
-      <p className="ts-hint">Tools from the providers' own servers, paid in their credits. The estimate comes first, you confirm, the result is shown before it replaces anything.</p>
+      <p className="ts-hint">{hidden ? "Tools from the providers' own servers. You confirm each run, and the result is shown before it replaces anything." : "Tools from the providers' own servers, paid in their credits. The estimate comes first, you confirm, the result is shown before it replaces anything."}</p>
       {t.catalogError && (
         <p className="ts-hint warn">
           <TriangleAlert size={12} /> {t.catalogError}
@@ -66,7 +69,7 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
       {state && (
         <p className={`ts-hint ps-provider-line ${state.connected && !state.reason ? "ps-ok" : ""}`}>
           {state.connected ? (state.reason ? state.reason : `${TOOL_PROVIDER_LABELS[t.provider]} connected`) : state.reason}
-          {state.balance !== null && (
+          {state.balance !== null && !hidden && (
             <>
               {" "}
               · <Wallet size={11} /> balance {state.balance} credits
@@ -137,17 +140,19 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
           {t.available === false && <p className="ts-hint warn">{TOOL_PROVIDER_LABELS[t.provider]} does not list this tool today; the run will be refused before anything is sent.</p>}
           {!ctx.task.output && <p className="ts-hint warn">This post has no picture yet; the tools need one. Make it first, or start from a preset.</p>}
           <div className="ps-row ps-wrap">
-            <button type="button" className="ts-btn" disabled={!t.canAsk} onClick={() => void t.getEstimate()} title="Ask the provider what this would cost; nothing is made">
-              {t.estimating ? <Orb size={14} status={null} /> : <Wallet size={14} />} Get the cost
-            </button>
-            <button type="button" className="ts-btn primary" disabled={!t.canAsk} onClick={() => void t.runTool()} title="The cost is shown and confirmed first; the result is shown before it replaces anything">
+            {!hidden && (
+              <button type="button" className="ts-btn" disabled={!t.canAsk} onClick={() => void t.getEstimate()} title="Ask the provider what this would cost; nothing is made">
+                {t.estimating ? <Orb size={14} status={null} /> : <Wallet size={14} />} Get the cost
+              </button>
+            )}
+            <button type="button" className="ts-btn primary" disabled={!t.canAsk} onClick={() => void t.runTool()} title={hidden ? "You confirm the run first; the result is shown before it replaces anything" : "The cost is shown and confirmed first; the result is shown before it replaces anything"}>
               {t.running ? <Orb size={14} status={null} /> : <Play size={14} />} Run {t.tool.label.toLowerCase()}
-              {t.estimate?.credits != null ? ` · ${t.estimate.credits} credits` : ""}
+              {creditsTag(t.estimate?.credits)}
             </button>
           </div>
           {estimateLine && <p className={`ts-hint ps-estimate ${t.estimate?.credits === null ? "warn" : ""}`}>{estimateLine}</p>}
           {t.missing.length > 0 && <p className="ts-hint">Needed first: {t.missing.join(", ").toLowerCase()}.</p>}
-          <p className="ts-hint">The cost is asked of the provider and you confirm it; the same request then runs once. Nothing is sent before you confirm.</p>
+          <p className="ts-hint">{hidden ? "You confirm the run; the same request then runs once. Nothing is sent before you confirm." : "The cost is asked of the provider and you confirm it; the same request then runs once. Nothing is sent before you confirm."}</p>
         </>
       )}
 
@@ -155,7 +160,7 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
         <div className="ps-result">
           <span className="ts-group-title">
             Result · {job.label}
-            {job.estimate !== null ? ` · about ${job.estimate} credits` : " · cost not known"}
+            {hidden ? "" : job.estimate !== null ? ` · about ${job.estimate} credits` : " · cost not known"}
           </span>
           {(job.status === "running" || job.status === "queued") && (
             <p className="ts-hint">
@@ -180,7 +185,7 @@ export default function ToolsPanel({ ctx }: { ctx: StudioCtx }) {
           {job.status === "done" && job.output && (
             <>
               <p className="ts-hint">
-                Before and after are on the canvas: drag the slider.{job.reported !== null ? ` ${job.reported} credits reported.` : ""}
+                Before and after are on the canvas: drag the slider.{job.reported !== null && !hidden ? ` ${job.reported} credits reported.` : ""}
               </p>
               <div className="ps-row ps-wrap">
                 {t.admin && job.addedAs.length > 0 && (

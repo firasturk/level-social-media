@@ -5,6 +5,7 @@ import { Orb } from "@/components/Orb";
 import { askConfirm } from "@/lib/confirm";
 import { ApiError, get, post } from "@/api";
 import { layerId as newLayerId } from "@shared/layers";
+import { pricesAreHidden } from "@shared/pricing";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import SourceBadge from "./SourceBadge";
 import "./freepik.css";
@@ -27,7 +28,10 @@ export interface FreepikStatus {
   connected: boolean;
   demo: boolean;
   reason: string;
+  /** The viewer may run Freepik (the whole team). */
   admin: boolean;
+  /** The viewer may change the account's settings (the key, the plan): admins. */
+  accountAdmin?: boolean;
   access: string;
   plan: "premium" | "business" | "unknown";
   planLabel: string;
@@ -160,6 +164,8 @@ export const BACKGROUND_HINT = "Set as background puts the asset behind the phot
 /** The licence badge: free with attribution, premium in the plan, credits, or cost not known. */
 export function licenseBadge(item: Pick<StockItem, "license" | "demo">, status: FreepikStatus | null): { text: string; cls: string } {
   const est = status?.downloadEstimate ?? null;
+  // A member who is not shown prices reads the licence, not the credits.
+  if (pricesAreHidden()) return item.license.type === "freemium" ? { text: "Free with attribution", cls: "free" } : item.demo || !status?.connected ? { text: "Premium · demo", cls: "premium" } : { text: "Premium", cls: "premium" };
   if (item.license.type === "freemium") return est && est > 0 ? { text: `Free · credits: ${est}`, cls: "credits" } : { text: "Free with attribution", cls: "free" };
   if (item.demo || !status?.connected) return { text: "Premium · demo", cls: "premium" };
   if (est === 0) return { text: "Premium · in your plan", cls: "premium" };
@@ -300,7 +306,7 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     } catch (e) {
       if (!(e instanceof ApiError) || !e.data.needsConfirm) throw e;
       const estimate = e.data.estimate as number | null;
-      const what = estimate === 0 ? "No credits: this download is in the plan." : `About ${estimate} credits from the Freepik balance.`;
+      const what = pricesAreHidden() ? "" : estimate === 0 ? "No credits: this download is in the plan." : `About ${estimate} credits from the Freepik balance.`;
       const ok = await askConfirm(`Download "${item.title}" to the library? ${what} The file is kept and reused; nothing is downloaded twice.`, { ok: "Download", danger: false, cancel: "Not now" });
       if (!ok) throw new Error("Not downloaded.");
       const r = await post<{ asset: AssetItem; reused: boolean }>("/api/studio/freepik/download", { ...base, confirm: true });

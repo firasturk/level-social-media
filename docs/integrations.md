@@ -10,12 +10,22 @@ keep their own existing rules; nothing here changes them.
 
 ## The rules
 
-1. **Admins only, for now.** Running a provider, saving or removing its key and taking a result
-   into the month are limited to admins until the integration is approved for the whole team. A
-   member who tries gets 403 "Admins only for now: … ". The entry points stay visible to members
-   (the Photo lab in the editor, the Video dialog on a post, the Freepik tab under Connection) with
-   that note and no provider controls.
-   - `requireIntegrationAdmin(c, provider)` is the first line of every gated route.
+1. **The team runs, admins hold the accounts.** Since 24 Oct the whole team runs the providers in
+   `TEAM_PROVIDERS` (Higgsfield, Freepik / Magnific, the video editor, the audio tools, Pinterest
+   links): making, enhancing and checking videos, presets, the Photo studio's AI tools, the Photo
+   lab, stock, rendering and combining in the editor, the Prompt Box's cards. Account settings stay
+   with admins: sign-ins, keys, the billing choice, the Pinterest connection, the Admin page and
+   Campaign Autopilot; a member who tries gets 403 "Admins only for now: … ". Taking a provider out
+   of `TEAM_PROVIDERS` closes its runs to members again; an admin can also switch any provider off
+   for everyone (rule 3).
+   - `requireIntegrationUser(c, provider)` is the first line of every run route,
+     `requireIntegrationAdmin(c, provider)` of every account route. `integrationAccess` tells the
+     entry points what the viewer may do; its `admin` field means "may run it".
+   - Cost (15 Nov): with "Who sees prices" on admins only, a member's video and edit tools show no
+     credits, dollars or balance and no "Get the cost" step (`pricesAreHidden`, `costSafe`,
+     `creditsTag` in shared/pricing.ts). The run is still confirmed, and the server still asks the
+     provider for the cost and records it on the ledger as before. The amounts are hidden in the
+     interface only: the API answers still carry them.
 2. **Viewing stays open.** Listing Photo lab jobs and their pictures (`GET /photolab/jobs`,
    `GET /photolab/jobs/:id`, `GET /photolab/jobs/:id/image`), listing a post's videos
    (`GET /posts/video/list`) and serving a stored clip (`GET /posts/video/file`) answer every

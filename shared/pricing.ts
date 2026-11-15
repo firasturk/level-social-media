@@ -118,6 +118,35 @@ export function withoutAmounts(text: string | null): string | null {
     .replace(/[ \t]{2,}/g, " ");
 }
 
+/** True for a member while "Who sees prices" is admins only: the video and edit tools then show no credit or dollar amount. */
+export function pricesAreHidden(): boolean {
+  return pricesHidden;
+}
+
+/**
+ * A provider's message with its credit and dollar amounts taken out: "Confirm the clip: about 12
+ * credits from the subscription balance (300 available)." reads "Confirm the clip: (cost shown to
+ * admins) from the subscription balance."
+ */
+export function withoutCosts(text: string): string {
+  return withoutAmounts(
+    text
+      .replace(/\s*\([^()]*?\d[\d,]*(?:\.\d+)?\s*(?:credits?|available)\b[^()]*\)/gi, "")
+      .replace(/\bcredits\s*\(\d[\d,]*(?:\.\d+)?\)/gi, "credits")
+      .replace(/(?:\babout\s+)?\d[\d,]*(?:\.\d+)?\s+credits?\b/gi, HIDDEN_PRICE),
+  );
+}
+
+/** A message as this viewer may read it: unchanged for whoever is shown prices, without its amounts otherwise. */
+export function costSafe(text: string): string {
+  return pricesHidden ? withoutCosts(text) : text;
+}
+
+/** " · 12 credits" after a label; nothing when the amount is not known or this viewer is not shown prices. */
+export function creditsTag(n: number | null | undefined, lead = " · "): string {
+  return pricesHidden || n == null ? "" : `${lead}${n} credits`;
+}
+
 export function formatUsd(n: number): string {
   if (pricesHidden) return HIDDEN_PRICE;
   if (n >= 100) return `$${Math.round(n)}`;

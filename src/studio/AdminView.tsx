@@ -299,7 +299,7 @@ export default function AdminView({ me }: { me: string }) {
               <option value="everyone">Everyone on the team</option>
               <option value="admins">Admins only</option>
             </select>
-            <small>Admins only: the team sees "cost shown to admins" where an amount would be. Every spend confirmation and limit stays exactly as it is.</small>
+            <small>Admins only: the team sees "cost shown to admins" where an amount would be, and in the video and AI tools no credits, no balance and no "Get the cost" step. Every run is still confirmed and recorded with its cost.</small>
           </label>
           <label className="check-row">
             <input type="checkbox" checked={!!form.autopilotReview} onChange={(e) => setForm({ ...form, autopilotReview: e.target.checked })} />

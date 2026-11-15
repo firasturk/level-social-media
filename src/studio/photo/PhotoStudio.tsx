@@ -3,8 +3,8 @@
  * studio (top bar, a rail of tools on the left, the picture large in the middle, the chosen tool's
  * panel on the right; on a phone one panel at a time from a bottom toolbar). The tools: Edit with
  * AI (the same paid edit as the post editor), Adjust (free, drawn here), the Photo lab and Assets
- * (Freepik, admins only for now), Versions and Check. Nothing is made or spent without the confirm
- * each tool asks.
+ * (Freepik; the whole team, unless an admin switched the integration off), Versions and Check.
+ * Nothing is made or spent without the confirm each tool asks.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -69,10 +69,10 @@ interface Props {
 
 const PANELS: { id: PhotoPanel; label: string; icon: ReactNode; title: string }[] = [
   { id: "presets", label: "Presets", icon: <LayoutGrid size={18} />, title: "Presets: picture styles, product shots and looks with the providers' sample pictures (browsing is free)" },
-  { id: "tools", label: "AI tools", icon: <Sparkles size={18} />, title: "AI tools: Higgsfield's and Magnific's picture tools on this picture, paid in credits (admins only for now)" },
+  { id: "tools", label: "AI tools", icon: <Sparkles size={18} />, title: "AI tools: Higgsfield's and Magnific's picture tools on this picture; each run is confirmed first" },
   { id: "edit", label: "Edit", icon: <Wand2 size={18} />, title: "Edit with AI: an instruction changes the picture (one paid picture)" },
   { id: "adjust", label: "Adjust", icon: <SlidersHorizontal size={18} />, title: "Adjust: crop, turn, light and colour, drawn here for free" },
-  { id: "lab", label: "Photo lab", icon: <FlaskConical size={18} />, title: "Photo lab: Freepik's real-photo tools (admins only for now)" },
+  { id: "lab", label: "Photo lab", icon: <FlaskConical size={18} />, title: "Photo lab: Freepik's real-photo tools; each run is confirmed first" },
   { id: "assets", label: "Assets", icon: <Images size={18} />, title: "Assets: Freepik stock and the client's Drive photos" },
   { id: "versions", label: "Versions", icon: <History size={18} />, title: "Versions: every take of this post, compared and restored" },
   { id: "check", label: "Check", icon: <ScanSearch size={18} />, title: "Check: the automatic review and the writing check" },

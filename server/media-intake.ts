@@ -9,13 +9,13 @@
  * Routes (mounted at /api/studio/media):
  *   POST /intake   multipart {kind: images|video, batch? | client + month, items (JSON), file<n>,
  *                  poster<n>}: one card per new file, appended after the month's posts (never
- *                  over one). Pictures: every member (a free copy). Clips: admins (a video
+ *                  over one). Pictures and clips: every member (a free copy; a clip is a video
  *                  upload, as POST /posts/video/upload). The same file picked again finds its
  *                  card instead of making a second one.
  *   POST /combine  multipart {batch, target: new|<post>, items (JSON [{post, still?}]), still<n>}:
  *                  chosen cards' clips (and pictures rendered as short clips in the browser) in
  *                  that order become one video project on a card, opened in the Video editor.
- *                  Admins, the editor's switch, a ledger line `editor.save` (no spend).
+ *                  The whole team, the editor's switch, a ledger line `editor.save` (no spend).
  *   GET  /clip     ?client=: the newest finished clip of the client the viewer may open (the
  *                  Start card's moving picture), or null.
  *

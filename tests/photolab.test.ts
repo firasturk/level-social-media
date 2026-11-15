@@ -80,7 +80,7 @@ describe("Photo lab with nothing connected (demo)", () => {
     const env = await seed();
     const r = await app().request("/api/studio/photolab/status", {}, env);
     expect(r.status).toBe(200);
-    expect(await json(r)).toEqual({ connected: false, provider: "demo", reason: NOT_CONNECTED, prices: PHOTO_LAB_PRICES, approximate: true, access: { admin: true, enabled: true, reason: "" } });
+    expect(await json(r)).toEqual({ connected: false, provider: "demo", reason: NOT_CONNECTED, prices: PHOTO_LAB_PRICES, approximate: true, accountAdmin: true, access: { admin: true, enabled: true, reason: "" } });
     expect(reached).toEqual([]);
   });
 

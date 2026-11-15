@@ -4,7 +4,11 @@
  * as compact chips with "Get the cost" and "Make the video · N credits" when the billing is the
  * credits; the Cloud catalog when it is the key), "Include the words and logo"; plus a Magnific
  * section: its video engines, the cost simulated, confirmed, then made with the picture as the
- * first keyframe. A preset's "Use this preset" lands here prefilled. Members see it read-only.
+ * first keyframe. A preset's "Use this preset" lands here prefilled. The whole team makes clips.
+ *
+ * A member who is not shown prices ("Who sees prices": admins only) gets one "Make the video"
+ * button and no amount: the server still asks the provider for the cost of exactly this clip and
+ * records it, as it does after an admin's "Get the cost".
  *
  * The Frame control (Reel 9:16 by default, Portrait 4:5, Square 1:1, Landscape 16:9): an engine
  * with that frame option is handed it; an engine that follows the picture gets the picture composed
@@ -19,6 +23,7 @@ import VoiceInput, { appendDictation } from "@/components/VoiceInput";
 import { ApiError, post as post_ } from "@/api";
 import { DEFAULT_VIDEO_MODEL, durationChoices, VIDEO_MODELS, videoModel } from "@shared/video-models";
 import { frameRoute, type FrameFill, type FrameId } from "@shared/video-frame";
+import { costSafe, pricesAreHidden } from "@shared/pricing";
 import { listVideos, MCP_PROVIDER, mcpEstimate, mcpGenerate, mcpModels as fetchMcpModels, mcpStatus, type HiggsfieldBilling, type HiggsfieldMcpStatus, type McpAsk, type McpVideoModel, type VideoItem } from "@/studio/videoApi";
 import FrameControl, { useFrameChoice } from "@/studio/FrameControl";
 import { composeFrame } from "../../frame";
@@ -261,7 +266,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       const err = e as ApiError;
       if (err.data?.unlimChoice) setUnlim(err.data.unlimChoice);
       else if (err.data?.outcomeUnknown) void s.reloadVideos();
-      setError(err.message);
+      setError(costSafe(err.message));
     } finally {
       setMaking(false);
     }
@@ -278,7 +283,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
     } catch (e) {
       const err = e as ApiError;
       if (err.data?.needsEstimate) setNeedsConfirm(true);
-      setError(err.message);
+      setError(costSafe(err.message));
     } finally {
       setMaking(false);
     }
@@ -296,7 +301,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       const err = e as ApiError;
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && d.needsConfirm) setMgCost(d.estimate ?? null);
-      else setError(err.message);
+      else setError(costSafe(err.message));
     } finally {
       setMaking(false);
     }
@@ -304,6 +309,8 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
 
   if (!post) return null;
   const readOnly = !admin;
+  /** A member who is not shown prices: no amount, no "Get the cost" step; the press on Make is the confirmation. */
+  const hidden = pricesAreHidden();
   const pending = s.videos.some((v) => v.status === "queued" || v.status === "generating");
   const ideaTooLong = provider === "higgsfield" && !credits && cm.promptMax !== null && idea.length > cm.promptMax;
   const canMake = !making && !writing && !pending && admin && !!s.pictureUrl && !ideaTooLong;
@@ -538,7 +545,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       {/* The cost line and the actions */}
       {provider === "higgsfield" && credits && (
         <div className="vs-cost">
-          {cost ? (
+          {hidden ? null : cost ? (
             <p className="ts-hint">
               {cost.credits !== null ? (
                 <>
@@ -563,12 +570,16 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
                   Use the unlimited allowance
                 </button>
                 <button type="button" className="ts-mini" disabled={making} onClick={() => void makeCredits(false)}>
-                  Pay credits{cost?.credits != null ? ` (${cost.credits})` : ""}
+                  Pay credits{!hidden && cost?.credits != null ? ` (${cost.credits})` : ""}
                 </button>
               </div>
             </div>
           )}
-          {!cost ? (
+          {hidden ? (
+            <button type="button" className="ts-btn primary vs-cta" onClick={() => void makeCredits()} disabled={!canAskCost || unlim != null} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "An admin signs in under Connection → Higgsfield first" : unlim != null ? "Answer Higgsfield's question above first" : undefined}>
+              {making ? <Orb size={14} status={null} /> : <Clapperboard size={14} />} Make the video
+            </button>
+          ) : !cost ? (
             <button type="button" className="ts-btn primary vs-cta" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "Sign in under Connection → Higgsfield first" : undefined}>
               {costing ? <Orb size={14} status={null} /> : <Coins size={14} />} Get the cost
             </button>
@@ -585,11 +596,11 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       )}
       {provider === "higgsfield" && !credits && (
         <div className="vs-cost">
-          <p className="ts-hint">{prices[cloudModel] != null ? `About ${usd(prices[cloudModel]!)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.` : "Cost not known yet: Higgsfield is asked for an estimate when the clip is made. If it gives none, an admin sets a price in Connection → Higgsfield, or confirms the clip at an unknown cost."}</p>
-          <button type="button" className="ts-btn primary vs-cta" onClick={() => void makeCloud()} disabled={!canMake || (cm.promptRequired && idea.trim().length < 5)} title={!admin ? "Admins only for now" : undefined}>
+          {!hidden && <p className="ts-hint">{prices[cloudModel] != null ? `About ${usd(prices[cloudModel]!)} per clip, from the admin's setting. Billed in Higgsfield credits, outside the month's picture budget.` : "Cost not known yet: Higgsfield is asked for an estimate when the clip is made. If it gives none, an admin sets a price in Connection → Higgsfield, or confirms the clip at an unknown cost."}</p>}
+          <button type="button" className="ts-btn primary vs-cta" onClick={() => void makeCloud(hidden)} disabled={!canMake || (cm.promptRequired && idea.trim().length < 5)} title={!admin ? "Admins only for now" : undefined}>
             {making ? <Orb size={14} status={null} /> : <Clapperboard size={14} />} Make the video
           </button>
-          {needsConfirm && admin && (
+          {needsConfirm && admin && !hidden && (
             <button type="button" className="ts-btn vs-cta" disabled={making} onClick={() => void makeCloud(true)}>
               Make it anyway, cost unknown
             </button>
@@ -598,14 +609,18 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       )}
       {provider === "magnific" && (
         <div className="vs-cost">
-          {mgCost !== null ? (
+          {hidden ? null : mgCost !== null ? (
             <p className="ts-hint">
               <b>About {mgCost} credits</b> from the Magnific balance (simulated for exactly this clip).
             </p>
           ) : (
             <p className="ts-hint">The cost is simulated by Magnific before the clip runs; nothing is made by "Get the cost". A clip whose cost cannot be simulated is not made.</p>
           )}
-          {mgCost === null ? (
+          {hidden ? (
+            <button type="button" className="ts-btn primary vs-cta" onClick={() => void makeMagnific(true)} disabled={!canMake || !mgReady || !mgEngine} title={!mgReady ? (mg?.reason || "Admins only for now") : undefined}>
+              {making ? <Orb size={14} status={null} /> : <Clapperboard size={14} />} Make the video
+            </button>
+          ) : mgCost === null ? (
             <button type="button" className="ts-btn primary vs-cta" onClick={() => void makeMagnific(false)} disabled={!canMake || !mgReady || !mgEngine} title={!mgReady ? (mg?.reason || "Admins only for now") : undefined}>
               {making ? <Orb size={14} status={null} /> : <Coins size={14} />} Get the cost
             </button>

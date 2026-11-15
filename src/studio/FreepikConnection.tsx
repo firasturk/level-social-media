@@ -15,7 +15,7 @@ import "./freepik.css";
  * stored encrypted on the server. Without it the Photo lab runs as a labelled demo.
  */
 
-/** Whether the viewer may run the provider: admins only for now, and only while its switch is on. */
+/** Whether the viewer may run the provider (the whole team since 24 Oct), and only while its switch is on. */
 export interface IntegrationAccess {
   admin: boolean;
   enabled: boolean;
@@ -29,6 +29,8 @@ export interface PhotoLabStatus {
   prices: Record<PhotoLabOp, number>;
   approximate: boolean;
   access?: IntegrationAccess;
+  /** The viewer keeps the key (admins); `access.admin` means "may run the lab". */
+  accountAdmin?: boolean;
 }
 
 export function useFreepikStatus(open: boolean): [PhotoLabStatus | null, () => void] {
@@ -81,7 +83,7 @@ export default function FreepikTab({
     }
   }
 
-  if (status && status.access && !status.access.admin)
+  if (status && ((status.access && !status.access.admin) || status.accountAdmin === false))
     return (
       <>
         <div className="qa-heading" style={{ marginTop: 12 }}>
@@ -89,7 +91,7 @@ export default function FreepikTab({
           <strong>Freepik (Photo lab: Magnific tools)</strong>
         </div>
         <p className="quality-note">
-          <b>Admins only for now.</b> The Freepik key and the Photo lab are limited to admins until the integration is approved for the whole team.
+          <b>Admins only.</b> The Freepik key and the plan are kept by admins; the Photo lab and the stock pictures themselves are open to the team.
           {status.connected ? " A key is saved on the server." : " No key is saved yet."}
         </p>
       </>
@@ -172,7 +174,7 @@ function FreepikAssetsSettings({ connected }: { connected: boolean }) {
       live = false;
     };
   }, [tick, connected]);
-  if (!status?.admin) return null;
+  if (!status?.admin || status.accountAdmin === false) return null;
 
   async function savePlan(plan: FreepikStatus["plan"]) {
     try {

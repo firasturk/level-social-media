@@ -18,6 +18,7 @@ import { AutoplayVideo } from "@/components/AutoplayVideo";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import { listPresets, presetDetail, runPreset, type ConfirmAsk, type PresetList } from "../../studioApi";
 import type { StudioShared } from "./types";
 
@@ -164,7 +165,7 @@ export function PresetCardView({ card, selected, onSelect, onUse, children }: { 
             {card.poster ? <img src={card.poster} alt="" loading="lazy" /> : <span className="vs-preset-blank">No preview</span>}
           </button>
         )}
-        {card.price !== null && <span className="vs-preset-price">{card.price} credits</span>}
+        {card.price !== null && !pricesAreHidden() && <span className="vs-preset-price">{card.price} credits</span>}
       </div>
       <div className="vs-preset-text">
         <b>{card.title}</b>
@@ -314,7 +315,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
             <LayoutGrid size={13} /> Presets
           </span>
         </div>
-        <p className="ts-hint">Pick a preset on the left to see its reference video, what it does and what it needs. “Use this preset” fills the Generate panel with its words; a runnable preset can also be run from here by an admin, on the subscription credits.</p>
+        <p className="ts-hint">Pick a preset on the left to see its reference video, what it does and what it needs. “Use this preset” fills the Generate panel with its words; a runnable preset can also be run from here, on the subscription credits.</p>
         <p className="ts-hint">The videos are Higgsfield's own examples, shown from their site; the studio keeps no copy. Only presets whose result is a video are listed here; picture presets live in the Photo studio.</p>
       </div>
     );
@@ -336,14 +337,17 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
       const err = e as ApiError;
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && (d.needsConfirm || d.needsEstimate)) {
-        const ok = await askConfirm(d.needsEstimate ? `Run “${card.title}” on this post's picture: Higgsfield names no price for it. Run it at an unknown cost from the subscription credits?` : `Run “${card.title}” on this post's picture: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run · ${d.credits} credits`, danger: false, cancel: "Not now" });
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Run “${card.title}” on this post's picture? The clip becomes a new version of this post.`, { ok: "Run", danger: false, cancel: "Not now" })
+          : await askConfirm(d.needsEstimate ? `Run “${card.title}” on this post's picture: Higgsfield names no price for it. Run it at an unknown cost from the subscription credits?` : `Run “${card.title}” on this post's picture: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run${creditsTag(d.credits)}`, danger: false, cancel: "Not now" });
         if (ok) return run(true);
-      } else setError(err.message);
+      } else setError(costSafe(err.message));
     } finally {
       setRunning(false);
     }
   }
   const canRun = !!s.post && !!detail?.runnable && s.admin && !!s.pictureUrl;
+  const hidden = pricesAreHidden();
   return (
     <div className="vs-panel vs-detail">
       <div className="ts-panel-head">
@@ -376,7 +380,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
           <b>Needs:</b> {card.needs.join(", ")}.{s.pictureUrl && card.needs.some((n) => /picture/.test(n)) ? " This post's picture is used." : ""}
         </p>
       )}
-      {detail && (
+      {detail && !hidden && (
         <p className="ts-hint">
           <b>Cost:</b> {detail.price !== null ? `about ${detail.price} credits from the subscription (said again before the run).` : card.source === "marketing_studio_v2" ? "Higgsfield is asked for the price when you press Run; you confirm it before anything is made." : "not known: Higgsfield names no price. An admin confirms the run at an unknown cost."}
         </p>
@@ -422,7 +426,7 @@ export function PresetDetailPanel({ s, ps }: { s: StudioShared; ps: PresetsState
               ))}
               {!s.pictureUrl && <p className="ts-hint warn">This post has no picture yet; the preset needs one.</p>}
               <button type="button" className="ts-btn primary vs-cta" disabled={!canRun} onClick={() => void run()} title={!s.post ? "Open a post first" : undefined}>
-                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
+                {running ? <Orb size={14} status={null} /> : <Play size={14} />} Run this preset{hidden ? "" : detail.price !== null ? ` · ${detail.price} credits` : card.source === "marketing_studio_v2" ? " · price asked first" : " · cost not known"}
               </button>
               {error && (
                 <p className="ts-hint warn">
