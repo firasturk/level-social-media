@@ -37,6 +37,17 @@ export interface DesignOptions {
 type Picture = HTMLImageElement | HTMLCanvasElement;
 
 const pictures = new Map<string, Promise<Picture | null>>();
+/** Longest wait for one layer picture, and how long a failed load is remembered before it is asked again. */
+const PICTURE_TIMEOUT = 60_000;
+const RETRY_AFTER = 2000;
+
+/**
+ * A failed load is forgotten after a moment, so a later render asks the server again instead of
+ * failing from memory for the rest of the session (without a request on every redraw meanwhile).
+ */
+function forgetSoon(cache: Map<string, unknown>, key: string): void {
+  setTimeout(() => cache.delete(key), RETRY_AFTER);
+}
 
 /** Loads (once) a picture a layer points at; null when it cannot be loaded, so the rest still draws. */
 export function loadLayerImage(src: string): Promise<Picture | null> {
@@ -46,8 +57,18 @@ export function loadLayerImage(src: string): Promise<Picture | null> {
       if (typeof Image === "undefined") return resolve(null);
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
+      const fail = () => {
+        clearTimeout(timer);
+        forgetSoon(pictures, src);
+        resolve(null);
+      };
+      // A picture that never answers must not hold the render (or an export) for ever.
+      const timer = setTimeout(fail, PICTURE_TIMEOUT);
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve(img);
+      };
+      img.onerror = fail;
       img.src = src;
     });
     pictures.set(src, p);
@@ -70,8 +91,15 @@ function svgTextOf(src: string): Promise<string | null> {
       typeof fetch === "undefined"
         ? Promise.resolve(null)
         : fetch(src, { credentials: "same-origin" })
-            .then(async (r) => (r.ok && /svg/i.test(r.headers.get("content-type") ?? "") ? r.text() : null))
-            .catch(() => null);
+            .then(async (r) => {
+              // The server refusing is a failure to try again; a file that is simply not an SVG is an answer.
+              if (!r.ok) throw new Error("not read");
+              return /svg/i.test(r.headers.get("content-type") ?? "") ? r.text() : null;
+            })
+            .catch(() => {
+              forgetSoon(svgTexts, src);
+              return null;
+            });
     svgTexts.set(src, p);
   }
   return p;
@@ -89,8 +117,11 @@ export function loadImageLayerPicture(layer: Pick<ImageLayer, "src" | "recolor">
   const key = `${layer.src}|${JSON.stringify(entries)}`;
   let p = recolored.get(key);
   if (!p) {
-    p = svgTextOf(layer.src).then((text) => (text ? loadLayerImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolorSvg(text, map))}`) : loadLayerImage(layer.src)));
+    const svg = svgTextOf(layer.src);
+    p = svg.then((text) => (text ? loadLayerImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolorSvg(text, map))}`) : loadLayerImage(layer.src)));
     recolored.set(key, p);
+    // A recolour that was not made (the file not read, the picture not drawn) is not kept either.
+    void Promise.all([svg, p]).then(([text, pic]) => (text && pic ? undefined : forgetSoon(recolored, key)));
     if (recolored.size > MAX_RECOLORED) {
       const oldest = recolored.keys().next().value;
       if (oldest !== undefined) recolored.delete(oldest);

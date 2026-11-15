@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post, postForm } from "@/api";
 import { PostChangeBox, PostReferenceBox } from "./PostTools";
+import { busyReason, fixWaitReason } from "./busyReason";
 import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
 import { applyStyleToPosts, designFromLegacy, type ApplyRole } from "./text/model";
 import type { Layer, TextDesign } from "@shared/layers";
@@ -236,7 +237,7 @@ export default function PlanView({
   cast: Ambassador[];
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
-  onSavePlan: (plan: Post[]) => void | Promise<void>;
+  onSavePlan: (plan: Post[]) => void | Promise<unknown>;
   /** The month's colours, offered in the Text studio after the brand's. */
   palette?: { name: string; hex: string }[];
   onClientsChanged?: (clients: Client[]) => void;
@@ -1016,7 +1017,7 @@ export default function PlanView({
             className="secondary"
             onClick={() => onGenerateIdeas(notes)}
             disabled={!!busy || running}
-            title="The text model plans the month from the brand kit, the theme and the products"
+            title={busyReason(busy, running) || "The text model plans the month from the brand kit, the theme and the products"}
           >
             {busy === "ideas" ? <Orb size={15} /> : <Lightbulb size={15} />}
             {plan.length ? "Regenerate ideas" : "Generate ideas"}
@@ -1025,7 +1026,7 @@ export default function PlanView({
             className={`secondary ${gridRef ? "toggle on" : ""}`}
             onClick={() => setGridPicker((v) => !v)}
             disabled={!!busy || running}
-            title="Plan the month from one reference image that shows a whole feed grid"
+            title={busyReason(busy, running) || "Plan the month from one reference image that shows a whole feed grid"}
           >
             {busy === "grid" ? <Orb size={15} /> : <Grid3x3 size={15} />}
             From reference grid
@@ -1044,6 +1045,8 @@ export default function PlanView({
             title={
               !plan.length
                 ? "Generate ideas first, then the posts"
+                : busy || running
+                  ? busyReason(busy, running)
                 : pending
                   ? stale
                     ? "The plan changed since these posts were made: they are generated again"
@@ -1070,7 +1073,7 @@ export default function PlanView({
             <Type size={15} />
             Overlay
           </button>
-          <button className="secondary" onClick={onExport} disabled={!generated || exporting}>
+          <button className="secondary" onClick={onExport} disabled={!generated || exporting} title={!generated ? "Nothing to export yet: this month has no pictures" : exporting ? "Wait: an export is running" : "Download every picture of this month with its words, and the captions"}>
             {exporting ? <Orb size={15} /> : <Download size={15} />}
             Export
           </button>
@@ -1079,7 +1082,7 @@ export default function PlanView({
             className="secondary"
             onClick={onExportPdf}
             disabled={!generated || exporting}
-            title="One long PDF page: cover with the logo, the month as an Instagram feed, a note per post, thank-you"
+            title={!generated ? "Nothing to export yet: this month has no pictures" : exporting ? "Wait: an export is running" : "One long PDF page: cover with the logo, the month as an Instagram feed, a note per post, thank-you"}
           >
             <FileText size={15} />
             Feed PDF
@@ -1104,7 +1107,7 @@ export default function PlanView({
             <strong>The theme changed after these ideas were written.</strong> {plan.filter((x) => !isMediaPost(x)).length === 1 ? "The planned post still follows" : `The ${plan.filter((x) => !isMediaPost(x)).length} planned posts still follow`} the
             old reference, colours or props. Regenerate ideas so they follow the theme as it is now.
           </div>
-          <button type="button" className="primary" onClick={() => onGenerateIdeas(notes)} disabled={!!busy}>
+          <button type="button" className="primary" onClick={() => onGenerateIdeas(notes)} disabled={!!busy} title={busyReason(busy) || undefined}>
             Regenerate ideas
           </button>
         </div>
@@ -1115,7 +1118,7 @@ export default function PlanView({
           <div>
             <strong>Generation stopped.</strong> {paused}
           </div>
-          <button type="button" className="primary" onClick={onResume} disabled={!!busy}>
+          <button type="button" className="primary" onClick={onResume} disabled={!!busy} title={busyReason(busy) || undefined}>
             {resumeLabel ?? "Resume"}
           </button>
         </div>
@@ -1525,7 +1528,7 @@ export default function PlanView({
                           {!!t && !inFlight && olderIdea(t, p, revision) && !!onFix && (
                             <span className="pc-unsaved">
                               The idea changed after this picture ·{" "}
-                              <button type="button" className="text-button" disabled={fixing !== null || running} onClick={() => { setFixing(p.index); void onFix(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${(p.scene?.trim() || p.brief).slice(0, 700)}`).finally(() => setFixing(null)); }}>
+                              <button type="button" className="text-button" disabled={fixing !== null || running} title={fixWaitReason(fixing, p.index, running) || undefined} onClick={() => { setFixing(p.index); void onFix(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${(p.scene?.trim() || p.brief).slice(0, 700)}`).finally(() => setFixing(null)); }}>
                                 Update the picture
                               </button>
                             </span>
@@ -1758,6 +1761,7 @@ export default function PlanView({
                               type="button"
                               className="primary btn-pill"
                               disabled={fixing !== null || running}
+                              title={fixWaitReason(fixing, p.index, running) || undefined}
                               onClick={() => {
                                 setFixing(p.index);
                                 void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
@@ -1801,7 +1805,7 @@ export default function PlanView({
                       type="button"
                       className="btn-pill post-enhance"
                       disabled={fixing !== null || running || !!busy}
-                      title="The same picture again at a higher quality: sharper detail, clean edges, nothing else changed"
+                      title={fixWaitReason(fixing, p.index, running) || busyReason(busy) || "The same picture again at a higher quality: sharper detail, clean edges, nothing else changed"}
                       onClick={() => {
                         setFixing(p.index);
                         void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null));
@@ -2143,7 +2147,7 @@ export default function PlanView({
                             type="button"
                             className="primary"
                             disabled={fixing !== null || running}
-                            title="Changes the picture to match the idea as it is written now, keeping what still fits"
+                            title={fixWaitReason(fixing, p.index, running) || "Changes the picture to match the idea as it is written now, keeping what still fits"}
                             onClick={() => {
                               setFixing(p.index);
                               void onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`).finally(() => setFixing(null));

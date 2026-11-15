@@ -46,6 +46,7 @@ export default function StudioBoard({
   more,
   badge,
   loading,
+  onRetryOpen,
   saveStatus,
   onRetrySave,
   children,
@@ -82,6 +83,8 @@ export default function StudioBoard({
   badge?: ReactNode;
   /** The month is still opening: the counts are not zeros, they are not known yet. */
   loading?: boolean;
+  /** The month failed to open: the counts give way to that, with this way to try again. */
+  onRetryOpen?: () => void;
   /** The plan's autosave, with a retry when it failed. */
   saveStatus?: SaveState;
   onRetrySave?: () => void;
@@ -115,7 +118,18 @@ export default function StudioBoard({
           ))}
         </div>
         <span className="studio-counts" aria-busy={loading || undefined}>
-          {loading ? "Counting the month…" : countsLine(counts)}
+          {onRetryOpen ? (
+            <>
+              This month could not be opened.{" "}
+              <button type="button" className="text-button" onClick={onRetryOpen}>
+                Try again
+              </button>
+            </>
+          ) : loading ? (
+            "Counting the month…"
+          ) : (
+            countsLine(counts)
+          )}
           {saveStatus && <SaveStatus status={saveStatus} onRetry={onRetrySave} className="inline" />}
         </span>
         {badge}
@@ -178,7 +192,7 @@ export default function StudioBoard({
 }
 
 /** The month's words: headline on the picture, caption, hashtags; each line saves when you leave it. */
-export function WordsView({ plan, tasks, outputThumb, onSavePlan }: { plan: Post[]; tasks: Task[]; outputThumb: (t: Task) => string; onSavePlan: (next: Post[]) => Promise<void> }) {
+export function WordsView({ plan, tasks, outputThumb, onSavePlan }: { plan: Post[]; tasks: Task[]; outputThumb: (t: Task) => string; onSavePlan: (next: Post[]) => Promise<unknown> }) {
   const taskOf = (i: number) => tasks.find((t) => t.post === i && t.output) ?? null;
   const save = (index: number, patch: Partial<Post>) => void onSavePlan(plan.map((y) => (y.index === index ? { ...y, ...patch } : y)));
   if (!plan.length) return <p className="flow-muted studio-empty">No posts in this month yet. Write the plan first; each post's words are edited here afterwards.</p>;

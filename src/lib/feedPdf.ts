@@ -1,7 +1,7 @@
 import { POST_TYPE_INFO, monthLabel, type Post } from "@shared/posts";
 import type { Client } from "@shared/types";
 import { canvasBlob } from "./overlay";
-import { fontsSettled } from "./fonts";
+import { faceLoaded, fontsSettled } from "./fonts";
 import { stackedImagesPdf, type PdfImage } from "./pdf";
 
 /** One rendered post (the image with its overlay) and the plan entry it came from. */
@@ -47,9 +47,10 @@ export async function buildFeedPdf(deck: FeedDeck): Promise<Blob> {
   // Level's own face, Montserrat, carries the whole deck; Arabic falls back to Tajawal.
   const brand = "Montserrat";
   // Canvas text only uses a web font once it is loaded; fonts load lazily, so ask for them first.
+  // Each wait is bounded: a font file that never answers must not hold the PDF.
   await Promise.all(
     ["400 30px Montserrat", "500 30px Montserrat", "600 30px Montserrat", "700 64px Montserrat", "400 30px Tajawal", "700 40px Tajawal"].map(
-      (f) => document.fonts.load(f).catch(() => []),
+      (f) => faceLoaded(f),
     ),
   );
   await fontsSettled();

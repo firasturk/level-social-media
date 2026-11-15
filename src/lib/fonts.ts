@@ -24,16 +24,35 @@ export function fontsSettled(ms = 5000): Promise<void> {
   return Promise.race([document.fonts.ready.then(() => undefined, () => undefined), new Promise<void>((r) => setTimeout(r, ms))]);
 }
 
+/** The longest one font file is waited for before the text is drawn with what has loaded. */
+const FACE_WAIT = 6000;
+const after = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Asks the browser for one face (with the text, so the right subset is fetched), but never for
+ * ever and never with an error: a face that does not arrive in time leaves the fallback to draw.
+ */
+export function faceLoaded(font: string, sample?: string, ms = FACE_WAIT): Promise<void> {
+  const asked = (async () => {
+    await document.fonts.load(font, sample);
+  })().catch(() => undefined);
+  return Promise.race([asked, after(ms)]);
+}
+
 /** Loads an uploaded brand font once; hosted Google fonts come from the stylesheet in index.html. */
 export function loadFont(name: string, url: string): Promise<void> {
   const key = `${name}|${url}`;
   let p = loadedFonts.get(key);
   if (!p) {
-    p = (async () => {
+    // The face joins the page whenever its file arrives, even after the wait below gave up on it.
+    const arrived = (async () => {
       const face = new FontFace(name, `url(${url})`);
       await face.load();
       document.fonts.add(face);
-    })().catch(() => undefined);
+    })();
+    // A failed load is forgotten, so the next render asks for the file again instead of failing from memory.
+    arrived.catch(() => loadedFonts.delete(key));
+    p = Promise.race([arrived, after(FACE_WAIT)]).catch(() => undefined);
     loadedFonts.set(key, p);
   }
   return p;
@@ -59,13 +78,16 @@ export async function ensureFont(family: string, weight: number, italic: boolean
     document.head.appendChild(link);
     await new Promise<void>((resolve) => {
       link.onload = () => resolve();
-      link.onerror = () => resolve();
+      link.onerror = () => {
+        // A stylesheet that failed is forgotten after a moment, so a later render asks for it
+        // again (not every redraw while the connection is down).
+        setTimeout(() => requested.delete(key), 2000);
+        link.remove();
+        resolve();
+      };
       setTimeout(resolve, 2500);
     });
   }
-  try {
-    await document.fonts.load(`${italic ? "italic " : ""}${w} 48px ${fontStack(family)}`, sample || "حب Ab");
-  } catch {
-    /* the fallback face draws */
-  }
+  // The fallback face draws when this one fails or is late.
+  await faceLoaded(`${italic ? "italic " : ""}${w} 48px ${fontStack(family)}`, sample || "حب Ab");
 }

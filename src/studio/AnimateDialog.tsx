@@ -53,11 +53,18 @@ export default function AnimateDialog({
   const W = 480;
   const { ext } = videoMime();
 
+  /** The picture did not load: said in the dialog with a way to try again, since Export waits on it. */
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
   useEffect(() => {
     if (!open) return;
+    let alive = true;
     setReady(false);
+    setFailed(false);
     loadImage(src)
       .then((img) => {
+        if (!alive) return;
         imgRef.current = img;
         const c = canvasRef.current;
         if (!c) return;
@@ -65,8 +72,13 @@ export default function AnimateDialog({
         c.height = Math.round((W * img.naturalHeight) / img.naturalWidth);
         setReady(true);
       })
-      .catch(() => setReady(false));
-  }, [open, src]);
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, src, attempt]);
 
   // Loop the preview whenever something changes.
   useEffect(() => {
@@ -124,7 +136,16 @@ export default function AnimateDialog({
         </DialogHeader>
         <div className="overlay-editor-body">
           <div className="overlay-editor-canvas">
-            {!ready && <Orb variant="generate" size={22} status={null} />}
+            {failed ? (
+              <p role="alert" className="prompt-tip">
+                The picture could not be loaded, so there is nothing to animate yet. Check the connection.{" "}
+                <button type="button" className="text-button" onClick={() => setAttempt((n) => n + 1)}>
+                  Try again
+                </button>
+              </p>
+            ) : (
+              !ready && <Orb variant="generate" size={22} status={null} />
+            )}
             <canvas ref={canvasRef} />
             {playing && <span className="anim-badge"><Play size={11} /> preview</span>}
           </div>
@@ -147,7 +168,7 @@ export default function AnimateDialog({
             <div className="footer-actions">
               <span className="spacer" />
               <button type="button" className="secondary" onClick={onClose}>Close</button>
-              <button type="button" className="primary" onClick={() => void exportVideo()} disabled={!ready || exporting > 0}>
+              <button type="button" className="primary" onClick={() => void exportVideo()} disabled={!ready || exporting > 0} title={failed ? "The picture did not load: press Try again first" : !ready ? "Wait: the picture is loading" : undefined}>
                 {exporting > 0 ? <Orb size={15} /> : <Download size={15} />}
                 {exporting > 0 ? `Recording ${Math.round(exporting * 100)}%` : `Export ${ext.toUpperCase()}`}
               </button>

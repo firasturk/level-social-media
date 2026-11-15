@@ -71,7 +71,8 @@ export interface PostEditorTools {
   cast: string[];
   /** About what one picture costs on this month's engine, or 0 when not known. */
   perPicture: number;
-  onSavePost: (patch: Partial<Post>) => Promise<void> | void;
+  /** Answers false when the save failed (the reason was shown): what was typed then stays in the editor. */
+  onSavePost: (patch: Partial<Post>) => Promise<boolean | void> | void;
   /** "Edit this picture" with a note: the current photo changed, not remade. */
   onEdit: (note: string) => Promise<void>;
   /** The month, for the reference picture attached to the post for its edits and takes. */
@@ -152,7 +153,8 @@ export default function ReviewDialog({
   resultUrl: string;
   position?: { index: number; total: number };
   onClose: () => void;
-  onRevise: (edit: string) => Promise<void>;
+  /** Answers false when the edit was not started (the reason was shown): the instruction then stays in its box. */
+  onRevise: (edit: string) => Promise<boolean | void>;
   /** Save this one result to the computer; absent while there is no result yet. */
   onDownload?: () => void;
   /** Save every generated image of this product set as one ZIP; absent when the image is not in a set. */
@@ -209,9 +211,9 @@ export default function ReviewDialog({
   const set = <K extends keyof Post>(k: K, v: Post[K] | undefined) => setDraft((d) => ({ ...d, [k]: v }));
   const dirty = Object.keys(draft).length > 0;
   const cost = editor?.perPicture ? ` · about ${formatUsd(editor.perPicture)}` : "";
-  /** Unsaved fields are saved as one patch; nothing is saved while nothing changed. */
-  const saveDraft = async () => {
-    if (!editor || !dirty) return;
+  /** Unsaved fields are saved as one patch; nothing is saved while nothing changed. False: the save failed and the fields stay as typed. */
+  const saveDraft = async (): Promise<boolean> => {
+    if (!editor || !dirty) return true;
     const patch = { ...draft };
     const post = editor.post;
     const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -224,12 +226,29 @@ export default function ReviewDialog({
     }
     // A shot written here is the designer's own: the shots writer leaves it alone.
     if ("scene" in patch && patch.scene?.trim()) patch.handShot = true;
-    await editor.onSavePost(patch);
-    setDraft({});
+    // The typed fields are let go only once the server has them: a failed save keeps them here.
+    const saved = await Promise.resolve(editor.onSavePost(patch)).then(
+      (ok) => ok !== false,
+      () => false,
+    );
+    if (saved) setDraft({});
+    return saved;
   };
   /** Leaving the post (next, previous, close) keeps what was typed, like the cards do. */
+  const leaving = useRef(false);
   const leave = (then?: () => void) => {
-    void (dirty ? saveDraft() : Promise.resolve()).then(() => then?.());
+    // One leave at a time: Escape on the question below also reaches the dialog, and must not ask twice.
+    if (leaving.current) return;
+    leaving.current = true;
+    void saveDraft()
+      .then(async (saved) => {
+        // What could not be saved is never dropped quietly: leaving without it is the designer's choice.
+        if (!saved && !(await askConfirm("These changes could not be saved. Stay and try again, or leave this post without them?", { ok: "Leave without saving", cancel: "Stay and try again" }))) return;
+        then?.();
+      })
+      .finally(() => {
+        leaving.current = false;
+      });
   };
   const editRef = useRef<HTMLTextAreaElement>(null);
   /** The language this post inherits (the month's, else the brand kit's) when it sets none of its own. */
@@ -286,8 +305,11 @@ export default function ReviewDialog({
       open={!!task || !!editor}
       onOpenChange={(open) => {
         if (!open) {
-          setEdit("");
-          leave(onClose);
+          // The instruction box is emptied only when the dialog really closes (a failed save may keep it open).
+          leave(() => {
+            setEdit("");
+            onClose();
+          });
         }
       }}
     >
@@ -546,7 +568,8 @@ export default function ReviewDialog({
                             className="primary"
                             disabled={busy}
                             onClick={async () => {
-                              await editor.onSavePost({ ov: checkResult.proposal!.ov });
+                              // Not saved (the reason was shown): the proposal stays, to apply again.
+                              if ((await editor.onSavePost({ ov: checkResult.proposal!.ov })) === false) return;
                               setCheckResult({ ...checkResult, proposal: null, applied: checkResult.proposal!.changes });
                             }}
                           >
@@ -994,7 +1017,8 @@ export default function ReviewDialog({
                     await postForm("/api/studio/posts/reference", form).catch(() => undefined);
                   }
                 }
-                await onRevise(text);
+                // Not started (the reason was shown): the typed instruction stays, to send again.
+                if ((await onRevise(text)) === false) return;
                 setEdit("");
                 setArea(null);
               }}
