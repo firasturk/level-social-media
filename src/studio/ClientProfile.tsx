@@ -29,7 +29,7 @@ function useProfile(clientId: string | null) {
 }
 
 /**
- * The client's profile on the journey's first screen: what the Analysis understood from their
+ * The client's profile in the Studio's side panel, above the brand kit: what the Analysis understood from their
  * Instagram, their website and the brands they are compared with. Opens the full profile.
  */
 export function ProfileBar({ client, onClientsChanged }: { client: Client; onClientsChanged: (clients: Client[]) => void }) {

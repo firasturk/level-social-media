@@ -2,6 +2,8 @@
 
 Nothing in this file runs by itself. Each step is done by a person, in this order, on a quiet day.
 
+Note (15 Nov 2026): the Classic journey was retired and the four-stage workflow is the only one. The "Four-stage workflow" and "Autopilot reviews before paying" switches named in sections 3 and 5 are gone from Admin and the app no longer reads them, so "Flag off" is no longer a rollback: roll back with the code.
+
 ## 0. What is being released
 
 - `phase-0-safety` (12 commits): the spend ledger, bounded retries, the paid paths covered, mocked engine tests.

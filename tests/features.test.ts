@@ -48,7 +48,7 @@ describe("A. hidden features (shared/features.ts)", () => {
   });
 
   it("nothing imports the influencers screen, and nothing else opens the two dialogs", () => {
-    const files = ["src/App.tsx", "src/studio/Workspace.tsx", "src/studio/PlanView.tsx", "src/studio/Flow.tsx", "src/studio/Journey.tsx", "src/studio/BrandPanel.tsx", "src/studio/Sidebar.tsx", "src/studio/StudioBoard.tsx"];
+    const files = ["src/App.tsx", "src/studio/Workspace.tsx", "src/studio/PlanView.tsx", "src/studio/Flow.tsx", "src/studio/BrandPanel.tsx", "src/studio/Sidebar.tsx", "src/studio/StudioBoard.tsx"];
     for (const f of files) expect(src(f), f).not.toMatch(/from "\.\/Influencers"|import\("\.\/Influencers"\)/);
     const work = src("src/studio/Workspace.tsx");
     expect(work.match(/setDeliverOpen\(true\)/g)).toHaveLength(1);

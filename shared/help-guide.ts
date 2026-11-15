@@ -22,9 +22,9 @@ Golden rules: nothing that costs money or credits runs without a confirmation sa
 
 Left menu (a rail of icons until opened with its top button "Open the menu"): "Approvals" (admins), "Studio", "Months", "Styles", "Video editor", "Admin" (admins), then "Clients" (click one to open it; "+" = "Add client"), and at the bottom the connection button ("Connected" / "Not connected" with the engine's name; opens "Image engine connection"), the light/dark switch and "Sign out".
 
-The four-stage workflow (an admin setting, "Four-stage workflow", for the whole team): "1 Start", "2 Direction", "3 Plan", "4 Studio". Start, Direction and Plan open full screen under the title "Create content"; their top bar has the menu button, the stages, the client and month pickers, the brand kit chip ("Brand kit ready" or "N things missing") and "Skip to the Studio". The Studio is the board of posts; its top rail repeats the stages and has "Classic journey".
+The four-stage workflow (the only way of working, for the whole team): "1 Start", "2 Direction", "3 Plan", "4 Studio". Start, Direction and Plan open full screen under the title "Create content"; their top bar has the menu button, the stages, the client and month pickers, the brand kit chip ("Brand kit ready" or "N things missing") and "Skip to the Studio". The Studio is the board of posts; its top rail repeats the stages (click one to go back to it) and has the brand kit chip.
 
-Classic journey: the older step-by-step screens (Account, Products, Posts, Brand kit, Visual identity, Colours, Ideas and dates, Props and shots, Test grid, Generate, Text on design, Feed). Open it with "Classic journey" (Studio rail, or More "⋯"). If the four-stage workflow is off, the Studio shows "Start new journey" and "Open the journey". The client's Instagram/website "Analysis" (client profile) is on its first screen.
+The older step-by-step "Classic journey" was retired on 15 Nov 2026: there is no "Classic journey", "Start new journey" or "Open the journey" button any more, and its month "Autopilot" went with it. A month is made in the four stages and the Studio. Two things moved to the Studio side panel (More → "Products, versions and brand kit"): the month's "Occasions" (tick the days the brand greets, "Add occasion", "Official portrait" for a royal day, "Add the greeting post") and the client's Instagram/website "Analysis" ("Client profile": "Analysis" the first time, then "Open profile").
 
 Months page: every month you can open, with progress; filter by client. A deleted month waits in the "Bin" for 30 days ("Restore", or "Delete for good"). Admins also see "Spend by person".
 
@@ -120,12 +120,12 @@ On the Plan "Talk to the planner"; on the Studio board the "Prompt" button ("Pro
 
 Header: tabs "Posts", "Feed", "Words", "Client approval", "Versions"; the counts ("12 posts · 16 designs · 6 made · 2 need a look · 9 remaining"); "Client answered · N new"; buttons "Do client comments (N)" (when the client asked changes), "Export", "Client link", "Make N remaining · about $X" / "Open the plan", "Prompt", "⋯" (More).
 
-More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Classic journey", "Delete this month" (goes to the Bin).
+More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Delete this month" (goes to the Bin).
 
 Month tools bar: "Month", "Grid" (several grids), "New grid", "Posts", "Upload products", "Generate ideas"/"Regenerate ideas", "From reference grid", "Generate N posts"/"Regenerate all" (these make pictures: paid), "Overlay" (show/hide words on cards), "Export", typography ("AI picks for each post", "Behind the product", "Crossing the product", "Repeated", "Big outline"…: a paid AI reading), "Feed PDF".
 
 Tabs:
-- "Feed": meant to show the month as a feed; in the four-stage workflow it may open the workflow screens instead. Reliable: More → "Classic journey" → its last screen "Feed", More → "Feed PDF", or the client link.
+- "Feed": the month as the Instagram grid will look, three posts across (the newest first, or tile by tile when the month follows a grid; a carousel is one tile). Each tile is the picture with its words and logo; a post with no picture yet is an empty tile with its number and title; a small ✓ or ! is the client's answer. Click a tile to open that post. "Feed PDF" (also under More) saves the month as one PDF. Nothing is edited on this tab: the posting day, the words and the picture are changed on the post.
 - "Words": each post's "On the picture" (headline), "Caption", "Hashtags"; saves when you leave a field; free.
 - "Client approval": section 12. "Versions": section 16.
 
@@ -221,7 +221,7 @@ Open with the card's clapperboard, the card menu "Video from this picture", or "
 ## 14. Clients and the brand kit
 
 - Add a client: left menu "+" ("Add client"). Admins also "Rename client", "Change logo", "Move up"/"Move down", "Archive client"/"Restore client".
-- Brand kit: the Studio side panel (More → "Products, versions and brand kit", the "Products · versions · brand kit" rail, or the brand kit chip). The panel also holds the month's "Products", "Notes and grid" and "Earlier versions". Sections:
+- Brand kit: the Studio side panel (More → "Products, versions and brand kit", the "Products · versions · brand kit" rail, or the brand kit chip). The panel also holds the month's "Products", "Notes and grid", "Earlier versions" and "Occasions", and the "Client profile" bar (the Instagram/website "Analysis"). Sections:
   - "Brand kit": logos, "Place photos", "Real people", "Brand colours", "Headline font"/"Body font", "Tone of voice and language" ("Content language"), "Rules", "Past posts (identity)".
   - "Brand ambassadors": add by name, describe the look, "Generate portrait" (one paid picture) or "Upload"; tick "In this month" (up to 3).
   - "Theme": "Theme of the month" ("No theme (brand identity only)"), "New theme", "Delete", "Photos and pins" ("Add photos"), "Visual language", "Colours this month", props, wardrobe, "Shots from the references".
@@ -258,7 +258,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 ## 19. Connection and Admin (admins)
 
 - Connection: tabs "Higgsfield" (sign-in for credits; billing "Subscription credits · sign-in" or "Cloud API · pay per clip"), "Claude" (the Anthropic API key: once saved, Claude answers every text call first (plans, ideas, client comments, captions, picture reviews, help, Prompt Box), Google and OpenAI stand in; shows this month's spend against its cap, US$200 by default, editable), "Google", "Google Cloud" (also the Drive account), "OpenAI", "fal.ai", "Freepik" (Photo lab key, stock, Magnific sign-in), "Instagram", "Pinterest" (for "Edit like this video" links), "Notifications" (Resend key, sender, "Send a test e-mail"). A green dot = connected.
-- Admin page: "Team" ("Make admin"/"Make member", move a person's months to you), "System check", "Integrations" (one switch per provider, recent operations), "Studio hero video", "Workspace settings" ("Invite code for new accounts", "Ask before spending more than ($)", "Four-stage workflow", "Who sees prices", "Autopilot reviews before paying", "Delete batches after (days)", webhook, notification e-mails).
+- Admin page: "Team" ("Make admin"/"Make member", move a person's months to you), "System check", "Integrations" (one switch per provider, recent operations), "Studio hero video", "Workspace settings" ("Invite code for new accounts", "Ask before spending more than ($)", "Who sees prices", "Delete batches after (days)", webhook, notification e-mails).
 - New members register on the sign-in page with "Have an invite code? Create an account".
 
 ## 20. Common problems

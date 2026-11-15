@@ -7,7 +7,6 @@ import type { TypographyProps } from "./TypographyControls";
 import { toast } from "sonner";
 import { ENHANCE_NOTE, fixNote } from "@shared/qa";
 import { post, postForm } from "@/api";
-import { PostChangeBox, PostReferenceBox } from "./PostTools";
 import { busyReason, fixWaitReason } from "./busyReason";
 import PostCardCompact, { type EditorGroup } from "./PostCardCompact";
 import { applyStyleToPosts, designFromLegacy, type ApplyRole } from "./text/model";
@@ -16,27 +15,17 @@ import "./text/text-studio.css";
 import {
   Clapperboard,
   Download,
-  Film,
   AlertTriangle,
-  CalendarDays,
   Check,
-  Package,
-  Palette,
-  RotateCcw,
-  Users,
   Images,
-  Eye,
   FileText,
   Grid3x3,
   ImagePlus,
   Lightbulb,
-  PenLine,
-  RefreshCw,
-  Sparkles,
   Trash2,
   Type,
   Wand2,
-  X, TriangleAlert, Plus } from "lucide-react";
+  X, Plus } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import TextStudio, { type EditorResult } from "./text/TextStudio";
 import AnimateDialog from "./AnimateDialog";
@@ -44,14 +33,14 @@ import VideoDialog from "./VideoDialog";
 import PublishDialog, { PublishPill } from "./PublishDialog";
 import { usePublications } from "./publish";
 import { publicationFor } from "@shared/publish";
-import type { Ambassador, Client, QA, Source, Task } from "@shared/types";
+import type { Client, QA, Source, Task } from "@shared/types";
 import type { PostFlag } from "@shared/qa";
-import StyleScreen, { styleThumb, useStyleInfo } from "./StyleGallery";
+import StyleScreen, { useStyleInfo } from "./StyleGallery";
 import StyleProductsDialog, { type StyleProductCard, type StyleProductPool } from "./StyleProductsDialog";
 import AddPostDialog from "./AddPostDialog";
 import type { OverlaySpec } from "@shared/overlay";
 import type { Approval } from "@shared/config";
-import { occasionsOf, pickedOccasions, type MonthOccasions } from "@shared/occasions";
+import { occasionsOf } from "@shared/occasions";
 import OverlayPreview from "./OverlayPreview";
 import { facesOf, renderOverlay } from "@/lib/overlay";
 import VideoOnCard from "./VideoOnCard";
@@ -60,12 +49,8 @@ import {
   decodeEntities,
   MAX_POST_COUNT,
   offerReady,
-  type PostOffer,
-  POST_TYPE_INFO,
-  POST_TYPES,
   monthLabel,
   type Post,
-  type PostType,
   type Format, olderIdea, type RevisionConfig } from "@shared/posts";
 import { STATUS_LABEL } from "./constants";
 import type { SaveStatus as SaveState } from "@shared/save-status";
@@ -74,7 +59,7 @@ import { confirmScope, scopeLabel, scopeNote } from "@shared/scope";
 import { formatUsd } from "@shared/pricing";
 import { askConfirm } from "@/lib/confirm";
 import { isMediaPost } from "@shared/posts";
-import { carouselEntries, type CardEntry } from "@shared/carousel";
+import { carouselEntries } from "@shared/carousel";
 import { attachFileToCard, isImageFile, isVideoFile, uploadClipCard } from "./mediaApi";
 import { CAROUSEL_MAX } from "@shared/publish";
 import { FEATURES } from "@shared/features";
@@ -120,19 +105,16 @@ export default function PlanView({
   onGenerateIdeas,
   onNewIdea,
   onPostCount,
-  cast,
   onSavePlan,
   palette,
   onClientsChanged,
   onGeneratePosts,
-  onOpen,
   onExport,
   onExportPdf,
   typography,
   onFix,
   onRestorePicture,
   onAccept,
-  compact = false,
   onCreate,
   toolbar = true,
   onEdit,
@@ -146,9 +128,7 @@ export default function PlanView({
   resumeLabel,
   themeChanged,
   approvals = {},
-  onRewrite,
   onStyles,
-  monthOccasions,
   onRefit,
   rewriting = [],
   notes = "",
@@ -215,16 +195,12 @@ export default function PlanView({
   themeChanged: boolean;
   /** The client's answers on the approval link, by post index. */
   approvals?: Record<string, Approval>;
-  /** Saves the plan, then writes this post's idea again for its (new) type; no image is made. */
-  onRewrite: (index: number, plan: Post[]) => void;
   /** The card's product or people changed: the post's words and idea are written again for what is on the card. */
   onRefit?: (indexes: number[]) => Promise<void>;
   /** The posts whose words are being written again now. */
   rewriting?: number[];
   /** Gallery styles for posts, each written for its post's product (null takes it off). */
   onStyles: (assign: { index: number; style: string | null }[]) => Promise<void>;
-  /** The occasions the month posts (names, custom ones, uploaded portraits). */
-  monthOccasions?: MonthOccasions;
   /** Why generation stopped (the engine's message), when the month is paused. */
   paused: string | null;
   onResume: () => void;
@@ -234,8 +210,6 @@ export default function PlanView({
   onGenerateIdeas: (notes: string) => void;
   /** A fresh idea for one post, then that post is generated again. */
   onNewIdea: (index: number) => void;
-  /** The month's brand ambassadors, which a post can show. */
-  cast: Ambassador[];
   /** The number of posts the month gets, whatever the number of products uploaded. */
   onPostCount: (n: number) => void;
   onSavePlan: (plan: Post[]) => void | Promise<unknown>;
@@ -243,7 +217,6 @@ export default function PlanView({
   palette?: { name: string; hex: string }[];
   onClientsChanged?: (clients: Client[]) => void;
   onGeneratePosts: (indexes?: number[], regenerate?: boolean) => void;
-  onOpen: (t: Task) => void;
   onExport: () => void;
   /** The month as one long PDF page: cover, Instagram-style feed, a note per post, thank-you. */
   onExportPdf: () => void;
@@ -253,9 +226,7 @@ export default function PlanView({
   onFix?: (index: number, edit: string) => Promise<void>;
   /** Puts an earlier picture back on a post (after a Regenerate). */
   onRestorePicture?: (index: number, key: string) => Promise<void>;
-  /** The simplified card (the four-stage workflow): Edit opens the post editor on a group. */
-  compact?: boolean;
-  /** The workflow's Start ("Create content"): what an empty month offers instead of the classic steps. */
+  /** The workflow's Start ("Create content"): what an empty month offers. */
   onCreate?: () => void;
   /** False folds the month toolbar away (the Studio board's More menu opens it). */
   toolbar?: boolean;
@@ -377,7 +348,6 @@ export default function PlanView({
   }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
   /** A style chosen in the gallery for a post, shown on the card until "Apply style" writes it for the product. */
   const [pendingStyle, setPendingStyle] = useState<Map<number, string>>(new Map());
-  const [applying, setApplying] = useState<number | null>(null);
   const styles = useStyleInfo([...draft.map((x) => x.style), ...pendingStyle.values()]);
   const styleOf = (id: string) => styles.get(id);
   const [picking, setPicking] = useState<number | null>(null);
@@ -577,9 +547,6 @@ export default function PlanView({
         duration: 6000,
       });
   }
-  /** Which cards show every field (the picture, the words and the status show always). */
-  // Every detail is on the card, always: the designer edits without opening anything.
-  const showDetails = () => true;
   const [fixing, setFixing] = useState<number | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
   const prevKey = (t: Task) => `lsm-prev-output:${t.id}`;
@@ -655,24 +622,6 @@ export default function PlanView({
 
   /** The posts whose product or people changed on the card since the last save: their words are rewritten on save. */
   const refitDue = useRef<Set<number>>(new Set());
-  function patch(index: number, p: Partial<Post>) {
-    setDraft((d) =>
-      d.map((x) => {
-        if (x.index !== index) return x;
-        const next = { ...x, ...p };
-        const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-        const productChanged = ("product" in p && !same(x.product, p.product)) || ("products" in p && !same(x.products, p.products)) || ("people" in p && !same(x.people, p.people));
-        const briefChanged = "brief" in p && !same(x.brief, p.brief);
-        // A new product, a new cast or a new idea: the old shot no longer describes the post.
-        if (productChanged || briefChanged) {
-          next.scene = undefined;
-          next.handShot = undefined;
-        }
-        if (productChanged) refitDue.current.add(index);
-        return next;
-      }),
-    );
-  }
   /** Saves the draft; the posts sent then take the server's copy, so a field the server adds never keeps a card "unsaved". */
   async function saveDraft(): Promise<void> {
     const sent = draftRef.current;
@@ -1158,7 +1107,7 @@ export default function PlanView({
           )}
         </div>
       )}
-      {!plan.length && compact && onCreate ? (
+      {!plan.length ? (
         <div className="plan-empty">
           <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
           <div className="plan-empty-start">
@@ -1168,25 +1117,6 @@ export default function PlanView({
               Create content
             </button>
           </div>
-        </div>
-      ) : !plan.length ? (
-        <div className="plan-empty">
-          <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
-          <h3>{monthLabel(month)} for {client.name}</h3>
-          <ol>
-            <li>
-              <strong>Upload products</strong>
-              <span>The product photos the posts can use (optional for lifestyle, tip and quote posts).</span>
-            </li>
-            <li>
-              <strong>Generate ideas</strong>
-              <span>{postCount} post ideas in the client's tone: type, visual brief, caption and hashtags. Edit anything.</span>
-            </li>
-            <li>
-              <strong>Generate posts</strong>
-              <span>One image per idea in the client's palette and theme. Review, revise, export with captions.</span>
-            </li>
-          </ol>
         </div>
       ) : (
         <>
@@ -1204,13 +1134,13 @@ export default function PlanView({
                 </button>
               </span>
             )}
-            {compact && !selecting && (
+            {!selecting && (
               <button type="button" className="cta secondary small posts-choose" onClick={() => setSelecting(true)} title="Tick cards to apply a style to them, open them in the Text studio one by one, or combine them into one video">
                 <Check size={14} /> Choose cards
               </button>
             )}
           </div>
-          {compact && selecting && (
+          {selecting && (
             <SelectionBar
               count={chosenNow.length}
               route={chosenRoute}
@@ -1229,14 +1159,14 @@ export default function PlanView({
             />
           )}
           <div className={`post-grid f-${format.replace(":", "x")}`} onBlur={autosave}>
-            {(compact && onEdit ? carouselEntries(draft, slideAt) : draft.map((p): CardEntry<Post> => ({ post: p }))).map(({ post: p, slides }) => {
+            {carouselEntries(draft, slideAt).map(({ post: p, slides }) => {
               const t = taskOf(p.index);
               const img = t?.output ? (outputThumb ?? outputUrl)(t) : null;
               const inFlight = !!t && (t.status === "queued" || t.status === "processing");
               const product = products.find(
                 (s) => displayName(s.name).toLowerCase() === (p.product ?? "").toLowerCase(),
               );
-              if (compact && onEdit) {
+              if (onEdit) {
                 const flags = t?.output && !inFlight ? (reviewFlags(t) ?? []) : [];
                 const state = inFlight
                   ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
@@ -1540,700 +1470,8 @@ export default function PlanView({
                   </article>
                 );
               }
-              return (
-                <article
-                  key={p.index}
-                  id={`post-card-${p.index}`}
-                  className={`post-card design-card studio-card ${t?.status ?? "idea"} ${p.style ? "styled" : ""} type-${p.type} ${(() => {
-                    // The review's verdict is the card's outline: red when something is to check, green when it passed.
-                    const flags = t?.output && !inFlight ? reviewFlags(t) : null;
-                    return flags ? (flags.length ? "qa-warn" : "qa-ok") : "";
-                  })()}`}
-                >
-                  {p.type !== "greeting" && (
-                    <div className={`post-style-row ${p.style ? "on" : ""} ${pendingStyle.has(p.index) ? "pending" : ""}`}>
-                      <Palette size={14} />
-                      {pendingStyle.has(p.index) ? (
-                        <>
-                          {styleOf(pendingStyle.get(p.index)!) && <img src={styleThumb(styleOf(pendingStyle.get(p.index)!)!)} alt="" />}
-                          <span className="post-style-text">
-                            <strong>{styleOf(pendingStyle.get(p.index)!)?.title ?? "Style chosen"}</strong>
-                            <small>Not applied yet · applying writes the idea and shot, then asks before making the picture</small>
-                          </span>
-                          <button
-                            type="button"
-                            className="primary post-style-apply"
-                            disabled={!!busy || applying === p.index}
-                            onClick={() => {
-                              const id = pendingStyle.get(p.index)!;
-                              setApplying(p.index);
-                              void onStyles([{ index: p.index, style: id }]).finally(() => {
-                                setApplying(null);
-                                setPendingStyle((m) => {
-                                  const n = new Map(m);
-                                  n.delete(p.index);
-                                  return n;
-                                });
-                              });
-                            }}
-                          >
-                            {applying === p.index ? <Orb size={13} /> : <Check size={13} />} Apply style
-                          </button>
-                          <button
-                            type="button"
-                            className="icon-button"
-                            aria-label="Cancel"
-                            title="Keep the post as it is"
-                            onClick={() =>
-                              setPendingStyle((m) => {
-                                const n = new Map(m);
-                                n.delete(p.index);
-                                return n;
-                              })
-                            }
-                          >
-                            <X size={12} />
-                          </button>
-                        </>
-                      ) : p.style ? (
-                        <>
-                          {styleOf(p.style) && <img src={styleThumb(styleOf(p.style)!)} alt="" />}
-                          <span className="post-style-text">
-                            <strong>{styleOf(p.style)?.title ?? "Gallery style"}</strong>
-                            <small>Style applied · the post follows it</small>
-                          </span>
-                          <button type="button" className="text-button" onClick={() => setPicking(p.index)} disabled={!!busy}>
-                            Change
-                          </button>
-                          <button type="button" className="icon-button" onClick={() => void onStyles([{ index: p.index, style: null }])} aria-label="Take the style off" title="Take the style off">
-                            <X size={12} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span className="post-style-text">
-                            <strong>No style</strong>
-                            <small>The post follows the month's theme</small>
-                          </span>
-                          <button type="button" className="secondary post-style-pick" onClick={() => setPicking(p.index)} disabled={!!busy}>
-                            <Images size={13} /> Pick a style
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {rewriting.includes(p.index) && (
-                    <div className="post-rewriting">
-                      <Orb variant="caption" size={22} status={null} /> Writing the words and the idea again for what is on the card…
-                    </div>
-                  )}
-                  <div className="post-media" onClick={() => t?.output && onOpen(t)}>
-                    {(() => {
-                      const flags = t?.output && !inFlight ? reviewFlags(t) : null;
-                      const state = inFlight
-                        ? { cls: "making", icon: <Orb variant="generate" size={12} />, text: makingLabel(t) }
-                        : t?.status === "failed"
-                          ? { cls: "failed", icon: <AlertTriangle size={12} />, text: "Failed" }
-                          : flags?.length
-                            ? null
-                            : t?.output
-                              ? (() => {
-                                  // An internal acceptance (the team) is named apart from the client's approval; an
-                                  // older idea's picture says so; a picture made before lineage was kept says nothing.
-                                  const accepted = acceptedBy(t);
-                                  if (olderIdea(t, p, revision)) return { cls: "idea", icon: <Lightbulb size={12} />, text: "Older idea" };
-                                  if (accepted) return { cls: "ok", icon: <Check size={12} />, text: `Accepted by ${accepted}` };
-                                  return { cls: "ok", icon: <Check size={12} />, text: isMediaPost(p) && STATUS_LABEL[t.status] === "Made" ? "Ready" : (STATUS_LABEL[t.status] ?? t.status) };
-                                })()
-                              : { cls: "idea", icon: <Lightbulb size={12} />, text: "Idea" };
-                      return (
-                        <header className="post-head">
-                          <span className="post-num">{String(p.index).padStart(2, "0")}</span>
-                          <span className="post-type-pill">{POST_TYPE_INFO[p.type]?.label ?? p.type}</span>
-                          {p.group && (
-                            <span className={`post-group ${p.group.kind}`} title={p.group.role ? `${p.group.kind}: ${p.group.role}` : p.group.kind}>
-                              {p.group.kind === "carousel" ? "Carousel" : "Series"} {p.group.slide}/{p.group.of}
-                              {p.group.role ? ` · ${p.group.role}` : ""}
-                            </span>
-                          )}
-                          {p.date && (
-                            <span className="post-day" title={occasionOn(p.date) || "Posting day"}>
-                              <CalendarDays size={12} /> {p.date.slice(5).replace("-", "/")}
-                            </span>
-                          )}
-                          {state && (
-                            <span className={`post-state ${state.cls}`}>
-                              {state.icon} {state.text}
-                            </span>
-                          )}
-                          {t?.output && !inFlight && (
-                            <span className="pc-head-tools" style={flags || !state ? { marginLeft: "auto" } : undefined}>
-                              {p.overlay !== false && (
-                                <button
-                                  type="button"
-                                  className="pc-text-studio"
-                                  title="Text studio"
-                                  aria-label="Text studio"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditing(p.index);
-                                  }}
-                                >
-                                  <Type size={13} />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="pc-text-studio pc-edit-video"
-                                title={videos[String(p.index)]?.done ? "Video studio: this post's clips, presets, edits and versions" : "Video studio: presets with their reference videos, a clip from this picture"}
-                                aria-label="Video studio"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openVideoEditor(p.index);
-                                }}
-                              >
-                                <Clapperboard size={13} />
-                              </button>
-                            </span>
-                          )}
-                        </header>
-                      );
-                    })()}
-                    {img && showOverlay && p.overlay !== false ? (
-                      <OverlayPreview
-                        src={img}
-                        spec={overlay}
-                        text={{ headline: p.headline, subline: p.subline }}
-                        logoSrc={logoSrc}
-                        patch={p.ov}
-                        faces={facesOf(t?.qa)}
-                        width={720}
-                        alt={p.title}
-                      />
-                    ) : img ? (
-                      <img src={img} alt={p.title} loading="lazy" />
-                    ) : (
-                      <img
-                        className="post-placeholder"
-                        src={`/guide/${p.type}.jpg`}
-                        alt=""
-                        onError={(e) => (e.currentTarget.style.visibility = "hidden")}
-                      />
-                    )}
-                    {inFlight && (
-                      <span className="post-progress">
-                        <Orb size={18} />
-                        {makingLabel(t)}
-                      </span>
-                    )}
-                    {t?.status === "failed" && <span className="post-failed">Failed · {t.error}</span>}
-                    {product && !img && (
-                      <img className="post-product-chip" src={sourceUrl(product.id)} alt="" />
-                    )}
-                    {approvals[String(p.index)] && (
-                      <span
-                        className={`post-approval ${approvals[String(p.index)].status}`}
-                        title={approvals[String(p.index)].note || ""}
-                      >
-                        {approvals[String(p.index)].status === "approved" ? "Client approved" : "Client asks a change"}
-                      </span>
-                    )}
-                    {t?.output && (
-                      <span className="post-open">
-                        <Eye size={14} /> Open
-                      </span>
-                    )}
-                  </div>
-                  {t?.output && !inFlight && (reviewFlags(t)?.length ?? 0) > 0 && (
-                    <div className="text-finding warn post-finding">
-                      <span className="text-finding-icon" aria-hidden>
-                        <TriangleAlert size={15} />
-                      </span>
-                      <span className="text-finding-text">
-                        <b>The review found something</b>
-                        <ul className="text-finding-list">
-                          {reviewFlags(t)!.map((f, n) => (
-                            <li key={n}>{f.text}</li>
-                          ))}
-                        </ul>
-                        {onFix && (
-                          <span className="design-card-actions">
-                            <button
-                              type="button"
-                              className="primary btn-pill"
-                              disabled={fixing !== null || running}
-                              title={fixWaitReason(fixing, p.index, running) || undefined}
-                              onClick={() => {
-                                setFixing(p.index);
-                                void onFix(p.index, fixNote(reviewFlags(t)!)).finally(() => setFixing(null));
-                              }}
-                            >
-                              {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Edit this picture
-                            </button>
-                            {onAccept && (
-                              <button
-                                type="button"
-                                className="secondary btn-pill"
-                                disabled={accepting !== null}
-                                title="Keep the picture as it is: the review's notes are cleared"
-                                onClick={() => {
-                                  setAccepting(p.index);
-                                  void onAccept(p.index).finally(() => setAccepting(null));
-                                }}
-                              >
-                                {accepting === p.index ? <Orb size={13} /> : <Check size={13} />} Accept as is
-                              </button>
-                            )}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  )}
-                  {batchId && onFix && (
-                    <PostReferenceBox
-                      batchId={batchId}
-                      index={p.index}
-                      reference={p.reference}
-                      hasPicture={!!t?.output && !inFlight}
-                      disabled={inFlight || running || !!busy}
-                      onMake={onFix}
-                      onChanged={() => onRefresh?.()}
-                    />
-                  )}
-                  {onFix && t?.output && !inFlight && <PostChangeBox index={p.index} disabled={running || !!busy} onChange={onFix} />}
-                  {onFix && t?.output && !inFlight && (
-                    <button
-                      type="button"
-                      className="btn-pill post-enhance"
-                      disabled={fixing !== null || running || !!busy}
-                      title={fixWaitReason(fixing, p.index, running) || busyReason(busy) || "The same picture again at a higher quality: sharper detail, clean edges, nothing else changed"}
-                      onClick={() => {
-                        setFixing(p.index);
-                        void onFix(p.index, ENHANCE_NOTE).finally(() => setFixing(null));
-                      }}
-                    >
-                      {fixing === p.index ? <Orb size={13} /> : <Sparkles size={13} />} Enhance
-                    </button>
-                  )}
-                  <div className="post-fields">
-                    {approvals[String(p.index)]?.status === "changes" && approvals[String(p.index)].note && (
-                      <p className="post-approval-note" dir="auto">
-                        “{approvals[String(p.index)].note}”
-                      </p>
-                    )}
-                    {p.seenBefore && (
-                      <p className="post-approval-note" title="Campaign memory: this idea reads like one the client already posted.">
-                        Seen before · {p.seenBefore}
-                      </p>
-                    )}
-                    {!approvals[String(p.index)] && p.clientNote && (
-                      <p className="post-approval-note done" dir="auto" title={p.clientNote.summary || ""}>
-                        Client asked “{p.clientNote.note}” · done{p.clientNote.summary ? `: ${p.clientNote.summary}` : ""}
-                      </p>
-                    )}
-                    {p.product && !product && p.type !== "offer" && (
-                      <p className="occasion-note warn">
-                        <strong>{p.product}</strong> is not among this month's product photos. Generate brings it from the client's
-                        gallery; if it is not there, upload it or pick another product.
-                      </p>
-                    )}
-                    <section className="post-section">
-                      <h4>
-                        <Package size={13} /> Product
-                      </h4>
-                      <div className="post-row">
-                        <select
-                          value={p.type}
-                          onChange={(e) => {
-                            const type = e.target.value as PostType;
-                            if (type === "offer") {
-                              // An offer waits for its products, price and contents before anything is written.
-                              patch(p.index, { type, offer: p.offer ?? { products: p.product ? [p.product] : [], price: "", details: "" } });
-                              return;
-                            }
-                            const next = draft.map((x) => (x.index === p.index ? { ...x, type, offer: undefined } : x));
-                            setDraft(next);
-                            onRewrite(p.index, next);
-                          }}
-                          aria-label="Post type"
-                          title="Changing the type writes this post again for that type"
-                        >
-                          {POST_TYPES.map((k) => (
-                            <option key={k} value={k}>
-                              {POST_TYPE_INFO[k].label}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={product ? displayName(product.name) : ""}
-                          onChange={(e) => patch(p.index, { product: e.target.value || undefined })}
-                          aria-label="Product"
-                          className={product ? "" : "empty"}
-                        >
-                          <option value="">No product</option>
-                          {products.map((s) => (
-                            <option key={s.id} value={displayName(s.name)}>
-                              {displayName(s.name)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {p.product && (
-                        <div className="post-extras">
-                          <span>with</span>
-                          {(p.products ?? []).map((n) => (
-                            <button
-                              key={n}
-                              type="button"
-                              className="chip"
-                              title="Remove this product from the picture"
-                              onClick={() =>
-                                patch(p.index, { products: (p.products ?? []).filter((x) => x !== n) })
-                              }
-                            >
-                              {n} ×
-                            </button>
-                          ))}
-                          {(p.products ?? []).length < 3 && (
-                            <select
-                              value=""
-                              aria-label="Add a product to the picture"
-                              onChange={(e) => {
-                                const n = e.target.value;
-                                if (!n) return;
-                                patch(p.index, { products: [...new Set([...(p.products ?? []), n])] });
-                              }}
-                            >
-                              <option value="">+ product</option>
-                              {products
-                                .map((s) => displayName(s.name))
-                                .filter((n) => n !== (p.product ?? "") && !(p.products ?? []).includes(n))
-                                .map((n) => (
-                                  <option key={n} value={n}>
-                                    {n}
-                                  </option>
-                                ))}
-                            </select>
-                          )}
-                        </div>
-                      )}
-                      {p.type === "offer" && (
-                        <OfferForm
-                          post={p}
-                          products={products.map((x) => displayName(x.name))}
-                          onChange={(offer) => patch(p.index, { offer })}
-                          onWrite={() => onRewrite(p.index, draft)}
-                          busy={busy === "reidea"}
-                        />
-                      )}
-                      {p.type === "greeting" && (
-                        <OccasionNote post={p} month={month} sel={monthOccasions} />
-                      )}
-                    </section>
-                    {cast.length > 0 && (
-                      <section className="post-section">
-                        <h4>
-                          <Users size={13} /> People
-                        </h4>
-                        <div className="post-extras post-people">
-                          {(p.people ?? []).map((n) => {
-                            const a = cast.find((x) => x.name === n);
-                            return (
-                              <button
-                                key={n}
-                                type="button"
-                                className="chip"
-                                title="Take this ambassador out of the picture"
-                                onClick={() =>
-                                  patch(p.index, {
-                                    people: (p.people ?? []).filter((x) => x !== n),
-                                  })
-                                }
-                              >
-                                {a?.image && (
-                                  <img src={`/api/studio/ambassadors/${a.id}/image?v=${a.updated}`} alt="" />
-                                )}
-                                {n} ×
-                              </button>
-                            );
-                          })}
-                          {(p.people ?? []).length < 3 && (
-                            <select
-                              value=""
-                              aria-label="Add an ambassador to the picture"
-                              onChange={(e) => {
-                                const n = e.target.value;
-                                if (!n) return;
-                                patch(p.index, { people: [...new Set([...(p.people ?? []), n])] });
-                              }}
-                            >
-                              <option value="">+ ambassador</option>
-                              {cast
-                                .filter((a) => !(p.people ?? []).includes(a.name))
-                                .map((a) => (
-                                  <option key={a.id} value={a.name}>
-                                    {a.name}
-                                  </option>
-                                ))}
-                            </select>
-                          )}
-                          {!(p.people ?? []).length && <small>No one in the picture</small>}
-                        </div>
-                      </section>
-                    )}
-                    <section className="post-section">
-                      <h4>
-                        <Type size={13} /> Words
-                        <span className="post-section-tools">
-                          <label className="post-overlay-toggle" title="Draw the headline and logo on this post">
-                            <input
-                              type="checkbox"
-                              checked={p.overlay !== false}
-                              onChange={(e) => patch(p.index, { overlay: e.target.checked ? undefined : false })}
-                            />
-                            Text on image
-                          </label>
-                          {overlay.scrim > 0 && (
-                            <label className="post-overlay-toggle" title="The dark fade behind the headline">
-                              <input
-                                type="checkbox"
-                                checked={p.ov?.fade !== false}
-                                disabled={p.overlay === false}
-                                onChange={(e) => patch(p.index, { ov: { ...(p.ov ?? {}), fade: e.target.checked ? undefined : false } })}
-                              />
-                              Fade
-                            </label>
-                          )}
-                          {t?.output && p.overlay !== false && (
-                            <>
-                              <button
-                                type="button"
-                                className="icon-button"
-                                aria-label="Edit text on the image"
-                                title="Open the Text studio: type, fonts, colours, effects and layout on the picture"
-                                onClick={() => setEditing(p.index)}
-                              >
-                                <PenLine size={13} />
-                              </button>
-                              <button
-                                type="button"
-                                className="icon-button"
-                                aria-label="Animate this text"
-                                title="Animate this text"
-                                onClick={() => setAnimating(p.index)}
-                                disabled={!(p.headline || p.subline)}
-                              >
-                                <Clapperboard size={13} />
-                              </button>
-                            </>
-                          )}
-                        </span>
-                      </h4>
-                      <div className="post-overlay-fields">
-                        <input
-                          value={p.headline ?? ""}
-                          dir="auto"
-                          onChange={(e) => patch(p.index, { headline: e.target.value })}
-                          placeholder="Headline on the image"
-                          aria-label="Headline"
-                          disabled={p.overlay === false}
-                        />
-                        {overlay.subline.show !== false && (
-                          <input
-                            value={p.subline ?? ""}
-                            dir="auto"
-                            onChange={(e) => patch(p.index, { subline: e.target.value })}
-                            placeholder="Second line"
-                            aria-label="Second line"
-                            disabled={p.overlay === false}
-                          />
-                        )}
-                      </div>
-                    </section>
-                    {showDetails() && (
-                      <section className="post-section post-details">
-                        <h4>
-                          <FileText size={13} /> Details
-                        </h4>
-                        {(() => {
-                          let notes: string[] = [];
-                          try {
-                            notes = (t?.preflight ? (JSON.parse(t.preflight) as { notes?: string[] }).notes : undefined) ?? [];
-                          } catch {
-                            notes = [];
-                          }
-                          return notes.length ? <p className="post-preflight">Written again before paying: {notes.join("; ")}.</p> : null;
-                        })()}
-                        <label className="post-date">
-                          <span>Posting day</span>
-                          <input
-                            type="date"
-                            value={p.date ?? ""}
-                            min={`${month}-01`}
-                            max={`${month}-31`}
-                            onChange={(e) => patch(p.index, { date: e.target.value || undefined })}
-                          />
-                          {occasionOn(p.date) && <em>{occasionOn(p.date)}</em>}
-                        </label>
-                        <input
-                          className="post-title"
-                          value={p.title}
-                          onChange={(e) => patch(p.index, { title: e.target.value })}
-                          placeholder="Title"
-                          aria-label="Title"
-                        />
-                        <textarea
-                          rows={3}
-                          value={p.brief}
-                          onChange={(e) => patch(p.index, { brief: e.target.value })}
-                          placeholder="What the photograph shows: place, subject, light, mood, where the product is."
-                          aria-label="Visual brief"
-                        />
-                        <div className="post-caption-fields">
-                          <span className="post-field-label">Caption and hashtags</span>
-                          <textarea
-                            rows={3}
-                            value={p.caption}
-                            dir="auto"
-                            onChange={(e) => patch(p.index, { caption: e.target.value })}
-                            aria-label="Caption"
-                          />
-                          <input
-                            value={p.hashtags}
-                            onChange={(e) => patch(p.index, { hashtags: e.target.value })}
-                            placeholder="#hashtags"
-                            aria-label="Hashtags"
-                          />
-                        </div>
-                      </section>
-                    )}
-                    {(() => {
-                      const saved = plan.find((x) => x.index === p.index);
-                      const cardDirty = !!saved && JSON.stringify(saved) !== JSON.stringify(p);
-                      if (!cardDirty) return null;
-                      // An edited idea or shot updates the finished picture as a revision of it, never a picture from scratch.
-                      const briefChanged = !!saved && (saved.brief !== p.brief || (saved.scene ?? "") !== (p.scene ?? ""));
-                      const updates = briefChanged && !!t?.output && !inFlight && !!onFix;
-                      return (
-                        <div className="post-save-row">
-                          <span>Unsaved changes on this post</span>
-                          <button type="button" className="text-button" onClick={() => setDraft((d) => d.map((x) => (x.index === p.index ? saved : x)))}>
-                            Discard
-                          </button>
-                          <button
-                            type="button"
-                            className="primary"
-                            title={updates ? "Saves the words and changes the picture to match them, keeping what still fits" : undefined}
-                            onClick={() => {
-                              const text = (p.scene?.trim() || p.brief).slice(0, 700);
-                              void saveDraft()
-                                .then(() => refitPending())
-                                .then(() => (updates ? onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`) : undefined));
-                            }}
-                          >
-                            <Check size={13} /> {updates ? "Save and update the picture" : "Save changes"}
-                          </button>
-                        </div>
-                      );
-                    })()}
-                    {(() => {
-                      // The idea was edited (and saved) after this picture was made: the picture is offered an update.
-                      const stale = !!t && !inFlight && olderIdea(t, p, revision) && !!onFix;
-                      if (!stale) return null;
-                      const text = (p.scene?.trim() || p.brief).slice(0, 700);
-                      return (
-                        <div className="post-save-row post-idea-row">
-                          <span>The idea changed after this picture was made.</span>
-                          <button
-                            type="button"
-                            className="primary"
-                            disabled={fixing !== null || running}
-                            title={fixWaitReason(fixing, p.index, running) || "Changes the picture to match the idea as it is written now, keeping what still fits"}
-                            onClick={() => {
-                              setFixing(p.index);
-                              void onFix!(p.index, `Update the picture to match the idea as it is written now, keeping everything that still fits: ${text}`).finally(() => setFixing(null));
-                            }}
-                          >
-                            {fixing === p.index ? <Orb size={13} /> : <Wand2 size={13} />} Update the picture
-                          </button>
-                        </div>
-                      );
-                    })()}
-                    <div className="post-actions">
-                      {t?.output ? (
-                        <button
-                          type="button"
-                          className="primary post-main-action"
-                          onClick={() => regenerate(t, p.index)}
-                          disabled={inFlight || running || (p.type === "offer" && !offerReady(p.offer))}
-                          title="A clearly different take on the same brief: new angle, set and placement"
-                        >
-                          <RefreshCw size={14} /> Regenerate
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="primary post-main-action"
-                          onClick={() => void saveThen(() => onGeneratePosts([p.index], t?.status === "failed"))}
-                          disabled={inFlight || running || !p.brief.trim() || (p.type === "offer" && !offerReady(p.offer))}
-                          title={p.type === "offer" && !offerReady(p.offer) ? "Fill the offer first" : "Generate only this post"}
-                        >
-                          <Sparkles size={14} /> Generate
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => onNewIdea(p.index)}
-                        disabled={inFlight || running || busy === "reidea"}
-                        title="Write a different idea for this post (new scene, action and headline; same type and product), then generate it"
-                      >
-                        {busy === "reidea" ? <Orb size={13} /> : <Lightbulb size={13} />} New idea
-                      </button>
-                      {t?.output && (
-                        <button
-                          type="button"
-                          className="secondary post-video"
-                          onClick={() => setVideoFor(p.index)}
-                          disabled={inFlight}
-                          title="Turn this post into a 5-second ad clip on Higgsfield: an idea for the motion is written first"
-                        >
-                          <Film size={13} /> Video
-                        </button>
-                      )}
-                      <span className="spacer" />
-                      {onRestorePicture && !inFlight && prevOf(t) && (
-                        <button
-                          type="button"
-                          className="icon-button"
-                          disabled={restoring !== null || running}
-                          aria-label="Previous picture"
-                          title="Put the picture from before the last Regenerate back (the current one stays in Earlier versions)"
-                          onClick={() => {
-                            const was = t!.output!;
-                            setRestoring(p.index);
-                            void onRestorePicture(p.index, prevOf(t)!)
-                              .then(() => { try { localStorage.setItem(prevKey(t!), was); } catch { /* private mode */ } })
-                              .finally(() => setRestoring(null));
-                          }}
-                        >
-                          {restoring === p.index ? <Orb size={13} /> : <RotateCcw size={13} />}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="icon-button danger"
-                        aria-label="Remove post"
-                        title="Remove this post from the month"
-                        onClick={() => void removePost(p.index)}
-                        disabled={inFlight}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
+              // The card is the post editor's door: the Studio always passes one.
+              return null;
             })}
             <button type="button" className="post-add" onClick={addPost}>
               <ImagePlus size={18} />
@@ -2479,67 +1717,6 @@ export default function PlanView({
 /** Upload name without folder and extension: "Denim/cream-mug_01.jpg" -> "cream-mug_01". */
 export function displayName(name: string): string {
   return decodeEntities((name.split("/").pop() ?? name).replace(/\.[^./]+$/, ""));
-}
-
-/** An offer is the designer's: its products, its price and what it includes, all required. */
-function OfferForm({
-  post,
-  products,
-  onChange,
-  onWrite,
-  busy,
-}: {
-  post: Post;
-  products: string[];
-  onChange: (o: PostOffer) => void;
-  onWrite: () => void;
-  busy: boolean;
-}) {
-  const o = post.offer ?? { products: [], price: "", details: "" };
-  const ready = offerReady(o);
-  return (
-    <div className={`offer-form ${ready ? "ready" : ""}`}>
-      <strong>The offer</strong>
-      <div className="offer-products">
-        {products.map((n) => {
-          const on = o.products.includes(n);
-          return (
-            <button
-              key={n}
-              type="button"
-              className={`chip ${on ? "on" : ""}`}
-              onClick={() => onChange({ ...o, products: on ? o.products.filter((x) => x !== n) : [...o.products, n] })}
-            >
-              {n}
-            </button>
-          );
-        })}
-        {!products.length && <small>Upload the offer's products first.</small>}
-      </div>
-      <input dir="auto" value={o.price} placeholder="Price as it appears: 15 JD, ٢ علب بـ ١٥ دينار" onChange={(e) => onChange({ ...o, price: e.target.value })} />
-      <textarea dir="auto" rows={2} value={o.details} placeholder="What is in the offer, conditions and dates" onChange={(e) => onChange({ ...o, details: e.target.value })} />
-      {ready ? (
-        <button type="button" className="secondary" onClick={onWrite} disabled={busy}>
-          {busy ? <Orb size={13} /> : <Lightbulb size={13} />} Write the offer post
-        </button>
-      ) : (
-        <small className="offer-warning">Pick the products, write the price and what the offer includes. The post is not generated until then.</small>
-      )}
-    </div>
-  );
-}
-
-/** A greeting post names its occasion; a royal day asks for the official portrait. */
-function OccasionNote({ post, month, sel }: { post: Post; month: string; sel?: MonthOccasions }) {
-  const o = pickedOccasions(month, sel).find((x) => x.id === post.occasion) ?? occasionsOf(month).find((x) => x.id === post.occasion);
-  if (!o) return null;
-  const missing = o.portrait && !sel?.photos?.[o.id];
-  return (
-    <p className={`occasion-note ${missing ? "warn" : ""}`}>
-      <strong>{o.name}</strong>
-      {missing ? " · upload the official portrait (Start journey → Posts)" : o.portrait ? " · official portrait framed on the design" : ""}
-    </p>
-  );
 }
 
 /** The automatic review's findings on a post image, or null when it was not reviewed. */
