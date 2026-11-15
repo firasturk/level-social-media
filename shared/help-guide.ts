@@ -247,7 +247,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 ## 18. Costs and safety
 
 - Dollars (image engine, "about $X", always confirmed): making, remaking, "Make another version", "Write a new idea", "Edit this picture", "Enhance (higher quality)", "Restyle", "Try again", the test grid, ambassador portraits, the typography reading.
-- Text/vision calls (ideas, drafts, shots, captions, readings, reviews, checks, the planner, the "Ask Firas" assistant): small per-call charges by the text provider, outside the picture budget.
+- Text/vision calls (ideas, drafts, shots, captions, readings, reviews, checks, the planner, the "Ask AI" assistant): small per-call charges by the text provider, outside the picture budget.
 - Credits (Higgsfield/Magnific): AI tools, preset runs, video generate/enhance/check. The provider is asked the cost first.
 - Freepik Photo lab: dollars, shown before the run.
 - Free: Adjust, Text studio, layouts, typed words, Versions and restoring, export, Feed PDF, client link, the video editor, combining cards, animating text, adding AI results as posts or a carousel, browsing presets and styles.
@@ -281,7 +281,7 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 ## 21. Not possible in the studio today
 
 - Publishing or scheduling to Instagram, TikTok, Facebook or any platform from the studio, and delivering to the client's Drive: these are switched off (nobody used them); export the month and post by hand. An admin can bring them back.
-- A music library, the radio button and AI influencers: switched off too. Instagram's own music is added in the Instagram app when posting.
+- A music library and AI influencers: switched off too. Instagram's own music is added in the Instagram app when posting.
 - A precise mask or pixel-locked AI edit ("Mark an area" only guides; the whole picture is redrawn).
 - Making carousels by talking to the planner, or carousels over 15 slides.
 - Automatic translation of captions or headlines.
@@ -292,5 +292,5 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 - Members connecting accounts or keys, changing the billing, or opening the Admin page.
 - A member seeing another member's months.
 - Recovering a month after 30 days in the Bin or after "Delete for good".
-- An Arabic studio interface (screens are English; the "Ask Firas" assistant answers in Arabic).
+- An Arabic studio interface (screens are English; the "Ask AI" assistant answers in Arabic).
 `;

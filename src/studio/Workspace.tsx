@@ -42,7 +42,6 @@ import BootScreen from "./BootScreen";
 import BrandPanel, { type OutputSettings } from "./BrandPanel";
 import PlanView, { displayName } from "./PlanView";
 import Flow, { forgetFlowWay } from "./Flow";
-import Radio, { stopRadio } from "./Radio";
 import StudioBoard, { ApprovalView, WordsView, type StudioTab } from "./StudioBoard";
 import FeedView from "./FeedView";
 import AssignDialog from "./AssignDialog";
@@ -1506,7 +1505,6 @@ function StudioWorkspace({
   }
 
   async function signOut() {
-    stopRadio();
     await post("/api/auth/logout").catch(() => {});
     onSignedOut();
   }
@@ -2120,7 +2118,6 @@ function StudioWorkspace({
       <TeamDock />
       {page !== "team" && <TeamFab />}
 
-      {FEATURES.radio && <Radio className={journey ? "in-flow" : ""} />}
       {journey && stateReady && client && (
         <Flow
           initialStage={flowStage ?? undefined}

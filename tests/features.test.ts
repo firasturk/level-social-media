@@ -21,17 +21,16 @@ function before(path: string, needle: string, lines = 4): string {
 }
 
 describe("A. hidden features (shared/features.ts)", () => {
-  it("publishing, Drive delivery, the music library, the radio and influencers are off", () => {
-    expect(FEATURES).toEqual({ publish: false, driveDelivery: false, music: false, radio: false, influencers: false });
+  it("publishing, Drive delivery, the music library and influencers are off; the radio is removed", () => {
+    expect(FEATURES).toEqual({ publish: false, driveDelivery: false, music: false, influencers: false });
   });
 
   it("every entry point is drawn only when its flag is on", () => {
     // The Studio's More menu.
     expect(before("src/studio/Workspace.tsx", "Deliver to the client&apos;s Drive…")).toContain("FEATURES.driveDelivery && (");
     expect(before("src/studio/Workspace.tsx", "Schedule the approved posts…")).toContain("FEATURES.publish && (");
-    // The floating radio button.
-    expect(src("src/studio/Workspace.tsx")).toContain("{FEATURES.radio && <Radio ");
-    expect(src("src/studio/Workspace.tsx")).not.toMatch(/^\s*<Radio /m);
+    // The floating radio button was removed for good (15 Nov 2026, the owner's request).
+    expect(src("src/studio/Workspace.tsx")).not.toMatch(/Radio\b/);
     // A card's menu: both menus (the client's own picture, a planned post).
     const plan = src("src/studio/PlanView.tsx");
     expect(plan.match(/label: "Publish to Instagram…"/g)).toHaveLength(2);
