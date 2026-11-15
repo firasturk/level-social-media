@@ -18,6 +18,7 @@ import { sendDueNotifications } from "./notify";
 import { publishDue } from "./publish";
 import { advanceCampaigns } from "./campaign-runner";
 import { teamRoutes, dueSoonNotifications } from "./team";
+import { captureServerError, errorAdminRoutes, errorLogRoutes } from "./error-log";
 
 type Variables = { user: User };
 
@@ -117,6 +118,8 @@ app.use("/api/admin/*", async (c, next) => {
 });
 app.route("/api/admin", adminRoutes);
 app.route("/api/admin/audit", auditRoutes);
+// The error log's list for the Admin page (admins only: the routes check the role themselves).
+app.route("/api/admin/errors", errorAdminRoutes);
 
 app.use("/api/studio/*", async (c, next) => {
   const user = await currentUser(c.env, getCookie(c, SESSION_COOKIE));
@@ -124,6 +127,8 @@ app.use("/api/studio/*", async (c, next) => {
   c.set("user", user);
   await next();
 });
+// The page's reports of what went wrong (an error toast, a crash, a request without an answer).
+app.route("/api/studio/errors", errorLogRoutes);
 app.route("/api/studio", studioRoutes);
 
 // Team: the employees' workspace, behind the same session (never a client link).
@@ -146,8 +151,13 @@ app.notFound((c) => c.json({ error: "Not found." }, 404));
 
 app.onError((e, c) => {
   c.header("X-Build", BUILD_ID);
-  if (e instanceof StudioError) return c.json({ ...(e.data ?? {}), error: e.message }, e.status as 400);
+  if (e instanceof StudioError) {
+    // The error log keeps the server's own failures; a 4xx is the user's to read and never recorded here.
+    if (e.status >= 500) captureServerError(c, e, e.status, BUILD_ID);
+    return c.json({ ...(e.data ?? {}), error: e.message }, e.status as 400);
+  }
   console.error("[studio]", e instanceof Error ? e.stack || e.message : e);
+  captureServerError(c, e, 500, BUILD_ID);
   return c.json({ error: `Studio request failed. Retry shortly. (${c.req.method} ${c.req.path.replace(/^\/api\/studio\//, "")})` }, 500);
 });
 

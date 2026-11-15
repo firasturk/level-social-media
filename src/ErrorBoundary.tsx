@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { isStaleChunkError } from "./lib/lazy";
+import { reportError } from "./lib/errorLog";
 
 /** Keeps a crash in one screen from blanking the whole page: shows what happened and a reload. */
 export default class ErrorBoundary extends Component<
@@ -14,6 +15,16 @@ export default class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ui] render failed", error, info.componentStack);
+    // The error log: the screen that failed to render, with the components nearest the failure.
+    const where = (info.componentStack ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(0, 4)
+      .join("\n")
+      .split(window.location.origin)
+      .join("");
+    reportError("crash", error?.message || "A screen failed to render.", `${isStaleChunkError(error) ? "Shown as: The app was updated\n" : ""}${where}`);
   }
 
   render() {

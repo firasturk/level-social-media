@@ -1,7 +1,7 @@
 import { askConfirm } from "@/lib/confirm";
 import SystemCheck from "./SystemCheck";
 import IntegrationsPanel from "./IntegrationsPanel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Bell,
@@ -9,6 +9,7 @@ import {
   Clapperboard,
   ShieldCheck,
   Trash2,
+  TriangleAlert,
   UserX,
   UserCheck,
 } from "lucide-react";
@@ -155,6 +156,7 @@ export default function AdminView({ me }: { me: string }) {
   return (
     <div className="admin">
       <SystemCheck />
+      <Problems />
       <section className="batches-page">
         <div className="panel-heading" style={{ padding: "8px 16px 0" }}>
           <ShieldCheck size={18} />
@@ -353,5 +355,224 @@ export default function AdminView({ me }: { me: string }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** One problem as the error log groups it (server/error-log.ts): the same message, whoever met it. */
+interface ProblemGroup {
+  fingerprint: string;
+  kind: "toast" | "crash" | "network" | "server";
+  message: string;
+  count: number;
+  users: string[];
+  first: number;
+  last: number;
+  screen: string | null;
+  detail: string | null;
+}
+
+interface ProblemRow {
+  id: string;
+  at: number;
+  user_name: string | null;
+  screen: string | null;
+  message: string;
+  detail: string | null;
+  build: string | null;
+}
+
+interface ProblemSummary {
+  groups: ProblemGroup[];
+  last24h: number;
+  total: number;
+}
+
+const PROBLEM_KIND: Record<ProblemGroup["kind"], string> = {
+  toast: "Message shown",
+  crash: "Screen broke",
+  network: "No connection",
+  server: "Server error",
+};
+const PROBLEM_COLUMNS = { gridTemplateColumns: "minmax(0, 3fr) 0.9fr 0.5fr 1.1fr 0.9fr 124px" };
+const PROBLEMS_SHOWN = 25;
+
+function timeAgo(at: number): string {
+  const min = Math.round((Date.now() - at) / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hours = Math.round(min / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.round(hours / 24);
+  return days === 1 ? "yesterday" : `${days} days ago`;
+}
+
+const plural = (n: number) => `${n} problem${n === 1 ? "" : "s"}`;
+
+/**
+ * Problems the team hit: every error message a person was shown, every screen that broke, every
+ * request that got no answer and every server error of the last 14 days, the same problem on one
+ * row. A row opens its latest occurrences; "Resolved" clears it once it is dealt with.
+ */
+function Problems() {
+  const [data, setData] = useState<ProblemSummary | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState("");
+  /** The row opened last: an answer for a row closed since is not shown under another. */
+  const wanted = useRef("");
+  const [rows, setRows] = useState<ProblemRow[] | null>(null);
+  const [all, setAll] = useState(false);
+  const [clearing, setClearing] = useState("");
+
+  async function load() {
+    try {
+      setData(await get<ProblemSummary>("/api/admin/errors"));
+      setFailed(false);
+    } catch {
+      setFailed(true);
+    }
+  }
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function toggle(g: ProblemGroup) {
+    if (open === g.fingerprint) {
+      wanted.current = "";
+      return setOpen("");
+    }
+    wanted.current = g.fingerprint;
+    setOpen(g.fingerprint);
+    setRows(null);
+    const found = await get<{ rows: ProblemRow[] }>(`/api/admin/errors?fingerprint=${encodeURIComponent(g.fingerprint)}`)
+      .then((r) => r.rows)
+      .catch(() => [] as ProblemRow[]);
+    if (wanted.current === g.fingerprint) setRows(found);
+  }
+
+  async function resolve(g: ProblemGroup) {
+    setClearing(g.fingerprint);
+    try {
+      await post("/api/admin/errors/clear", { fingerprint: g.fingerprint });
+      if (open === g.fingerprint) {
+        wanted.current = "";
+        setOpen("");
+      }
+      toast.success("Marked as resolved. It comes back here if it happens again.");
+      await load();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setClearing("");
+    }
+  }
+
+  const groups = data?.groups ?? [];
+  const shown = all ? groups : groups.slice(0, PROBLEMS_SHOWN);
+
+  return (
+    <section className="batches-page">
+      <div className="panel-heading" style={{ padding: "8px 16px 0" }}>
+        <TriangleAlert size={18} />
+        <h2>Problems the team hit</h2>
+        {data && (
+          <span className="quality-note" style={{ marginLeft: "auto" }}>
+            {plural(data.last24h)} in the last 24 hours, {data.total} in 14 days
+          </span>
+        )}
+      </div>
+      {failed && !data && (
+        <p className="quality-note" style={{ padding: "0 16px" }}>
+          The list could not be loaded. Reload the page to try again.
+        </p>
+      )}
+      {data && !groups.length && (
+        <p className="quality-note" style={{ padding: "0 16px" }}>
+          No problems recorded.
+        </p>
+      )}
+      {groups.length > 0 && (
+        <div className="batches-table" role="table">
+          <div className="batches-head" role="row" style={PROBLEM_COLUMNS}>
+            <span>What they saw</span>
+            <span>Kind</span>
+            <span>Times</span>
+            <span>Who</span>
+            <span>Last</span>
+            <span />
+          </div>
+          {shown.map((g) => (
+            <div key={g.fingerprint}>
+              <div className="batches-row" role="row" style={{ ...PROBLEM_COLUMNS, cursor: "pointer" }} onClick={() => void toggle(g)}>
+                <span className="batches-name" style={{ minWidth: 0 }}>
+                  <span>
+                    <button
+                      type="button"
+                      aria-expanded={open === g.fingerprint}
+                      title="Show the latest times this happened"
+                      style={{ padding: 0, background: "transparent", textAlign: "left", font: "inherit", fontWeight: 600, color: "inherit", overflowWrap: "anywhere" }}
+                    >
+                      {g.message.length > 180 ? `${g.message.slice(0, 180)}…` : g.message}
+                    </button>
+                    {g.screen && <small style={{ overflowWrap: "anywhere" }}>{g.screen}</small>}
+                  </span>
+                </span>
+                <span>{PROBLEM_KIND[g.kind] ?? g.kind}</span>
+                <span>{g.count}×</span>
+                <span style={{ overflowWrap: "anywhere" }}>{g.users.length ? g.users.join(", ") : "Not signed in"}</span>
+                <span title={new Date(g.last).toLocaleString("en-GB")}>{timeAgo(g.last)}</span>
+                <span className="footer-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={clearing === g.fingerprint}
+                    title="Clear this problem from the list. It comes back if it happens again."
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void resolve(g);
+                    }}
+                  >
+                    {clearing === g.fingerprint ? <Orb size={15} /> : <Check size={15} />} Resolved
+                  </button>
+                </span>
+              </div>
+              {open === g.fingerprint && (
+                <div style={{ padding: "4px 16px 14px", borderBottom: "1px solid var(--border)", fontSize: 13 }}>
+                  {!rows ? (
+                    <span className="quality-note">Loading…</span>
+                  ) : !rows.length ? (
+                    <span className="quality-note">Nothing more is recorded for this one.</span>
+                  ) : (
+                    rows.slice(0, 5).map((r) => (
+                      <div key={r.id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+                        <div>
+                          <strong>{new Date(r.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</strong>
+                          {" · "}
+                          {r.user_name ?? "Not signed in"}
+                          {r.screen ? ` · ${r.screen}` : ""}
+                          {r.build ? ` · version ${r.build}` : ""}
+                        </div>
+                        {r.message !== g.message && <div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{r.message}</div>}
+                        {r.detail && (
+                          <pre style={{ margin: "6px 0 0", padding: "8px 10px", background: "var(--surface-2)", borderRadius: 8, fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                            {r.detail}
+                          </pre>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {groups.length > PROBLEMS_SHOWN && (
+        <div style={{ padding: "10px 16px 0" }}>
+          <button type="button" className="text-button" onClick={() => setAll((v) => !v)}>
+            {all ? "Show fewer" : `Show all ${groups.length}`}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

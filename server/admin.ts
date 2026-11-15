@@ -22,6 +22,7 @@ import {
 import { notify } from "./notify";
 import { integrationAdminRoutes } from "./integrations";
 import { purgeBatch, TRASH_DAYS } from "./batchfiles";
+import { cleanupErrorLog } from "./error-log";
 import type { User } from "@shared/types";
 
 type Variables = { user: User };
@@ -183,10 +184,12 @@ adminRoutes.post("/notify/test", async (c) => {
 /** Deletes batches (rows and R2 objects) not touched for the retention period. Runs from the cron once a day. */
 export async function cleanupOldBatches(env: Env): Promise<number> {
   const days = Number((await getSetting(env, RETENTION_DAYS_SETTING)) ?? 90);
-  if (!days) return 0;
   const last = Number((await getSetting(env, "last_cleanup")) ?? 0);
   if (now() - last < 24 * 60 * 60 * 1000) return 0;
   await setSetting(env, "last_cleanup", String(now()));
+  // The error log keeps 30 days whatever the months' retention says (0 keeps every month, not every error).
+  await cleanupErrorLog(env).catch((e) => console.error("[error-log]", e));
+  if (!days) return 0;
   const cutoff = now() - days * 24 * 60 * 60 * 1000;
   // Untouched months go to the bin first; what has waited in the bin long enough is purged.
   await run(env.DB, "UPDATE batches SET deleted = ?, state = 'idle' WHERE deleted IS NULL AND updated < ? AND state != 'running'", now(), cutoff);

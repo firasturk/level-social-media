@@ -1,4 +1,6 @@
 /** Small fetch wrapper: same-origin cookies, JSON errors surfaced as Error messages. */
+import { ERRORS_PATH, markReported, noteBuild, reportError } from "./lib/errorLog";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -21,8 +23,11 @@ export function setNewBuildHandler(fn: () => void): void {
 function watchBuild(r: Response): void {
   const b = r.headers.get("X-Build");
   if (!b) return;
-  if (build === null) build = b;
-  else if (b !== build && !announced) {
+  if (build === null) {
+    build = b;
+    // The error log names the build a problem happened on.
+    noteBuild(b);
+  } else if (b !== build && !announced) {
     announced = true;
     onNewBuild?.();
   }
@@ -54,28 +59,45 @@ export function connectionError(timedOut: boolean): Error {
   return new Error(timedOut ? TOO_LONG : NO_CONNECTION);
 }
 
+/**
+ * Writes a failed request to the error log (src/lib/errorLog.ts) and hands the error back: a
+ * request that got no answer is `network`, a 5xx answer is `server`. Never a 4xx (the user reads
+ * those as a message, and the log hears of them from there), never the log's own call.
+ */
+function logged<E extends Error>(kind: "network" | "server", error: E, method: string, path: string, what = ""): E {
+  if (!path.startsWith(ERRORS_PATH)) {
+    reportError(kind, error.message, `${method} ${path.slice(0, 300)}${what ? ` · ${what}` : ""}`);
+    markReported(error);
+  }
+  return error;
+}
+
 /** One request with a deadline over the whole exchange, the answer's body included. */
 async function send<T>(path: string, init: RequestInit, timeoutMs?: number): Promise<T> {
   const stop = new AbortController();
   let timedOut = false;
+  const method = init.method ?? "GET";
   const timer = setTimeout(() => {
     timedOut = true;
     stop.abort();
-  }, timeoutMs ?? timeoutFor(init.method ?? "GET", path));
+  }, timeoutMs ?? timeoutFor(method, path));
   try {
     let r: Response;
     try {
       r = await fetch(path, { ...init, credentials: "same-origin", signal: stop.signal });
     } catch {
-      throw connectionError(timedOut);
+      throw logged("network", connectionError(timedOut), method, path, timedOut ? "no answer in time" : "");
     }
     watchBuild(r);
     const data = (await r.json().catch(() => {
       // A body cut off by the deadline is not an empty answer.
-      if (timedOut) throw connectionError(true);
+      if (timedOut) throw logged("network", connectionError(true), method, path, "no answer in time");
       return {};
     })) as { error?: string } & T;
-    if (!r.ok) throw new ApiError(data.error || `Request failed (${r.status})`, r.status, data as Record<string, unknown>);
+    if (!r.ok) {
+      const failed = new ApiError(data.error || `Request failed (${r.status})`, r.status, data as Record<string, unknown>);
+      throw r.status >= 500 ? logged("server", failed, method, path, String(r.status)) : failed;
+    }
     return data;
   } finally {
     clearTimeout(timer);
@@ -157,8 +179,8 @@ export function uploadForm<T>(path: string, form: FormData, onProgress?: (sent: 
       if (e.lengthComputable) onProgress?.(e.loaded, e.total);
     };
     xhr.onloadend = () => clearTimeout(timer);
-    xhr.onabort = () => reject(connectionError(true));
-    xhr.onerror =() => reject(new Error("The upload was interrupted. Check the connection and try again."));
+    xhr.onabort = () => reject(logged("network", connectionError(true), "POST", path, "upload, no answer in time"));
+    xhr.onerror =() => reject(logged("network", new Error("The upload was interrupted. Check the connection and try again."), "POST", path, "upload"));
     xhr.onload = () => {
       let data: unknown = null;
       try {
@@ -167,7 +189,10 @@ export function uploadForm<T>(path: string, form: FormData, onProgress?: (sent: 
         /* not JSON */
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data as T);
-      else reject(new ApiError((data as { error?: string } | null)?.error ?? `Request failed (${xhr.status})`, xhr.status, (data ?? undefined) as Record<string, unknown> | undefined));
+      else {
+        const failed = new ApiError((data as { error?: string } | null)?.error ?? `Request failed (${xhr.status})`, xhr.status, (data ?? undefined) as Record<string, unknown> | undefined);
+        reject(xhr.status >= 500 ? logged("server", failed, "POST", path, `upload · ${xhr.status}`) : failed);
+      }
     };
     xhr.send(form);
   });
