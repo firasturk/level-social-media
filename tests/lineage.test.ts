@@ -69,3 +69,19 @@ describe("automatic retakes", () => {
     expect(engine).not.toContain("retry from original reference queued");
   });
 });
+
+describe("the client's rules for the photograph", () => {
+  it("keeps the photo part of a line that also names layout items", async () => {
+    const { photoRules } = await import("../shared/posts");
+    const abuSaleh = ["No gradients, frames, stickers or shadows", "No icons or emoji; the only marks are the logo and the hand-drawn curl arrows", "Never recolour, crop, split or redraw the three-tile logo", "No type in mango or strawberry colours", "No formal Arabic, no prices on artwork"].join("\n");
+    expect(photoRules(abuSaleh).split("\n")).toEqual(["No gradients, frames or shadows", "No type in mango or strawberry colours", "No prices on artwork"]);
+  });
+
+  it("still leaves out a line that is only about the layout, and never bends a rule's meaning", async () => {
+    const { photoRules } = await import("../shared/posts");
+    expect(photoRules("Logo always top centre\nNever redraw the logo\nNo emoji")).toBe("");
+    // The closing words belong to every item: the line is dropped whole, as before, not cut to "No people".
+    expect(photoRules("No people or logos in the background")).toBe("");
+    expect(photoRules("Warm morning light\nNo plastic cups")).toBe("Warm morning light\nNo plastic cups");
+  });
+});

@@ -521,9 +521,37 @@ export function withoutWordsSentences(text: string): string {
 export function photoRules(text: string | undefined): string {
   return (text ?? "")
     .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l && !LAYOUT_RULE.test(l))
+    .map((l) => photoRuleLine(l.trim()))
+    .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * One line of the client's rules, as the photograph needs it. A line about the layout is the
+ * designer's and is left out; but a line that mixes both ("No gradients, frames, stickers or
+ * shadows", "No formal Arabic, no prices on artwork") used to be dropped whole, and the photo lost
+ * "no gradients or shadows" with it (Abu Saleh, 15 Nov). Its clauses are judged one by one, and a
+ * plain "No a, b or c" list loses only its layout items. A list whose last item is a layout item
+ * stays dropped whole: its closing words ("… in the background") belong to every item.
+ */
+function photoRuleLine(line: string): string {
+  if (!line || !LAYOUT_RULE.test(line)) return line;
+  const clauses = line.split(/\s*;\s*|,\s+(?=(?:no|never|avoid|without)\b)/i).map((c) => c.trim().replace(/[.;]+$/, "")).filter(Boolean);
+  const kept: string[] = [];
+  for (const clause of clauses) {
+    if (!LAYOUT_RULE.test(clause)) {
+      kept.push(clause);
+      continue;
+    }
+    const list = /^no\s+(.+)$/i.exec(clause);
+    if (!list) continue;
+    const items = list[1].split(/\s*,\s*|\s+or\s+/i).map((x) => x.trim()).filter(Boolean);
+    if (items.length < 2 || LAYOUT_RULE.test(items[items.length - 1])) continue;
+    const photo = items.filter((x) => !LAYOUT_RULE.test(x));
+    if (!photo.length) continue;
+    kept.push(`No ${photo.length > 1 ? `${photo.slice(0, -1).join(", ")} or ${photo[photo.length - 1]}` : photo[0]}`);
+  }
+  return kept.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("; ");
 }
 
 /** Colour words of the reference analysis give way to the designer's chosen colours. */
