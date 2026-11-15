@@ -16,7 +16,7 @@ import { StudioError, errorMessage } from "./errors";
 import { all, first, now, run, uuid } from "./db";
 import { FREEPIK_KEY_SETTING, FREEPIK_MCP_TOKEN_SETTING, FREEPIK_PLAN_SETTING, deleteSetting, getSetting, setSetting } from "./settings";
 import { MAGNIFIC_MCP_URL, magnificSignIn } from "./magnific-signin";
-import { teamMayRun, assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationUser, updateIntegrationOp } from "./integrations";
+import { teamMayRun, assertIntegrationEnabled, claimSubmission, recordIntegrationOp, requireIntegrationAdmin, requireIntegrationUser, updateIntegrationOp } from "./integrations";
 import { ownedPlan, saveConfig } from "./posts";
 import { storeBytes } from "./styles";
 import { formatLabelOf, inspectAssetFile, type SourceFormat } from "./asset-format";
@@ -919,7 +919,7 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
   return parsed.data;
 }
 
-/** Admins only, and the integration switched on. */
+/** Whoever may run Freepik (the whole team since 24 Oct), and the integration switched on. */
 async function gate(c: { get(k: "user"): User; env: Env }): Promise<User> {
   const u = requireIntegrationUser(c, "freepik");
   await assertIntegrationEnabled(c.env, "freepik");
@@ -947,6 +947,8 @@ freepikRoutes.get("/status", async (c) => {
     demo: !fp.connected,
     reason: fp.reason,
     admin: teamMayRun(user, "freepik"),
+    /** The viewer may change the account's settings (the key, the plan): admins. `admin` above means "may run it". */
+    accountAdmin: user.role === "admin",
     access: teamMayRun(user, "freepik") ? "admin" : "Admins only for now",
     plan: fp.plan,
     planLabel: PLAN_LABELS[fp.plan],
@@ -957,8 +959,10 @@ freepikRoutes.get("/status", async (c) => {
   });
 });
 
+/** Which plan the Freepik account is on: it decides whether a download is in the plan or billed in credits. An account setting: admins. */
 freepikRoutes.post("/plan", async (c) => {
-  await gate(c);
+  requireIntegrationAdmin(c, "freepik");
+  await assertIntegrationEnabled(c.env, "freepik");
   const { plan } = await body(c, z.object({ plan: z.enum(["premium", "business", "unknown"]) }));
   if (plan === "unknown") await deleteSetting(c.env, FREEPIK_PLAN_SETTING);
   else await setSetting(c.env, FREEPIK_PLAN_SETTING, plan);

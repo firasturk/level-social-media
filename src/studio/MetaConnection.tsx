@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { askConfirm } from "@/lib/confirm";
 import { del, get, post, put } from "@/api";
 import { PublishReadiness } from "./PublishDialog";
+import { FEATURES } from "@shared/features";
 
 export interface MetaStatus {
   connected: boolean;
@@ -116,7 +117,7 @@ export default function MetaConnection({ status, onChanged }: { status: MetaStat
           </li>
         </ol>
       )}
-      <PublishReadiness />
+      {FEATURES.publish && <PublishReadiness />}
       <div className="footer-actions">
         <input
           type="password"

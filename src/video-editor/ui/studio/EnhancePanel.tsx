@@ -3,7 +3,8 @@
  * (a LUT with an intensity, or sliders), music, sound effects, relight, HDR. Higgsfield: upscale,
  * reframe (9:16, 1:1, 4:5), remove the background. Each says its cost first (simulated, asked, or
  * "cost not known"), is confirmed, runs once, and its result becomes a new version of the same post
- * with the provider's label. The whole team runs it (24 Oct).
+ * with the provider's label. The whole team runs it (24 Oct). A member who is not shown prices
+ * confirms the run without its amount; the server asks and records the cost all the same.
  */
 import { useEffect, useState } from "react";
 import { Lock, Wand2, TriangleAlert } from "lucide-react";
@@ -12,6 +13,7 @@ import { Orb } from "@/components/Orb";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { versionLabel } from "@/studio/videoApi";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import { higgsfieldTool, higgsfieldTools, magnificEnhance, magnificLuts, magnificStatus, type ConfirmAsk, type HiggsfieldTools, type MagnificStatus } from "../../studioApi";
 import type { StudioShared } from "./types";
 
@@ -63,9 +65,11 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && (d.needsConfirm || d.needsEstimate)) {
         const n = d.credits ?? d.estimate;
-        const ok = await askConfirm(d.needsEstimate ? `${tool.label} on ${versionLabel(shown)}: ${tool.provider === "higgsfield" ? "Higgsfield" : "Magnific"} gives no cost for it. Run it at an unknown cost? The result becomes a new version of this post.` : `${tool.label} on ${versionLabel(shown)}: about ${n} credits from the ${tool.provider === "higgsfield" ? "subscription" : "Magnific"} balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result becomes a new version of this post.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run · ${n} credits`, danger: false, cancel: "Not now" });
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Run ${tool.label.toLowerCase()} on ${versionLabel(shown)}? The result becomes a new version of this post.`, { ok: "Run", danger: false, cancel: "Not now" })
+          : await askConfirm(d.needsEstimate ? `${tool.label} on ${versionLabel(shown)}: ${tool.provider === "higgsfield" ? "Higgsfield" : "Magnific"} gives no cost for it. Run it at an unknown cost? The result becomes a new version of this post.` : `${tool.label} on ${versionLabel(shown)}: about ${n} credits from the ${tool.provider === "higgsfield" ? "subscription" : "Magnific"} balance${d.balance != null ? ` (${d.balance} available)` : ""}. The result becomes a new version of this post.`, { ok: d.needsEstimate ? "Run it anyway, cost unknown" : `Run${creditsTag(n)}`, danger: false, cancel: "Not now" });
         if (ok) return run(true);
-      } else setError(err.message);
+      } else setError(costSafe(err.message));
     } finally {
       setBusy(false);
     }
@@ -73,6 +77,7 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
   const set = (k: string, v: unknown) => setArgs((a) => ({ ...a, [k]: v }));
   const adjustments = (args.adjustments as Record<string, number> | undefined) ?? {};
   const locked = !s.admin;
+  const hidden = pricesAreHidden();
   return (
     <div className="vs-panel">
       <div className="ts-panel-head">
@@ -108,7 +113,7 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
                 <b>{t.label}</b>
                 <small>{t.hint}</small>
               </span>
-              <em>credits</em>
+              {!hidden && <em>credits</em>}
             </button>
           ))}
       </div>
@@ -124,7 +129,7 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
                 <b>{t.label}</b>
                 <small>{hf && hf.signedIn && !hf.available[t.name] ? "Not available on this plan." : t.hint}</small>
               </span>
-              <em>credits</em>
+              {!hidden && <em>credits</em>}
             </button>
           ))}
       </div>
@@ -200,7 +205,7 @@ export default function EnhancePanel({ s }: { s: StudioShared }) {
           {tool.name === "upscale_video" && <p className="ts-hint">No settings: Higgsfield picks the size.</p>}
           {tool.name === "remove_background" && <p className="ts-hint">The subject is kept, the background taken out.</p>}
           <button type="button" className="ts-btn primary vs-cta" disabled={!shown || busy || locked} onClick={() => void run()}>
-            {busy ? <Orb size={14} status={null} /> : <Wand2 size={14} />} {tool.label} · cost said before the run
+            {busy ? <Orb size={14} status={null} /> : <Wand2 size={14} />} {tool.label}{hidden ? "" : " · cost said before the run"}
           </button>
           <p className="ts-hint">The result becomes a new version of this post; {shown ? versionLabel(shown) : "the version"} stays as it is.</p>
         </fieldset>

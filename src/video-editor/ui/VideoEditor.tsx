@@ -1253,7 +1253,7 @@ export default function VideoEditor({ open, post, initialVideoId, initialPanel, 
           )}
           {readOnly && editing && post && (
             <span className="ve-readonly" title={access.reason}>
-              Admins only for now
+              {access.admin ? "Switched off by an admin" : "Admins only for now"}
             </span>
           )}
           {!post && (

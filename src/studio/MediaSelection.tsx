@@ -20,7 +20,6 @@ const nn = (n: number) => String(n).padStart(2, "0");
 export function SelectionBar({
   count,
   route,
-  admin,
   textable,
   onStyle,
   onText,
@@ -31,7 +30,8 @@ export function SelectionBar({
   count: number;
   /** The route the cards just came from, when they did: it decides which step comes first. */
   route: "images" | "video" | null;
-  admin: boolean;
+  /** Kept for the callers; combining is open to the whole team (15 Nov), so it no longer gates the button. */
+  admin?: boolean;
   /** How many chosen cards have words that can be set (the Text studio opens on those). */
   textable: number;
   onStyle: () => void;
@@ -41,7 +41,7 @@ export function SelectionBar({
   onDone: () => void;
 }) {
   const combine = (
-    <button type="button" className={`cta ${route === "video" ? "primary" : "secondary"} small`} disabled={count < 2 || !admin} onClick={onCombine} title={!admin ? "Admins only for now (the Video editor's rule)" : count < 2 ? "Choose at least two cards" : `Opens the Video editor with these ${count} cards in order, as one project; nothing is generated`}>
+    <button type="button" className={`cta ${route === "video" ? "primary" : "secondary"} small`} disabled={count < 2} onClick={onCombine} title={count < 2 ? "Choose at least two cards" : `Opens the Video editor with these ${count} cards in order, as one project; nothing is generated`}>
       <Combine size={14} /> Combine into one video
     </button>
   );

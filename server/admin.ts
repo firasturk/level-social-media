@@ -54,7 +54,8 @@ export async function readAdminSettings(env: Env): Promise<AdminSettings> {
     inviteCode: (await getSetting(env, INVITE_CODE_SETTING)) || env.INVITE_CODE || "",
     spendThreshold: Number((await getSetting(env, SPEND_THRESHOLD_SETTING)) ?? 20),
     workflowV2: (await getSetting(env, WORKFLOW_V2_SETTING)) === "1",
-    pricing: ((await getSetting(env, PRICING_VISIBILITY_SETTING)) === "admins" ? "admins" : "everyone") as "everyone" | "admins",
+    // Costs are for admins unless an admin opens them to the team (the owner's decision, 15 Nov 2026).
+    pricing: ((await getSetting(env, PRICING_VISIBILITY_SETTING)) === "everyone" ? "everyone" : "admins") as "everyone" | "admins",
     autopilotReview: (await getSetting(env, AUTOPILOT_REVIEW_SETTING)) === "1",
     retentionDays: Number((await getSetting(env, RETENTION_DAYS_SETTING)) ?? 90),
     notifyWebhook: (await getSetting(env, NOTIFY_WEBHOOK_SETTING)) || "",

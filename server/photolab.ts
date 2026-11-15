@@ -332,16 +332,23 @@ async function fail(env: Env, job: JobRow, error: string): Promise<JobRow> {
   return (await jobById(env, job.id))!;
 }
 
+/** The longest a job may stay "running" before it is closed with a message. */
+const STALE_JOB_MS = 30 * 60_000;
+const STALE_JOB = "This edit did not finish: the provider gave no result after 30 minutes. Run it again.";
+
 /** A running job asked about: the provider is polled once and the job advanced when it moved. */
 export async function refreshJob(env: Env, job: JobRow, fetchFn: typeof fetch = fetch): Promise<JobRow> {
-  if (job.status !== "running" || !job.provider_task) return job;
+  if (job.status !== "running") return job;
+  // A job the provider never finished must not read "running" for ever (two did, for five days, November 2026).
+  const stale = now() - job.created > STALE_JOB_MS;
+  if (!job.provider_task) return stale ? fail(env, job, STALE_JOB) : job;
   const { provider } = await resolvePhotoLab(env, fetchFn);
   if (provider.name !== job.provider) return fail(env, job, "The connection changed while the job ran: run it again.");
   try {
     const t = await provider.status(job.op, job.provider_task);
     if (t.state === "done") return finish(env, job, t, fetchFn);
     if (t.state === "failed") return fail(env, job, t.error ?? "The provider reported the task as failed.");
-    return job;
+    return stale ? fail(env, job, STALE_JOB) : job;
   } catch (e) {
     return fail(env, job, errorMessage(e));
   }
@@ -368,11 +375,11 @@ async function body<T extends z.ZodTypeAny>(c: { req: { json: () => Promise<unkn
   return parsed.data;
 }
 
-/** Open to every signed-in user: it says whether the viewer may run the lab (admins, switch on). */
+/** Open to every signed-in user: it says whether the viewer may run the lab (the team, switch on) and whether they keep its key (admins). */
 photoLabRoutes.get("/status", async (c) => {
   const r = await resolvePhotoLab(c.env, fetcher());
   const access = await integrationAccess(c.env, c.get("user"), "freepik");
-  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true, access });
+  return c.json({ connected: r.connected, provider: r.provider.name, reason: r.reason, prices: PHOTO_LAB_PRICES, approximate: true, access, accountAdmin: c.get("user").role === "admin" });
 });
 
 /** The key is kept only after Freepik accepted it on a no-cost call. Admins, switch on. */

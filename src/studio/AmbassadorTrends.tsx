@@ -15,6 +15,8 @@ import { askConfirm } from "@/lib/confirm";
 import { TREND_CATEGORIES, type Trend, type TrendCategory, type TrendCharacter } from "@shared/ambassador-trends";
 import type { PresetCard } from "@shared/video-presets";
 import type { Client } from "@shared/types";
+import { FEATURES } from "@shared/features";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import "./ambassador-trends.css";
 
 type ConfirmAsk = { needsConfirm?: boolean; needsEstimate?: boolean; credits?: number | null; balance?: number | null };
@@ -53,7 +55,7 @@ export default function AmbassadorTrends({ client }: { client: Client }) {
     <section className="atr">
       <header className="atr-head">
         <b>Trends with a character</b>
-        <small>Pick one of this client's ambassadors, its AI influencers or one of your Higgsfield characters, then a trending video: the character takes the place of the person in it. Each trend shows its price before anything is made.</small>
+        <small>Pick one of this client's ambassadors{FEATURES.influencers ? ", its AI influencers" : ""} or one of your Higgsfield characters, then a trending video: the character takes the place of the person in it. {pricesAreHidden() ? "Nothing is made before you confirm it." : "Each trend shows its price before anything is made."}</small>
       </header>
       {reason && <p className="atr-note warn">{reason}</p>}
       {characters === null ? (
@@ -80,9 +82,9 @@ export default function AmbassadorTrends({ client }: { client: Client }) {
               {t.video ? <AutoplayVideo src={t.video} mode="preview" label={t.presetName} /> : <span className="atr-wait">{t.status === "failed" ? "Failed" : <Orb size={16} />}</span>}
               <small>
                 {t.characterName} · {t.presetName}
-                {t.credits !== null ? ` · ${t.credits} credits` : ""}
+                {creditsTag(t.credits)}
               </small>
-              {t.error && <small className="warn">{t.error}</small>}
+              {t.error && <small className="warn">{costSafe(t.error)}</small>}
               {t.video && (
                 <a className="text-button" href={`${t.video}?download=1`}>
                   <Download size={12} /> Download
@@ -134,14 +136,16 @@ function TrendPicker({ client, character, onClose, onMade }: { client: Client; c
         const d = (err.data ?? {}) as ConfirmAsk;
         if (err.status !== 409 || !(d.needsConfirm || d.needsEstimate)) throw e;
         const what = `“${card.title}” with ${character.name}`;
-        const ok = await askConfirm(d.needsEstimate ? `${what}: Higgsfield names no price for it. Make it at an unknown cost from the subscription credits?` : `${what}: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}.`, { ok: d.needsEstimate ? "Make it, cost unknown" : `Make it · ${d.credits} credits`, danger: false, cancel: "Not now" });
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Make ${what}? It becomes a video of this client.`, { ok: "Make it", danger: false, cancel: "Not now" })
+          : await askConfirm(d.needsEstimate ? `${what}: Higgsfield names no price for it. Make it at an unknown cost from the subscription credits?` : `${what}: about ${d.credits} credits from the subscription balance${d.balance != null ? ` (${d.balance} available)` : ""}.`, { ok: d.needsEstimate ? "Make it, cost unknown" : `Make it${creditsTag(d.credits)}`, danger: false, cancel: "Not now" });
         if (!ok) return;
         await send(true);
       }
       toast.success(`“${card.title}” is being made with ${character.name}; it takes a few minutes.`);
       onMade();
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(costSafe((e as Error).message));
     } finally {
       setBusy("");
     }

@@ -401,12 +401,17 @@ export function intentSummary(i: ToolIntent, posts: PromptContext["posts"] = [])
   return `${i.operation}: ${detail} · ${where} · ${cost}.${q}`;
 }
 
-/** The card can run: nothing to ask, a post where one is needed, and a known cost for paid tools. */
-export function intentRunnable(i: ToolIntent): { ok: boolean; why: string } {
+/**
+ * The card can run: nothing to ask, a post where one is needed, and a known cost for paid tools.
+ * `unknownCostOk`: a member's card (15 Nov). A member neither sees nor types a cost, so a price the
+ * catalog does not have does not hold the card back; the tool's own run asks the provider or the
+ * price table and records it. An admin's card still waits for the admin's estimate.
+ */
+export function intentRunnable(i: ToolIntent, opts: { unknownCostOk?: boolean } = {}): { ok: boolean; why: string } {
   if (i.tool === "none") return { ok: false, why: "Nothing to run." };
   if (i.questions.length) return { ok: false, why: i.questions[0] };
   if (i.tool !== "freepik.search" && i.target.post === null) return { ok: false, why: "Choose a post first." };
   if (i.tool === "freepik.use" && !i.asset) return { ok: false, why: "Pick an asset first." };
-  if (i.estimate === null) return { ok: false, why: `${COST_UNKNOWN} · blocked until clarified` };
+  if (i.estimate === null && !opts.unknownCostOk) return { ok: false, why: `${COST_UNKNOWN} · blocked until clarified` };
   return { ok: true, why: "" };
 }

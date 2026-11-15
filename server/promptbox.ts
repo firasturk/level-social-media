@@ -1,7 +1,7 @@
 /**
  * The Prompt Box's run button: a confirmed intent card is checked once more against the month,
- * the admin-only gate and the cost, recorded as an integration op, then run through the adapter
- * in promptbox-tools.ts. The sentence that produced the card never reaches here; only the card.
+ * who may run the provider and the cost, recorded as an integration op, then run through the
+ * adapter in promptbox-tools.ts. The sentence that produced the card never reaches here; only the card.
  */
 import { Hono } from "hono";
 import { z } from "zod";
@@ -32,9 +32,14 @@ export function promptContext(batchId: string, config: Config, ctx?: { post?: nu
 }
 
 /**
- * Runs one confirmed card. Refused without `confirm: true`, with an open question, with no known
- * cost (an admin may set one in `estimate`). The whole team runs the cards (24 Oct). Searching is
- * free and makes nothing; it is still recorded.
+ * Runs one confirmed card. Refused without `confirm: true` and with an open question. The whole
+ * team runs the cards (24 Oct). Searching is free and makes nothing; it is still recorded.
+ *
+ * The cost the catalog does not have: an admin's card waits until the admin types an estimate
+ * (`estimate`). A member's card runs without one (15 Nov: the team makes videos and edits, the cost
+ * is the admins' to see): a member's own `estimate` is ignored, the box's row is written with no
+ * estimate and says so, and the adapter's own row carries the real figure (the provider's estimate
+ * for a clip, the price table for the Photo lab), exactly as the dialogs record it.
  */
 promptboxRoutes.post("/execute", async (c) => {
   const parsed = z
@@ -63,12 +68,12 @@ promptboxRoutes.post("/execute", async (c) => {
     if (user.role === "admin" && typeof d.estimate === "number") {
       intent.estimate = d.estimate;
       intent.estimateNote = `About ${d.estimate} credits, set by ${user.name || "an admin"}.`;
-    } else throw new StudioError(`${COST_UNKNOWN} · blocked until clarified. An admin can set the estimate on the card.`, 409);
+    } else if (user.role === "admin") throw new StudioError(`${COST_UNKNOWN} · blocked until clarified. An admin can set the estimate on the card.`, 409);
   }
   const provider = intent.provider as IntegrationProvider;
   requireIntegrationUser(c, provider);
   await assertIntegrationEnabled(c.env, provider);
-  const summary = intentSummary(intent, ctx.posts);
+  const summary = `${intentSummary(intent, ctx.posts)}${intent.estimate === null ? " Run by a member with no estimate on the card: the tool's own row has the cost." : ""}`;
   const opId = await recordIntegrationOp(c.env, { provider, kind: intent.tool, user: user.id, batch: b.id, post: intent.target.post, estimate: intent.estimate, status: "confirmed", note: summary });
   try {
     const s = intent.settings;

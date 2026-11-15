@@ -5,6 +5,7 @@ import { Orb } from "@/components/Orb";
 import { askConfirm } from "@/lib/confirm";
 import { post } from "@/api";
 import { mcpStatus, type HiggsfieldBilling, type HiggsfieldMcpStatus } from "./videoApi";
+import { pricesAreHidden } from "@shared/pricing";
 
 /**
  * Connection → Higgsfield, the top block: the owner's Higgsfield subscription (thousands of
@@ -174,7 +175,7 @@ export default function HiggsfieldSignIn({ status, onChanged }: { status: Higgsf
           <span>
             Signed in{status.email ? ` as ${status.email}` : ""}
             {status.plan ? ` · ${status.plan}` : ""}
-            {status.credits !== null ? ` · Credits: ${status.credits.toLocaleString("en-GB")}` : status.balanceError ? ` · credits not read: ${status.balanceError}` : ""}
+            {pricesAreHidden() ? "" : status.credits !== null ? ` · Credits: ${status.credits.toLocaleString("en-GB")}` : status.balanceError ? ` · credits not read: ${status.balanceError}` : ""}
           </span>
         </div>
       ) : (

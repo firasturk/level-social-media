@@ -1,7 +1,8 @@
 /**
  * Check: Higgsfield's reading of the shown clip (the virality check, a longer video analysis),
- * run only on an admin's click with the cost said first (or "cost not known", confirmed), the
- * words kept on the version. "Not available on this plan" when the server lists no such tool.
+ * run only on a click with the cost said first (or "cost not known", confirmed), the words kept
+ * on the version. "Not available on this plan" when the server lists no such tool. A member who is
+ * not shown prices confirms without the amount.
  */
 import { useEffect, useRef, useState } from "react";
 import { Lock, RefreshCw, ScanSearch, TriangleAlert } from "lucide-react";
@@ -10,6 +11,7 @@ import { Orb } from "@/components/Orb";
 import { ApiError } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import { versionLabel } from "@/studio/videoApi";
+import { costSafe, creditsTag, pricesAreHidden } from "@shared/pricing";
 import { higgsfieldCheck, higgsfieldCheckStatus, higgsfieldTools, type ConfirmAsk, type HiggsfieldTools } from "../../studioApi";
 import type { StudioShared } from "./types";
 
@@ -54,9 +56,11 @@ export default function CheckPanel({ s }: { s: StudioShared }) {
       const err = e as ApiError;
       const d = (err.data ?? {}) as ConfirmAsk;
       if (err.status === 409 && (d.needsConfirm || d.needsEstimate)) {
-        const ok = await askConfirm(d.needsEstimate ? `${label} on ${versionLabel(shown)}: Higgsfield gives no cost for it. Run it at an unknown cost from the subscription credits?` : `${label} on ${versionLabel(shown)}: about ${d.credits} credits from the subscription balance.`, { ok: d.needsEstimate ? "Run it anyway" : `Run · ${d.credits} credits`, danger: false, cancel: "Not now" });
+        const ok = pricesAreHidden()
+          ? await askConfirm(`Run the ${label.toLowerCase()} on ${versionLabel(shown)}? Nothing is made or changed by a check.`, { ok: "Run", danger: false, cancel: "Not now" })
+          : await askConfirm(d.needsEstimate ? `${label} on ${versionLabel(shown)}: Higgsfield gives no cost for it. Run it at an unknown cost from the subscription credits?` : `${label} on ${versionLabel(shown)}: about ${d.credits} credits from the subscription balance.`, { ok: d.needsEstimate ? "Run it anyway" : `Run${creditsTag(d.credits)}`, danger: false, cancel: "Not now" });
         if (ok) return run(tool, label, true);
-      } else setError(err.message);
+      } else setError(costSafe(err.message));
     } finally {
       setBusy(null);
     }
@@ -108,7 +112,7 @@ export default function CheckPanel({ s }: { s: StudioShared }) {
         <>
           <span className="ts-group-title">
             {tools?.checks.find((c) => c.name === shown.check!.tool)?.label ?? shown.check.tool} · {when(shown.check.at)}
-            {shown.check.credits !== null ? ` · ${shown.check.credits} credits` : ""}
+            {creditsTag(shown.check.credits)}
           </span>
           <pre className="vs-words">{shown.check.text}</pre>
         </>

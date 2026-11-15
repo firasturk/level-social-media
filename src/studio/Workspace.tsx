@@ -24,6 +24,7 @@ import { monthCounts } from "@shared/counts";
 import { confirmScope } from "@shared/scope";
 import { SAVE_IDLE, saveReducer, type SaveStatus as SaveState } from "@shared/save-status";
 import { formatUsd, rateFor, setPricesHidden, testSize } from "@shared/pricing";
+import { FEATURES } from "@shared/features";
 import type {
   Ambassador,
   Batch,
@@ -2192,12 +2193,16 @@ function StudioWorkspace({
                       <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.existing || exporting} title={!counts.existing ? "Nothing to export yet: this month has no pictures" : exporting ? "Wait: an export is running" : "One long PDF page of the month, to send to the client"}>
                         Feed PDF
                       </button>
-                      <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.existing}>
-                        Deliver to the client&apos;s Drive…
-                      </button>
-                      <button type="button" onClick={() => setScheduleApproved(true)} disabled={!counts.existing}>
-                        Schedule the approved posts…
-                      </button>
+                      {FEATURES.driveDelivery && (
+                        <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.existing}>
+                          Deliver to the client&apos;s Drive…
+                        </button>
+                      )}
+                      {FEATURES.publish && (
+                        <button type="button" onClick={() => setScheduleApproved(true)} disabled={!counts.existing}>
+                          Schedule the approved posts…
+                        </button>
+                      )}
                       <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>
                         Upload product photos
                       </button>
@@ -2407,7 +2412,7 @@ function StudioWorkspace({
       <TeamDock />
       {page !== "team" && <TeamFab />}
 
-      <Radio className={journey ? (useFlow && !classic ? "in-flow" : "in-journey") : ""} />
+      {FEATURES.radio && <Radio className={journey ? (useFlow && !classic ? "in-flow" : "in-journey") : ""} />}
       {journey && useFlow && !classic && stateReady && client && (
         <Flow
           initialStage={flowStage ?? undefined}
@@ -2615,7 +2620,7 @@ function StudioWorkspace({
               closeEditor();
               setRequested({ kind: "video-studio", index: i, at: Date.now() });
             }}
-            onRevise={async (text) => void (await revise(text))}
+            onRevise={revise}
             onRemake={() => {
               const i = selected.post!;
               try {

@@ -77,6 +77,7 @@ import { isMediaPost } from "@shared/posts";
 import { carouselEntries, type CardEntry } from "@shared/carousel";
 import { attachFileToCard, isImageFile, isVideoFile, uploadClipCard } from "./mediaApi";
 import { CAROUSEL_MAX } from "@shared/publish";
+import { FEATURES } from "@shared/features";
 import type { StyleItem } from "@shared/styles";
 import { CombineDialog, restyleInstruction, SelectionBar } from "./MediaSelection";
 import { takeNewCards } from "./mediaApi";
@@ -1296,7 +1297,7 @@ export default function PlanView({
                         ? [
                             { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false, title: "The words and layers on this picture; no picture is made" },
                             { label: "Video from this picture", onClick: () => openVideoEditor(p.index), title: "The Video studio: this card's clip or picture, edits and versions; generating a clip stays a separate step with its cost" },
-                            { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" },
+                            ...(FEATURES.publish ? [{ label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" }] : []),
                           ]
                         : []),
                       ...(onRestorePicture && !inFlight && prevOf(t)
@@ -1345,7 +1346,7 @@ export default function PlanView({
                         { label: "Open the Text studio", onClick: () => setEditing(p.index), disabled: p.overlay === false, title: "The words and layers on this picture; no picture is made" },
                         { label: "Animate the text", onClick: () => setAnimating(p.index), disabled: !(p.headline || p.subline) || p.overlay === false, title: "A video of this post's words moving over its picture; the picture itself does not change" },
                         { label: "Video from this picture", onClick: () => openVideoEditor(p.index), title: "The Video studio: presets with their reference videos, a clip made from this post's picture, edits and versions; the picture stays as it is" },
-                        { label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" },
+                        ...(FEATURES.publish ? [{ label: "Publish to Instagram…", onClick: () => setPublishFor(p.index), disabled: !batchId, title: "Publishes this post's picture and caption to the connected Instagram account; nothing in the month changes" }] : []),
                       ]
                     : []),
                   ...(onRestorePicture && !inFlight && prevOf(t)

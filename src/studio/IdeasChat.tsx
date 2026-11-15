@@ -13,6 +13,7 @@ import { del, post } from "@/api";
 import { askConfirm } from "@/lib/confirm";
 import type { Config } from "@shared/config";
 import { intentRunnable, validateIntent, type IntentAsset, type ToolIntent } from "@shared/promptbox";
+import { costSafe } from "@shared/pricing";
 import IntentCard, { type Card, type ResultAsset } from "./IntentCard";
 
 interface ChatAnswer {
@@ -55,7 +56,7 @@ export default function IdeasChat({
   /** How the pictures are made after a change asks for it (the caller confirms and shows the cost); absent: the chat asks itself. */
   onMake?: (indexes: number[]) => Promise<void>;
   title?: React.ReactNode;
-  /** Admins may run provider tools; members see the card and the "Admins only for now" note. */
+  /** The viewer is an admin: only an admin types a cost the catalog does not have. The whole team runs the cards (the server's `canRun`). */
   admin?: boolean;
   /** The post open in the editor, when one is: "this post" means it. */
   openPost?: number | null;
@@ -115,13 +116,15 @@ export default function IdeasChat({
         patch(card.id, (c) => ({ ...c, running: false, results: r.results ?? [], fixture: r.fixture, done: `${r.results?.length ?? 0} result${r.results?.length === 1 ? "" : "s"}; nothing was downloaded or made.` }));
         if (r.results?.[0]) setLastAsset(r.results[0]);
       } else {
-        patch(card.id, (c) => ({ ...c, running: false, fixture: r.fixture, done: r.note || "Done." }));
-        toast.success(r.note || "Done.");
+        const note = costSafe(r.note || "Done.");
+        patch(card.id, (c) => ({ ...c, running: false, fixture: r.fixture, done: note }));
+        toast.success(note);
         await refresh();
       }
     } catch (e) {
-      patch(card.id, (c) => ({ ...c, running: false, error: (e as Error).message }));
-      toast.error((e as Error).message, { duration: 10000 });
+      const message = costSafe((e as Error).message);
+      patch(card.id, (c) => ({ ...c, running: false, error: message }));
+      toast.error(message, { duration: 10000 });
     }
   }
   /** "Use as reference" / "Add to design" on a result: its own card, through the same contract; free and ready, it runs at once (and is recorded). */
@@ -131,9 +134,10 @@ export default function IdeasChat({
     const target = from.intent.target.post ?? openPost ?? null;
     const intent = validateIntent({ tool: "freepik.use", post: target ?? 0, slide: from.intent.target.slide ?? openSlide ?? 0, role, settings: { role, placement: role === "design" ? "layer" : "" } }, { batch: batchId, posts, openPost: target, openSlide: openSlide ?? null, lastAsset: asset });
     if (!intent) return;
-    const card: Card = { id: crypto.randomUUID(), at: Date.now(), intent, canRun: admin };
+    // A result's own card: the search card it came from was the server's answer on who may run Freepik.
+    const card: Card = { id: crypto.randomUUID(), at: Date.now(), intent, canRun: from.canRun };
     setCards((cs) => [...cs, card]);
-    if (admin && intent.estimate === 0 && intentRunnable(intent).ok) void run(card);
+    if (from.canRun && intent.estimate === 0 && intentRunnable(intent).ok) void run(card);
   }
   async function clear() {
     if (!batchId) return;
@@ -187,7 +191,7 @@ export default function IdeasChat({
         {items.map((it) =>
           it.msg ? (
             <div key={it.key} className={`ideas-msg ${it.msg.role === "user" ? "mine" : "theirs"}`} dir="auto">
-              {it.msg.text}
+              {costSafe(it.msg.text)}
             </div>
           ) : it.card ? (
             <IntentCard key={it.key} card={it.card} posts={posts} campaign={campaign} admin={admin} selectedAsset={lastAsset} onChange={(next) => patch(next.id, () => next)} onRun={(c) => void run(c)} onUseAsset={useAsset} onPickAsset={(a) => setLastAsset(a)} />
