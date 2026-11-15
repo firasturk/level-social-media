@@ -62,7 +62,8 @@
   --charcoal: #1a1a1a;
   /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
   --gradient: linear-gradient(135deg, #cfd5f8 0%, #dbe3ee 45%, #dee7e0 60%, #eaf9b8 100%);
-  --gradient-bar: linear-gradient(90deg, #8f9ded 0%, #b9cfe0 45%, #c9e6a4 75%, #bbf714 100%);
+  /* One colour (15 Nov 2026): progress bars were a blue-to-lime gradient. */
+  --gradient-bar: linear-gradient(90deg, var(--blue) 0%, var(--blue) 100%);
   --gradient-mesh: linear-gradient(135deg, #cfd5f8 0%, #dbe3ee 45%, #dee7e0 60%, #eaf9b8 100%);
   --aurora: var(--gradient);
   /* Accent (type, outlines, labels) = the ink family */
@@ -3034,7 +3035,8 @@ textarea:focus {
   --mint-soft: #171a18;
   /* The aurora: pink and magenta into violet, blue and cyan, a soft white middle, orange at the end */
   --gradient: linear-gradient(135deg, #1c2a8a 0%, #15223a 45%, #1d2a22 60%, #4d6a0c 100%);
-  --gradient-bar: linear-gradient(90deg, #8f9ded 0%, #b9cfe0 45%, #c9e6a4 75%, #bbf714 100%);
+  /* One colour (15 Nov 2026): progress bars were a blue-to-lime gradient. */
+  --gradient-bar: linear-gradient(90deg, var(--blue) 0%, var(--blue) 100%);
   --gradient-mesh: #000000;
   --accent: #5b6ff5;
   --accent-hover: #7b8cff;
@@ -12538,145 +12540,45 @@ select {
   55% { transform: translateX(3px); }
   80% { transform: translateX(-2px); }
 }
-/* Generate: liquid blobs under a gooey threshold, turning slowly as a whole. */
-.orb-goo {
+/* One ring, one colour: a grey track and an arc turning on it, in the colour of the text around it. */
+.orb {
+  color: var(--ink-500);
+}
+.orb-inline {
+  color: inherit;
+}
+.orb-track,
+.orb-arc {
+  fill: none;
+  stroke: currentColor;
+}
+.orb-track {
+  opacity: 0.18;
+}
+.orb-arc {
+  stroke-linecap: round;
+  stroke-dasharray: 28 100;
   transform-origin: 50px 50px;
-  animation: orb-turn 22s linear infinite;
+  animation: orb-turn 0.9s linear infinite;
 }
-.orb-blob {
-  transform-origin: 50px 50px;
-}
-.orb-blob circle {
-  opacity: 0.78;
-}
-.orb-ribbon path {
-  mix-blend-mode: multiply;
-}
-:root[data-theme="dark"] .orb-blob circle {
-  opacity: 0.92;
-  mix-blend-mode: screen;
-}
-:root[data-theme="dark"] .orb-ribbon path {
-  mix-blend-mode: screen;
-}
-.orb-blob-1 { animation: orb-blob-a 5.2s ease-in-out infinite; }
-.orb-blob-2 { animation: orb-blob-b 6.8s ease-in-out infinite; animation-delay: -2.1s; }
-.orb-blob-3 { animation: orb-blob-c 7.9s ease-in-out infinite; animation-delay: -4.4s; }
-@keyframes orb-blob-a {
-  0% { transform: rotate(0deg) translate(24px) scale(1); }
-  35% { transform: rotate(130deg) translate(6px) scale(1.2); }
-  70% { transform: rotate(250deg) translate(27px) scale(0.88); }
-  100% { transform: rotate(360deg) translate(24px) scale(1); }
-}
-@keyframes orb-blob-b {
-  0% { transform: rotate(120deg) translate(25px) scale(0.95); }
-  40% { transform: rotate(230deg) translate(4px) scale(1.24); }
-  75% { transform: rotate(330deg) translate(26px) scale(1); }
-  100% { transform: rotate(480deg) translate(25px) scale(0.95); }
-}
-@keyframes orb-blob-c {
-  0% { transform: rotate(240deg) translate(23px) scale(1.05); }
-  30% { transform: rotate(330deg) translate(28px) scale(0.86); }
-  65% { transform: rotate(450deg) translate(5px) scale(1.26); }
-  100% { transform: rotate(600deg) translate(23px) scale(1.05); }
-}
-.orb-core {
-  transform-origin: 50px 50px;
-  animation: orb-pulse 3.2s ease-in-out infinite;
-}
-:root[data-theme="dark"] .orb-core {
-  mix-blend-mode: screen;
-}
-.orb-halo {
-  transform-origin: 50px 50px;
-  opacity: 0.4;
-  animation: orb-pulse 4.6s ease-in-out infinite reverse;
-}
-@keyframes orb-pulse {
-  0%, 100% { transform: scale(0.9); opacity: 0.7; }
-  50% { transform: scale(1.22); opacity: 1; }
+.orb-idle .orb-arc,
+.orb-success .orb-arc,
+.orb-error .orb-arc,
+.orb-still .orb-arc {
+  animation: none;
 }
 @keyframes orb-turn {
-  to { transform: rotate(360deg); }
-}
-/* Processing: three thin orbits at their own pace, each breathing in shape. */
-.orb-orbit,
-.orb-deform,
-.orb-dot {
-  transform-origin: 50px 50px;
-}
-.orb-orbit-1 { animation: orb-spin-0 2.9s linear infinite; }
-.orb-orbit-2 { animation: orb-spin-60 4.3s linear infinite reverse; }
-.orb-orbit-3 { animation: orb-spin-120 5.7s linear infinite; }
-.orb-deform { animation: orb-breathe 3.4s ease-in-out infinite; }
-.orb-orbit-2 .orb-deform { animation-duration: 4.6s; animation-delay: -1.5s; }
-.orb-orbit-3 .orb-deform { animation-duration: 5.3s; animation-delay: -3s; }
-.orb-dot { animation: orb-pulse 2.2s ease-in-out infinite; }
-@keyframes orb-spin-0 { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes orb-spin-60 { from { transform: rotate(60deg); } to { transform: rotate(420deg); } }
-@keyframes orb-spin-120 { from { transform: rotate(120deg); } to { transform: rotate(480deg); } }
-@keyframes orb-breathe {
-  0%, 100% { transform: scaleY(1) scaleX(1); }
-  50% { transform: scaleY(1.5) scaleX(0.94); }
-}
-/* Caption: ribbons of light in a round window, swaying as they morph. */
-.orb-window {
-  fill: color-mix(in srgb, #2038e2 6%, transparent);
-}
-.orb-ribbons {
-  transform-origin: 50px 50px;
-  animation: orb-sway 12s ease-in-out infinite;
-}
-.orb-ribbon {
-  transform-origin: 50px 50px;
-}
-.orb-ribbon-2 { animation: orb-drift 8s ease-in-out infinite alternate; }
-.orb-ribbon-3 { animation: orb-drift 10s ease-in-out infinite alternate-reverse; }
-@keyframes orb-sway {
-  0%, 100% { transform: rotate(-7deg); }
-  50% { transform: rotate(7deg); }
-}
-@keyframes orb-drift {
-  from { transform: translateX(-5px); }
-  to { transform: translateX(5px); }
-}
-/* Where the orbs sit */
-.make-wait .orb-stacked .orb-status,
-.test-grid-wait .orb-status,
-.boot-screen .orb-status {
-  font-size: 13px;
-}
-.analysis-wait,
-.design-card-writing {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px 0;
-  min-height: 96px;
-}
-.journey-reading .orb-status {
-  color: inherit;
-  font-weight: 500;
+  to {
+    transform: rotate(360deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .orb svg * {
-    animation-play-state: paused !important;
+  .orb-arc {
+    animation: none;
   }
-  .orb-loading {
-    animation: orb-breath 2.4s ease-in-out infinite;
+  .orb-status {
+    animation: none;
   }
-  .orb svg {
-    transition: none;
-  }
-}
-@keyframes orb-breath {
-  0%, 100% { opacity: 0.65; }
-  50% { opacity: 1; }
-}
-
-.make-actions {
-  flex-wrap: wrap;
-  row-gap: 6px;
 }
 
 /* ───────────── Your posts: the same cards as Text on design ───────────── */
@@ -13736,25 +13638,12 @@ select {
 .boot-screen .orb-status {
   color: var(--ink-900);
 }
-/* Orbs: blue, lime and mint on a white core */
-.orb-window,
-.orb-glass {
-  fill: var(--surface-2);
-  stroke: var(--line);
-}
-:root[data-theme="dark"] .orb-glass,
-:root[data-theme="dark"] .orb-window {
-  fill: rgb(255 255 255 / 0.06);
-  stroke: rgb(255 255 255 / 0.14);
-}
-.orb-dot {
-  fill: var(--blue);
-}
+/* The loader's outcome: a plain dark disc with a white tick; red with a cross when it failed. */
 .orb-outcome-disc {
-  fill: var(--lime);
+  fill: var(--ink-900);
 }
 .orb-outcome-tick {
-  stroke: #000;
+  stroke: var(--surface, #fff);
 }
 .orb-error .orb-outcome-disc {
   fill: var(--danger);
