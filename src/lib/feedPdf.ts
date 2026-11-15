@@ -1,6 +1,7 @@
 import { POST_TYPE_INFO, monthLabel, type Post } from "@shared/posts";
 import type { Client } from "@shared/types";
 import { canvasBlob } from "./overlay";
+import { fontsSettled } from "./fonts";
 import { stackedImagesPdf, type PdfImage } from "./pdf";
 
 /** One rendered post (the image with its overlay) and the plan entry it came from. */
@@ -51,7 +52,7 @@ export async function buildFeedPdf(deck: FeedDeck): Promise<Blob> {
       (f) => document.fonts.load(f).catch(() => []),
     ),
   );
-  await document.fonts.ready;
+  await fontsSettled();
   const [markBlack, markWhite] = await Promise.all([levelMark("black"), levelMark("white")]);
   const sections: HTMLCanvasElement[] = [
     cover(deck, brand, markBlack),

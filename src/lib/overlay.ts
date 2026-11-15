@@ -5,7 +5,7 @@
 import type { AnimationPreset, OverlaySpec, PostOverlayPatch, TextPosition } from "@shared/overlay";
 import { HEADLINE_FONTS, LATIN_FONTS } from "@shared/overlay";
 import type { PostTypography, SubjectMask } from "@shared/typography";
-import { ARABIC, fontStack, loadFont } from "./fonts";
+import { ARABIC, fontStack, fontsSettled, loadFont } from "./fonts";
 import { drawBackdrop, drawBasePicture, drawCanvasFx, drawDesign, type LayerBox } from "./textLayers";
 import { designHasContent } from "@shared/layers";
 
@@ -67,6 +67,8 @@ function inkOn(hex: string): string {
 }
 
 const images = new Map<string, Promise<HTMLImageElement>>();
+/** Longest wait for one picture (a 2K original on a slow line). */
+const IMAGE_TIMEOUT = 60_000;
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   let p = images.get(src);
@@ -74,8 +76,19 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     p = new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error("Image failed to load."));
+      // A picture that never answers must not hold the export for ever.
+      const timer = setTimeout(() => fail("A picture took too long to load. Check the connection and try again."), IMAGE_TIMEOUT);
+      // A failed load is forgotten, so the next try asks the server again instead of failing from memory.
+      const fail = (why: string) => {
+        clearTimeout(timer);
+        images.delete(src);
+        reject(new Error(why));
+      };
+      img.onload = () => {
+        clearTimeout(timer);
+        resolve(img);
+      };
+      img.onerror = () => fail("A picture failed to load. Check the connection and try again.");
       img.src = src;
     });
     images.set(src, p);
@@ -150,7 +163,7 @@ export async function drawOverlay(
       subline || "حب Ab",
     ),
   ]).catch(() => []);
-  await document.fonts.ready;
+  await fontsSettled();
 
   // Scrim behind the text block.
   if (spec.scrim > 0 && patch.fade !== false && !typo && !design && (headline || subline)) {
@@ -536,7 +549,7 @@ async function drawTypography(
   const weight = typoWeight(typo.font);
   const family = fontStack(typo.font);
   await document.fonts.load(`${weight} 64px ${family}`, word).catch(() => []);
-  await document.fonts.ready;
+  await fontsSettled();
   const subject = typo.subject ? await subjectMatte(typo.subject, W, H) : null;
   const style = typo.style;
   // Letters behind or across the subject need an outline and room for some letters to show: a

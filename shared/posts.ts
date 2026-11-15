@@ -1943,8 +1943,22 @@ export interface RevisionConfig {
  * pinned picture, the client's note, and (for a grid post) the grid pick. A picture carries the
  * revision it was made for; a later revision makes it an older idea.
  */
-export function postRevision(post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile">, config: RevisionConfig | null | undefined): number {
-  return Math.max(post.ideaAt ?? 0, post.reference?.at ?? 0, post.clientNote?.at ?? 0, post.tile ? (config?.gridAt ?? 0) : 0, config?.plannedAt ?? 0);
+export function postRevision(post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "clientSteps" | "tile">, config: RevisionConfig | null | undefined): number {
+  // A client's comment answered with words alone is no new revision of the picture. Months applied
+  // before this rule stamped the idea with the same instant: that stamp does not count either.
+  const kept = wordsOnlyNote(post) ? post.clientNote!.at : 0;
+  const idea = kept && post.ideaAt === kept ? 0 : (post.ideaAt ?? 0);
+  return Math.max(idea, post.reference?.at ?? 0, kept ? 0 : (post.clientNote?.at ?? 0), post.tile ? (config?.gridAt ?? 0) : 0, config?.plannedAt ?? 0);
+}
+
+/**
+ * The client's last comment was answered with words alone: its plan has steps and none of them
+ * makes the picture again (a caption, a headline, a hashtag). The picture is still this post's, so
+ * it is not "made for an older idea" and the month can be exported as it is.
+ */
+export function wordsOnlyNote(post: Pick<Post, "clientNote" | "clientSteps">): boolean {
+  const s = post.clientSteps;
+  return !!post.clientNote && !!s && s.at === post.clientNote.at && s.steps.length > 0 && !s.steps.some((x) => x.tool === "remake");
 }
 
 /** A picture's lineage, as the task row records it. */
@@ -1954,7 +1968,7 @@ export interface Lineage {
 }
 
 /** The picture was made for an earlier revision of this post's idea (never guessed from timestamps). */
-export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "tile"> & { source?: Post["source"] }, config: RevisionConfig | null | undefined): boolean {
+export function olderIdea(task: Lineage | null | undefined, post: Pick<Post, "ideaAt" | "reference" | "clientNote" | "clientSteps" | "tile"> & { source?: Post["source"] }, config: RevisionConfig | null | undefined): boolean {
   // A media card's picture is the client's own file: there is no idea for it to be older than.
   if (post.source === "media") return false;
   return !!task?.output && task.made_for != null && task.made_for < postRevision(post, config);

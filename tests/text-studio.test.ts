@@ -34,6 +34,7 @@ import { resolveOverlay, type OverlaySpec, type PostOverlayPatch } from "../shar
 vi.mock("../src/lib/fonts", () => ({
   ensureFont: async () => undefined,
   loadFont: async () => undefined,
+  fontsSettled: async () => undefined,
   fontStack: (f: string) => `"${f}", sans-serif`,
   ARABIC: /[؀-ۿ]/,
 }));

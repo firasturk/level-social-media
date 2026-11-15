@@ -80,12 +80,16 @@ export async function convertImage(
 /** Largest ZIP part the export produces; a bigger export is split into part1, part2, … */
 export const PART_MAX = 1_400_000_000;
 
+/** Longest wait for one file of the export. */
+const FETCH_TIMEOUT = 60_000;
+
 /** One file prepared for the archive: its bytes, after any conversion. */
 async function prepare(entry: ZipEntry): Promise<Uint8Array> {
   let blob = entry.blob;
   if (!blob) {
-    const r = await fetch(entry.url ?? "", { credentials: "same-origin" });
-    if (!r.ok) throw new Error(`Could not download ${entry.name}. Retry export.`);
+    // A file that never answers must not hold the export for ever: a minute, then a clear message.
+    const r = await fetch(entry.url ?? "", { credentials: "same-origin", signal: AbortSignal.timeout(FETCH_TIMEOUT) }).catch(() => null);
+    if (!r?.ok) throw new Error(`Could not download ${entry.name}. Check the connection and press Export again.`);
     blob = await r.blob();
   }
   if (entry.convert) {
@@ -134,11 +138,15 @@ class ZipPart {
 
 /**
  * Builds the export as one or more ZIP files, each at most `partMax` bytes, split at product
- * folders (see shared/zip-parts.ts). Files are fetched and converted first, then packed.
+ * folders (see shared/zip-parts.ts). Files are fetched and converted first, then packed;
+ * `onProgress` hears each file as it is ready.
  */
-export async function buildZips(entries: ZipEntry[], partMax = PART_MAX): Promise<Blob[]> {
+export async function buildZips(entries: ZipEntry[], partMax = PART_MAX, onProgress?: (done: number, total: number) => void): Promise<Blob[]> {
   const data: Uint8Array[] = [];
-  for (const e of entries) data.push(await prepare(e));
+  for (const e of entries) {
+    data.push(await prepare(e));
+    onProgress?.(data.length, entries.length);
+  }
   const plan = splitIntoParts(
     entries.map((e, i) => ({ name: e.name, size: data[i].length })),
     partMax,
@@ -167,6 +175,11 @@ export function saveBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  // In the page while it is clicked: some browsers ignore a click on a link that is not in the document.
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  a.remove();
+  // Long enough for a large file to start saving on a slow computer.
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }

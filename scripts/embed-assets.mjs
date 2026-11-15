@@ -1,6 +1,7 @@
 // Embeds the built client (dist/client) into the Worker bundle so `wrangler deploy`
 // needs no separate asset upload. Also writes wrangler.deploy.json without the
-// `assets` block, which is only used by the Vite dev server.
+// `assets` block, which is only used by the Vite dev server, and wrangler.preview.json
+// for the preview worker.
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, extname } from "node:path";
 
@@ -53,6 +54,33 @@ const cfg = JSON.parse(jsonc);
 delete cfg.assets;
 delete cfg.$schema;
 writeFileSync(join(root, "wrangler.deploy.json"), JSON.stringify(cfg, null, 2) + "\n");
+
+// The preview worker (studio-preview): the same code on its own database and bucket, with no
+// pictures made and no schedule. Written here so a fresh checkout can deploy it; its settings
+// mirror the live worker's (checked against the Cloudflare API on 15 Nov 2026).
+const preview = {
+  ...cfg,
+  name: "studio-preview",
+  triggers: { crons: [] },
+  d1_databases: [
+    {
+      binding: "DB",
+      database_name: "level-social-media-preview",
+      database_id: "87ba8dc6-3053-4051-9d28-0a8a875e5f01",
+      migrations_dir: "migrations",
+    },
+  ],
+  r2_buckets: [{ binding: "BUCKET", bucket_name: "level-social-media-preview" }],
+  vars: {
+    HIGGSFIELD_MODEL: cfg.vars.HIGGSFIELD_MODEL,
+    HIGGSFIELD_BASE_URL: cfg.vars.HIGGSFIELD_BASE_URL,
+    MAX_CONCURRENT_GENERATIONS: cfg.vars.MAX_CONCURRENT_GENERATIONS,
+    PREVIEW_NO_IMAGES: "1",
+    PUBLIC_BASE_URL: "https://studio-preview.max-fashion-studio.workers.dev",
+  },
+};
+delete preview.placement;
+writeFileSync(join(root, "wrangler.preview.json"), JSON.stringify(preview, null, 2) + "\n");
 console.log(
   `[embed] ${Object.keys(files).length} files, ${(size / 1024).toFixed(0)} KB base64 -> server/generated/assets.ts`,
 );

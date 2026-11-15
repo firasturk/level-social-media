@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Download, Ellipsis, Link2, MessageSquareReply, MessageSquareText, MessagesSquare, RotateCcw, UserPlus } from "lucide-react";
 import { formatUsd } from "@shared/pricing";
+import { Orb } from "@/components/Orb";
 import type { Post } from "@shared/posts";
 import type { Task } from "@shared/types";
 import type { Approval } from "@shared/config";
@@ -31,6 +32,7 @@ export default function StudioBoard({
   onMake,
   onExport,
   exporting,
+  exportNote,
   onClientLink,
   onDiscuss,
   onAssign,
@@ -57,6 +59,8 @@ export default function StudioBoard({
   onMake: () => void;
   onExport: () => void;
   exporting: boolean;
+  /** Where the export is while it runs ("3 of 6"), shown on the button. */
+  exportNote?: string;
   onClientLink: () => void;
   /** Team: the month's conversation (the client's channel) opens in the compact panel. */
   onDiscuss?: () => void;
@@ -126,8 +130,8 @@ export default function StudioBoard({
               <MessagesSquare size={14} /> Discuss this month
             </button>
           )}
-          <button type="button" className="cta secondary" onClick={onExport} disabled={!counts.made || exporting}>
-            <Download size={14} /> Export
+          <button type="button" className="cta secondary" onClick={onExport} disabled={!counts.existing || exporting} title={counts.existing ? "Download every picture of this month with its words, and the captions" : "Nothing to export yet: this month has no pictures"}>
+            {exporting ? <Orb size={14} /> : <Download size={14} />} {exporting ? (exportNote ?? "Exporting…") : "Export"}
           </button>
           <button type="button" className="cta secondary" onClick={onClientLink} title="Copy a link the client opens to approve the posts">
             <Link2 size={14} /> Client link

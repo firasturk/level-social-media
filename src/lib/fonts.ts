@@ -15,6 +15,15 @@ export function fontStack(family: string): string {
   return `${quoted}, Tajawal, Inter, sans-serif`;
 }
 
+/**
+ * Waits for the page's fonts, but never for ever: a font file that never answers (a blocked
+ * stylesheet, a slow network) must not hold an export or a render. After `ms` the text is drawn
+ * with whatever has loaded.
+ */
+export function fontsSettled(ms = 5000): Promise<void> {
+  return Promise.race([document.fonts.ready.then(() => undefined, () => undefined), new Promise<void>((r) => setTimeout(r, ms))]);
+}
+
 /** Loads an uploaded brand font once; hosted Google fonts come from the stylesheet in index.html. */
 export function loadFont(name: string, url: string): Promise<void> {
   const key = `${name}|${url}`;

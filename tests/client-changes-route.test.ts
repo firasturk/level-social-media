@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fakeEnv } from "./support/fakes";
 import { guardFetch, type Reached } from "./support/paid-guard";
 import { postConfig, type Approval } from "../shared/config";
-import type { Post } from "../shared/posts";
+import { olderIdea, type Post } from "../shared/posts";
 import type { User } from "../shared/types";
 import { StudioError } from "../server/errors";
 import { clientComments } from "../server/posts";
@@ -114,11 +114,15 @@ describe("Do client comments", () => {
     const env = await seed();
     const { preview } = (await (await send(env, { batch: "b1", preview: true })).json()) as { preview: { change: { steps: { tool: string }[] } }[] };
     expect(preview[0].change.steps.map((s) => s.tool)).toEqual(["rewrite", "carousel-camera"]);
+    const ideaBefore = (await configOf(env)).plan.find((p) => p.index === 1)!.ideaAt;
     const r = (await (await send(env, { batch: "b1", changes: [preview[0].change] })).json()) as { indexes: number[]; remake: number[] };
     expect(r.indexes).toEqual([1]);
     expect(r.remake).toEqual([]);
     const p1 = (await configOf(env)).plan.find((p) => p.index === 1)!;
     expect(p1.clientSteps?.steps.map((s) => s.tool)).toEqual(["rewrite", "carousel-camera"]);
+    // No step makes the picture again: the idea keeps its stamp and a picture made for it stays current (Export stays open).
+    expect(p1.ideaAt).toBe(ideaBefore);
+    expect(olderIdea({ output: "o", made_for: ideaBefore ?? 0 }, p1, {})).toBe(false);
   });
 
   it("drops a step naming a tool the studio does not have, from a proposal sent back", async () => {
@@ -126,6 +130,8 @@ describe("Do client comments", () => {
     const { preview } = (await (await send(env, { batch: "b1", preview: true })).json()) as { preview: { change: Record<string, unknown> }[] };
     const r = (await (await send(env, { batch: "b1", changes: [{ ...preview[0].change, steps: [{ tool: "photoshop", what: "x" }, { tool: "remake", what: "new" }] }] })).json()) as { remake: number[] };
     expect(r.remake).toEqual([1]);
+    // A plan that makes the picture again is a new revision: the picture made before it is due again.
+    expect(olderIdea({ output: "o", made_for: 1 }, (await configOf(env)).plan.find((p) => p.index === 1)!, {})).toBe(true);
     expect((await configOf(env)).plan.find((p) => p.index === 1)!.clientSteps?.steps).toEqual([{ tool: "remake", what: "new" }]);
   });
 

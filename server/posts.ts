@@ -6400,16 +6400,20 @@ postRoutes.post("/client-changes", async (c) => {
     if (!ch || !ask) return p;
     const product = ch.product ? (imported.get(ch.product) ?? matchProduct(ch.product, names) ?? ch.product) : undefined;
     done.push({ index: p.index, summary: ch.summary });
+    // Words alone (a caption, a headline): the picture is still this post's, so its idea keeps its
+    // stamp and the picture is not marked "made for an older idea". Only a plan that makes the
+    // picture again is a new revision.
+    const remakes = plansRemake(ch);
     return {
       ...p,
       ...(product && p.type !== "offer" ? { product } : {}),
       brief: ch.brief,
       ...(ch.scene ? { scene: ch.scene } : {}),
+      ...(remakes ? { ideaAt: t } : {}),
       headline: ch.headline || p.headline,
       caption: ch.caption,
       hashtags: ch.hashtags,
       captionHand: true,
-      ideaAt: t,
       clientNote: { note: ask.note, at: t, summary: ch.summary || undefined },
       clientNotes: [...(p.clientNotes ?? []), ...clientComments(cfg.approvals?.[String(p.index)]).map((x) => ({ ...x, done: t, summary: ch.summary || undefined }))].slice(-20),
       ...(ch.steps?.length ? { clientSteps: { at: t, steps: ch.steps } } : {}),

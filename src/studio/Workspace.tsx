@@ -274,6 +274,8 @@ function StudioWorkspace({
   const [clientPreview, setClientPreview] = useState<ClientChangePreview[] | null>(null);
   const [busy, setBusy] = useState("");
   const [exporting, setExporting] = useState(false);
+  /** Where the running export is ("3 of 6", "Packing 40%"), shown on the Export button. */
+  const [exportNote, setExportNote] = useState("");
   const [acting, setActing] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
   /** The review dialog asks for the Text studio on a post: the plan view opens it. */
@@ -1202,9 +1204,11 @@ function StudioWorkspace({
       return;
     }
     setExporting(true);
+    setExportNote(`0 of ${ready.length}`);
     try {
       const entries: ZipEntry[] = [];
       for (const t of ready) {
+        setExportNote(`${ready.indexOf(t) + 1} of ${ready.length}`);
         const p = plan.find((x) => x.index === t.post);
         const withText =
           overlaySpec.template !== "none" && p?.overlay !== false && !!(p?.headline || p?.subline || logoSrc);
@@ -1238,12 +1242,14 @@ function StudioWorkspace({
         name: `${client.slug}_${month}_captions.csv`,
         url: `/api/studio/posts/captions.csv?batch=${encodeURIComponent(batch.id)}`,
       });
-      await saveZips(await buildZips(entries), `${client.slug}_${month}`);
-      toast.success(`${ready.length} posts exported with captions.csv.`);
+      const zips = await buildZips(entries, undefined, (done, total) => setExportNote(`Packing ${Math.round((done / total) * 100)}%`));
+      await saveZips(zips, `${client.slug}_${month}`);
+      toast.success(`${ready.length} posts exported with captions.csv. The ZIP is in your Downloads folder.`);
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(`Export stopped: ${(e as Error).message || "something went wrong"}. Nothing was changed; press Export again.`, { duration: 15000 });
     } finally {
       setExporting(false);
+      setExportNote("");
     }
   }
 
@@ -2112,6 +2118,7 @@ function StudioWorkspace({
                   onMake={toPlan}
                   onExport={() => void exportMonth()}
                   exporting={exporting}
+                  exportNote={exportNote || undefined}
                   onClientLink={() => void shareMonth()}
                   onDiscuss={batch ? discussMonth : undefined}
                   onAssign={user.role === "admin" ? () => setAssignOpen(true) : undefined}
@@ -2131,16 +2138,16 @@ function StudioWorkspace({
                       <button type="button" onClick={() => setToolsOpen((o) => !o)}>
                         {toolsOpen ? "Hide the month tools" : "Month tools (upload, ideas, grid, overlay, typography, PDF)"}
                       </button>
-                      <button type="button" onClick={() => void whatsAppMonth()} disabled={!counts.made}>
+                      <button type="button" onClick={() => void whatsAppMonth()} disabled={!counts.existing}>
                         Send the client link on WhatsApp
                       </button>
-                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.made || exporting}>
+                      <button type="button" onClick={() => void exportFeedPdf()} disabled={!counts.existing || exporting}>
                         Feed PDF
                       </button>
-                      <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.made}>
+                      <button type="button" onClick={() => setDeliverOpen(true)} disabled={!counts.existing}>
                         Deliver to the client&apos;s Drive…
                       </button>
-                      <button type="button" onClick={() => setScheduleApproved(true)} disabled={!counts.made}>
+                      <button type="button" onClick={() => setScheduleApproved(true)} disabled={!counts.existing}>
                         Schedule the approved posts…
                       </button>
                       <button type="button" onClick={() => document.getElementById("plan-upload-products")?.click()}>

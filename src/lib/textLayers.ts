@@ -7,7 +7,7 @@
 import type { CanvasFx, Fill, ImageLayer, LogoLayer, RunStyle, ShapeLayer, TextDesign, TextLayer } from "@shared/layers";
 import { ARABIC_RE, applyCase, directionRuns, isTextLayer, paragraphDirection, segmentsOf } from "@shared/layers";
 import { cleanColorMap, recolorSvg } from "@shared/svg-colors";
-import { ensureFont, fontStack } from "./fonts";
+import { ensureFont, fontStack, fontsSettled } from "./fonts";
 
 /** Where a layer's box landed, in canvas pixels, before rotation (cx, cy is the pivot). */
 export interface LayerBox {
@@ -208,7 +208,7 @@ export async function loadDesignFonts(design: TextDesign): Promise<void> {
     }
   }
   await Promise.all(jobs);
-  await document.fonts.ready;
+  await fontsSettled();
 }
 
 function layoutLayer(ctx: Ctx, layer: TextLayer, W: number, scale = 1): Layout {
