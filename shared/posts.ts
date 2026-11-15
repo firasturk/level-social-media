@@ -534,15 +534,22 @@ export function photoRules(text: string | undefined): string {
  * plain "No a, b or c" list loses only its layout items. A list whose last item is a layout item
  * stays dropped whole: its closing words ("… in the background") belong to every item.
  */
+/** A clause that is a rule by itself, whatever came before it. */
+const OWN_RULE = /^(?:no|never|avoid|without|always|keep|use|do not|don't)\b/i;
+
 function photoRuleLine(line: string): string {
   if (!line || !LAYOUT_RULE.test(line)) return line;
   const clauses = line.split(/\s*;\s*|,\s+(?=(?:no|never|avoid|without)\b)/i).map((c) => c.trim().replace(/[.;]+$/, "")).filter(Boolean);
   const kept: string[] = [];
+  // A clause that follows a dropped one stands only when it is a rule of its own ("no prices on
+  // artwork"); "when it appears it is the exact shape" speaks of the logo that was just left out.
+  let droppedBefore = false;
   for (const clause of clauses) {
     if (!LAYOUT_RULE.test(clause)) {
-      kept.push(clause);
+      if (!droppedBefore || OWN_RULE.test(clause)) kept.push(clause);
       continue;
     }
+    droppedBefore = true;
     const list = /^no\s+(.+)$/i.exec(clause);
     if (!list) continue;
     const items = list[1].split(/\s*,\s*|\s+or\s+/i).map((x) => x.trim()).filter(Boolean);
@@ -550,6 +557,7 @@ function photoRuleLine(line: string): string {
     const photo = items.filter((x) => !LAYOUT_RULE.test(x));
     if (!photo.length) continue;
     kept.push(`No ${photo.length > 1 ? `${photo.slice(0, -1).join(", ")} or ${photo[photo.length - 1]}` : photo[0]}`);
+    droppedBefore = false;
   }
   return kept.map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join("; ");
 }

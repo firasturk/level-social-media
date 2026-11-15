@@ -83,5 +83,9 @@ describe("the client's rules for the photograph", () => {
     // The closing words belong to every item: the line is dropped whole, as before, not cut to "No people".
     expect(photoRules("No people or logos in the background")).toBe("");
     expect(photoRules("Warm morning light\nNo plastic cups")).toBe("Warm morning light\nNo plastic cups");
+    // A clause that speaks of the logo just left out goes with it; a rule of its own after it stays.
+    expect(photoRules("Never redraw the logo; when it appears in the world it is the exact lens-and-bar shape")).toBe("");
+    expect(photoRules("Never redraw the logo; no plastic cups")).toBe("No plastic cups");
+    expect(photoRules("Warm light; soft shade under the cup")).toBe("Warm light; soft shade under the cup");
   });
 });

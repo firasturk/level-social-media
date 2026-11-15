@@ -213,7 +213,7 @@ const BLOCK_COLOURS = 6;
 
 /** ALWAYS lines that say how people look and dress: the only part of the ALWAYS list an added person or a clip must follow. */
 const DRESS_RULE = /\b(modest\w*|hijabs?|abayas?|headscar(?:f|ves)|veils?|niqabs?|covered|sleeves?|cloth(?:es|ing)|dress(?:ed|es)?|wears?|wearing|outfits?|swimwear|skin)\b/i;
-const PEOPLE_RULE = /\b(people|persons?|m[ae]n|wom[ae]n|girls?|boys?|child(?:ren)?|kids?|famil(?:y|ies)|models?|ambassadors?|faces?|hands?)\b/i;
+const PEOPLE_RULE = /\b(people|persons?|m[ae]n|wom[ae]n|girls?|boys?|child(?:ren)?|kids?|famil(?:y|ies)|models?|ambassadors?|faces?)\b/i;
 
 const LANGUAGE_NAMES: Record<string, string> = { ar: "Arabic", en: "English", both: "Arabic and English" };
 
