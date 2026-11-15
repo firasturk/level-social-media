@@ -42,6 +42,8 @@ import type { Config } from "@shared/config";
 import { PHOTO_LAB_PRICES, type PhotoLabOp } from "@shared/pricing";
 import { freeName } from "@shared/drive";
 import { stemKey } from "@shared/naming";
+import { stripBrandBlock } from "@shared/brandMemory";
+import { withClientBrand } from "./brand-block";
 
 /* ───────────── Provider constants: every Freepik path in one place ───────────── */
 
@@ -272,6 +274,7 @@ const extOf = (mime: string) => (/jpe?g/i.test(mime) ? "jpg" : /webp/i.test(mime
 /** The job as the UI reads it: its images by route, and the demo label when no key was connected. */
 export function jobJson(j: JobRow) {
   const base = `/api/studio/photolab/jobs/${j.id}/image`;
+  const typed = stripBrandBlock(j.prompt);
   return {
     id: j.id,
     client: j.client,
@@ -279,7 +282,10 @@ export function jobJson(j: JobRow) {
     post: j.post,
     op: j.op,
     opLabel: OP_LABELS[j.op],
+    // What was sent, whole: the typed words and, after them, the client's brand limits.
     prompt: j.prompt,
+    typed,
+    brand: j.prompt.slice(typed.length).trim(),
     inputLabel: j.input_label,
     status: j.status,
     provider: j.provider,
@@ -413,11 +419,14 @@ const sourceSchema = z.discriminatedUnion("kind", [
 ]);
 type Source = z.infer<typeof sourceSchema>;
 
+/** The longest words the lab sends: what the route accepts. The typed words and the brand limits share it. */
+export const PHOTO_LAB_PROMPT_MAX = 1000;
+
 const runSchema = z.object({
   client: z.string().min(1).max(120),
   source: sourceSchema,
   op: z.enum(PHOTO_LAB_OPS),
-  prompt: z.string().max(1000).optional(),
+  prompt: z.string().max(PHOTO_LAB_PROMPT_MAX).optional(),
 });
 
 export interface Picked {
@@ -512,7 +521,11 @@ photoLabRoutes.post("/run", async (c) => {
 
 /** A confirmed Photo lab run: the input stored, the job row written, one submission, the ledger closed on refusal. */
 export async function runPhotoLabJob(env: Env, d: PhotoLabRun, picked: Picked, lab: ResolvedPhotoLab, cost: number, opId: string): Promise<JobRow> {
-  const prompt = (d.prompt ?? "").trim();
+  // The typed words, then the client's brand limits (15 Nov 2026: an edit used to know nothing about
+  // the client). Only the two tools that read words; a relight gets no colour list, which would tint its light.
+  const typed = (d.prompt ?? "").trim();
+  const words = d.op === "background" || d.op === "relight";
+  const { text: prompt, block: brand } = words ? await withClientBrand(env, d.client, typed, "edit", PHOTO_LAB_PROMPT_MAX, { batch: picked.batch, colours: d.op !== "relight" }) : { text: typed, block: "" };
   const id = uuid();
   const inputKey = `photolab/${id}-in.${extOf(picked.image.mime)}`;
   await env.BUCKET.put(inputKey, picked.image.bytes, { httpMetadata: { contentType: picked.image.mime } });
@@ -539,7 +552,7 @@ export async function runPhotoLabJob(env: Env, d: PhotoLabRun, picked: Picked, l
     // One submission: a failure stands (no retry pays twice, no other provider stands in).
     const task = await noRetry(() => lab.provider.submit(d.op, { url, bytes: picked.image.bytes, mime: picked.image.mime }, prompt));
     await run(env.DB, "UPDATE photolab_jobs SET status = 'running', provider_task = ?, updated = ? WHERE id = ?", task.taskId, now(), id);
-    await updateIntegrationOp(env, opId, { status: "running", taskId: task.taskId, note: `Job ${id}` });
+    await updateIntegrationOp(env, opId, { status: "running", taskId: task.taskId, note: `Job ${id}${brand ? ` · the client's brand limits sent after the typed words (${brand.length} characters)` : ""}` });
     job = await jobById(env, id);
     if (task.state === "done") job = await finish(env, job, task, fetcher());
     else if (task.state === "failed") job = await fail(env, job, task.error ?? "The provider refused the picture.");

@@ -30,11 +30,12 @@ import { first, uuid } from "./db";
 import { setSetting } from "./settings";
 import { readJsonSetting } from "./oauth-signin";
 import { ownedPlan } from "./posts";
+import { withBrandOnInputs } from "./brand-block";
 import { teamMayRun, assertIntegrationEnabled, claimSubmission, integrationAccess, recordIntegrationOp, requireIntegrationUser, switchedOffMessage, updateIntegrationOp } from "./integrations";
 import { balanceOf, fetcher, HiggsfieldMcp, higgsfieldSignIn, MCP_PROVIDER, mediaFor, NOT_SIGNED_IN, parseJobs, submitMcpVideo, TEMPLATE_MODEL, unlimChoiceIn } from "./higgsfield-mcp";
 import { CLOUD_CHOSEN, higgsfieldBilling } from "./higgsfield-billing";
 import { findNumber, findValue, jsonOf, objectsWith, resultText, type McpCallResult } from "./mcp-client";
-import { insertVideoRow, sha256, versionItem, type VideoItem } from "./video";
+import { brandNote, insertVideoRow, sha256, versionItem, VIDEO_PROMPT_MAX, type VideoItem } from "./video";
 import { EXECUTABLE_SOURCES, STUDIO_V2_SOURCE, STUDIO_V2_VIDEO_TYPES, isPresetCategory, isVideoFromPictureRecipe, keepCard, NOTHING_IN_CATEGORY, outputKind, PRESET_CATEGORIES, type PresetCard, type PresetCategoryId, type PresetDetail } from "@shared/video-presets";
 import type { User } from "@shared/types";
 
@@ -757,7 +758,9 @@ export async function runPreset(env: Env, user: User, d: PresetRunInput): Promis
   await mcp.requireTool("execute_preset");
   const detail = await fetchDetail(mcp, d.presetId, d.source);
   if (!detail.runnable) throw new StudioError(`"${detail.title}" cannot be run from here${detail.available === false ? " (Higgsfield says it is not available)" : ""}.`, 409, false, { notRunnable: true });
-  const inputs: Record<string, unknown> = { ...d.inputs };
+  // The words typed into the preset, then the client's brand rules; the version keeps the words as typed.
+  const branded = await withBrandOnInputs(env, b, d.inputs, "video", VIDEO_PROMPT_MAX);
+  const inputs: Record<string, unknown> = { ...branded.inputs };
   const field = imageInputOf(detail.inputSchema);
   let mediaId: string | null = null;
   if (field && inputs[field.name] === undefined) {
@@ -778,7 +781,7 @@ export async function runPreset(env: Env, user: User, d: PresetRunInput): Promis
     post: d.index,
     estimate: credits,
     status: "confirmed",
-    note: `Preset "${detail.title}" (${d.source}${detail.command ? ` ${detail.command}` : ""}) · ${credits ?? "unknown"} credits (subscription, MCP)${credits === null ? " · cost unknown, confirmed" : ""}${bal.credits !== null ? ` · balance before ${bal.credits}` : ""}${d.note ? ` · ${d.note}` : ""}`,
+    note: `Preset "${detail.title}" (${d.source}${detail.command ? ` ${detail.command}` : ""}) · ${credits ?? "unknown"} credits (subscription, MCP)${credits === null ? " · cost unknown, confirmed" : ""}${bal.credits !== null ? ` · balance before ${bal.credits}` : ""}${d.note ? ` · ${d.note}` : ""}${brandNote(branded.block)}`,
   });
   const id = uuid();
   const base = {
@@ -794,7 +797,7 @@ export async function runPreset(env: Env, user: User, d: PresetRunInput): Promis
     source: "picture" as const,
     opId,
   };
-  const settings = { preset: { id: d.presetId, name: detail.title, source: d.source, command: detail.command }, label: `Preset · ${detail.title}`, inputs: d.inputs, estimate: credits, credits, estimateSource: credits === null ? "confirmed" : "provider", unit: "credits", balanceBefore: bal.credits, plan: bal.plan, note: d.note, outcomeUnknown: false, jobIds: [] as string[] };
+  const settings = { ...(branded.block ? { brand: branded.block } : {}), preset: { id: d.presetId, name: detail.title, source: d.source, command: detail.command }, label: `Preset · ${detail.title}`, inputs: d.inputs, estimate: credits, credits, estimateSource: credits === null ? "confirmed" : "provider", unit: "credits", balanceBefore: bal.credits, plan: bal.plan, note: d.note, outcomeUnknown: false, jobIds: [] as string[] };
   let r: McpCallResult;
   try {
     r = await mcp.call("execute_preset", { source: d.source, preset_id: d.presetId, inputs });

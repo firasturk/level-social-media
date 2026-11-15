@@ -23,6 +23,7 @@ import { MCP_URL as MAGNIFIC_URL, useMcpFetch } from "../server/freepik-mcp";
 import { MAGNIFIC_PROVIDER, parseCreations, parseIdentifiers, parseVideoModels, resetMagnificVideoCaches } from "../server/video-magnific";
 import { setSetting, FREEPIK_MCP_TOKEN_SETTING, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "../server/settings";
 import { setIntegrationSwitch } from "../server/integrations";
+import { blocksIn, COLOUR, EDIT_LABEL, giveKit, NEVER, VIDEO_LABEL } from "./support/brand-kit";
 
 type FakeEnv = ReturnType<typeof fakeEnv>;
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -89,6 +90,8 @@ function magnificStub(opts: MagnificOptions = {}) {
     { name: "video_upscale", inputSchema: { type: "object", properties: { mode: {}, creationIdentifier: {}, videoUrl: {} } } },
     { name: "video_color_grade", inputSchema: { type: "object", properties: { creationIdentifier: {}, lutId: {}, intensity: {}, adjustments: {} } } },
     { name: "video_hdr", inputSchema: { type: "object", properties: { creationIdentifier: {} } } },
+    { name: "video_relight", inputSchema: { type: "object", properties: { creationIdentifier: {}, prompt: {} } } },
+    { name: "video_music", inputSchema: { type: "object", properties: { creationIdentifier: {}, prompt: {} } } },
     { name: "video_luts_list", inputSchema: { type: "object", properties: {} } },
     { name: "creations_request_upload", inputSchema: { type: "object", properties: { fileName: {}, contentType: {}, size: {} } } },
     { name: "creations_finalize_upload", inputSchema: { type: "object", properties: { identifier: {} } } },
@@ -131,7 +134,7 @@ function magnificStub(opts: MagnificOptions = {}) {
     if (name === "creations_upload_file") return text(b.id, { creation: { identifier: "cr_up_link", status: "ready" } });
     if (name === "creations_request_upload") return text(b.id, { uploadUrl: "https://upload.test/put/1", identifier: "up_1" });
     if (name === "creations_finalize_upload") return text(b.id, { creation: { identifier: "cr_up_1", status: "ready" } });
-    if (name === "video_upscale" || name === "video_color_grade" || name === "video_hdr") return text(b.id, { identifier: `cr_${name}_1`, status: "queued" });
+    if (name === "video_upscale" || name === "video_color_grade" || name === "video_hdr" || name === "video_relight" || name === "video_music") return text(b.id, { identifier: `cr_${name}_1`, status: "queued" });
     return text(b.id, `no such tool ${name}`, true);
   };
   return { fn, rpc, puts };
@@ -472,5 +475,65 @@ describe("Higgsfield: tools on a clip and the Check panel", () => {
     expect(stub.rpc.find((x) => x.name === "video_analysis_status")?.args).toEqual({ analysis_id: "an_1" });
     const checkOps = (await ops(env)).results.filter((o) => o.kind === "video.check");
     expect(checkOps.map((o) => o.status)).toEqual(["done", "done"]);
+  });
+});
+
+describe("the client's brand rules on Magnific", () => {
+  const generate = (env: FakeEnv, body: Record<string, unknown> = {}) => postJson(app(), env, "/api/studio/video/magnific/generate", { batch: "b1", index: 1, slug: "kling-v2-1-master", prompt: "The cup turns slowly", duration: 5, confirm: true, ...body });
+  const words = (stub: ReturnType<typeof magnificStub>, tool = "video_generate") => stub.rpc.filter((x) => x.name === tool).map((x) => x.args?.prompt as string | undefined);
+
+  async function withKit() {
+    const env = await seed();
+    await giveKit(env);
+    await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
+    return env;
+  }
+
+  it("a clip: the simulated cost and the run carry the idea as typed, then a never-rule and the brand colours; the version keeps them apart", async () => {
+    const env = await withKit();
+    const stub = magnificStub();
+    useMcpFetch(stub.fn);
+    const go = (await json(await generate(env))) as { video: { id: string; prompt: string; brand: string } };
+    const [sent] = words(stub);
+    expect(sent!.startsWith(`The cup turns slowly\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).toContain(COLOUR);
+    expect(blocksIn(sent)).toBe(1);
+    expect((stub.rpc.find((x) => x.name === "simulate_cost")!.args!.arguments as Record<string, unknown>).prompt).toBe(sent);
+    expect(go.video.prompt).toBe("The cup turns slowly");
+    expect(go.video.brand).toBe(sent!.slice("The cup turns slowly".length).trim());
+    expect(JSON.parse((await env.DB.prepare("SELECT settings FROM videos WHERE id = ?").bind(go.video.id).first<{ settings: string }>())!.settings).brand).toBe(go.video.brand);
+    expect((await ops(env)).results.find((o) => o.kind === "video.generate")!.note).toMatch(/Kling 2\.1 Master/);
+    // The sent text typed back in: one block, the same text. No idea: no words at all.
+    await generate(env, { prompt: sent });
+    expect(words(stub)[1]).toBe(sent);
+    await generate(env, { prompt: "" });
+    expect(words(stub)[2]).toBeUndefined();
+  });
+
+  it("a clip for a client with an empty kit is sent the idea alone", async () => {
+    const env = await seed();
+    await setSetting(env, FREEPIK_MCP_TOKEN_SETTING, MAGNIFIC_TOKEN);
+    const stub = magnificStub();
+    useMcpFetch(stub.fn);
+    await generate(env);
+    expect(words(stub)).toEqual(["The cup turns slowly"]);
+  });
+
+  it("the relight of a clip: its words are followed by the limits without the colour list; the tools with no words get none", async () => {
+    const env = await withKit();
+    const stub = magnificStub();
+    useMcpFetch(stub.fn);
+    const enhance = (body: Record<string, unknown>) => postJson(app(), env, "/api/studio/video/magnific/enhance", { batch: "b1", videoId: "v1", confirm: true, ...body });
+    expect((await enhance({ tool: "video_relight", arguments: { prompt: "warm evening light" } })).status).toBe(200);
+    const [sent] = words(stub, "video_relight");
+    expect(sent!.startsWith(`warm evening light\n\n${EDIT_LABEL}`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).not.toContain("#0042aa");
+    expect((await enhance({ tool: "video_hdr", arguments: {} })).status).toBe(200);
+    expect(stub.rpc.find((x) => x.name === "video_hdr")!.args).toEqual({ creationIdentifier: "cr_up_1" });
+    // The music's words describe sound: they go as typed.
+    expect((await enhance({ tool: "video_music", arguments: { prompt: "a soft oud loop" } })).status).toBe(200);
+    expect(words(stub, "video_music")).toEqual(["a soft oud loop"]);
   });
 });

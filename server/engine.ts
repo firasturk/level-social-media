@@ -54,7 +54,7 @@ async function lookAlike(env: Env, batch: BatchRow, task: TaskRow, phash: string
 }
 import { estimateCost } from "@shared/pricing";
 import { notify } from "./notify";
-import { rememberLessons } from "./lessons";
+import { lessonsFor, rememberLessons } from "./lessons";
 import { hashDistance, pictureHash, resizedPicture } from "./thumbs";
 import {
   StudioError,
@@ -2049,6 +2049,37 @@ function postBrief(task: TaskRow): PostBrief {
   return b as PostBrief;
 }
 
+/** The lines of a brief's `lessons` the team wrote and approved (brand rules, the month's and the post's instructions), as `memoryLine` writes them. */
+const TEAM_LINE = /^(Brand rule|This month|This post): /;
+
+/**
+ * A revise or a fix builds its prompt from the brief stored at the last generate, so a rule the
+ * client's kit or memory got since then was missing from it (15 Nov 2026). The brand's own fields
+ * (ALWAYS, NEVER, the image rules, the photography direction, the team's approved rules and
+ * instructions) are read again; the idea, the references, the palette and the review's lessons stay
+ * as stored. The brief is saved back, so what is stored is what was sent.
+ */
+async function freshBrandBrief(env: Env, batch: BatchRow, task: TaskRow): Promise<PostBrief> {
+  const pb = postBrief(task);
+  if (!batch.client) return pb;
+  const kit = await first<{ dos: string | null; donts: string | null; image_rules: string | null; photography: string | null }>(env.DB, "SELECT dos, donts, image_rules, photography FROM clients WHERE id = ?", batch.client);
+  if (!kit) return pb;
+  const next: PostBrief = { ...pb, always: kit.dos?.trim() || undefined, never: kit.donts?.trim() || undefined, rules: kit.image_rules?.trim() || undefined, photography: kit.photography?.trim() || undefined };
+  // A memory that cannot be read leaves the stored lines as they are.
+  const memory = await lessonsFor(env, batch.client, { batch: batch.id, post: task.post ?? undefined }).catch(() => null);
+  if (memory) {
+    const lessons = [...memory.filter((l) => TEAM_LINE.test(l)), ...(pb.lessons ?? []).filter((l) => !TEAM_LINE.test(l))];
+    if (lessons.length) next.lessons = lessons;
+    else delete next.lessons;
+  }
+  const stored = JSON.stringify(next);
+  if (stored !== JSON.stringify(pb)) {
+    task.brief = stored;
+    await run(env.DB, "UPDATE tasks SET brief = ? WHERE id = ?", stored, task.id);
+  }
+  return next;
+}
+
 export const DIRECTION_RULES_SETTING = "direction_rules";
 
 /** The Creative direction fixed rules as the team keeps them (defaults until they edit). */
@@ -2096,7 +2127,7 @@ async function promptFor(
       { scene: plan?.scene, pose: plan?.poseNotes },
     );
   } else if (config.mode === "post") {
-    prompt = buildPostPrompt(postBrief(task), edit, roles);
+    prompt = buildPostPrompt(edit.trim() ? await freshBrandBrief(env, batch, task) : postBrief(task), edit, roles);
   } else if (SKILL_MODES.has(config.mode)) {
     const brief = await ensureBrief(env, batch, config, task, source);
     const stored = source.framing?.split("|") ?? [];

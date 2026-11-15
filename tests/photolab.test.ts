@@ -5,7 +5,9 @@ import { guardFetch, type Reached } from "./support/paid-guard";
 import { postConfig } from "../shared/config";
 import { PHOTO_LAB_PRICES } from "../shared/pricing";
 import type { User } from "../shared/types";
-import { FREEPIK, FreepikClient, NOT_CONNECTED, photoLabRoutes, usePhotoLabFetch, type JobJson } from "../server/photolab";
+import { FREEPIK, FreepikClient, NOT_CONNECTED, PHOTO_LAB_PROMPT_MAX, photoLabRoutes, usePhotoLabFetch, type JobJson } from "../server/photolab";
+import { promptboxTools } from "../server/promptbox-tools";
+import { blocksIn, BRAND_RULE, COLOUR, EDIT_LABEL, giveBrandRule, giveKit, NEVER } from "./support/brand-kit";
 import { FREEPIK_KEY_SETTING, setSetting } from "../server/settings";
 import { StudioError } from "../server/errors";
 
@@ -305,6 +307,106 @@ describe("using a result", () => {
     const versions = await env.DB.prepare("SELECT label, outputs FROM month_versions WHERE batch = 'b1' AND kind = 'snapshot'").all<{ label: string; outputs: string }>();
     expect(versions.results).toEqual([{ label: "Post 1 before the Photo lab", outputs: JSON.stringify({ "1": "u1/b1/output/t1/a.png" }) }]);
     expect(await env.BUCKET.head(a.key)).toBeTruthy();
+    expect(reached).toEqual([]);
+  });
+});
+
+describe("the client's brand limits on a Photo lab edit", () => {
+  const sentPrompt = (calls: { url: string; init?: RequestInit }[], n = 0) => JSON.parse(String(calls.filter((c) => c.url === `${FREEPIK.base}${FREEPIK.relight}`)[n].init?.body)).prompt as string;
+  const opNotes = async (env: FakeEnv) => (await env.DB.prepare("SELECT note FROM integration_ops ORDER BY created, rowid").all<{ note: string }>()).results.map((r) => r.note);
+
+  async function withKit() {
+    const env = await connected();
+    await giveKit(env);
+    await giveBrandRule(env);
+    return env;
+  }
+
+  it("replace background: the typed words first, then a never-rule, the approved brand rule and the brand colours; the job shows what was sent", async () => {
+    const env = await withKit();
+    const { stub, calls } = freepikStub();
+    usePhotoLabFetch(stub);
+    const typed = "a marble counter in soft morning light";
+    const d = await runJob(env, { op: "background", prompt: typed });
+    const sent = sentPrompt(calls);
+    expect(sent.startsWith(`${typed}\n\n${EDIT_LABEL} (keep everything not named above exactly as it is; these apply only to what is added or changed):\n`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).toContain(COLOUR);
+    expect(sent).toContain(`- Brand rule: ${BRAND_RULE}.`);
+    expect(blocksIn(sent)).toBe(1);
+    // The row holds the whole text that was sent; the job gives the typed words and the limits apart as well.
+    expect(d.job.prompt).toBe(sent);
+    expect(d.job.typed).toBe(typed);
+    expect(d.job.brand).toBe(sent.slice(typed.length).trim());
+    expect((await opNotes(env)).some((n) => n.includes("the client's brand limits sent after the typed words"))).toBe(true);
+    expect(reached).toEqual([]);
+  });
+
+  it("relight: the limits without the colour list; a relight with no words is sent no words", async () => {
+    const env = await withKit();
+    const { stub, calls } = freepikStub();
+    usePhotoLabFetch(stub);
+    await runJob(env, { op: "relight", prompt: "warm evening light from the left" });
+    expect(sentPrompt(calls)).toContain(NEVER);
+    expect(sentPrompt(calls)).not.toContain("#0042aa");
+    const bare = await runJob(env, { op: "relight" });
+    expect(sentPrompt(calls, 1)).toBe("");
+    expect(bare.job).toMatchObject({ prompt: "", typed: "", brand: "" });
+    expect(reached).toEqual([]);
+  });
+
+  it("remove background and upscale take no words and get none", async () => {
+    const env = await withKit();
+    const { stub, calls } = freepikStub();
+    usePhotoLabFetch(stub);
+    const bg = await runJob(env, { op: "remove-bg", prompt: "ignored words" });
+    const up = await runJob(env, { op: "upscale" });
+    expect(blocksIn(calls.map((c) => String(c.init?.body ?? "")).join("\n"))).toBe(0);
+    expect([bg.job.brand, up.job.brand]).toEqual(["", ""]);
+    expect(bg.job.prompt).toBe("ignored words");
+    expect(reached).toEqual([]);
+  });
+
+  it("never adds the limits twice, keeps the typed words whole at the 1000-character limit, and adds nothing for an empty kit", async () => {
+    const env = await withKit();
+    const { stub, calls } = freepikStub();
+    usePhotoLabFetch(stub);
+    const first = await runJob(env, { op: "background", prompt: "a marble counter" });
+    // The stored text goes in again as the words (a run repeated from the history).
+    const again = await runJob(env, { op: "background", prompt: first.job.prompt });
+    expect(sentPrompt(calls, 1)).toBe(sentPrompt(calls, 0));
+    expect(blocksIn(again.job.prompt)).toBe(1);
+    const long = `${"a long marble counter with brass trays, ".repeat(19)}end.`;
+    expect(long.length).toBeGreaterThan(PHOTO_LAB_PROMPT_MAX - 300);
+    await runJob(env, { op: "background", prompt: long });
+    const tight = sentPrompt(calls, 2);
+    expect(tight.startsWith(`${long}\n\n${EDIT_LABEL}`)).toBe(true);
+    expect(tight.length).toBeLessThanOrEqual(PHOTO_LAB_PROMPT_MAX);
+    expect(tight).toContain(COLOUR);
+    expect(tight).not.toContain("printed lid");
+    const full = "c".repeat(PHOTO_LAB_PROMPT_MAX);
+    await runJob(env, { op: "background", prompt: full });
+    expect(sentPrompt(calls, 3)).toBe(full);
+
+    const empty = await connected();
+    const plain = freepikStub();
+    usePhotoLabFetch(plain.stub);
+    const none = await runJob(empty, { op: "background", prompt: "a marble counter" });
+    expect(sentPrompt(plain.calls)).toBe("a marble counter");
+    expect(none.job).toMatchObject({ prompt: "a marble counter", brand: "" });
+    expect(reached).toEqual([]);
+  });
+
+  it("the Prompt Box's edit goes the same way", async () => {
+    const env = await withKit();
+    const { stub, calls } = freepikStub();
+    usePhotoLabFetch(stub);
+    const r = await promptboxTools.photolabRun(env, { id: "u1", email: "u@test", name: "U", role: "admin" } as User, { batch: "b1", post: 1, operation: "replace the background", prompt: "a wooden table by a window" });
+    expect(r.ok).toBe(true);
+    const sent = sentPrompt(calls);
+    expect(sent.startsWith(`a wooden table by a window\n\n${EDIT_LABEL}`)).toBe(true);
+    expect(sent).toContain(NEVER);
+    expect(sent).toContain(COLOUR);
     expect(reached).toEqual([]);
   });
 });

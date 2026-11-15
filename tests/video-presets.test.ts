@@ -23,6 +23,7 @@ import { HIGGSFIELD_MCP_URL, MCP_PROVIDER, NOT_SIGNED_IN, resetHiggsfieldMcpCach
 import { cacheKey, mediaOf, needsOf, nextCursorOf, parsePresets, parseRecipes, resetPresetCaches } from "../server/video-presets";
 import { getSetting, setSetting, HIGGSFIELD_BILLING_SETTING, HIGGSFIELD_MCP_CLIENT_SETTING, HIGGSFIELD_MCP_TOKENS_SETTING } from "../server/settings";
 import { setIntegrationSwitch } from "../server/integrations";
+import { COLOUR, giveKit, NEVER, VIDEO_LABEL } from "./support/brand-kit";
 
 type FakeEnv = ReturnType<typeof fakeEnv>;
 const JSON_HEADERS = { "content-type": "application/json" };
@@ -581,5 +582,25 @@ describe("running a preset", () => {
     const imported = stub.rpc.filter((x) => x.name === "media_import_url").map((x) => decodeURIComponent(String(x.args?.url)));
     expect(imported.some((u) => u.includes("u2/b1/src/s1.jpg"))).toBe(true);
     expect(stub.rpc.filter((x) => x.name === "execute_preset")).toHaveLength(0);
+  });
+});
+
+describe("the client's brand rules on a preset", () => {
+  it("follow the words typed into the preset; the version keeps the words as typed; a preset run with no words is sent as it was", async () => {
+    const env = await seed();
+    await giveKit(env);
+    await signedIn(env);
+    const stub = higgsfieldStub();
+    useHiggsfieldMcpFetch(stub.fn);
+    const run = (inputs: Record<string, unknown>) => postJson(app(), env, "/api/studio/video/presets/run", { batch: "b1", index: 1, presetId: "hero_shot", source: "marketing_studio", inputs, confirm: true });
+    const go = (await json(await run({ prompt: "slow and warm" }))) as { video: { prompt: string; brand: string } };
+    const sent = (stub.rpc.filter((x) => x.name === "execute_preset")[0].args as { inputs: Record<string, string> }).inputs;
+    expect(sent.prompt.startsWith(`slow and warm\n\n${VIDEO_LABEL}`)).toBe(true);
+    expect(sent.prompt).toContain(NEVER);
+    expect(sent.prompt).toContain(COLOUR);
+    expect(go.video.prompt).toBe("slow and warm");
+    expect(go.video.brand).toBe(sent.prompt.slice("slow and warm".length).trim());
+    await run({});
+    expect((stub.rpc.filter((x) => x.name === "execute_preset")[1].args as { inputs: Record<string, unknown> }).inputs).toEqual({ product_image: "med_1" });
   });
 });

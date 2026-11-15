@@ -112,6 +112,8 @@ export interface PhotoToolJob {
   tool: string;
   label: string;
   options: Record<string, string>;
+  /** The client's brand limits that were sent after the typed words ("" when none were): `options` keeps the words as typed. */
+  brand?: string;
   status: PhotoToolJobStatus;
   /** Credits named before the run; null = cost not known. */
   estimate: number | null;
