@@ -66,7 +66,10 @@ export default function BrandPanel({
   onAmbassadorsChanged,
   cast,
   onCast,
+  isAdmin = false,
 }: {
+  /** The viewer is an admin: the Output section (engine, size, resolution, count, exact product) is theirs alone; a member's month keeps what is saved. */
+  isAdmin?: boolean;
   client: Client;
   onClientsChanged: (clients: Client[]) => void;
   themes: Theme[];
@@ -120,6 +123,7 @@ export default function BrandPanel({
       <Section title="Brand memory" subtitle="Brand rules, this month's instructions and the lessons waiting for approval" defaultOpen={false}>
         <MemoryPanel client={client} />
       </Section>
+      {isAdmin && (
       <Section kit="output" title="Output" subtitle="Engine, size and count" defaultOpen={false}>
         <label className="field-label">Image engine</label>
         <Select
@@ -205,6 +209,7 @@ export default function BrandPanel({
           Exact product: place the real photo, never redraw it
         </label>
       </Section>
+      )}
     </aside>
   );
 }

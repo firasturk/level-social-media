@@ -24,17 +24,17 @@ import { askConfirm } from "@/lib/confirm";
 import type { Ambassador, Client, Source, Task, Theme, User } from "@shared/types";
 import { displayName } from "./PlanView";
 import type { Config } from "@shared/config";
-import { lineageUnknown, monthLabel, olderIdea, planShape, POST_TYPE_INFO, type Format, type Post, isMediaPost } from "@shared/posts";
+import { lineageUnknown, monthLabel, olderIdea, planShape, type Format, type Post, isMediaPost } from "@shared/posts";
 import { blocking, monthIssues, sceneContext, type MonthIssue } from "@shared/issues";
 import { draftLabel, type PlanDraft } from "@shared/draft";
 import { CONFLICT_LABELS, precedenceLine, type Conflict, type GuideLayer } from "@shared/conflicts";
 import { monthCounts, picturesLine, shapeLine } from "@shared/counts";
-import { confirmScope, effectLine, scopeNote } from "@shared/scope";
+import { confirmScope } from "@shared/scope";
 import type { SaveStatus as SaveState } from "@shared/save-status";
 import SaveStatus from "./SaveStatus";
 import { formatUsd, rateFor } from "@shared/pricing";
 import StyleScreen, { styleThumb } from "./StyleGallery";
-import GridPreview, { kindsLine, type GridInfo } from "./GridPreview";
+import GridPreview, { type GridInfo } from "./GridPreview";
 import CampaignSizeCard from "./CampaignSizeCard";
 import { gridMismatch } from "@shared/grid-preview";
 import { monthNumbers, sizeBriefLine, withoutSizeLine, type CampaignSize } from "@shared/campaign-size";
@@ -57,12 +57,16 @@ import { defaultPaletteSource, gridColours, PALETTE_SOURCE_LABELS, PALETTE_SOURC
 /**
  * How the month is led. The Start screen offers four: a brief, a grid, and the two direct routes
  * (the client's own pictures or clips straight onto Studio cards). "refs" (the theme's references
- * lead) and "style" (one post from a gallery style) are no longer Start cards: the theme's
- * references live in Direction, styles on the Studio cards and the style gallery.
+ * lead) is not a Start card, but a month with neither a brief nor a grid is still led by them: it
+ * is what Direction and the Plan show for such a month after a direct route. The old "style" way
+ * (one post from a gallery style) is gone: nothing could choose it any more; styles live on the
+ * Studio cards and in the style gallery.
  */
-type Way = "brief" | "grid" | "refs" | "style" | "images" | "video";
+type Way = "brief" | "grid" | "refs" | "images" | "video";
 type StartWay = "brief" | "grid" | "images" | "video";
 type Stage = 0 | 1 | 2;
+/** The ways a browser tab may have remembered; anything else (the retired "style", say) falls back to the month's own lead. */
+const KNOWN_WAYS: readonly string[] = ["brief", "grid", "refs", "images", "video"];
 
 /** The four ways to start: one card design each (a picture, a title, one line, the same buttons). */
 const WAYS: { key: StartWay; title: string; desc: string; direct?: boolean }[] = [
@@ -72,12 +76,11 @@ const WAYS: { key: StartWay; title: string; desc: string; direct?: boolean }[] =
   { key: "video", title: "Create or edit video", desc: "Choose images or clips. Create and edit your video.", direct: true },
 ];
 
-/** Every way's name, the two that are no longer Start cards included (a month can still be led by them). */
+/** Every way's name, the one that is not a Start card included (a month can still be led by its theme's references). */
 const WAY_TITLES: Record<Way, string> = {
   brief: "Quick Campaign",
   grid: "Follow a grid",
   refs: "Theme references",
-  style: "One post from a style",
   images: "Edit images",
   video: "Create or edit video",
 };
@@ -101,12 +104,6 @@ const LEADS: Record<Way, { title: string; text: string; meet: string; add: strin
     text: "Their light, palette, props and camera shape every post. Their objects are never copied; the products are yours.",
     meet: "If you add a grid, its tile wins the composition and the references keep the mood. A brief adds the words and the carousel.",
     add: ["A brief for the words", "A grid for the layout", "Pictures pinned to single posts"],
-  },
-  style: {
-    title: "One post, one look",
-    text: "A style from the gallery writes the post's idea and shot. It is saved on the post first; making the picture is the step you confirm, with its cost shown.",
-    meet: "The style wins over a grid tile or a theme reference on that post. A picture pinned to the post still wins over the style.",
-    add: ["Your product photo on that post", "A caption written for it", "More posts later, from the Studio"],
   },
   images: {
     title: "Direct to Studio: your pictures",
@@ -160,13 +157,13 @@ export interface FlowProps {
   onAmbassadorsChanged: (list: Ambassador[]) => void;
   /** Opens the brand kit (the Studio's brand panel), outside the flow. */
   onBrandKit: () => void;
-  /** The theme's references (for the card pictures), the preview flag, and a fresh grid in the month. */
+  /** The theme's references (for the card pictures) and the preview flag. */
   themeRefs: { id: string }[];
   previewMode: boolean;
   /** Day or night, switchable from the workflow's top bar too. */
   theme: "light" | "dark";
   onToggleTheme: () => void;
-  onNewGrid: () => Promise<void>;
+  /** The signed-in person: technical controls (engine, colour source, readings, test pictures) are drawn for an admin only. */
   user: User;
   client: Client | null;
   /** Every active client and the month, switchable from the top bar. */
@@ -204,8 +201,6 @@ export interface FlowProps {
   sizeSet: boolean;
   /** Saves the size and the format on the month (kept for the month created next when there is none). */
   onSize: (size: CampaignSize, format: Format) => Promise<void>;
-  /** Makes one post's picture (the style's target), nothing else. */
-  onGenerateOne: (index: number) => Promise<void>;
   /** The themes read again (their reference counts) after references change. */
   reloadThemes: () => Promise<void>;
   /** The client's overlay and logo, for the test grid's words. */
@@ -236,7 +231,7 @@ export interface FlowProps {
 
 const STAGES = ["Start", "Direction", "Plan", "Studio"];
 
-/** The Studio's "Make N remaining" opens the month's own plan: a remembered one-post way in is forgotten first. */
+/** The Studio's "Make N remaining" opens the month's own plan: a way in remembered by this tab is forgotten first. */
 export function forgetFlowWay(batchId: string | null | undefined) {
   try {
     sessionStorage.removeItem(`lsm-flow-way:${batchId ?? "new"}`);
@@ -264,17 +259,20 @@ function Cta({ kind = "primary", icon, children, ...rest }: { kind?: "primary" |
 
 export default function Flow(p: FlowProps) {
   const [stage, setStage] = useState<Stage>(() => p.initialStage ?? (p.plan.length ? 2 : p.config?.campaign || p.config?.gridRef ? 1 : 0));
-  /** The way in and the style's post survive a trip to the Studio and back (this tab only), so the Plan keeps its scope. */
+  /** The way in survives a trip to the Studio and back (this tab only). A value this build no longer has (the retired "style" way) is not used: the month's own lead is. */
   const wayKey = `lsm-flow-way:${p.batchId ?? "new"}`;
   const remembered = useMemo(() => {
     try {
       const raw = sessionStorage.getItem(wayKey);
-      return raw ? (JSON.parse(raw) as { way?: Way; styleTarget?: number | "next" | null }) : null;
+      const saved = raw ? (JSON.parse(raw) as { way?: string }) : null;
+      return saved?.way && KNOWN_WAYS.includes(saved.way) ? (saved.way as Way) : null;
     } catch {
       return null;
     }
   }, [wayKey]);
-  const [way, setWay] = useState<Way>(() => remembered?.way ?? (p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "brief"));
+  const [way, setWay] = useState<Way>(() => remembered ?? (p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "brief"));
+  /** Technical controls and spending controls are the admins': a member's month keeps what the server or its defaults chose. */
+  const isAdmin = p.user.role === "admin";
   const client = p.client;
   const theme = p.themes.find((t) => t.id === p.themeId) ?? null;
   const shape = planShape(p.plan);
@@ -319,26 +317,16 @@ export default function Flow(p: FlowProps) {
       live = false;
     };
   }, [p.batchId]);
-  const [picking, setPicking] = useState<"grid" | "style" | null>(null);
-  const [startStyle, setStartStyle] = useState<StyleItem | null>(null);
-  /** The post the style is for: one of the plan's posts, or the first post of the plan written next. */
-  /** No post is chosen for a style by itself: with posts in the month the team picks one; without, the first post of the plan written next. */
-  const [styleTarget, setStyleTarget] = useState<number | "next" | null>(() => (remembered?.styleTarget !== undefined && p.plan.length ? remembered.styleTarget : p.plan.length ? null : "next"));
-  // The month's posts can arrive after this screen opened: "the first post of the plan written next" then no longer applies, the team picks one.
-  useEffect(() => {
-    if (p.plan.length && styleTarget === "next") setStyleTarget(null);
-    if (!p.plan.length && styleTarget !== "next") setStyleTarget("next");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.plan.length > 0]);
+  /** The grid library, open to pick the grid the month follows. */
+  const [picking, setPicking] = useState<"grid" | null>(null);
   useEffect(() => {
     try {
-      sessionStorage.setItem(wayKey, JSON.stringify({ way, styleTarget }));
+      sessionStorage.setItem(wayKey, JSON.stringify({ way }));
     } catch {
       /* private mode */
     }
-  }, [wayKey, way, styleTarget]);
+  }, [wayKey, way]);
   const [moving, setMoving] = useState(false);
-  const [newGridBusy, setNewGridBusy] = useState(false);
   const briefUnsent = briefText.trim().length >= 20 && briefText.trim() !== savedBrief;
   /** The three numbers of the month as it is saved (what the Start board shows beside any new request). */
   const numbers = monthNumbers(p.plan, p.campaignSize, p.tasks.filter((t) => t.post && t.output).map((t) => t.post!));
@@ -400,7 +388,7 @@ export default function Flow(p: FlowProps) {
   const shotsSig = hash(`v3|${p.themeId}|${p.config?.gridRef ?? ""}|${(theme?.shots ?? []).join("|")}|${JSON.stringify(p.plan.map((x) => [x.index, x.type, x.product, x.products, x.occasion, x.people, x.brief, x.offer?.products, x.tile]))}|${JSON.stringify(theme?.palette ?? [])}|${theme?.props ?? ""}`);
   const [writingShots, setWritingShots] = useState(false);
   /** Each post's shot written for its product (the Journey's "Write the shots"), when the month has a look to write from. */
-  async function writeShots(force = false, fresh = false): Promise<void> {
+  async function writeShots(force = false, fresh = false, indexes?: number[]): Promise<void> {
     if (!p.batchId) return;
     // Right after the plan was written, the props here are still the old ones: the server decides.
     if (!fresh) {
@@ -409,7 +397,7 @@ export default function Flow(p: FlowProps) {
     }
     setWritingShots(true);
     try {
-      await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig });
+      await post("/api/studio/posts/shots", { batch: p.batchId, sig: shotsSig, indexes });
       await p.refresh();
     } catch (e) {
       // A month without a look to write from (no pins read, no grid) simply has no shots: the idea alone makes the picture.
@@ -445,17 +433,8 @@ export default function Flow(p: FlowProps) {
       return false;
     }
     const count = mismatch ? gridCount! : tiles || undefined;
-    {
-      const n = count ?? tiles;
-      const scope = `The whole grid is planned: ${n ? `${n} post${n === 1 ? "" : "s"}${mismatch ? (count === mismatch.grid ? " (the grid's own count)" : ` adapted from its ${mismatch.grid} tiles`) : ", one per tile"}` : "one post per tile"}${g?.read ? ` (${kindsLine(g)})` : ""}. Single tiles cannot be picked on their own yet; from the Plan, one picture can be made as a test before the rest.`;
-      const ok = await askConfirm(
-        p.plan.length
-          ? `Follow "${pickedGrid.title}"? ${scope} The month's ${p.plan.length} current post${p.plan.length === 1 ? "" : "s"} are planned again from its tiles: their compositions, text tiles and fonts change; pictures already made stay until they are made again, and the current plan is kept under Versions.`
-          : `Follow "${pickedGrid.title}"? ${scope} Nothing is made until the plan is confirmed.`,
-        { ok: "Follow this grid", danger: false, cancel: p.plan.length ? "Keep the current posts" : "Not now" },
-      );
-      if (!ok) return false;
-    }
+    // Not asked about first: nothing is made here, and a month that already has posts keeps its
+    // earlier plan under Versions (the message after the planning says so; the note on Start said it before).
     try {
       await p.onGridIdeas(`style:${pickedGrid.id}`, "", count);
       setPickedGrid(null);
@@ -570,17 +549,6 @@ export default function Flow(p: FlowProps) {
           if (!ok) return;
         }
       }
-      if (startStyle) {
-        // The style goes on the post chosen for it; "next" is the first post of the plan just written. No post is picked quietly.
-        if (styleTarget === null) {
-          toast.error("Choose the post the style goes on first.");
-          return;
-        }
-        const index = styleTarget === "next" ? (p.plan[0]?.index ?? 1) : styleTarget;
-        await p.onStyles([{ index, style: startStyle.id }]);
-        setStyleTarget(index);
-        setStartStyle(null);
-      }
       // Each post's shot is written for its product before the plan is read, so the plan shows what the engine gets.
       await writeShots(false, true);
       setStage(2);
@@ -594,6 +562,8 @@ export default function Flow(p: FlowProps) {
   /* ── Plan: the preview of the run ── */
   const [preview, setPreview] = useState<FlowPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  /** The last reading of the plan failed (said in a message): the Plan offers to ask again. */
+  const [previewFailed, setPreviewFailed] = useState(false);
   const [retakes, setRetakes] = useState(() => p.config?.autoRetakes !== false);
   const [reading2, setReading2] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -624,9 +594,11 @@ export default function Flow(p: FlowProps) {
   const loadPreview = useCallback(async () => {
     if (!p.batchId) return;
     setPreviewBusy(true);
+    setPreviewFailed(false);
     try {
       setPreview(await post<FlowPreview>("/api/studio/posts/plan-preview", { batch: p.batchId }));
     } catch (e) {
+      setPreviewFailed(true);
       toast.error((e as Error).message);
     } finally {
       setPreviewBusy(false);
@@ -653,21 +625,25 @@ export default function Flow(p: FlowProps) {
   );
   /** The month in numbers, counted the same way as the Studio and the Start screen. */
   const counts = useMemo(() => monthCounts(p.plan, p.tasks, p.config), [p.plan, p.tasks, p.config]);
-  /** The one post of the "One post from a style" way, when it is in the month: its scope, never the month's. */
-  const onePost = way === "style" && typeof styleTarget === "number" && p.plan.some((x) => x.index === styleTarget) ? styleTarget : null;
   const outcomeOf = (index: number) => preview?.posts.find((x) => x.index === index);
   const ready = preview?.posts.filter((x) => x.status === "ready") ?? [];
   const readyPictures = ready.filter((x) => x.paid).length;
   const readyTiles = ready.filter((x) => !x.paid).length;
   const made = preview?.posts.filter((x) => x.status === "made").length ?? 0;
-  // On the one-post way in, only that post's blockers and notes are shown; the month's other posts are not this operation.
-  const blockedList = (preview?.blocked ?? []).filter((b) => onePost === null || b.index === onePost);
+  const blockedList = preview?.blocked ?? [];
   const estimate = preview?.estimate;
   const total = estimate ? estimate.total : readyPictures * perPicture;
   const maximum = retakes ? total * (1 + (estimate?.retakes ?? 1)) : total;
   // A blocked post is listed once, from the preview; the same finding from the issues list is left out.
   const blockedIdx = new Set(blockedList.map((b) => b.index));
-  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)].filter((x) => !(x.post && blockedIdx.has(x.post))).filter((x) => onePost === null || !x.post || x.post === onePost);
+  /** A note in a member's words: nothing in it waits on a control only an admin has (the colour source, reading the pins). */
+  const forMember = (x: MonthIssue): MonthIssue =>
+    x.code === "palette" && client?.colors?.length
+      ? { ...x, text: "No colours were set for this month: the posts use the client's brand colours." }
+      : x.code === "pins-unread"
+        ? { ...x, text: "The theme's pins changed since they were last read: the month follows the theme as it was read. An admin can read them again." }
+        : x;
+  const attention = [...blocking(issues), ...issues.filter((x) => x.warn)].filter((x) => !(x.post && blockedIdx.has(x.post))).map((x) => (isAdmin ? x : forMember(x)));
   const taskOf = (index: number) => p.tasks.find((t) => t.post === index) ?? null;
 
   /* ── Direction: colours ── */
@@ -686,7 +662,16 @@ export default function Flow(p: FlowProps) {
   const resolved = resolvePalette({ source: colourSource, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
   /** The colours the posts get now: the month's saved ones; an older theme's until a source is chosen; else the brand's. */
   const palette = p.config?.palette?.length ? p.config.palette : savedSource === "theme" ? (theme?.palette ?? []) : brandColours;
-  const paletteFrom = paletteSourceLine(savedSource, p.config);
+  /** Where the month's colours come from, in words. A member cannot choose a source, so their wording never asks them to. */
+  const paletteFrom = isAdmin
+    ? paletteSourceLine(savedSource, p.config)
+    : savedSource === "theme"
+      ? "from the month's theme"
+      : savedSource === "manual"
+        ? p.config?.paletteFrom === "brief"
+          ? "set by the brief"
+          : "set for this month"
+        : paletteSourceLine(savedSource ?? "brand");
   /** The saved colours fell behind their source (the brand kit or the grid's reading changed). */
   const paletteStale = !!p.config?.palette?.length && savedSource === colourSource && colourSource !== "manual" && !resolved.needsGridRead && resolved.palette.length > 0 && JSON.stringify(resolved.palette.map((c) => c.hex)) !== JSON.stringify(p.config.palette.map((c) => c.hex));
   const [editColours, setEditColours] = useState(false);
@@ -1250,7 +1235,7 @@ export default function Flow(p: FlowProps) {
                         <p className="flow-note">
                           <b>What applying it changes.</b>{" "}
                           {p.plan.length
-                            ? `The month's ${p.plan.length} existing post${p.plan.length === 1 ? "" : "s"} are planned again from the grid's tiles: their compositions, text tiles and fonts change. Pictures already made stay until they are made again; the current plan is kept under Versions. You confirm this on Continue.`
+                            ? `The month's ${p.plan.length} existing post${p.plan.length === 1 ? "" : "s"} are planned again from the grid's tiles: their compositions, text tiles and fonts change. Pictures already made stay until they are made again; the current plan is kept under Versions. It is applied when you continue.`
                             : "New posts are planned from the grid, one per tile, with your product photos matched to the tiles. Nothing is made until the plan is confirmed."}
                         </p>
                       )}
@@ -1287,54 +1272,6 @@ export default function Flow(p: FlowProps) {
                       <small className="flow-muted">
                         {way === "video" ? "Pictures up to 20 MB, MP4 clips up to 60 MB." : "PNG, JPEG or WebP, up to 20 MB each."} Both sources can be combined in one selection.
                       </small>
-                    </div>
-                  )}
-                  {way === "style" && (
-                    <div className="flow-choice-wrap">
-                      {startStyle ? (
-                        <div className="flow-choice">
-                          <img src={styleThumb(startStyle)} alt="" />
-                          <div className="flow-choice-text">
-                            <b>{startStyle.title}</b>
-                            <span className="flow-muted">{startStyle.tags}</span>
-                            <span className="flow-pill">Picked · saved on its post when you continue</span>
-                          </div>
-                          <Cta kind="secondary" icon={<Sparkles size={16} />} onClick={() => setPicking("style")}>
-                            Change style
-                          </Cta>
-                        </div>
-                      ) : (
-                        <Cta icon={<Sparkles size={16} />} onClick={() => setPicking("style")}>
-                          Pick a style
-                        </Cta>
-                      )}
-                      <label className="flow-target">
-                        <span className="flow-eyebrow">For which post</span>
-                        <select value={styleTarget === null ? "" : String(styleTarget)} onChange={(e) => setStyleTarget(e.target.value === "" ? null : e.target.value === "next" ? "next" : Number(e.target.value))}>
-                          {p.plan.length ? (
-                            [<option key="" value="">Choose the post…</option>, ...[...p.plan]
-                              .sort((a, b) => a.index - b.index)
-                              .map((x) => (
-                                <option key={x.index} value={x.index}>
-                                  Post {x.index} · {x.title || POST_TYPE_INFO[x.type]?.label || x.type}
-                                  {x.style ? " (has a style)" : ""}
-                                  {taskOf(x.index)?.output ? " · picture made" : ""}
-                                </option>
-                              ))]
-                          ) : (
-                            <option value="next">The first post of the plan written next</option>
-                          )}
-                        </select>
-                        <small className="flow-muted">
-                          {styleTarget === null
-                            ? "Pick the one post this style goes on; nothing is chosen for you."
-                            : styleTarget === "next"
-                            ? "No posts in this month yet: the plan is written first, and the style goes on its first post."
-                            : taskOf(styleTarget as number)?.output
-                              ? "This post has a picture: the style rewrites its idea and shot; making another version is a separate step you confirm."
-                              : "The style rewrites this post's idea and shot; its picture is made from the Plan stage."}
-                        </small>
-                      </label>
                     </div>
                   )}
                 </section>
@@ -1399,26 +1336,6 @@ export default function Flow(p: FlowProps) {
                   <button type="button" className="flow-shortcut" onClick={() => p.onDone()}>
                     <Grid3x3 size={14} /> Open {monthLabel(p.month)} in the Studio
                   </button>
-                  <button
-                    type="button"
-                    className="flow-shortcut"
-                    disabled={newGridBusy}
-                    aria-busy={newGridBusy}
-                    onClick={async () => {
-                      // One fresh grid per click: the button waits for the month to exist before it can be pressed again.
-                      if (newGridBusy) return;
-                      setNewGridBusy(true);
-                      try {
-                        await p.onNewGrid();
-                      } catch (e) {
-                        toast.error((e as Error).message);
-                      } finally {
-                        setNewGridBusy(false);
-                      }
-                    }}
-                  >
-                    {newGridBusy ? <Orb size={14} /> : <ImagePlus size={14} />} {newGridBusy ? "Making a fresh grid…" : `Fresh grid in ${monthLabel(p.month)}`}
-                  </button>
                 </section>
               </div>
               <footer className="flow-foot">
@@ -1470,9 +1387,7 @@ export default function Flow(p: FlowProps) {
                           : `${(summary || request).slice(0, 80).trim()}…`
                         : way === "grid"
                           ? shownGrid?.title ?? "No grid picked yet"
-                          : way === "refs"
-                            ? theme?.title ?? "No theme yet"
-                            : startStyle?.title ?? "No style picked yet";
+                          : theme?.title ?? "No theme yet";
                     const body =
                       way === "brief"
                         ? summary
@@ -1484,15 +1399,11 @@ export default function Flow(p: FlowProps) {
                           ? shownGrid
                             ? `The month follows this grid tile by tile: one tile per post, its order, its text tiles and fonts${gridPending ? " (applied when the plan is written)" : ""}.`
                             : "Pick a grid from the library; the month follows it tile by tile."
-                          : way === "refs"
-                            ? theme
-                              ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; a post with no product photo starts from one of them.`
-                              : "Pin pictures to a theme; they set the light and palette."
-                            : startStyle
-                              ? `Goes on ${styleTarget === "next" ? "the first post of the plan written next" : `post ${styleTarget}`} when the plan is written.`
-                              : "Pick a style from the gallery for one post.";
+                          : theme
+                            ? `${theme.references} reference${theme.references === 1 ? "" : "s"} set the light, colours and camera of every post; a post with no product photo starts from one of them.`
+                            : "Pin pictures to a theme; they set the light and palette.";
                     const at = way === "brief" ? p.config?.campaign?.at : way === "refs" ? theme?.analysed : undefined;
-                    const Icon = way === "brief" ? FileText : way === "grid" ? Grid3x3 : way === "refs" ? Images : Sparkles;
+                    const Icon = way === "brief" ? FileText : way === "grid" ? Grid3x3 : Images;
                     return (
                       <div className="flow-lead">
                         <span className="flow-lead-icon" aria-hidden>
@@ -1505,7 +1416,7 @@ export default function Flow(p: FlowProps) {
                             {at ? `Read on ${new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · ` : ""}
                             {pinned ? `${pinned} picture${pinned === 1 ? "" : "s"} pinned to posts` : "no pictures pinned to posts"} ·{" "}
                             <button type="button" className="text-button" onClick={() => setStage(0)}>
-                              {way === "brief" ? "Edit the brief" : way === "grid" ? "Change the grid" : way === "refs" ? "Change the theme" : "Change the style"}
+                              {way === "brief" ? "Edit the brief" : way === "grid" ? "Change the grid" : "Change the theme"}
                             </button>
                           </small>
                         </div>
@@ -1576,7 +1487,8 @@ export default function Flow(p: FlowProps) {
                                 {refsOpen ? "Hide" : theme.references ? "Manage" : "Add"}
                               </button>
                             )}
-                            {theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
+                            {/* Reading the pins is a technical step: an admin's. A member's month is made from the references as they are. */}
+                            {isAdmin && theme && theme.references > 0 && (!theme.shots.length || !theme.analysed || (theme.latestRef ?? 0) > theme.analysed) && (
                               <button type="button" className="text-button" disabled={reading} onClick={() => void readPins()} title="Reads the pins into shots and a palette (a text and vision call, or the demo fixture)">
                                 {reading ? <Orb size={12} /> : null} Analyse the pins
                               </button>
@@ -1629,9 +1541,7 @@ export default function Flow(p: FlowProps) {
                               ) : null}
                             </span>
                           </div>
-                          <span className="flow-input-actions">
-                            <span className="flow-pill dark">1 · wins</span>
-                          </span>
+                          <span className="flow-input-actions">{isAdmin && <span className="flow-pill dark">1 · wins</span>}</span>
                         </li>
                         <li className="flow-input-wide">
                           <ProductChoice batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} />
@@ -1711,6 +1621,8 @@ export default function Flow(p: FlowProps) {
                       </DialogContent>
                     </Dialog>
                   )}
+                  {/* Which input wins is how the engine is briefed: shown to admins only. */}
+                  {isAdmin && (
                   <div className="flow-precedence-strip">
                     <div className="flow-precedence">
                       <b>When inputs meet on one post, this wins</b>
@@ -1726,6 +1638,7 @@ export default function Flow(p: FlowProps) {
                     </div>
                     <p className="flow-muted">Brand rules and the month's colours apply on top of all of them. {lead.meet}</p>
                   </div>
+                  )}
                   {client && p.batchId && (
                     <div className="flow-rules">
                       <span className="flow-eyebrow">Rules that apply this month</span>
@@ -1742,6 +1655,21 @@ export default function Flow(p: FlowProps) {
                 <div className="flow-stack">
                   <section className="journey-box flow-box flow-colours">
                     <span className="flow-eyebrow">Colours</span>
+                    {/* A member reads the month's colours; where they come from and editing them are an admin's. */}
+                    {!isAdmin && (
+                      <>
+                        <div className="flow-swatches" aria-label="This month's colours">
+                          {palette.map((c, i) => (
+                            <span key={i} className="flow-swatch" style={{ background: c.hex }} title={`${c.name} ${c.hex}`} />
+                          ))}
+                          {!palette.length && <small className="flow-muted">No colours yet.</small>}
+                        </div>
+                        <small className="flow-muted">
+                          {palette.length ? `This month's colours: ${paletteFrom}. The first colour is the background of every post.` : "The brand kit has no colours yet: the pictures follow the product photos and the references."}
+                        </small>
+                      </>
+                    )}
+                    {isAdmin && (
                     <div className="flow-colour-sources" role="radiogroup" aria-label="Where this month's colours come from">
                       {PALETTE_SOURCES.map((src) => {
                         const r = resolvePalette({ source: src, brand: brandColours, grid: gridPalette, manual: manualColours, gridFollowed });
@@ -1765,7 +1693,8 @@ export default function Flow(p: FlowProps) {
                         );
                       })}
                     </div>
-                    {!editColours ? (
+                    )}
+                    {isAdmin && (!editColours ? (
                       <>
                         <div className="flow-swatches">
                           {(sourceDraft && sourceDraft !== "manual" ? resolved.palette : palette).map((c, i) => (
@@ -1836,8 +1765,10 @@ export default function Flow(p: FlowProps) {
                           </button>
                         </div>
                       </div>
-                    )}
+                    ))}
                   </section>
+                  {/* The engine, the resolution and the price are an admin's settings: a member's month keeps what is saved. */}
+                  {isAdmin && (
                   <section className="journey-box flow-box">
                     <span className="flow-eyebrow">Format and engine</span>
                     <dl className="flow-dl">
@@ -1861,6 +1792,7 @@ export default function Flow(p: FlowProps) {
                     </dl>
                     <small className="flow-muted">The ideas, shots, captions and reviews are text calls billed per call by the provider, outside the picture budget; without a key they come from demo fixtures and say so.</small>
                   </section>
+                  )}
                   <section className="journey-box flow-box">
                     <span className="flow-eyebrow">{theme && theme.references > 0 ? "What the pinned pictures say" : "What the theme's description says"}</span>
                     {theme && theme.references === 0 && themeNote ? <small className="flow-muted">No reference pictures were read: this comes from the theme's written description alone.</small> : null}
@@ -1904,19 +1836,23 @@ export default function Flow(p: FlowProps) {
                 </Cta>
               </div>
               <div className="flow-tools quiet">
-                <button type="button" className="text-button" disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
-                  {reading2 ? <Orb size={12} /> : <BadgeCheck size={14} />} Read the scenes before paying
-                </button>
+                {/* The readings are an admin's tools; a member's posts are read by themselves when the pictures are made. */}
+                {isAdmin && (
+                  <button type="button" className="text-button" disabled={reading2 || !readyPictures} onClick={() => void readScenes()} title="The art director reads each ready post before paying: what it would take out of the scene, and whether a reference would be left out. Text and vision calls, or the demo fixture; no picture is made.">
+                    {reading2 ? <Orb size={12} /> : <BadgeCheck size={14} />} Read the scenes before paying
+                  </button>
+                )}
                 <button
                   type="button"
                   className="text-button"
                   disabled={rewriting}
+                  title="Writes every idea of the month again. The current posts, their words and pictures are kept under Versions; pictures already made are not remade until you ask."
                   onClick={async () => {
-                    const ok = await askConfirm(`Write the ideas of the whole month again (${p.plan.length} design${p.plan.length === 1 ? "" : "s"})? ${effectLine("plan", { kind: "month", month: p.month, designs: p.plan.length })} The current posts, their words and pictures are kept under Versions; ${counts.existing ? `the ${counts.existing} picture${counts.existing === 1 ? "" : "s"} already made ${counts.existing === 1 ? "is" : "are"} marked as made for an older idea and ` : "pictures already made are "}not remade until you ask.`, { ok: "Write them again", danger: false, cancel: "Keep these ideas" });
-                    if (!ok) return;
+                    // Not asked about first: no picture is made, and the earlier plan is kept under Versions (the message says so).
                     setRewriting(true);
                     try {
-                      await p.onGenerateIdeas(true);
+                      const ok = await p.onGenerateIdeas(true);
+                      if (ok && !isAdmin) await writeShots(false, true);
                     } finally {
                       setRewriting(false);
                     }
@@ -1931,9 +1867,12 @@ export default function Flow(p: FlowProps) {
                   onClick={async () => {
                     const n = Number(await askInput("How many posts to add?", "1", { ok: "Add", placeholder: "1" }));
                     if (!n || n < 1 || n > 12) return;
+                    const last = Math.max(0, ...p.plan.map((x) => x.index));
                     setRewriting(true);
                     try {
                       await p.onAddPosts(n);
+                      // A member has no "Write the shots": the new posts get theirs here, as on the way into the Plan.
+                      if (!isAdmin) await writeShots(false, true, Array.from({ length: n }, (_, i) => last + i + 1));
                     } finally {
                       setRewriting(false);
                     }
@@ -1941,10 +1880,21 @@ export default function Flow(p: FlowProps) {
                 >
                   <ImagePlus size={14} /> Add posts
                 </button>
-                <button type="button" className="text-button" onClick={() => void loadPreview()} disabled={previewBusy} title="Reads the plan again: states, estimate and what each post would send to the engine">
-                  {previewBusy ? <Orb size={12} /> : <Wand2 size={14} />} Read again
-                </button>
+                {isAdmin && (
+                  <button type="button" className="text-button" onClick={() => void loadPreview()} disabled={previewBusy} title="Reads the plan again: states, estimate and what each post would send to the engine">
+                    {previewBusy ? <Orb size={12} /> : <Wand2 size={14} />} Read again
+                  </button>
+                )}
               </div>
+              {/* A member has no "Read again": when the plan's states could not be read, this is their way to ask again. */}
+              {!isAdmin && previewFailed && !previewBusy && (
+                <p className="flow-muted" role="status">
+                  <TriangleAlert size={13} /> The plan's states and estimate could not be read.{" "}
+                  <button type="button" className="text-button" onClick={() => void loadPreview()}>
+                    Try again
+                  </button>
+                </p>
+              )}
               {reading2 && <Working label="Reading the scenes before paying" count={{ done: 0, of: readyPictures }} className="flow-working" />}
               {rewriting && <Working label="Writing the ideas" className="flow-working" />}
               {writingShots && <Working label="Writing the shots" className="flow-working" />}
@@ -2061,36 +2011,24 @@ export default function Flow(p: FlowProps) {
                     );
                   })()}
                 </div>
-                {onePost !== null ? (
-                  <div className="flow-sum-cell scope">
-                    <span className="flow-eyebrow">This operation · one post</span>
-                    <p>
-                      <b>Post {onePost} “{p.plan.find((x) => x.index === onePost)?.title}”</b>
+                <div className="flow-sum-cell">
+                  <span className="flow-eyebrow">Output</span>
+                  {p.loadingMonth ? (
+                    <p className="flow-muted" aria-busy="true">
+                      Counting the month…
                     </p>
-                    <small>
-                      {taskOf(onePost)?.output ? effectLine("new-version", { kind: "post", index: onePost }) : effectLine("first-image", { kind: "post", index: onePost })} About {formatUsd(estimate?.perImage ?? perPicture)}. {scopeNote({ kind: "post", index: onePost }, p.plan.length)}
-                    </small>
-                  </div>
-                ) : (
-                  <div className="flow-sum-cell">
-                    <span className="flow-eyebrow">Output</span>
-                    {p.loadingMonth ? (
-                      <p className="flow-muted" aria-busy="true">
-                        Counting the month…
+                  ) : (
+                    <>
+                      <p>
+                        <b>{shapeLine(counts)}</b>
                       </p>
-                    ) : (
-                      <>
-                        <p>
-                          <b>{shapeLine(counts)}</b>
-                        </p>
-                        <small>
-                          {picturesLine(counts)} · {p.format}
-                          {blockedList.length ? ` · ${blockedList.length} blocked` : ""}
-                        </small>
-                      </>
-                    )}
-                  </div>
-                )}
+                      <small>
+                        {picturesLine(counts)} · {p.format}
+                        {blockedList.length ? ` · ${blockedList.length} blocked` : ""}
+                      </small>
+                    </>
+                  )}
+                </div>
                 <div className={`flow-sum-cell attention ${attention.length || blockedList.length ? "on" : ""}`}>
                   <span className="flow-eyebrow">Needs your attention · {attention.length + blockedList.length}</span>
                   <ul>
@@ -2104,14 +2042,20 @@ export default function Flow(p: FlowProps) {
                       const rest = attention.filter((x) => x.code !== "post-shot");
                       return (
                         <>
-                          {shots.length > 0 && (
-                            <li>
-                              {shots.length} post{shots.length === 1 ? " has" : "s have"} no shot yet (made from the idea alone).{" "}
-                              <button type="button" className="text-button" disabled={writingShots} onClick={() => void writeShots(true)}>
-                                {writingShots ? <Orb size={12} /> : null} Write the shots
-                              </button>
-                            </li>
-                          )}
+                          {shots.length > 0 &&
+                            (isAdmin ? (
+                              <li>
+                                {shots.length} post{shots.length === 1 ? " has" : "s have"} no shot yet (made from the idea alone).{" "}
+                                <button type="button" className="text-button" disabled={writingShots} onClick={() => void writeShots(true)}>
+                                  {writingShots ? <Orb size={12} /> : null} Write the shots
+                                </button>
+                              </li>
+                            ) : (
+                              // A member has no button to write them: the line says what happens, and points at nothing.
+                              <li>
+                                {shots.length} post{shots.length === 1 ? " has" : "s have"} no written scene yet: {shots.length === 1 ? "its picture is" : "their pictures are"} made from the idea alone. You can still make {shots.length === 1 ? "it" : "them"}.
+                              </li>
+                            ))}
                           {rest.slice(0, 4).map((x, i) => (
                             <li key={i}>{x.text}</li>
                           ))}
@@ -2128,7 +2072,7 @@ export default function Flow(p: FlowProps) {
                 <ProductChoice variant="bar" batchId={p.batchId} client={client ? { id: client.id, name: client.name } : null} plan={p.plan} products={p.products} sourceUrl={p.sourceUrl} refresh={p.refresh} onUpload={() => uploadInput.current?.click()} onChanged={loadPreview} />
               </section>
               <p className="flow-muted flow-precedence-line">{precedenceLine(isDirect(way) ? "refs" : way, { grid: !!monthGrid, theme: !!theme?.references, pinned, styled: p.plan.filter((x) => x.style).length })}</p>
-              {counts.older > 0 && onePost === null && (
+              {counts.older > 0 && (
                 <section className="flow-older" role="note">
                   <div className="flow-older-text">
                     <b>
@@ -2175,7 +2119,7 @@ export default function Flow(p: FlowProps) {
                       const isOpen = open === x.index;
                       const older = !!t && olderIdea(t, x, p.config);
                       return (
-                        <li key={x.index} className={`${isOpen ? "open" : ""} ${onePost === x.index ? "scoped" : ""}`}>
+                        <li key={x.index} className={isOpen ? "open" : ""}>
                           <span className="flow-post-n">{String(x.index).padStart(2, "0")}</span>
                           <span className="flow-post-thumb">{t?.output ? <img src={p.outputThumb(t)} alt="" /> : <span className="flow-post-blank" />}</span>
                           <span className="flow-post-main">
@@ -2295,10 +2239,11 @@ export default function Flow(p: FlowProps) {
                                             <button
                                               type="button"
                                               className="text-button"
+                                              title="Allows this on this post only: the brief's rule stays for every other post, nothing becomes a brand rule, and Withdraw takes it back"
                                               onClick={async () => {
-                                                const ok = await askConfirm(`Allow ${CONFLICT_LABELS[c.kind]} on post ${x.index} only? The brief's rule stays for every other post; nothing becomes a brand rule.`, { ok: `Allow on post ${x.index}`, danger: false, cancel: "Keep the rule" });
-                                                if (!ok) return;
-                                                await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: [...new Set([...(y.allow ?? []), c.kind])] } : y)));
+                                                // Not asked about first: free, this post only, and "Withdraw" on the same line takes it back.
+                                                const saved = await p.onSavePlan(p.plan.map((y) => (y.index === x.index ? { ...y, allow: [...new Set([...(y.allow ?? []), c.kind])] } : y)));
+                                                if (saved !== false) toast.success(`Allowed on post ${x.index} only: ${CONFLICT_LABELS[c.kind]}. The brief's rule stays for every other post; "Withdraw" here takes it back.`);
                                                 await loadPreview();
                                               }}
                                             >
@@ -2323,7 +2268,8 @@ export default function Flow(p: FlowProps) {
                                   </ul>
                                 </div>
                               ) : null}
-                              {o?.guide?.length ? (
+                              {/* What the engine is briefed with, layer by layer: an admin's reading. */}
+                              {isAdmin && o?.guide?.length ? (
                                 <details className="flow-guide">
                                   <summary>What will guide this picture</summary>
                                   <ol className="flow-guide-layers">
@@ -2370,7 +2316,7 @@ export default function Flow(p: FlowProps) {
                                       )}
                                     </>
                                   ) : (
-                                    <small className="flow-muted">Not read yet, or the post changed since: the reading runs at Generate, or now with "Read the scenes before paying".</small>
+                                    <small className="flow-muted">{isAdmin ? 'Not read yet, or the post changed since: the reading runs at Generate, or now with "Read the scenes before paying".' : "Not read yet, or the post changed since: the scene is read by itself when the picture is made."}</small>
                                   )}
                                 </div>
                               )}
@@ -2381,59 +2327,18 @@ export default function Flow(p: FlowProps) {
                     })}
                 </ul>
               </section>
-              {p.batchId && p.plan.length > 0 && (
+              {/* The test grid (one paid picture of the whole feed) is an admin's tool. */}
+              {isAdmin && p.batchId && p.plan.length > 0 && (
                 <section className="flow-testgrid">
                   <TestGrid batchId={p.batchId} plan={p.plan} overlay={p.overlay} logoSrc={p.logoSrc} reference={monthGrid ? styleThumb(monthGrid, true) : null} blocked={blocking(issues).length > 0} onShowIssues={() => toast.error(blocking(issues)[0]?.text ?? "Fix the month's blockers first.")} />
                 </section>
               )}
-              {onePost !== null ? (
-                /* One post from a style: the footer is that post's scope alone, never the month's summary. */
-                <footer className="flow-confirm one-post">
-                  <div className="flow-confirm-text">
-                    <b>
-                      1 picture · post {onePost} “{p.plan.find((x) => x.index === onePost)?.title}” · {p.modelName ?? estimate?.model ?? p.model} · {estimate?.size ?? p.size} · about {formatUsd(estimate?.perImage ?? perPicture)}
-                    </b>
-                    <span className="flow-muted">
-                      {taskOf(onePost)?.output ? effectLine("new-version", { kind: "post", index: onePost }) : effectLine("first-image", { kind: "post", index: onePost })} {scopeNote({ kind: "post", index: onePost }, p.plan.length)} List price, an estimate.
-                      {outcomeOf(onePost)?.status === "blocked" ? ` Blocked: ${outcomeOf(onePost)?.why}` : ""}
-                    </span>
-                    <small className="flow-muted">
-                      The month's other pictures are not part of this.{" "}
-                      <button type="button" className="text-button" onClick={() => setWay(p.config?.gridRef ? "grid" : p.config?.campaign ? "brief" : "refs")} title="Shows the month's own plan and cost instead; the style stays saved on its post">
-                        Show the whole month's plan instead
-                      </button>
-                    </small>
-                  </div>
-                  <div className="flow-confirm-actions">
-                    <button type="button" className="secondary btn-pill" onClick={() => p.onDone()} title="The style stays saved on the post; no picture is made">
-                      Save the plan, make nothing
-                    </button>
-                    <button
-                      type="button"
-                      className="primary btn-pill"
-                      disabled={!p.engineReady || outcomeOf(onePost)?.status === "blocked"}
-                      title={scopeNote({ kind: "post", index: onePost }, p.plan.length)}
-                      onClick={async () => {
-                        const i = onePost;
-                        const again = !!taskOf(i)?.output;
-                        const scope = confirmScope({ target: { kind: "post", index: i, title: p.plan.find((x) => x.index === i)?.title }, effect: again ? "new-version" : "first-image", cost: estimate?.perImage ?? perPicture, untouched: p.plan.length > 1 ? `the month's other ${p.plan.length - 1} post${p.plan.length === 2 ? "" : "s"}` : undefined });
-                        const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Not now" });
-                        if (!ok) return;
-                        await p.onGenerateOne(i);
-                        p.onDone(i);
-                      }}
-                    >
-                      <BadgeCheck size={14} /> Make post {onePost} · about {formatUsd(estimate?.perImage ?? perPicture)}
-                    </button>
-                  </div>
-                </footer>
-              ) : (
                 <footer className="flow-confirm">
                   <div className="flow-confirm-text">
                     <b>
                       {preview && !readyPictures && !readyTiles && made > 0
                         ? `Every picture is made (${made}). Nothing to pay for here: edit a post or make another version from the Studio.`
-                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"} · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
+                        : `${readyPictures} picture${readyPictures === 1 ? "" : "s"}${isAdmin ? ` · ${p.modelName ?? estimate?.model ?? p.model} · ${estimate?.size ?? p.size}` : ""} · about ${formatUsd(estimate?.perImage ?? perPicture)} each`}
                     </b>
                     <span className="flow-muted">
                       {readyPictures ? `${readyPictures === counts.pictures ? `The whole month: ${counts.pictures} picture${counts.pictures === 1 ? "" : "s"}` : `${readyPictures} of the month's ${counts.pictures} picture${counts.pictures === 1 ? "" : "s"}`}${counts.existing ? `; the ${counts.existing} made already ${counts.older ? `stay, and the ${counts.older} made for an older idea get another version (the current ones stay under Versions)` : "are untouched"}` : ""}. ` : ""}
@@ -2442,16 +2347,19 @@ export default function Flow(p: FlowProps) {
                       {blockedList.length ? ` ${blockedList.length} post${blockedList.length === 1 ? "" : "s"} wait: making them later is a new approval, never this one.` : ""}
                       {preview && preview.spend.approved > 0 ? ` Approved so far this month: ${formatUsd(preview.spend.approved)}, ${formatUsd(preview.spend.reserved)} used.` : ""}
                     </span>
+                    {/* The automatic retake is a spending control: an admin's. A member's month keeps what is saved on it (on, unless an admin turned it off). */}
+                    {isAdmin && (
                     <label className="check-row">
                       <input type="checkbox" checked={retakes} onChange={(e) => setRetakes(e.target.checked)} />
                       <span>If the review finds a problem, retake the picture once by itself (up to {formatUsd(total)} more, approved now).</span>
                     </label>
+                    )}
                   </div>
                   <div className="flow-confirm-actions">
                     <button type="button" className="secondary btn-pill" onClick={() => p.onDone()} title="Every edit is saved already; no picture is made">
                       Save the plan, make nothing
                     </button>
-                    {ready.find((x) => x.paid) && (
+                    {isAdmin && ready.find((x) => x.paid) && (
                       <button type="button" className="secondary btn-pill" disabled={!p.engineReady} title={`One picture, post ${ready.find((x) => x.paid)!.index} only, to see the look before the rest; the other posts are untouched`} onClick={() => void p.onTest(ready.find((x) => x.paid)!.index)}>
                         Make one test picture · about {formatUsd(estimate?.perImage ?? perPicture)}
                       </button>
@@ -2478,10 +2386,9 @@ export default function Flow(p: FlowProps) {
                     </button>
                   </div>
                 </footer>
-              )}
               {!p.engineReady && (
                 <p className="flow-muted">
-                  <TriangleAlert size={13} /> No image engine is connected: the plan can be written and edited, but no picture can be made here.
+                  <TriangleAlert size={13} /> No image engine is connected: the plan can be written and edited, but no picture can be made here.{isAdmin ? "" : " Ask an admin to connect it."}
                 </p>
               )}
             </>
@@ -2524,11 +2431,7 @@ export default function Flow(p: FlowProps) {
           onClose={() => setPicking(null)}
           admin={p.user.role === "admin"}
           forClient={{ id: client.id, name: client.name }}
-          pick={
-            picking === "grid"
-              ? { mode: "feed", tab: "grid", client: client.id, onPick: (_ids, items) => { setPickedGrid(items[0] ?? null); setWay("grid"); setPicking(null); } }
-              : { mode: "post", label: styleTarget === "next" ? "The first post" : `Post ${styleTarget}`, onPick: (_ids, items) => { setStartStyle(items[0] ?? null); setPicking(null); } }
-          }
+          pick={{ mode: "feed", tab: "grid", client: client.id, onPick: (_ids, items) => { setPickedGrid(items[0] ?? null); setWay("grid"); setPicking(null); } }}
         />
       )}
     </div>

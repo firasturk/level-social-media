@@ -19,13 +19,12 @@ import {
   Check,
   Images,
   FileText,
-  Grid3x3,
   ImagePlus,
   Lightbulb,
   Trash2,
   Type,
   Wand2,
-  X, Plus } from "lucide-react";
+  Plus } from "lucide-react";
 import { Orb } from "@/components/Orb";
 import TextStudio, { type EditorResult } from "./text/TextStudio";
 import AnimateDialog from "./AnimateDialog";
@@ -96,10 +95,8 @@ export default function PlanView({
   showOverlay,
   onShowOverlay,
   themeRefs,
-  gridRef,
   revision,
   requested,
-  onGridIdeas,
   fileBase,
   onUploadProducts,
   onGenerateIdeas,
@@ -180,15 +177,12 @@ export default function PlanView({
   logoSrc: string | null;
   showOverlay: boolean;
   onShowOverlay: (on: boolean) => void;
-  /** The theme's reference photos, offered as "reference grids" to plan the month from. */
+  /** The theme's reference photos, offered to the Video editor as references. (Planning a month from a grid is Start's "Follow a grid".) */
   themeRefs: { id: string; name: string | null }[];
-  /** The reference the month follows in grid mode, when any. */
-  gridRef: string | null;
   /** The month's revision stamps (plannedAt, gridAt): a picture made for an earlier revision is due again. */
   revision: RevisionConfig | null;
   /** The post editor asks for one of this view's own screens (the Text studio, Animate, Video) on a post. */
   requested?: { kind: "text" | "animate" | "video" | "edit-video" | "video-studio"; index: number; at: number; videoId?: string } | null;
-  onGridIdeas: (refId: string, notes: string) => void;
   /** Base of exported file names (client slug + month). */
   fileBase: string;
   /** The theme (reference, colours, props, shots) was edited after the ideas were written. */
@@ -248,7 +242,6 @@ export default function PlanView({
   const fileInput = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState<Post[]>(plan);
   const [dragging, setDragging] = useState(false);
-  const [gridPicker, setGridPicker] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   useEffect(() => {
     if (!requested) return;
@@ -573,8 +566,8 @@ export default function PlanView({
     } catch {
       /* private mode */
     }
+    // The month says what happened once the server took it: one paid picture, the current one under Versions.
     void saveThen(() => onGeneratePosts([index], true));
-    toast("Regenerating", { description: `Post ${index}: the previous picture stays one click away on the card (Previous picture).`, duration: 6000 });
   }
   const [accepting, setAccepting] = useState<number | null>(null);
   // A picture whose shape is not the month's (a client's own wide photo) is shown whole on its card,
@@ -973,15 +966,6 @@ export default function PlanView({
             {plan.length ? "Regenerate ideas" : "Generate ideas"}
           </button>
           <button
-            className={`secondary ${gridRef ? "toggle on" : ""}`}
-            onClick={() => setGridPicker((v) => !v)}
-            disabled={!!busy || running}
-            title={busyReason(busy, running) || "Plan the month from one reference image that shows a whole feed grid"}
-          >
-            {busy === "grid" ? <Orb size={15} /> : <Grid3x3 size={15} />}
-            From reference grid
-          </button>
-          <button
             className="primary"
             onClick={() =>
               pending
@@ -1074,39 +1058,6 @@ export default function PlanView({
         </div>
       )}
 
-      {gridPicker && (
-        <div className="grid-picker">
-          <div className="grid-picker-head">
-            <strong>Pick the reference grid</strong>
-            <span>
-              A theme reference that shows a whole feed (for example a Pinterest pin of 9 posts). The month is planned tile by tile in that world, with this client's products and colours.
-            </span>
-            <button type="button" className="icon-button" aria-label="Close" onClick={() => setGridPicker(false)}>
-              <X size={14} />
-            </button>
-          </div>
-          {themeRefs.length ? (
-            <div className="grid-picker-refs">
-              {themeRefs.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  className={`grid-ref ${gridRef === r.id ? "active" : ""}`}
-                  onClick={() => {
-                    setGridPicker(false);
-                    onGridIdeas(r.id, notes);
-                  }}
-                  title={r.name ?? "reference"}
-                >
-                  <img src={`/api/studio/references/${r.id}/file`} alt={r.name ?? ""} loading="lazy" />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="prompt-tip">Add a reference to the theme first (Theme → Pinterest or Add photos).</div>
-          )}
-        </div>
-      )}
       {!plan.length ? (
         <div className="plan-empty">
           <img src="/guide/plan-empty.jpg" alt="" onError={(e) => (e.currentTarget.style.display = "none")} />
@@ -1207,10 +1158,8 @@ export default function PlanView({
                       label: `${stale ? "Make it again" : t?.status === "failed" || failedTake ? "Try again" : "Make the picture"}${perPicture ? ` · about ${formatUsd(perPicture)}` : ""}`,
                       title: `${stale ? "The idea, product or direction changed after this picture was made: another version is made for the new idea; this one stays under Versions." : t?.status === "failed" ? "Makes this post's picture again after the failure." : "Makes this post's first picture."} ${scopeNote(target, plan.length)}`,
                       disabled: cannotMake,
-                      onClick: async () => {
-                        const scope = confirmScope({ target, effect: stale ? "new-version" : "first-image", cost: perPicture || undefined, untouched: plan.length > 1 ? `the month's other ${plan.length - 1} post${plan.length === 2 ? "" : "s"}` : undefined });
-                        const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Not now" });
-                        if (!ok) return;
+                      // One post, not asked about first: the message that follows says one paid picture is being made and that the current one stays under Versions.
+                      onClick: () => {
                         if (stale) regenerate(t, p.index);
                         else void saveThen(() => onGeneratePosts([p.index], t?.status === "failed" || failedTake));
                       },
@@ -1251,11 +1200,8 @@ export default function PlanView({
                   ...(t?.output && !primary
                     ? [{
                         label: "Make another version",
-                        onClick: async () => {
-                          const scope = confirmScope({ target, effect: "new-version", cost: perPicture || undefined, untouched: plan.length > 1 ? `the month's other ${plan.length - 1} post${plan.length === 2 ? "" : "s"}` : undefined });
-                          const ok = await askConfirm(scope.message, { ok: scope.ok, danger: false, cancel: "Keep this picture" });
-                          if (ok) regenerate(t, p.index);
-                        },
+                        // Not asked about first: only this post changes and the current picture stays under Versions (the message says so).
+                        onClick: () => regenerate(t, p.index),
                         disabled: inFlight || running || (p.type === "offer" && !offerReady(p.offer)),
                         title: `A clearly different take on the same idea; this picture stays under Versions. ${scopeNote(target, plan.length)}`,
                       }]

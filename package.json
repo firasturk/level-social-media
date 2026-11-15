@@ -23,7 +23,7 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "check": "node scripts/stub-assets.mjs && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
-    "smoke": "node scripts/start-direct-smoke.mjs && node scripts/export-smoke.mjs && node scripts/feed-smoke.mjs",
+    "smoke": "node scripts/start-direct-smoke.mjs && node scripts/export-smoke.mjs && node scripts/feed-smoke.mjs && node scripts/member-smoke.mjs",
     "release:check": "tsc -b && eslint . && vitest run && node scripts/editor-dark.mjs && vite build && node scripts/embed-assets.mjs && npm run smoke",
     "release": "npm run release:check && wrangler deploy --config wrangler.deploy.json && wrangler deploy --config wrangler.preview.json"
   },

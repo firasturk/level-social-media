@@ -368,7 +368,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
           </div>
           {mcp && !mcp.signedIn ? (
             <p className="ts-hint warn">
-              <TriangleAlert size={12} /> Not signed in: Connection → Higgsfield → Sign in. Videos on the subscription credits run on that sign-in (or switch the billing to the Cloud API there).
+              <TriangleAlert size={12} /> Not signed in to Higgsfield: an admin signs in under Connection → Higgsfield. Videos on the subscription credits run on that sign-in (or the admin switches the billing to the Cloud API there).
             </p>
           ) : engines.length ? (
             <div className="vs-engines">
@@ -580,7 +580,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
               {making ? <Orb size={14} status={null} /> : <Clapperboard size={14} />} Make the video
             </button>
           ) : !cost ? (
-            <button type="button" className="ts-btn primary vs-cta" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "Sign in under Connection → Higgsfield first" : undefined}>
+            <button type="button" className="ts-btn primary vs-cta" onClick={() => void getCost()} disabled={!canAskCost} title={!admin ? "Admins only for now" : !mcp?.signedIn ? "An admin signs in under Connection → Higgsfield first" : undefined}>
               {costing ? <Orb size={14} status={null} /> : <Coins size={14} />} Get the cost
             </button>
           ) : cost.credits !== null ? (
@@ -636,7 +636,7 @@ export default function GeneratePanel({ s }: { s: StudioShared }) {
       {error && (
         <p className="ts-hint warn">
           <TriangleAlert size={12} /> {error}
-          {provider === "higgsfield" && !credits && /not connected/i.test(error) ? " Add the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu." : ""}
+          {provider === "higgsfield" && !credits && /not connected/i.test(error) ? " An admin adds the Higgsfield Cloud key (cloud.higgsfield.ai) in Connection, bottom of the menu." : ""}
         </p>
       )}
     </div>

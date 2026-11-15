@@ -254,16 +254,12 @@ export default function ReviewDialog({
   /** The language this post inherits (the month's, else the brand kit's) when it sets none of its own. */
   const inherited = languageWithSource(editor?.brandLanguage, editor?.monthLanguage);
   /**
-   * "Make another version" is a fresh picture from the saved idea (not an edit of this one): the
-   * scope, the source and the cost are said before anything is made.
+   * "Make another version" is a fresh picture from the saved idea (not an edit of this one). It is
+   * not asked about first: only this post changes and the current picture stays under Versions;
+   * the month's message says so once the picture is being made.
    */
-  const remake = async () => {
+  const remake = () => {
     if (!onRemake) return;
-    if (editor) {
-      const slide = editor.post.group ? ` (slide ${editor.post.group.slide} of ${editor.post.group.of})` : "";
-      const ok = await askConfirm(`Make another version of post ${editor.post.index}${slide}? A fresh picture is made from the saved idea and shot, not from the current picture. One paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Make another version${cost}`, danger: false, cancel: "Not now" });
-      if (!ok) return;
-    }
     leave(onRemake);
   };
   const qa = task?.qa ? (JSON.parse(task.qa) as QA) : null;
@@ -429,7 +425,7 @@ export default function ReviewDialog({
                   className="secondary"
                   disabled={busy || inFlight}
                   onClick={() => void remake()}
-                  title="A fresh picture of the saved idea (asked first, with the cost); the picture it replaces stays under Versions"
+                  title="A fresh picture of the saved idea: one paid picture, made at once; the picture it replaces stays under Versions"
                 >
                   Save and make another version{cost}
                 </button>
@@ -801,7 +797,7 @@ export default function ReviewDialog({
                       <RefreshCw size={15} /> Edit this picture
                     </button>
                     {onRemake && (
-                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="Make another version: a fresh picture of the same idea (asked first, with the cost); this one stays under Versions">
+                      <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="Make another version: a fresh picture of the same idea (one paid picture, made at once); this one stays under Versions">
                         Make another version{cost}
                       </button>
                     )}
@@ -928,7 +924,7 @@ export default function ReviewDialog({
                       <em>about {formatUsd(editor.perPicture)} · one picture</em>
                     </button>
                     {onRemake && (
-                      <button type="button" className="editor-choice" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture from the saved idea; you are asked first">
+                      <button type="button" className="editor-choice" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture from the saved idea: one paid picture, made at once; the current one stays under Versions">
                         <b>Make another version</b>
                         <span>A fresh picture of the same idea, from the idea and shot rather than this picture. The current one is kept under Versions.</span>
                         <em>about {formatUsd(editor.perPicture)} · one picture</em>
@@ -1005,9 +1001,8 @@ export default function ReviewDialog({
               onClick={async () => {
                 const text = edit.trim() || (editor?.post.reference ? "Use the attached reference for this picture." : "");
                 if (!text) return;
+                // Not asked about first: only this post changes and the current picture stays under Versions (the month's message says so).
                 if (editor) {
-                  const ok = await askConfirm(`Edit post ${editor.post.index}'s picture${editor.post.group ? ` (slide ${editor.post.group.slide} of ${editor.post.group.of})` : ""}: one paid picture${cost}. Only this post changes; the current picture stays under Versions.`, { ok: `Edit this picture${cost}`, danger: false, cancel: "Not now" });
-                  if (!ok) return;
                   // The instruction is also the note on the attached reference, so the engine does with it exactly what was asked.
                   if (editor.batchId && editor.post.reference && edit.trim()) {
                     const form = new FormData();
@@ -1029,7 +1024,7 @@ export default function ReviewDialog({
               {inFlight ? "Edit in progress…" : `Edit this picture${cost}`}
             </button>
             {onRemake && editor && (
-              <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture of the same idea, asked first with the cost; this one stays under Versions">
+              <button type="button" className="secondary" disabled={busy || inFlight} onClick={() => void remake()} title="A fresh picture of the same idea: one paid picture, made at once; this one stays under Versions">
                 Make another version{cost}
               </button>
             )}

@@ -228,8 +228,8 @@ export default function ReferencePanel({ ctx }: { ctx: PanelCtx }) {
             {pinterest === "connected"
               ? "The studio asks Pinterest's API for the pin's video and keeps a copy for 7 days. The pin must be on one of the connected account's boards (save it there first)."
               : "The studio asks Pinterest for the pin's video and keeps a copy for 7 days. Pinterest sometimes refuses; then save the video and use Upload, or pick it from the Drive."}
-            {pinterest === "not_connected" && <b> Connect Pinterest in Connection for reliable links.</b>}
-            {pinterest === "expired" && <b> The Pinterest connection has expired: renew it in Connection.</b>}
+            {pinterest === "not_connected" && <b> For reliable links an admin connects Pinterest (Connection → Pinterest).</b>}
+            {pinterest === "expired" && <b> The Pinterest connection has expired: an admin renews it (Connection → Pinterest).</b>}
           </p>
         )}
         {from === "drive" &&

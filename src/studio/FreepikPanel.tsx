@@ -14,7 +14,8 @@ import "./freepik.css";
  * Freepik assets: one search with filter chips (Icons, Photos, Backgrounds, Textures, Typography),
  * the results in their own scrolling area, and the chosen item's compact preview with its actions
  * in a footer that never scrolls away: Add as layer, Set as background, Use as reference and Save
- * to library. Every download is proposed with its estimate and confirmed first; a file already in
+ * to library. A download that takes credits is confirmed first with its estimate (one that is in
+ * the plan, no credits, is not asked about); a file already in
  * the library is reused (nothing is downloaded twice). Layer and background edits are free: no
  * picture is made. With no key the panel searches a labelled demo catalogue and nothing leaves the
  * server. Members see the actions with "Admins only for now". A Freepik asset never changes the
@@ -297,7 +298,11 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.admin]);
 
-  /** The item in the library with its file: proposed, confirmed with its estimate, downloaded once, reused afterwards. */
+  /**
+   * The item in the library with its file: proposed with its estimate, downloaded once, reused
+   * afterwards. A download that is in the plan (the server's estimate is exactly 0 credits) is
+   * not asked about; one that takes credits is confirmed first, as before.
+   */
   async function ensureStored(item: { id: string; title: string }, withPost: boolean): Promise<AssetItem> {
     const base = { id: item.id, client: clientId, batch: batchId ?? undefined, post: withPost ? postIndex : undefined };
     try {
@@ -306,10 +311,14 @@ export default function FreepikPanel({ clientId, batchId, post: fixedPost, slide
     } catch (e) {
       if (!(e instanceof ApiError) || !e.data.needsConfirm) throw e;
       const estimate = e.data.estimate as number | null;
-      const what = pricesAreHidden() ? "" : estimate === 0 ? "No credits: this download is in the plan." : `About ${estimate} credits from the Freepik balance.`;
-      const ok = await askConfirm(`Download "${item.title}" to the library? ${what} The file is kept and reused; nothing is downloaded twice.`, { ok: "Download", danger: false, cancel: "Not now" });
-      if (!ok) throw new Error("Not downloaded.");
+      if (estimate !== 0) {
+        const what = pricesAreHidden() ? "" : `About ${estimate} credits from the Freepik balance.`;
+        const ok = await askConfirm(`Download "${item.title}" to the library? ${what} The file is kept and reused; nothing is downloaded twice.`, { ok: "Download", danger: false, cancel: "Not now" });
+        if (!ok) throw new Error("Not downloaded.");
+      }
       const r = await post<{ asset: AssetItem; reused: boolean }>("/api/studio/freepik/download", { ...base, confirm: true });
+      // "Save to library" says so itself; the other actions say here that the file also went to the library.
+      if (estimate === 0 && withPost) toast.message(`"${item.title}" was downloaded to the library${pricesAreHidden() ? "" : " (in the plan, no credits)"}. It is kept there and reused, never downloaded twice.`);
       return r.asset;
     }
   }

@@ -124,7 +124,7 @@ export default function EditPanel({ ctx }: { ctx: StudioCtx }) {
       {ctx.remake && (
         <div className="ps-secondary">
           <span className="ts-group-title">Or start over</span>
-          <button type="button" className="ts-btn ps-cta" disabled={busy || inFlight} onClick={() => void ctx.remake!()} title="A fresh picture of the same idea, from the idea and shot rather than this picture; you are asked first">
+          <button type="button" className="ts-btn ps-cta" disabled={busy || inFlight} onClick={() => void ctx.remake!()} title="A fresh picture of the same idea, from the idea and shot rather than this picture: one paid picture, made at once">
             <Sparkles size={14} /> Make another version{cost}
           </button>
           <p className="ts-hint">A fresh picture of the saved idea, not an edit of this one. The current picture stays under Versions.</p>

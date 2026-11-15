@@ -4,7 +4,7 @@ export const HELP_GUIDE = `
 
 Level Studio is Level MENA's social-media post studio. For each client it plans a month of Instagram posts, makes the pictures with AI (or takes the client's own pictures and clips), puts the words and logo on them, makes videos, sends the month to the client for approval and exports it. The screens are in English; labels below are written exactly as they appear.
 
-Golden rules: nothing that costs money or credits runs without a confirmation saying what it touches and what it costs. Earlier pictures are never thrown away: they stay under Versions.
+Golden rules: making a whole month (or several posts at once), and anything paid in credits, runs only after a confirmation saying what it touches and what it costs. One picture for one post is made at once, and a message says that one paid picture is being made. Earlier pictures are never thrown away: they stay under Versions.
 
 ## 1. Words used in the studio
 
@@ -20,19 +20,21 @@ Golden rules: nothing that costs money or credits runs without a confirmation sa
 
 ## 2. The main screens
 
-Left menu (a rail of icons until opened with its top button "Open the menu"): "Approvals" (admins), "Studio", "Months", "Styles", "Video editor", "Admin" (admins), then "Clients" (click one to open it; "+" = "Add client"), and at the bottom the connection button ("Connected" / "Not connected" with the engine's name; opens "Image engine connection"), the light/dark switch and "Sign out".
+Left menu (a rail of icons until opened with its top button "Open the menu"): "Approvals" (admins), "Studio", "Months", "Styles", "Video editor", "Admin" (admins), then "Clients" (click one to open it; "+" = "Add client"), and at the bottom the connection status ("Connected" / "Not connected": for an admin a button with the engine's name that opens "Image engine connection"; for a member only the status to read, not a button), the light/dark switch and "Sign out".
 
 The four-stage workflow (the only way of working, for the whole team): "1 Start", "2 Direction", "3 Plan", "4 Studio". Start, Direction and Plan open full screen under the title "Create content"; their top bar has the menu button, the stages, the client and month pickers, the brand kit chip ("Brand kit ready" or "N things missing") and "Skip to the Studio". The Studio is the board of posts; its top rail repeats the stages (click one to go back to it) and has the brand kit chip.
 
 The older step-by-step "Classic journey" was retired on 15 Nov 2026: there is no "Classic journey", "Start new journey" or "Open the journey" button any more, and its month "Autopilot" went with it. A month is made in the four stages and the Studio. Two things moved to the Studio side panel (More → "Products, versions and brand kit"): the month's "Occasions" (tick the days the brand greets, "Add occasion", "Official portrait" for a royal day, "Add the greeting post") and the client's Instagram/website "Analysis" ("Client profile": "Analysis" the first time, then "Open profile").
 
-Months page: every month you can open, with progress; filter by client. A deleted month waits in the "Bin" for 30 days ("Restore", or "Delete for good"). Admins also see "Spend by person".
+Months page: every month you can open, with progress; filter by client. Deleting a month asks nothing: it goes to the "Bin" at once and the message offers "Undo"; it waits there for 30 days ("Restore", or "Delete for good", which asks first). Admins also see "Spend by person".
 
 ## 3. Admins and members
 
 - Members see only the months they created; admins see all months.
-- Members can: plan, write and edit ideas and words, make pictures with the image engine (confirmed first), "Edit this picture" with AI, Adjust, the Text studio, Versions, checks, presets and styles (browse and run), the Photo studio's "AI tools", the "Photo lab", Freepik stock, adding an AI tools result as posts or a carousel, making, enhancing and checking videos, the video editor (save, render, upload clips), "Combine into one video", Prompt box tool cards, the client's Drive photos, the client link, export, add clients.
+- Members can: plan, write and edit ideas and words, make pictures with the image engine (a whole month is confirmed first; one picture is made at once), "Edit this picture" with AI, Adjust, the Text studio, Versions, checks, presets and styles (browse and run), the Photo studio's "AI tools", the "Photo lab", Freepik stock, adding an AI tools result as posts or a carousel, making, enhancing and checking videos, the video editor (save, render, upload clips), "Combine into one video", Prompt box tool cards, the client's Drive photos, the client link, export, add clients.
 - Admins only: Connection (sign-ins, keys, the billing choice), the Admin and Approvals pages, Campaign Autopilot, archiving clients and renaming / re-ordering / changing the logo of clients.
+- Technical settings are for admins and a member does not see them at all: on Direction the colour source and "Edit colours", "Analyse the pins", the "When inputs meet on one post, this wins" strip and "Format and engine"; on the Plan "Read the scenes before paying", "Read again", "Write the shots", "What will guide this picture", the test grid, "Make one test picture" and the automatic-retake checkbox; in the brand kit the "Output" section (engine, post size, resolution, posts per month, exact product). A member's month keeps what is saved or the default. A member still sets the format and the number of posts in "Campaign size" on Start.
+- With no image engine connected, a member is told "The image engine is not connected. Ask an admin to connect it."; an admin gets the connection dialog.
 - A control that says "Admins only for now" or "Switched off" was closed by an admin (Admin → "Integrations"): ask an admin (Firas).
 - If an admin set "Who sees prices" to admins only, members see no amounts: "cost shown to admins" on pictures, and in the video and AI tools no credits, no balance and no "Get the cost" step (the button reads "Make the video" / "Run …"). The confirmations still appear and every run is recorded for the admins.
 
@@ -54,7 +56,7 @@ The first two go through Direction and Plan; the direct ones go straight to the 
 5. "What was understood" lets you edit each post's title and scene. Then "Continue to Direction".
 
 ### Follow a grid
-"Pick a grid" from the library. The preview shows its real post count and what each tile is ("Change grid" to pick another). If the counts differ choose "Use the grid's N posts" or "Adapt to my N posts". "Continue to Direction" asks "Follow this grid": the month is planned tile by tile (existing posts are planned again; the old plan stays under Versions; pictures stay until remade). Product photos are matched to tiles from the client's Drive.
+"Pick a grid" from the library. The preview shows its real post count and what each tile is ("Change grid" to pick another). If the counts differ choose "Use the grid's N posts" or "Adapt to my N posts". "Continue to Direction" plans the month from the grid at once, tile by tile, without asking (existing posts are planned again; the old plan stays under Versions; pictures stay until remade), and a message says so. Product photos are matched to tiles from the client's Drive.
 
 ### Edit images / Create or edit video
 1. "Choose from Drive" or "Upload files" (both can be combined). The dialog has the "Client's Drive" tab (approved folders, by role, searchable) and this computer; picks go into one numbered tray (x removes).
@@ -63,18 +65,18 @@ The first two go through Direction and Plan; the direct ones go straight to the 
 
 ### Also on Start
 - "Product photos" with "upload".
-- "Campaign size" ("Edit size" / "Change the size"): "Posts", "Carousels", "Slides per carousel" (2 to 10), "Separators", "Designs per separator", "Format" (Square post 1:1, Portrait post 4:5, Story / Reel cover 9:16), "Save size". On a month with posts, a higher count offers "Save and add N posts". The size is sent to the planner when you "Plan it" for the whole month.
-- "Shortcuts": "Continue from <previous month>" (same theme, colours, props, models and products), "Open <month> in the Studio", "Fresh grid in <month>" (a new separate grid; also More → "New grid in this month").
+- "Campaign size" ("Edit size" / "Change the size"): "Posts", "Carousels", "Slides per carousel" (2 to 10), "Separators", "Designs per separator", "Format" (Square post 1:1, Portrait post 4:5, Story / Reel cover 9:16), "Save size". On a month with posts, a higher count offers "Save and add N posts" (the new ideas are written at once; no picture is made). The size is sent to the planner when you "Plan it" for the whole month.
+- "Shortcuts": "Continue from <previous month>" (same theme, colours, props, models and products), "Open <month> in the Studio". (A new separate grid in the same month is in the Studio: More → "New grid in this month".)
 
 ## 5. Direction
 
 "What will shape the pictures". Nothing here spends the picture budget.
 - "Leads this month" with "Start another way" / "Edit the brief" / "Change the grid".
-- "Supporting inputs": pictures pinned to posts ("Pin on the plan" / "Manage"; "Add from Freepik"), "Theme references" ("Add" / "Manage"; "Analyse the pins" reads them into shots and a palette, a text and vision call), "Grid" ("Add a grid" / "Change"), "Product images" (section 6), "Models" ("Choose models" / "Change models" / "Add a model": tick "In this month" on up to 3, "Done").
-- "When inputs meet on one post, this wins": 1 Product photo › 2 Picture pinned to the post › 3 Applied style › 4 Grid tile › 5 Theme reference. Brand rules and the month's colours apply on top.
+- "Supporting inputs": pictures pinned to posts ("Pin on the plan" / "Manage"; "Add from Freepik"), "Theme references" ("Add" / "Manage"; for admins "Analyse the pins" reads them into shots and a palette, a text and vision call), "Grid" ("Add a grid" / "Change"), "Product images" (section 6), "Models" ("Choose models" / "Change models" / "Add a model": tick "In this month" on up to 3, "Done").
+- "When inputs meet on one post, this wins" (shown to admins): 1 Product photo › 2 Picture pinned to the post › 3 Applied style › 4 Grid tile › 5 Theme reference. Brand rules and the month's colours apply on top.
 - "Rules that apply this month" with "Open the brand memory".
-- "Colours": "Client's brand colours", "The followed grid's colours", "Both" or "Set by you"; "Edit colours" → "Save colours" / "Keep as they are". The first colour is every post's background; a month's colours never change the theme.
-- "Format and engine": size, engine, about how much per picture, occasions.
+- "Colours": a member sees the month's colours as swatches (read only) with where they come from. An admin chooses the source ("Client's brand colours", "The followed grid's colours", "Both" or "Set by you") and has "Edit colours" → "Save colours" / "Keep as they are". The first colour is every post's background; a month's colours never change the theme.
+- "Format and engine" (admins only): size, engine, about how much per picture, occasions.
 - "Write the plan" (first time) or "Open the plan".
 
 ## 6. Product photos and the client's Drive
@@ -86,25 +88,24 @@ The first two go through Direction and Plan; the direct ones go straight to the 
 
 ## 7. The Plan ("The plan, before anything is made")
 
-Summary cells: Objective, Product images, Visual direction, Models ("Change"), Reference pictures, Output, and "Needs your attention · N" (blocked posts and why, "Write the shots" for posts without a shot).
+Summary cells: Objective, Product images, Visual direction, Models ("Change"), Reference pictures, Output, and "Needs your attention · N" (blocked posts and why; for admins "Write the shots" for posts without a shot. A member has no such button: a post without a written scene is made from its idea alone, and the shots are written by themselves on the way into the Plan, after "Write the ideas again" and after "Add posts").
 
 Tools:
 - "Talk to the planner" (below).
-- "Read the scenes before paying": the art director reads each ready post before you pay (text/vision calls, no picture). Notes appear under "Read before paying" in the post's details; "Keep my reference attached anyway" when a reference would be dropped.
-- "Write the ideas again": rewrites every idea (asks first). Old posts and pictures stay under Versions; made pictures become "older idea" and are not remade until you ask.
+- "Read the scenes before paying" (admins only): the art director reads each ready post before you pay (text/vision calls, no picture). Notes appear under "Read before paying" in the post's details; "Keep my reference attached anyway" when a reference would be dropped. For a member the scene is read by itself when the picture is made.
+- "Write the ideas again": rewrites every idea at once, without asking. Old posts and pictures stay under Versions (the message says so); made pictures become "older idea" and are not remade until you ask.
 - "Add posts": "How many posts to add?" (1 to 12); new ideas are written, the rest untouched.
-- "Read again": refreshes the states and estimate.
+- "Read again" (admins only): refreshes the states and estimate. If the plan could not be read, a member sees "Try again".
 
-Post rows: number, picture, title and "Shot · …"/"Idea · …", product, a state ("Ready to make", "Drawn here", "Making", "Made", "Older idea", "Blocked"), the kind ("Picture", "Carousel · slide 2 of 4", "Text tile · drawn here, free"), the posting date (changing it moves the post), model chips ("+ model"), and "Details" (edit Idea, Shot, headline and caption; conflicts with "Allow on this post" / "Take the style off" / "Withdraw"; "What will guide this picture").
+Post rows: number, picture, title and "Shot · …"/"Idea · …", product, a state ("Ready to make", "Drawn here", "Making", "Made", "Older idea", "Blocked"), the kind ("Picture", "Carousel · slide 2 of 4", "Text tile · drawn here, free"), the posting date (changing it moves the post), model chips ("+ model"), and "Details" (edit Idea, Shot, headline and caption; conflicts with "Allow on this post" (acts at once, this post only; "Withdraw" takes it back) / "Take the style off" / "Withdraw"; for admins "What will guide this picture").
 
-"Test grid": "Make the test grid" paints the whole feed as one picture before you pay for the posts (one paid picture); "Make it again" repaints it.
+"Test grid" (admins only): "Make the test grid" paints the whole feed as one picture before you pay for the posts (one paid picture); "Make it again" repaints it.
 
 Making the pictures (the paid step), in the footer:
 - "Save the plan, make nothing" (all edits are already saved).
-- "Make one test picture · about $X" (one post only).
+- "Make one test picture · about $X" (admins only; one post only).
 - "Make all N pictures · about $X" / "Make N pictures · about $X": confirm with "Make N · about $X". Blocked posts are left out; made pictures stay; older-idea posts get a new version.
-- Checkbox "If the review finds a problem, retake the picture once by itself" (raises the maximum; untick for no automatic retakes).
-- Above the admin's spending limit a second approval appears: "Approve and generate · up to $X".
+- Checkbox "If the review finds a problem, retake the picture once by itself" (admins only; raises the maximum; untick for no automatic retakes). A member's month keeps what is saved: on, unless an admin turned it off.
 - Older pictures: "Make it again · about $X" / "Make those N again · about $X".
 - In the Studio, "Make N remaining · about $X" (or "Open the plan") opens this Plan.
 - When pictures arrive the studio chimes; each picture is reviewed automatically.
@@ -120,9 +121,9 @@ On the Plan "Talk to the planner"; on the Studio board the "Prompt" button ("Pro
 
 Header: tabs "Posts", "Feed", "Words", "Client approval", "Versions"; the counts ("12 posts · 16 designs · 6 made · 2 need a look · 9 remaining"); "Client answered · N new"; buttons "Do client comments (N)" (when the client asked changes), "Export", "Client link", "Make N remaining · about $X" / "Open the plan", "Prompt", "⋯" (More).
 
-More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Delete this month" (goes to the Bin).
+More (⋯): "Month tools (upload, ideas, grid, overlay, typography, PDF)", "Send the client link on WhatsApp", "Feed PDF", "Upload product photos", "Products, versions and brand kit" (the side panel), "New grid in this month", "Delete this month" (goes to the Bin at once, without asking; the message offers "Undo").
 
-Month tools bar: "Month", "Grid" (several grids), "New grid", "Posts", "Upload products", "Generate ideas"/"Regenerate ideas", "From reference grid", "Generate N posts"/"Regenerate all" (these make pictures: paid), "Overlay" (show/hide words on cards), "Export", typography ("AI picks for each post", "Behind the product", "Crossing the product", "Repeated", "Big outline"…: a paid AI reading), "Feed PDF".
+Month tools bar: "Month", "Grid" (several grids), "New grid", "Posts", "Upload products", "Generate ideas"/"Regenerate ideas", "Generate N posts"/"Regenerate all" (these make pictures: paid), "Overlay" (show/hide words on cards), "Export", typography ("AI picks for each post", "Behind the product", "Crossing the product", "Repeated", "Big outline"…: a paid AI reading), "Feed PDF".
 
 Tabs:
 - "Feed": the month as the Instagram grid will look, three posts across (the newest first, or tile by tile when the month follows a grid; a carousel is one tile). Each tile is the picture with its words and logo; a post with no picture yet is an empty tile with its number and title; a small ✓ or ! is the client's answer. Click a tile to open that post. "Feed PDF" (also under More) saves the month as one PDF. Nothing is edited on this tab: the posting day, the words and the picture are changed on the post.
@@ -138,8 +139,8 @@ States: "Idea" (no picture), "Queued", "Generating…", "Paused", "Made", "Ready
 - "Wider than 4:5 · Crop": crop it free in the Photo studio's Adjust.
 - A clip on the card shows "the client sees this" or "not the client's version".
 Under the picture: title, the client's answer ("Client approved · <name>" / "Client asks a change · <name>"), product, "Style: <name>".
-Buttons: "Make the picture · about $X" (no picture yet; asks first, only this post), "Edit picture" (Photo studio) or "Edit the idea" (no picture), "Words & caption" (post editor, free), "Restyle · about $X" (client's own picture with a saved style), and "⋯":
-- planned post: "Make another version" (paid), "Write a new idea" (a new idea, then the picture is made again at once: paid), "Pick a style" / "Change the style" / "Take the style off", "Enhance (higher quality)" (paid AI edit), "Open the Text studio", "Animate the text", "Video from this picture", "Previous picture", "Reference picture and versions", "Remove this post".
+Buttons: "Make the picture · about $X" (no picture yet; made at once without asking, only this post; the same for "Make it again" and "Try again"), "Edit picture" (Photo studio) or "Edit the idea" (no picture), "Words & caption" (post editor, free), "Restyle · about $X" (client's own picture with a saved style), and "⋯":
+- planned post: "Make another version" (one paid picture, made at once; the current picture stays under Versions), "Write a new idea" (a new idea, then the picture is made again at once: paid), "Pick a style" / "Change the style" / "Take the style off", "Enhance (higher quality)" (paid AI edit), "Open the Text studio", "Animate the text", "Video from this picture", "Previous picture", "Reference picture and versions", "Remove this post".
 - client's own picture: "Pick a style" / "Take the style off", "Open the Text studio", "Video from this picture", "Previous picture", "Versions", "Remove this post".
 "Remove this post" acts at once (its picture is kept with the month's earlier versions). A carousel is one card that slides (arrows, dots, "+" after the dots; chip "Carousel 2/3"): every slide is a post of its own and the card's buttons act on the slide shown. "+" or "Add a slide" (menu) adds a copy of slide 1, picture and words, as the next slide (ten at most, nothing paid); "Make it a carousel" on a single post makes it slide 1 and adds slide 2 as its copy; "Remove this slide" removes one. On the client's link a carousel is one post that swipes: "Approve the carousel" approves every slide, a change is asked on the slide on screen. "Unsaved edits kept: …" on a card offers "Open to finish" or "Discard". Clicking the picture opens the post editor ("Idea", "Image", "Words & design", "Versions").
 
@@ -160,7 +161,7 @@ Open it from a card's "Edit picture" or aperture icon, "Open the Photo studio" i
 Top bar: post and title, state, "Adjustments not applied", the client-hold note, undo/redo, "Versions · N", "Text studio", "Video studio", "Save & return", x (asks "Save & return" or "Keep for later"). Keys: [ ] previous/next post, Z fit/100%, hold C for the product photo, Esc.
 Rail: "Presets", "AI tools", "Edit", "Adjust", "Photo lab", "Assets", "Versions", "Check" (a lock marks a tool an admin switched off; on a phone Presets and AI tools share "AI").
 
-- "Edit" (Edit with AI): views "Compare", "AI result", "Original"; instruction box with "Dictate the change"; "Mark an area" (guides the instruction, not a mask); "Quick instructions" ("Background", "Lighting", "Composition", "Remove an object", "Product correction", "Blend with scene", "More brand colour", "Cleaner background", "Leave headline space", "Match product", "Remove text", "Brighter", "Closer"); "Attach a reference for this edit" ("Change" / "Take off"); "Edit this picture · about $X" (one paid picture, confirmed; old picture under Versions); "Or start over": "Make another version · about $X". Open to anyone on the month.
+- "Edit" (Edit with AI): views "Compare", "AI result", "Original"; instruction box with "Dictate the change"; "Mark an area" (guides the instruction, not a mask); "Quick instructions" ("Background", "Lighting", "Composition", "Remove an object", "Product correction", "Blend with scene", "More brand colour", "Cleaner background", "Leave headline space", "Match product", "Remove text", "Brighter", "Closer"); "Attach a reference for this edit" ("Change" / "Take off"); "Edit this picture · about $X" (one paid picture, made at once without asking; old picture under Versions); "Or start over": "Make another version · about $X" (the same). Open to anyone on the month.
 - "Adjust" ("Free · drawn here"): "Crop" (Free, 1:1, 4:5, 9:16), turn, flip, "Straighten", "Exposure", "Contrast", "Saturation", "Temperature", "Tint", "Highlights", "Shadows", "Sharpen", "Vignette"; "Hold for before", "Reset"; "Apply as the post's picture" (free).
 - "Presets": gallery with sample pictures: "Styles", "Product shots", "Magnific looks", "Recipes"; "Search presets". Browsing is free for everyone. A card shows "Needs:", "Cost:", "Ready?", "Learn more". "Use this style" / "Use this look" / "Use these words" fill AI tools. Product shots: "Use this preset", then under "Run it here" check "The product (sent first, so the engine keeps it)" (pre-filled; correct it), fills any fields, "Run this preset · N credits" (or "· cost not known") and confirms. The product picture sent is the post's clean product photo (its name is shown, "Product picture: …"), so the preset's own scene, people and background are used; tick the box to send the post's whole picture instead (its scene may come along). The words box takes only what to change (e.g. "a man instead of a woman"). The post needs a picture first. The result appears in AI tools, where "Add as a new post" and "Add as a carousel" keep the original post as it is.
 - "AI tools" (credits): tabs "Higgsfield" ("Upscale", "Remove background", "Outpaint", "Relight", "Generate with a style") and "Magnific" ("Upscale", "Relight", "Remove background", "Replace background", "Retouch", "Skin enhancer", "Expand", "Restyle", "Reimagine", "Change camera", "Variations" = nine variations). Steps: pick a tool, fill options ("Needed first: …"), "Get the cost" ("About N credits · balance M" or "Cost not known"; nothing is made), "Run <tool> · N credits", confirm ("Run · N credits"; Higgsfield unknown cost: "Run it anyway, cost unknown"; Magnific unknown cost is blocked). A tool marked "not listed" is refused before anything is sent. The result shows before/after on the canvas; then "Use as the post's picture", "Save as a product photo", "Download", "Add as a new post" / "Add each picture as a new post", "Add as a carousel" (after adding: "Added as post N"). Variations has no "Use as the post's picture". A failed run: "Check again" (free status read; collects the picture if the provider finished). "Earlier results (N)" lists past runs.
@@ -227,7 +228,7 @@ Open with the card's clapperboard, the card menu "Video from this picture", or "
   - "Theme": "Theme of the month" ("No theme (brand identity only)"), "New theme", "Delete", "Photos and pins" ("Add photos"), "Visual language", "Colours this month", props, wardrobe, "Shots from the references".
   - "Overlay": how headline, second line and logo are drawn (layout, fonts, logo, corner, spacing).
   - "Brand memory": rules, this month's instructions, lessons waiting for approval.
-  - "Output": "Image engine", "Post size", "Resolution", "Posts per month", "Exact product: place the real photo, never redraw it".
+  - "Output" (admins only; a member does not see this section): "Image engine", "Post size", "Resolution", "Posts per month", "Exact product: place the real photo, never redraw it".
 
 ## 15. Styles library
 
@@ -246,12 +247,12 @@ Left menu "Styles": tabs like "All", "Trends", "Grids" and categories. "Add" (Pi
 
 ## 18. Costs and safety
 
-- Dollars (image engine, "about $X", always confirmed): making, remaking, "Make another version", "Write a new idea", "Edit this picture", "Enhance (higher quality)", "Restyle", "Try again", the test grid, ambassador portraits, the typography reading.
+- Dollars (image engine, "about $X"): making, remaking, "Make another version", "Write a new idea", "Edit this picture", "Enhance (higher quality)", "Restyle", "Try again", the test grid, ambassador portraits, the typography reading. Making the whole month or several posts at once, and "Restyle", are confirmed first. One picture for one post ("Make the picture", "Make it again", "Try again", "Make another version", "Edit this picture") is made at once: the message says one paid picture is being made and that the current one stays under Versions.
 - Text/vision calls (ideas, drafts, shots, captions, readings, reviews, checks, the planner, the "Ask AI" assistant): small per-call charges by the text provider, outside the picture budget.
 - Credits (Higgsfield/Magnific): AI tools, preset runs, video generate/enhance/check. The provider is asked the cost first.
 - Freepik Photo lab: dollars, shown before the run.
 - Free: Adjust, Text studio, layouts, typed words, Versions and restoring, export, Feed PDF, client link, the video editor, combining cards, animating text, adding AI results as posts or a carousel, browsing presets and styles.
-- Spending limit: Admin → "Ask before spending more than ($)"; above it a second approval ("Approve and generate · up to $X").
+- There is no spending limit and no second approval any more (since 5 Nov 2026): a run starts once it is confirmed, whatever Admin → "Ask before spending more than ($)" holds.
 - Untick the Plan's automatic retake to avoid its extra cost. A double click never sends a run twice; a failed paid run is not retried by itself.
 - Preview site: the strip "Preview: image and video generation is blocked at the server." and "Sample data (fictional)": no pictures or videos can be made there.
 
